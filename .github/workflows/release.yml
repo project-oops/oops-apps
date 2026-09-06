@@ -1,0 +1,168 @@
+name: release
+
+# Publish every app's shippable artifacts to a single rolling `latest-main` prerelease.
+#
+# The shape is a matrix over the apps, and the app list is discovered rather than written
+# down: the `discover` job asks `bin/oops-apps list` (a directory with a Makefile is an app),
+# so a new app is built and published the day it exists, with nothing to add to this file.
+#
+# **CI never learns a format.** Each app's Makefile carries a `dist` target that stages what it
+# ships - a plain `.elf` payload, a `.zip` title directory, a `.pkg`, whatever the app is -
+# under its own `dist/`. This workflow runs `make dist` and uploads whatever lands there. An
+# app with no `dist` target ships nothing this run, which is said out loud, not failed: a demo
+# without a release is a normal state. See the release contract in `bin/oops-apps`.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The app list, as JSON, for the build matrix. `bin/oops-apps list` is the one source of
+  # truth for what an app is, here and for a person at a terminal.
+  #
+  # It takes the same three-step preamble as everything else even though listing directories
+  # needs no siblings - one shape, so that reading any job in the collection teaches you all of
+  # them, the way obSCEne's provenance job takes the preamble to compile nothing.
+  discover:
+    name: which apps
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.list.outputs.apps }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/OOPS
+          path: OOPS
+      - uses: actions/checkout@v4
+        with:
+          path: OOPS/oops-apps
+      - name: Siblings this build needs
+        run: OOPS/bin/oops bootstrap oops-apps
+        env:
+          # Empty unless the org secret exists, and empty is the old behaviour.
+          OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
+      - id: list
+        run: |
+          apps=$(./bin/oops-apps list | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
+          echo "discovered: $apps"
+        working-directory: OOPS/oops-apps
+
+  # One cell per app, in parallel. `fail-fast: false` so one app's build failing does not pull
+  # the finished ones down with it - each app is its own deliverable.
+  build:
+    name: "stage: ${{ matrix.app }}"
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.discover.outputs.apps) }}
+    steps:
+      # The standard OOPS preamble: check out the collection, check this repository out into
+      # it, ask bootstrap for the siblings the apps build against (oops-sdk, and selfish for
+      # any app that packages). Never set a job-level working-directory.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/OOPS
+          path: OOPS
+      - uses: actions/checkout@v4
+        with:
+          path: OOPS/oops-apps
+
+      - name: Install clang, lld and zip
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang lld zip
+
+      - name: Siblings this build needs
+        run: OOPS/bin/oops bootstrap oops-apps
+        env:
+          # Empty unless the org secret exists, and empty is the old behaviour.
+          OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
+
+      # `make dist` for this one app, through the same entry point a person uses. If the app
+      # has no `dist` target it stages nothing and the upload below finds no files - honest,
+      # and not a failure.
+      - name: Stage ${{ matrix.app }}
+        run: ./bin/oops-apps dist ${{ matrix.app }}
+        working-directory: OOPS/oops-apps
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ matrix.app }}
+          path: OOPS/oops-apps/${{ matrix.app }}/dist/
+          if-no-files-found: ignore
+
+  # Collect every app's staged files and replace the rolling `latest-main` prerelease. Runs
+  # only on a push to main; a pull request builds the apps but publishes nothing.
+  release:
+    name: publish latest-main
+    needs: [discover, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: staged
+          pattern: app-*
+
+      - name: Lay the apps out for download
+        id: collect
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          shopt -s nullglob
+          # Each artifact is `app-<name>/` holding that app's dist files. Flatten to
+          # `<name>-<file>` so one app's payload is told from another's on the releases page,
+          # and two apps shipping a file of the same name do not collide into one.
+          for d in staged/app-*/; do
+            app=$(basename "$d"); app=${app#app-}
+            for f in "$d"*; do
+              [ -f "$f" ] || continue
+              cp "$f" "dist/${app}-$(basename "$f")"
+            done
+          done
+          if [ -n "$(ls -A dist 2>/dev/null)" ]; then
+            ls -l dist
+            echo "any=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no app staged a dist this run - nothing to publish"
+            echo "any=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Only when something is actually there. An empty release is worse than none - it looks
+      # like a build that shipped and left the page blank.
+      - name: Replace the previous latest-main
+        if: steps.collect.outputs.any == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete latest-main --yes --cleanup-tag --repo "${{ github.repository }}" || true
+
+      - uses: softprops/action-gh-release@v2
+        if: steps.collect.outputs.any == 'true'
+        with:
+          tag_name: latest-main
+          name: "Latest main build"
+          prerelease: true
+          make_latest: "false"
+          draft: false
+          target_commitish: ${{ github.sha }}
+          files: dist/*
+          body: |
+            Auto-built from `main` at `${{ github.sha }}`.
+
+            Every app here is built on [oops-sdk](https://github.com/project-oops/oops-sdk) and
+            ships whatever its own Makefile's `dist` target produces - a plain `.elf` payload
+            for a homebrew loader, a `.zip` title directory, a package. The filename is
+            prefixed with the app it came from.
+
+            **These are ordinary homebrew.** They need no vendor toolchain to build and carry
+            nothing from one. An app is present here only once its Makefile declares what it
+            ships; an app still in development is built and checked but publishes nothing.

@@ -1,0 +1,29 @@
+# Build output. Each app builds into its own build/; nothing under one is tracked.
+build/
+*.o
+*.a
+*.elf
+*.prx
+
+# Release staging. Each app's `dist` target writes the artifacts CI publishes into its own
+# dist/; it is output, never tracked.
+dist/
+
+# No `__pycache__/` or `*.pyc` rule, deliberately. There is no Python in this repository and
+# there is not meant to be - the build is make and the scripts are shell. An ignore rule for
+# bytecode is a quiet accommodation for a language that is not allowed here: it would hide the
+# first stray file rather than let `git status` show it.
+
+# Claude Code's per-person overrides. A `settings.json` beside it would be shared; the
+# `.local` one is whoever is sitting here.
+.claude/settings.local.json
+
+# Whatever the person editing this happens to run.
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

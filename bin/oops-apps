@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# oops-apps - the dev CLI for the apps built on oops-sdk.
+#
+# The same verbs every OOPS repository carries, reaching each app through its own Makefile:
+#
+#   ./bin/oops-apps list              # the apps here
+#   ./bin/oops-apps build [app...]    # build each (default: all)
+#   ./bin/oops-apps check [app...]    # each app's own gate (default: all)
+#   ./bin/oops-apps dist [app...]     # stage each app's shippable artifacts under <app>/dist/
+#   ./bin/oops-apps clean [app...]    # remove build output
+#
+# An app is a directory with a Makefile. There is no registry to keep in step: the directory
+# listing is the list, so an app that exists is an app this builds, and one that does not
+# cannot be forgotten out of a table.
+#
+# # The release contract
+#
+# `dist` is how an app says what it ships and in what shape. Each app's Makefile provides a
+# `dist` target that puts its release artifacts under `dist/` - a plain `.elf` payload, a
+# `.zip` title directory, a `.pkg`, whatever the app is. This script and CI never learn a
+# format: they run `make dist` and take whatever `dist/` holds. An app with no `dist` target
+# ships nothing yet, and that is said out loud rather than failed - a demo without a release
+# is a normal state, a silent empty release is not.
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+HERE="$PWD"
+
+# Every directory that carries a Makefile, one per line.
+apps() {
+    for d in */; do
+        [ -f "$HERE/${d}Makefile" ] && printf '%s\n' "${d%/}"
+    done
+}
+
+# The apps to act on: the ones named, or all of them. A named directory without a Makefile is
+# a mistake worth stopping on rather than skipping past.
+resolve() {
+    if [ "$#" -eq 0 ]; then
+        apps
+        return
+    fi
+    for name in "$@"; do
+        if [ -f "$HERE/$name/Makefile" ]; then
+            printf '%s\n' "$name"
+        else
+            echo "oops-apps: no app '$name' (a directory with a Makefile)" >&2
+            exit 2
+        fi
+    done
+}
+
+over() {
+    local target="$1"
+    shift
+    local any=0
+    for app in $(resolve "$@"); do
+        any=1
+        printf '=== %s: %s ===\n' "$app" "$target"
+        make -C "$HERE/$app" "$target"
+    done
+    if [ "$any" -eq 0 ]; then
+        echo "oops-apps: no apps here yet" >&2
+        exit 1
+    fi
+}
+
+# Stage each app's shippables, and say which apps have nothing to ship yet rather than
+# failing on them - see the release contract in the header. An app declares it ships by
+# carrying a `dist` target; `make -n` asks whether it does without building anything.
+distribute() {
+    local any=0 shipped=0
+    for app in $(resolve "$@"); do
+        any=1
+        if make -C "$HERE/$app" -n dist >/dev/null 2>&1; then
+            printf '=== %s: dist ===\n' "$app"
+            make -C "$HERE/$app" dist
+            shipped=$((shipped + 1))
+        else
+            printf '=== %s: no dist target, nothing to ship yet ===\n' "$app"
+        fi
+    done
+    if [ "$any" -eq 0 ]; then
+        echo "oops-apps: no apps here yet" >&2
+        exit 1
+    fi
+    printf 'dist: %s app(s) staged something to ship\n' "$shipped"
+}
+
+usage() {
+    sed -n '2,12p' "$0" | sed 's|^# \{0,1\}||'
+    exit "${1:-0}"
+}
+
+cmd="${1:-list}"
+shift || true
+case "$cmd" in
+    list) apps ;;
+    build) over all "$@" ;;
+    check) over check "$@" ;;
+    dist) distribute "$@" ;;
+    clean) over clean "$@" ;;
+    -h | --help | help) usage ;;
+    *)
+        echo "unknown verb: $cmd" >&2
+        usage 1
+        ;;
+esac

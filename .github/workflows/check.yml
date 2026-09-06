@@ -1,0 +1,53 @@
+name: check
+
+# Every job begins the same three steps: check out the collection, check this repository
+# out *into* it, and ask `oops bootstrap` for the siblings this project needs. See the
+# collection's docs/BUILDING.md.
+#
+# oops-apps needs oops-sdk - the apps are built on it - so bootstrap fetches it. The apps
+# cross-compile for the target, exactly like obSCEne, which is why this installs clang and lld
+# and never sets a job-level working-directory (a past bug: `defaults.run.working-directory`
+# made `OOPS/bin/oops` resolve inside the project and vanish).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: every app builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/OOPS
+          path: OOPS
+      - uses: actions/checkout@v4
+        with:
+          path: OOPS/oops-apps
+
+      - name: Install clang and lld
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang lld
+
+      - name: Siblings this build needs
+        run: OOPS/bin/oops bootstrap oops-apps
+        env:
+          # Empty unless the org secret exists, and empty is the old behaviour.
+          OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
+
+      # `build` builds every app; `check` runs each app's own gate (the host self-tests). Both
+      # go through `bin/oops-apps`, which is the same command reached the same way a person
+      # reaches it. An app is a directory with a Makefile, so a new app is built here the day
+      # it exists, with nothing to add to a list.
+      - name: Build every app
+        run: ./bin/oops-apps build
+        working-directory: OOPS/oops-apps
+      - name: Each app's own gate
+        run: ./bin/oops-apps check
+        working-directory: OOPS/oops-apps
