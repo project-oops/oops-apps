@@ -29,15 +29,18 @@ Porthole operates across two dedicated TCP sockets with fixed roles and no hands
            +-------------------------------------------------------------+
 ```
 
+The serving loop waits on neither socket. The listeners are non-blocking and the input receive takes only what has already arrived, so video is served with no input client connected, and keeps flowing while a pad is at rest and the host is quiet.
+
 ### 1. Video Stream (Port 9805 - Video Out)
 * **Format**: Raw Annex-B H.264 stream, start-code delimited (`00 00 00 01`), continuous Access Units (AUs).
 * **Zero Container Overhead**: No MP4, MKV, RTP, or custom container wrapping. Porthole emits raw NAL units directly onto the wire.
-* **Host Consumption**: `pros-core::watch` reads chunks from port 9805, meters bitrate and frame rate, and pipes stdout directly into `mpv --demuxer=lavf --demuxer-lavf-format=h264 -`.
+* **Host Consumption**: `pros-core::watch` reads from port 9805, counts bytes, units and keyframes and measures the rate as they pass, and writes every byte unchanged into the standard input of the player named in `player.txt` - by default `mpv --demuxer=h264 --profile=low-latency --untimed --no-cache -`, the same line Prosperous writes as its example.
 
 ### 2. Controller Input (Port 9806 - Input In)
 * **Format**: Fixed 24-byte `PPAD` binary record, absolute state, sequence-numbered.
 * **Timing**: Streamed at 60 Hz to 250 Hz with zero parsing overhead.
 * **Pad Layout**: Direct Ghostpad button-bit mapping and stick ranges, confirmed against real hardware. A trigger actuation sets both its digital bit and its analog pressure byte.
+* **Sequencing**: a record no newer than the last applied to its slot is superseded and reported as `PORTHOLE_STALE`, so stale sticks never replay. A new connection on 9806 is a new sender: its count starts over, and the previous sender's high mark is forgotten for every slot.
 
 ```
 Offset  Size  Field        Description
@@ -74,7 +77,7 @@ Offset  Size  Field        Description
 
 ## Build & Verification
 
-Porthole builds independently from the top-level repository or through the root `./bin/obscene` CLI:
+Porthole builds on its own, or through the repository's `./bin/oops-apps` CLI, which reaches each app through its Makefile. Deploying is [Prosperous](../../prosperous)'s job, as the host half of this path.
 
 ### 1. Host Selftest (Wire Contract Validation)
 Verifies that `sizeof(porthole_pad) == 24`, struct offsets match the wire specification, valid `PPAD` packets decode accurately, invalid packets (wrong magic, bad slot, non-zero reserved bytes) are rejected, and host returns `PORTHOLE_NO_ENCODER`:
@@ -83,8 +86,8 @@ Verifies that `sizeof(porthole_pad) == 24`, struct offsets match the wire specif
 # Inside porthole/
 make check
 
-# Or from repository root
-./bin/obscene porthole-check
+# Or from the repository root
+./bin/oops-apps check porthole
 ```
 
 ### 2. Build Target Plain-ELF Payload (`porthole.elf`)
@@ -94,22 +97,40 @@ Cross-compiles freestanding C for `x86_64-unknown-freebsd` with `-nostdlib`, `-f
 # Inside porthole/
 make elf
 
-# Or from repository root
-./bin/obscene porthole-build
+# Or from the repository root, which also runs the selftest and the skeleton
+./bin/oops-apps build porthole
 ```
 
-The output binary is staged to `porthole/build/porthole.elf` and copied to `build/porthole.elf`.
+The payload is `build/porthole.elf`. `make dist` (or `./bin/oops-apps dist porthole`) stages a copy under `dist/`, which is what CI publishes.
 
-### 3. Deploy and Run on the Console
-Sends `porthole.elf` to the target console via `elfldr` (port 9021/9020) and streams system execution logs back to `reports/hardware/porthole-klog.txt`:
+By default the payload is built **without** the hardware encoder session. The four struct-taking encoder calls (`QueryMemorySize`, `CreateEncoder`, `SetInputFrame`, `GetAuData`) pass parameter layouts not yet confirmed against the platform, so they are compiled in only on request, and a default build serves the template stream instead (D003). Once the layouts are confirmed:
 
 ```bash
-# From repository root
-./bin/obscene porthole
-
-# Dry run (build only, stop before transmitting)
-./bin/obscene porthole --build-only
+make elf PORTHOLE_ENCODER_SESSION=1
 ```
+
+The host selftest asserts that the default is the gate, so a build that turned it on by accident fails `make check`.
+
+### 3. Deploy and Run on the Console
+Deploying uses `pros`, the Prosperous command line. It speaks to the services the jailbreak already runs and invents nothing: `elfldr` on 9021 takes a payload and runs it, and `klogsrv` on 3232 serves the system log that Porthole writes its progress into.
+
+```bash
+# Once: remember the console under a name
+pros register <address>
+
+# Confirm the loader and the log service are answering
+pros check
+
+# Send the payload; elfldr runs it. --seconds is how long to listen for what it prints
+pros send build/porthole.elf --seconds 5
+
+# Then read Porthole's own progress out of the system log
+pros logs --seconds 30
+```
+
+Porthole's lines in that log carry a `[PORTHOLE]` prefix. A default build reports the resolved encoder symbols, then that the encoder session is gated off, then that the dual-socket server is starting. Two lines mean a socket constant did not survive contact with the platform, and are worth reading before anything else: `listeners could not be made non-blocking`, and `input connection closed, receive returned:` followed by the code.
+
+Once it is serving, the stream panel in the Prosperous window is Porthole's own controls: *watch* connects to 9805 and pipes the stream into the player named in `player.txt`, and the input line connects to 9806. The payload runs until its process ends - nothing on the network stops it - so decide beforehand whether that is a kill from `pros sh` or a reboot.
 
 ---
 
@@ -117,7 +138,7 @@ Sends `porthole.elf` to the target console via `elfldr` (port 9021/9020) and str
 
 * **M0 - Go/No-Go Answered** : Completed on hardware (2026-09-01). Section `106-encoder` proved `sceSysmoduleLoadModule(0x00A0)` succeeds (`rc 0x0`) and loads `libSceVencCore` at handle `0x14`.
 * **M1 - Dynamic Load & Symbol Self-Resolution** : Completed (2026-09-03). Implemented dynamic loading of sysmodule `0x00A0`, live export table walk across `kproc + 0x3E8` (D277/D300), self-resolution of `sceVencCore*` function pointers, and plain-ELF payload build (`build/porthole.elf`).
-* **M2 - Encoder Session Initialization**: Confirm `QueryMemorySize` and `CreateEncoder` parameter structures from public toolchain sources; safely open an encoder session.
+* **M2 - Encoder Session Initialization**: Confirm `QueryMemorySize` and `CreateEncoder` parameter structures from public toolchain sources; safely open an encoder session. Until then the session is gated off at build time (`PORTHOLE_ENCODER_SESSION`, D003).
 * **M3 - First Encoded Access Unit**: Feed a test surface into `SetInputFrame`, invoke `GetAuData`, and retrieve a valid Annex-B H.264 Access Unit.
 * **M4 - Video Streaming Loop**: Open listening socket on port 9805, stream encoded AUs continuously, verify playback via `pros-core::watch` and `mpv`.
 * **M5 - Controller Input Loop**: Open listening socket on port 9806, receive and validate 24-byte `PPAD` records, inject decoded inputs into target pad state using Ghostpad mapping.

@@ -81,14 +81,16 @@ typedef struct porthole_pad {
  * built at all (see porthole.c). */
 typedef enum porthole_status {
     PORTHOLE_OK = 0,
-    PORTHOLE_UNIMPLEMENTED = 1, /* scaffold: this half is not built yet */
+    PORTHOLE_UNIMPLEMENTED = 1, /* scaffold, or gated off: this half is not built in */
     PORTHOLE_NO_ENCODER =
         2, /* the go/no-go: the hardware encoder could not be reached */
     PORTHOLE_NO_DISPLAY = 3, /* nothing composited to capture */
     PORTHOLE_NO_PAD = 4,     /* pad injection unavailable */
     PORTHOLE_NET = 5,        /* a socket call refused */
     PORTHOLE_BAD_RECORD =
-        6 /* an input record failed its own checks (magic/slot/reserved) */
+        6, /* an input record failed its own checks (magic/slot/reserved) */
+    PORTHOLE_STALE = 7 /* an input record no newer than the last applied to its slot, so it
+                          was not applied - the newest state supersedes it, by design */
 } porthole_status;
 
 /* Reads a 24-byte controller record, checking its magic, slot and reserved bytes, into
@@ -211,6 +213,17 @@ porthole_status porthole_encoder_session_destroy(void);
 const porthole_encoder_session *porthole_encoder_get_session(void);
 int porthole_encoder_is_active(void);
 
+/* The gate on the struct-taking encoder calls.
+ *
+ * QueryMemorySize, CreateEncoder, SetInputFrame and GetAuData each take a parameter layout
+ * this payload has not yet confirmed against the platform - D300 reserved them for M2 for
+ * exactly that reason, since a wrong layout is stack corruption in a process holding kernel
+ * read/write. So they are compiled in only when PORTHOLE_ENCODER_SESSION is defined
+ * (`make elf PORTHOLE_ENCODER_SESSION=1`), and a payload built without it loads the encoder
+ * module, resolves its symbols and serves the template stream: everything that is measured
+ * or fails visibly, and nothing that could corrupt the stack. Returns 1 when the gate is on. */
+int porthole_encoder_session_enabled(void);
+
 
 /*
  * Controller pad interface (libScePad virtual device / Ghostpad path).
@@ -231,6 +244,12 @@ porthole_status porthole_pad_open(void);
 
 /* Reset pad slots and sequence tracking state. */
 void porthole_pad_reset(void);
+
+/* Forgets every slot's last sequence, and nothing else. For the moment a new input
+ * connection is accepted: a new connection is a new sender whose count starts over, and
+ * judging its first records against the previous sender's last would drop every one of
+ * them as stale until the count climbed past. The pads themselves are left as they are. */
+void porthole_pad_resequence(void);
 
 /* Pass payload arguments (kernel R/W pipes/base) from the loader or session. */
 void porthole_set_payload_args(const void *args);

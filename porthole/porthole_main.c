@@ -79,6 +79,13 @@ int porthole_start(const payload_args_t *args) {
         klog_write_hex("  DeleteEncoder:   ", (uint64_t)(uintptr_t)api->delete_encoder);
     }
 
+#if !defined(PORTHOLE_ENCODER_SESSION)
+    /* The struct-taking encoder calls are compiled out unless a build asks for them, so this
+     * run exercises the sockets and the template stream and nothing that could corrupt the
+     * stack. See porthole_encoder_session_enabled in porthole.h. */
+    klog_write("Encoder session gated off (build without PORTHOLE_ENCODER_SESSION): "
+               "serving the template stream");
+#else
     klog_write("Inspecting hardware encoder session (M2)...");
     if (porthole_encoder_is_active()) {
         const porthole_encoder_session *sess = porthole_encoder_get_session();
@@ -104,6 +111,7 @@ int porthole_start(const payload_args_t *args) {
             klog_write_num("Encoder session creation returned: ", (int64_t)s_rc);
         }
     }
+#endif
 
     klog_write("Initializing controller pad subsystem (M5)...");
     porthole_status pad_status = porthole_pad_open();

@@ -34,6 +34,16 @@ TARGET_CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-con
                  -fno-stack-protector -fvisibility=hidden \
                  $(OOPS_SDK_INCLUDE)
 
+# The struct-taking encoder calls - QueryMemorySize, CreateEncoder, SetInputFrame, GetAuData -
+# pass parameter layouts not yet confirmed against the platform, which D300 reserved for M2. They
+# are compiled in only on request, so a first hardware run exercises the sockets and the template
+# stream and nothing that could corrupt the stack. Once the layouts are confirmed:
+#
+#   make elf PORTHOLE_ENCODER_SESSION=1
+ifdef PORTHOLE_ENCODER_SESSION
+TARGET_CFLAGS += -DPORTHOLE_ENCODER_SESSION
+endif
+
 BUILD ?= build
 DIST ?= dist
 

@@ -95,6 +95,8 @@ OBS_WEAK int sceNetAccept(int s, void *addr, uint32_t *paddrlen);
 OBS_WEAK int sceNetRecv(int s, void *buf, uint64_t len, int flags);
 OBS_WEAK int sceNetSend(int s, const void *buf, uint64_t len, int flags);
 OBS_WEAK int sceNetSocketClose(int s);
+OBS_WEAK int sceNetSetsockopt(int s, int level, int optname, const void *optval,
+                              uint32_t optlen);
 #endif
 
 static const void *s_porthole_args = NULL;
@@ -125,6 +127,14 @@ const porthole_encoder_session *porthole_encoder_get_session(void) {
 
 int porthole_encoder_is_active(void) {
     return s_encoder_session.session_active;
+}
+
+int porthole_encoder_session_enabled(void) {
+#if defined(PORTHOLE_ENCODER_SESSION)
+    return 1;
+#else
+    return 0;
+#endif
 }
 
 void porthole_encoder_config_default(porthole_encoder_config *cfg) {
@@ -263,6 +273,11 @@ porthole_status porthole_encoder_query_memory(const porthole_encoder_config *cfg
         return PORTHOLE_NO_ENCODER;
     }
 
+#if !defined(PORTHOLE_ENCODER_SESSION)
+    /* Gated off: the call below passes a parameter layout not yet confirmed (D300, M2).
+     * See porthole_encoder_session_enabled in porthole.h. */
+    return PORTHOLE_UNIMPLEMENTED;
+#else
     /* Out parameter poisoning (D303): initialized to poisoned value to detect honest assignment */
     size_t mem_needed = (size_t)0xDEADBEEFULL;
     int (*fn_query)(const void *, size_t *) =
@@ -275,6 +290,7 @@ porthole_status porthole_encoder_query_memory(const porthole_encoder_config *cfg
         *out_size = mem_needed;
     }
     return PORTHOLE_OK;
+#endif
 }
 
 porthole_status porthole_encoder_session_create(const porthole_encoder_config *cfg) {
@@ -291,6 +307,11 @@ porthole_status porthole_encoder_session_create(const porthole_encoder_config *c
         return PORTHOLE_NO_ENCODER;
     }
 
+#if !defined(PORTHOLE_ENCODER_SESSION)
+    /* Gated off: the calls below pass parameter layouts not yet confirmed (D300, M2).
+     * See porthole_encoder_session_enabled in porthole.h. */
+    return PORTHOLE_UNIMPLEMENTED;
+#else
     size_t required_mem = 0;
     porthole_status qrc = porthole_encoder_query_memory(cfg, &required_mem);
     if (qrc != PORTHOLE_OK) {
@@ -354,6 +375,7 @@ porthole_status porthole_encoder_session_create(const porthole_encoder_config *c
 
     s_encoder_session.session_active = 1;
     return PORTHOLE_OK;
+#endif
 }
 
 porthole_status porthole_encoder_session_destroy(void) {
@@ -449,10 +471,13 @@ porthole_status porthole_encoder_open(void) {
 
     s_encoder_opened = 1;
 
-    /* Milestone M2: Bring up active encoder session with default configuration */
+#if defined(PORTHOLE_ENCODER_SESSION)
+    /* Milestone M2: bring up an encoder session with the default configuration. Compiled in
+     * only when the gate is on - see porthole_encoder_session_enabled. */
     porthole_encoder_config cfg;
     porthole_encoder_config_default(&cfg);
     (void)porthole_encoder_session_create(&cfg);
+#endif
 
     return PORTHOLE_OK;
 }
@@ -486,6 +511,14 @@ void porthole_pad_reset(void) {
     for (size_t i = 0; i <= PORTHOLE_PAD_MAX_SLOT; i++) {
         s_slots[i].active = 0;
         s_slots[i].handle = -1;
+        s_slots[i].last_sequence = 0;
+    }
+}
+
+void porthole_pad_resequence(void) {
+    /* Only the count. A slot's virtual device stays where it is, so a host that reconnects
+     * drives the pad it was driving rather than a second one added beside it. */
+    for (size_t i = 0; i <= PORTHOLE_PAD_MAX_SLOT; i++) {
         s_slots[i].last_sequence = 0;
     }
 }
@@ -534,9 +567,11 @@ porthole_status porthole_pad_open(void) {
 /*
  * Apply one decoded controller record to the target's pad state.
  *
- * Checks sequence freshness: input is state, not an event. If a record arrives
- * with an older or duplicate sequence number than the latest seen for that slot,
- * it is discarded as stale so old sticks/buttons never replay.
+ * Checks sequence freshness: input is state, not an event. A record no newer than the
+ * last applied to its slot is not applied, and says so with PORTHOLE_STALE, so old
+ * sticks and buttons never replay and a caller can tell "applied" from "superseded".
+ * A slot's count starts over at porthole_pad_resequence - once per new input
+ * connection, because a new connection is a new sender.
  */
 porthole_status porthole_pad_apply(const porthole_pad *pad) {
     if (pad == NULL || pad->slot > PORTHOLE_PAD_MAX_SLOT) {
@@ -551,7 +586,7 @@ porthole_status porthole_pad_apply(const porthole_pad *pad) {
 
     /* Input freshness check: drop older or duplicate sequence numbers per slot */
     if (pad->sequence != 0 && slot->active && pad->sequence <= slot->last_sequence) {
-        return PORTHOLE_OK; /* Discarded as stale */
+        return PORTHOLE_STALE;
     }
 
     slot->last_sequence = pad->sequence;
@@ -731,8 +766,11 @@ porthole_status porthole_capture_encode(uint8_t *out, size_t cap, size_t *len) {
         return PORTHOLE_NO_ENCODER;
     }
 
-#if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__))
-    /* Milestone M3: Feed input frame and retrieve encoded AU from active session */
+#if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__)) && \
+    defined(PORTHOLE_ENCODER_SESSION)
+    /* Milestone M3: feed the input frame and take the encoded AU from the active session.
+     * Compiled in only when the gate is on - both calls pass layouts not yet confirmed, and
+     * the second writes into a stack buffer. Without it the template stream below serves. */
     if (s_encoder_session.session_active && s_encoder_session.handle >= 0 &&
         s_encoder_api.get_au_data != NULL) {
         if (s_encoder_api.set_input_frame != NULL) {
@@ -779,6 +817,19 @@ porthole_status porthole_capture_encode(uint8_t *out, size_t cap, size_t *len) {
 
 /* ---- Networking & Dual-Socket Server -------------------------------------- */
 
+/*
+ * Neither socket is waited on. The loop below runs at the frame rate and, each time round,
+ * accepts whoever has arrived, reads whatever input has arrived, and sends one frame - so a
+ * read or an accept that waited would hold the frame with it. That is not hypothetical: the
+ * host goes quiet on the input socket whenever a pad is at rest, so a receive that waited
+ * stalled the video every time somebody let go of the keys, and an accept that waited meant
+ * no video at all until something also connected for input.
+ *
+ * So the listeners are non-blocking, the input receive takes only what has arrived, and the
+ * one socket allowed to wait is the video connection - a send that returned "try later"
+ * would otherwise be read as the connection having gone.
+ */
+
 #if defined(PORTHOLE_HOST_BUILD) || (!defined(__FreeBSD__) && !defined(__PS5__))
 #ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE
@@ -791,6 +842,17 @@ porthole_status porthole_capture_encode(uint8_t *out, size_t cap, size_t *len) {
 #include <time.h>
 #include <unistd.h>
 
+static int porthole_set_blocking(int s, int blocking) {
+    int flags = fcntl(s, F_GETFL, 0);
+    if (flags < 0) return -1;
+    if (blocking) {
+        flags &= ~O_NONBLOCK;
+    } else {
+        flags |= O_NONBLOCK;
+    }
+    return fcntl(s, F_SETFL, flags);
+}
+
 static int porthole_listen_port(uint16_t port) {
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) return -1;
@@ -801,19 +863,29 @@ static int porthole_listen_port(uint16_t port) {
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(port);
-    if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) < 0 || listen(s, 1) < 0) {
+    if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) < 0 || listen(s, 1) < 0 ||
+        porthole_set_blocking(s, 0) < 0) {
         close(s);
         return -1;
     }
     return s;
 }
 
+/* Whoever is waiting, or -1 at once if nobody is. */
 static int porthole_accept_conn(int listener) {
     return accept(listener, NULL, NULL);
 }
 
+/* What has already arrived, without waiting for more. */
 static long porthole_recv_bytes(int conn, void *buf, size_t len) {
-    return (long)recv(conn, buf, len, 0);
+    return (long)recv(conn, buf, len, MSG_DONTWAIT);
+}
+
+/* Whether the last negative return meant "nothing yet" rather than "broken". */
+static int porthole_would_block(long rc) {
+    (void)rc;
+    int e = errno;
+    return e == EAGAIN || e == EWOULDBLOCK;
 }
 
 static long porthole_send_bytes(int conn, const void *buf, size_t len) {
@@ -827,6 +899,19 @@ static void porthole_close_conn(int conn) {
 }
 #else
 
+/* libSceNet's socket-option namespace and its non-blocking switch. The values oops-sdk's own
+ * net layer uses (OOPS_SOL_SOCKET in oops/net.h, and SO_NBIO as noted in src/net/net.c),
+ * and the same two that CTurt's public PS4-SDK network.h carries as SOL_SOCKET 0xffff and
+ * SO_NBIO 0x1200. Not yet read back off this console: if the option is refused, the klog
+ * says the listeners could not be made non-blocking. */
+#define PORTHOLE_SCE_SOL_SOCKET 0xFFFF
+#define PORTHOLE_SCE_SO_NBIO 0x1200
+
+/* "Do not wait" on one receive. FreeBSD's MSG_DONTWAIT, which the platform's network stack
+ * descends from; CTurt's PS4-SDK network.h and the vitasdk net header both give the sceNet
+ * flag of the same name this value. */
+#define PORTHOLE_SCE_MSG_DONTWAIT 0x80
+
 typedef struct porthole_net_api {
     int (*socket)(const char *name, int family, int type, int protocol);
     int (*bind)(int s, const void *addr, uint32_t addrlen);
@@ -835,10 +920,14 @@ typedef struct porthole_net_api {
     int (*recv)(int s, void *buf, uint64_t len, int flags);
     int (*send)(int s, const void *buf, uint64_t len, int flags);
     int (*close)(int s);
+    int (*setsockopt)(int s, int level, int optname, const void *optval, uint32_t optlen);
 } porthole_net_api;
 
 static porthole_net_api s_net_api;
 static int s_net_inited = 0;
+/* Set when a listener could not be made non-blocking, so porthole_run can say so. The loop
+ * still runs, but each accept then waits, and video needs an input client connected too. */
+static int s_net_accept_waits = 0;
 
 static void porthole_net_init(void) {
     if (s_net_inited) return;
@@ -860,12 +949,22 @@ static void porthole_net_init(void) {
         (&sceNetSend != NULL ? (void *)&sceNetSend : porthole_resolve_symbol(mypid, "sceNetSend"));
     s_net_api.close = (int (*)(int))
         (&sceNetSocketClose != NULL ? (void *)&sceNetSocketClose : porthole_resolve_symbol(mypid, "sceNetSocketClose"));
+    s_net_api.setsockopt = (int (*)(int, int, int, const void *, uint32_t))
+        (&sceNetSetsockopt != NULL ? (void *)&sceNetSetsockopt : porthole_resolve_symbol(mypid, "sceNetSetsockopt"));
     s_net_inited = 1;
+}
+
+static int porthole_set_blocking(int s, int blocking) {
+    if (s_net_api.setsockopt == NULL) return -1;
+    int nbio = blocking ? 0 : 1;
+    return s_net_api.setsockopt(s, PORTHOLE_SCE_SOL_SOCKET, PORTHOLE_SCE_SO_NBIO, &nbio,
+                                (uint32_t)sizeof(nbio));
 }
 
 static int porthole_listen_port(uint16_t port) {
     porthole_net_init();
-    if (s_net_api.socket == NULL || s_net_api.bind == NULL || s_net_api.listen == NULL) {
+    if (s_net_api.socket == NULL || s_net_api.bind == NULL || s_net_api.listen == NULL ||
+        s_net_api.accept == NULL || s_net_api.recv == NULL || s_net_api.send == NULL) {
         return -1;
     }
     int s = s_net_api.socket("porthole", 2, 1, 6);
@@ -888,6 +987,9 @@ static int porthole_listen_port(uint16_t port) {
         if (s_net_api.close != NULL) s_net_api.close(s);
         return -1;
     }
+    if (porthole_set_blocking(s, 0) < 0) {
+        s_net_accept_waits = 1;
+    }
     return s;
 }
 
@@ -898,7 +1000,20 @@ static int porthole_accept_conn(int listener) {
 
 static long porthole_recv_bytes(int conn, void *buf, size_t len) {
     if (s_net_api.recv == NULL) return -1;
-    return (long)s_net_api.recv(conn, buf, (uint64_t)len, 0);
+    return (long)s_net_api.recv(conn, buf, (uint64_t)len, PORTHOLE_SCE_MSG_DONTWAIT);
+}
+
+/* Whether a negative libSceNet return meant "nothing yet" rather than "broken".
+ *
+ * libSceNet reports a BSD errno as 0x8041xxxx with the errno in the low byte, and "would
+ * block" on FreeBSD is EAGAIN, 35. The vitasdk net header - the same sceNet lineage - gives
+ * SCE_NET_ERROR_EAGAIN and SCE_NET_ERROR_EWOULDBLOCK as 0x80410123, which is that shape; no
+ * public PS4 header on hand names them, and it has not been read back off this console. If
+ * it is wrong, the input connection closes at its first quiet moment and the klog line in
+ * porthole_run names the code that did it. */
+static int porthole_would_block(long rc) {
+    uint32_t code = (uint32_t)rc;
+    return (code >> 16) == 0x8041u && (code & 0xFFu) == 35u;
 }
 
 static long porthole_send_bytes(int conn, const void *buf, size_t len) {
@@ -916,7 +1031,7 @@ static void porthole_close_conn(int conn) {
 /*
  * The payload's main server loop:
  * Opens listening sockets on PORTHOLE_PORT_VIDEO (9805) and PORTHOLE_PORT_INPUT (9806).
- * Serves video out and accepts input in.
+ * Serves video out and accepts input in, waiting on neither.
  */
 porthole_status porthole_run(void) {
     porthole_status enc_status = porthole_encoder_open();
@@ -935,6 +1050,12 @@ porthole_status porthole_run(void) {
         porthole_close_conn(s_input);
         return PORTHOLE_NET;
     }
+#if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__))
+    if (s_net_accept_waits) {
+        klog_write("listeners could not be made non-blocking: each accept waits, so video "
+                   "needs an input client connected too");
+    }
+#endif
 
     s_porthole_running = 1;
     int conn_input = -1;
@@ -945,14 +1066,32 @@ porthole_status porthole_run(void) {
     uint32_t frame_counter = 0;
 
     while (s_porthole_running) {
+        /* Whoever has arrived. A watcher with no feed open, or a feed with no watcher, is
+         * an ordinary state, and the half that is connected is served. */
         if (conn_input < 0) {
             conn_input = porthole_accept_conn(s_input);
+            if (conn_input >= 0) {
+                /* A new connection is a new sender, whose count starts over. Judged
+                 * against the previous sender's last sequence, a host that restarted would
+                 * have every record dropped as stale until its count climbed past - input
+                 * that silently does nothing. */
+                porthole_pad_resequence();
+                input_buf_len = 0;
+            }
         }
         if (conn_video < 0) {
             conn_video = porthole_accept_conn(s_video);
+            if (conn_video >= 0) {
+                /* Explicitly, because an accepted socket can inherit the listener's
+                 * non-blocking mode, and the send below treats "try later" as gone. */
+                (void)porthole_set_blocking(conn_video, 1);
+            }
         }
 
-        if (conn_input >= 0) {
+        /* Everything that has arrived on the input socket, and no waiting for more. Reading
+         * until the socket is empty also keeps a burst of records from queuing behind a
+         * one-record-a-frame reader. */
+        while (conn_input >= 0) {
             long n = porthole_recv_bytes(conn_input, input_buf + input_buf_len,
                                          PORTHOLE_PAD_BYTES - input_buf_len);
             if (n > 0) {
@@ -964,11 +1103,22 @@ porthole_status porthole_run(void) {
                     }
                     input_buf_len = 0;
                 }
-            } else if (n == 0) {
-                porthole_close_conn(conn_input);
-                conn_input = -1;
-                input_buf_len = 0;
+                continue;
             }
+            if (n < 0 && porthole_would_block(n)) {
+                break; /* nothing more this frame */
+            }
+#if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__))
+            if (n < 0) {
+                klog_write_hex("input connection closed, receive returned: ",
+                               (uint64_t)(uint32_t)n);
+            }
+#endif
+            /* Closed by the host, or broken. Either way this connection is over, and the
+             * listener takes the next. */
+            porthole_close_conn(conn_input);
+            conn_input = -1;
+            input_buf_len = 0;
         }
 
         if (conn_video >= 0) {

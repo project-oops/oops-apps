@@ -21,3 +21,23 @@ Nothing has shipped yet - this is the initial state.
   host half lives in Prosperous - it was a payload inside a probe and is now an app in its own
   right, which is what prompted the repository. The freestanding base layer it needs came in
   with it on loan, and belongs in oops-sdk rather than here. (D002)
+
+### Changed
+
+- **Porthole's encoder session is off unless a build asks for it.** The four struct-taking
+  encoder calls pass parameter layouts not yet confirmed against the platform, which obSCEne's
+  D300 had reserved for M2, yet every start made two of them and every frame the other two. They
+  are now compiled in only with `PORTHOLE_ENCODER_SESSION`, a default build serves the template
+  stream, and the selftest asserts the default. (D003)
+
+### Fixed
+
+- **Porthole's serving loop no longer waits on its input socket.** A receive that blocked held
+  the video frame with it, so the stream stalled whenever a pad was at rest and the host went
+  quiet; a blocking accept meant no video at all until an input client also connected. The
+  listeners are now non-blocking, the input receive takes only what has arrived, and the video
+  connection is set to block explicitly.
+- **A host that reconnects is a new sender.** Each slot's last sequence is forgotten when a new
+  input connection is accepted, so a restarted host's records are not dropped as stale against
+  the previous sender's high mark. A superseded record now reports `PORTHOLE_STALE` rather
+  than looking applied, which is what lets the selftest tell the two apart.

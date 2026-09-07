@@ -108,6 +108,14 @@ int main(void) {
         failures++;
     }
 
+    /* The struct-taking encoder calls are gated off unless a build asks for them: a first
+     * hardware run should exercise the sockets and the template stream and nothing that could
+     * corrupt the stack, since D300 reserved those layouts for M2. The default is the gate. */
+    if (porthole_encoder_session_enabled() != 0) {
+        printf("FAIL: the encoder session gate must be off by default\n");
+        failures++;
+    }
+
     /* Milestone M2: Encoder Configuration & Lifecycle Tests */
     porthole_encoder_config cfg;
     porthole_encoder_config_default(&cfg);
@@ -255,17 +263,17 @@ int main(void) {
         failures++;
     }
 
-    /* Duplicate sequence (10) should be dropped as stale */
+    /* A duplicate sequence (10) is superseded, and says so rather than looking applied. */
     test_pad.sequence = 10;
-    if (porthole_pad_apply(&test_pad) != PORTHOLE_OK) {
-        printf("FAIL: duplicate sequence 10 failed\n");
+    if (porthole_pad_apply(&test_pad) != PORTHOLE_STALE) {
+        printf("FAIL: duplicate sequence 10 was not reported stale\n");
         failures++;
     }
 
-    /* Older sequence (9) should be dropped as stale */
+    /* An older sequence (9) likewise. */
     test_pad.sequence = 9;
-    if (porthole_pad_apply(&test_pad) != PORTHOLE_OK) {
-        printf("FAIL: older sequence 9 failed\n");
+    if (porthole_pad_apply(&test_pad) != PORTHOLE_STALE) {
+        printf("FAIL: older sequence 9 was not reported stale\n");
         failures++;
     }
 
@@ -290,6 +298,43 @@ int main(void) {
     test_pad.sequence = 1;
     if (porthole_pad_apply(&test_pad) != PORTHOLE_OK) {
         printf("FAIL: sequence 1 failed after reset\n");
+        failures++;
+    }
+
+    /* A new input connection is a new sender, whose count starts over. A host that restarted
+     * begins again at 1, and judged against the previous sender's last sequence every record
+     * it sent would be stale until the count climbed past - input that silently does nothing.
+     * Resequencing forgets the count, and only the count. */
+    test_pad.sequence = 500;
+    if (porthole_pad_apply(&test_pad) != PORTHOLE_OK) {
+        printf("FAIL: sequence 500 failed\n");
+        failures++;
+    }
+    test_pad.sequence = 3;
+    if (porthole_pad_apply(&test_pad) != PORTHOLE_STALE) {
+        printf("FAIL: sequence 3 behind 500 was not reported stale\n");
+        failures++;
+    }
+    porthole_pad_resequence();
+    if (porthole_pad_apply(&test_pad) != PORTHOLE_OK) {
+        printf("FAIL: sequence 3 from a new connection was dropped as stale\n");
+        failures++;
+    }
+    if (porthole_pad_apply(&test_pad) != PORTHOLE_STALE) {
+        printf("FAIL: freshness is not checked again after a resequence\n");
+        failures++;
+    }
+    /* Every slot forgets, not only the one that last spoke. */
+    test_pad.slot = 1;
+    test_pad.sequence = 40;
+    if (porthole_pad_apply(&test_pad) != PORTHOLE_OK) {
+        printf("FAIL: slot 1 sequence 40 failed\n");
+        failures++;
+    }
+    porthole_pad_resequence();
+    test_pad.sequence = 2;
+    if (porthole_pad_apply(&test_pad) != PORTHOLE_OK) {
+        printf("FAIL: slot 1 was not resequenced\n");
         failures++;
     }
 
