@@ -27,6 +27,15 @@ _Static_assert(offsetof(porthole_pad, sticks) == 12, "sticks at 12");
 _Static_assert(offsetof(porthole_pad, triggers) == 16, "triggers at 16");
 _Static_assert(offsetof(porthole_pad, sequence) == 20, "sequence at 20");
 
+/* **The frame buffer and the bitrate must not drift apart.** Raising the configured rate
+ * without raising the buffer starts refusing keyframes, and a stream of dependent pictures
+ * decodes to nothing while looking exactly like no stream at all - the one fault the host
+ * cannot tell from a dead socket. Tying them together makes that a build failure instead. */
+_Static_assert(PORTHOLE_FRAME_BYTES * 8u >= PORTHOLE_DEFAULT_BITRATE,
+               "one access unit needs a second of the configured bitrate to sit in");
+_Static_assert(PORTHOLE_FRAME_BYTES >= 64u * 1024u,
+               "a 1080p keyframe needs room whatever a low bitrate would imply");
+
 /* A well-formed record: slot 2, a couple of buttons, sticks off-centre, R2
  * half-pressed, seq 7. */
 static void good_record(uint8_t b[PORTHOLE_PAD_BYTES]) {
@@ -79,6 +88,30 @@ int main(void) {
         failures++;
     }
 
+    /* **A version this does not read is refused, not interpreted.** The reserved bytes are
+     * where a later version puts gyro or the touchpad, so reading a newer record through this
+     * layout would take a real value for a reserved zero. The host half refuses a mismatch
+     * and this side did not, which left the version field doing nothing on the receiving end.
+     */
+    good_record(bytes);
+    bytes[4] = 2; /* version 2, low byte */
+    if (porthole_pad_decode(bytes, &pad) != PORTHOLE_BAD_RECORD) {
+        printf("FAIL: a record of another version was accepted\n");
+        failures++;
+    }
+    good_record(bytes);
+    bytes[5] = 1; /* version 256, so the high byte is checked too */
+    if (porthole_pad_decode(bytes, &pad) != PORTHOLE_BAD_RECORD) {
+        printf("FAIL: only the low byte of the version was checked\n");
+        failures++;
+    }
+    good_record(bytes);
+    bytes[4] = 0; /* version 0 is not version 1 either */
+    if (porthole_pad_decode(bytes, &pad) != PORTHOLE_BAD_RECORD) {
+        printf("FAIL: a zero version was accepted\n");
+        failures++;
+    }
+
     /* A non-zero reserved byte is refused, so a version bump into that room is a clean
      * upgrade. */
     good_record(bytes);
@@ -103,8 +136,12 @@ int main(void) {
         printf("FAIL: encoder api should still be NULL after failed open\n");
         failures++;
     }
+    /* **A host build refuses; a payload does not.** On the target the encoder is attempted
+     * and not required, because the template stream needs none - but a host has no target to
+     * serve and would bind real ports if it tried, so it stops here rather than starting a
+     * server inside a test binary. */
     if (porthole_run() != PORTHOLE_NO_ENCODER) {
-        printf("FAIL: run() should refuse cleanly while the encoder is unreachable\n");
+        printf("FAIL: run() should refuse cleanly on a host, which has nothing to serve\n");
         failures++;
     }
 
@@ -386,8 +423,23 @@ int main(void) {
         printf("FAIL: capture with NULL len was accepted\n");
         failures++;
     }
-    if (porthole_capture_encode(test_out, sizeof(test_out), &test_len) != PORTHOLE_NO_ENCODER) {
-        printf("FAIL: capture should report NO_ENCODER while encoder is closed\n");
+    /* **With the session gated off the template stream is the video path**, and needs no
+     * encoder at all. That is the whole point of the gate: it is what a first hardware run
+     * serves, so it has to be well-formed Annex-B opening on something a decoder can begin
+     * from. Capture refusing here was what kept a gated payload from serving anything. */
+    if (porthole_capture_encode(test_out, sizeof(test_out), &test_len) != PORTHOLE_OK) {
+        printf("FAIL: the template stream should serve with the session gated off\n");
+        failures++;
+    } else if (test_len != 38u) {
+        printf("FAIL: the first template unit should be SPS+PPS+IDR, 38 bytes, got %u\n",
+               (unsigned int)test_len);
+        failures++;
+    } else if (test_out[0] != 0 || test_out[1] != 0 || test_out[2] != 0 || test_out[3] != 1 ||
+               (test_out[4] & 0x1Fu) != 7u) {
+        printf("FAIL: the template must open with a start code and sequence parameters\n");
+        failures++;
+    } else if ((test_out[18] & 0x1Fu) != 8u || (test_out[26] & 0x1Fu) != 5u) {
+        printf("FAIL: the template keyframe needs picture parameters and an IDR after them\n");
         failures++;
     }
 

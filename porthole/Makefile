@@ -54,8 +54,11 @@ all: $(BUILD)/porthole_selftest skeleton elf
 $(BUILD):
 	mkdir -p $(BUILD)
 
+# The SDK's net layer comes in even on the host: Porthole's sockets are `oops_*` on both sides of
+# the build now, and on a host those compile to an honest -1 (the server loop is never reached
+# there anyway, because the encoder refuses first).
 $(BUILD)/porthole_selftest: porthole_selftest.c porthole.c porthole.h | $(BUILD)
-	$(CC) $(CFLAGS) -o $@ porthole_selftest.c porthole.c
+	$(CC) $(CFLAGS) -o $@ porthole_selftest.c porthole.c $(OOPS_SDK_DIR)/src/net/net.c
 
 # The gate: the wire contract round-trips and the scaffold is honestly a scaffold.
 check: $(BUILD)/porthole_selftest
@@ -72,6 +75,7 @@ PORTHOLE_PAYLOAD_SRC := porthole.c porthole_main.c \
                         $(OOPS_SDK_DIR)/src/system/krw.c \
                         $(OOPS_SDK_DIR)/src/memory/memory.c \
                         $(OOPS_SDK_DIR)/src/time/time.c \
+                        $(OOPS_SDK_DIR)/src/net/net.c \
                         $(OOPS_SDK_DIR)/src/display.c \
                         $(OOPS_SDK_DIR)/src/agc/agc_display.c \
                         $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
@@ -87,11 +91,11 @@ $(BUILD)/porthole.elf: $(PORTHOLE_PAYLOAD_SRC) porthole.h | $(BUILD)
 elf: $(BUILD)/porthole.elf
 
 # The release contract (see bin/oops-apps): put what ships under dist/. Porthole ships one
-# thing, the plain-ELF payload; an app that shipped a title directory or a package would stage
-# that here instead, and CI would carry it without knowing the difference.
+# thing, the plain-ELF payload, qualified by target generation per CONVENTIONS.md section 2.
 dist: $(BUILD)/porthole.elf
 	@mkdir -p $(DIST)
-	cp $(BUILD)/porthole.elf $(DIST)/porthole.elf
+	cp $(BUILD)/porthole.elf $(DIST)/porthole-$(TARGET).elf
+	@$(call oops_verify_dist,$(DIST))
 
 clean:
 	rm -rf $(BUILD) $(DIST)

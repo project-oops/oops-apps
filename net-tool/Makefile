@@ -34,8 +34,9 @@ TARGET_CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-con
                  -fno-stack-protector -fvisibility=hidden $(OOPS_SDK_INCLUDE)
 
 BUILD ?= build
+DIST ?= dist
 
-.PHONY: all check skeleton elf clean
+.PHONY: all check skeleton elf dist clean
 
 all: $(BUILD)/net_tool_selftest skeleton elf
 
@@ -60,5 +61,12 @@ $(BUILD)/net-tool.elf: net-tool.c net-tool_main.c net-tool.h $(SDK_ELF_SRCS) | $
 
 elf: $(BUILD)/net-tool.elf
 
+# The release contract (see bin/oops-apps): put what ships under dist/.
+# Staged artifacts explicitly encode target generation per CONVENTIONS.md section 2.
+dist: $(BUILD)/net-tool.elf
+	@mkdir -p $(DIST)
+	cp $(BUILD)/net-tool.elf $(DIST)/net-tool-$(TARGET).elf
+	@$(call oops_verify_dist,$(DIST))
+
 clean:
-	rm -rf $(BUILD)
+	rm -rf $(BUILD) $(DIST)

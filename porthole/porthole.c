@@ -28,6 +28,15 @@
 #endif
 #include "porthole.h"
 
+/* The sockets, from the SDK, on both sides of the build. Outside the target-only block below
+ * because the network section near the bottom is now one code path rather than two. */
+#include "oops/net.h"
+
+#if defined(PORTHOLE_HOST_BUILD) || (!defined(__FreeBSD__) && !defined(__PS5__))
+/* The host build's only remaining platform call is the frame-interval wait. */
+#include <time.h>
+#endif
+
 /* ---- the wire contract, which is real
  * ------------------------------------------------------ */
 
@@ -63,8 +72,8 @@ porthole_status porthole_pad_decode(const uint8_t bytes[PORTHOLE_PAD_BYTES],
      * pressed. Refused, not clamped. The reserved bytes are checked so a version bump
      * into that room is a clean upgrade rather than a silent reinterpretation of old
      * fields. */
-    if (out->slot > PORTHOLE_PAD_MAX_SLOT || out->reserved0 != 0 ||
-        out->reserved1 != 0) {
+    if (out->version != PORTHOLE_PAD_VERSION || out->slot > PORTHOLE_PAD_MAX_SLOT ||
+        out->reserved0 != 0 || out->reserved1 != 0) {
         return PORTHOLE_BAD_RECORD;
     }
     return PORTHOLE_OK;
@@ -88,15 +97,9 @@ porthole_status porthole_pad_decode(const uint8_t bytes[PORTHOLE_PAD_BYTES],
 
 OBS_WEAK int sceSysmoduleLoadModule(uint16_t id);
 OBS_WEAK int sceKernelDlsym(int handle, const char *symbol, void **address_out);
-OBS_WEAK int sceNetSocket(const char *name, int family, int type, int protocol);
-OBS_WEAK int sceNetBind(int s, const void *addr, uint32_t addrlen);
-OBS_WEAK int sceNetListen(int s, int backlog);
-OBS_WEAK int sceNetAccept(int s, void *addr, uint32_t *paddrlen);
-OBS_WEAK int sceNetRecv(int s, void *buf, uint64_t len, int flags);
-OBS_WEAK int sceNetSend(int s, const void *buf, uint64_t len, int flags);
-OBS_WEAK int sceNetSocketClose(int s);
-OBS_WEAK int sceNetSetsockopt(int s, int level, int optname, const void *optval,
-                              uint32_t optlen);
+/* No libSceNet declarations. The export table an elfldr payload is handed carries none of it -
+ * measured, see the socket layer below - so the sockets are the platform's POSIX ones and are
+ * resolved by name rather than linked against. */
 #endif
 
 static const void *s_porthole_args = NULL;
@@ -148,7 +151,7 @@ void porthole_encoder_config_default(porthole_encoder_config *cfg) {
     cfg->height = 1080;
     cfg->fps_num = 60;
     cfg->fps_den = 1;
-    cfg->bitrate = 10000000; /* 10 Mbps */
+    cfg->bitrate = PORTHOLE_DEFAULT_BITRATE; /* 10 Mbps; PORTHOLE_FRAME_BYTES follows it */
     cfg->profile = (uint32_t)PORTHOLE_PROFILE_AVC_HIGH;
     cfg->level = 42;
     cfg->rc_mode = (uint32_t)PORTHOLE_RC_CBR;
@@ -413,6 +416,22 @@ porthole_status porthole_encoder_open(void) {
         return PORTHOLE_OK;
     }
 
+#if !defined(PORTHOLE_ENCODER_SESSION)
+    /* **The load itself is refused, and refused loudly.** obSCEne resolved
+     * `sceSysmoduleLoadModule` from the payload's own export table at 0x8002740d0 and called it
+     * with VENC (0x00A0) from an unsigned elfldr payload: the kernel answered 0xa0020101, a
+     * privilege refusal raised as a signal rather than returned as a code
+     * (REQ-20260909T0840Z-2d17). All seven encoder entry points stayed null afterwards, by every
+     * route.
+     *
+     * So a gated build does not make the call at all. This is not caution about a value that
+     * might be wrong - it is a measured refusal, and a payload that trips it risks dying at
+     * startup before it has opened a socket, which is precisely what the gate exists to
+     * prevent. */
+    klog_write("encoder not attempted: the sysmodule load is refused for unsigned payloads "
+               "(measured 0xa0020101); build with PORTHOLE_ENCODER_SESSION to try anyway");
+    return PORTHOLE_NO_ENCODER;
+#else
     pid_t mypid = 0;
 #if defined(SYS_getpid)
     mypid = (pid_t)sys_call(SYS_getpid, 0, 0, 0, 0, 0, 0);
@@ -471,15 +490,14 @@ porthole_status porthole_encoder_open(void) {
 
     s_encoder_opened = 1;
 
-#if defined(PORTHOLE_ENCODER_SESSION)
-    /* Milestone M2: bring up an encoder session with the default configuration. Compiled in
-     * only when the gate is on - see porthole_encoder_session_enabled. */
+    /* Milestone M2: bring up an encoder session with the default configuration. Only a gated-on
+     * build reaches this line at all now - see the refusal at the top of this function. */
     porthole_encoder_config cfg;
     porthole_encoder_config_default(&cfg);
     (void)porthole_encoder_session_create(&cfg);
-#endif
 
     return PORTHOLE_OK;
+#endif
 }
 #endif
 
@@ -559,7 +577,18 @@ porthole_status porthole_pad_open(void) {
         (void)fn_pad_init();
     }
 
+    /* Marked opened either way, so a record arriving sixty times a second does not send this
+     * back through resolution on every one of them. */
     s_pad_opened = 1;
+
+    /* **Tried is not the same as reached.** None of these four is in the export table a payload
+     * is handed - checked against sweep 20260909-083918 - so this normally comes back with four
+     * nulls, and returning OK for that would put a success in the caller's hands that the
+     * addresses underneath it contradict. Injection needs the add and the insert; without
+     * either there is no input path at all, whatever the other two did. */
+    if (s_pad_api.virtual_device_add == NULL || s_pad_api.virtual_device_insert == NULL) {
+        return PORTHOLE_NO_PAD;
+    }
     return PORTHOLE_OK;
 }
 #endif
@@ -740,6 +769,11 @@ void porthole_display_draw_test_pattern(uint32_t frame_index) {
 
 static uint32_t s_encoded_frames = 0;
 
+/* Where one access unit is built, sized by PORTHOLE_FRAME_BYTES. File scope because a
+ * payload's stack will not hold it, and because porthole_run is its only caller and is not
+ * reentrant - the payload serves one video connection at a time. */
+static uint8_t s_frame_buf[PORTHOLE_FRAME_BYTES];
+
 /* Standard Annex-B H.264 NAL templates for 1080p60 stream */
 static const uint8_t s_sps_nal[14] = {
     0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0xC0, 0x28, 0xD9, 0x00, 0x78, 0x02, 0x27, 0xE2
@@ -762,9 +796,14 @@ porthole_status porthole_capture_encode(uint8_t *out, size_t cap, size_t *len) {
         return PORTHOLE_BAD_RECORD;
     }
     *len = 0;
+#if defined(PORTHOLE_ENCODER_SESSION)
+    /* A build asked for real video has nothing to give without the encoder. Gated off, the
+     * template stream below needs none - and refusing here was what stopped a gated payload
+     * serving anything at all. See porthole_encoder_session_enabled in porthole.h. */
     if (!s_encoder_opened) {
         return PORTHOLE_NO_ENCODER;
     }
+#endif
 
 #if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__)) && \
     defined(PORTHOLE_ENCODER_SESSION)
@@ -783,11 +822,24 @@ porthole_status porthole_capture_encode(uint8_t *out, size_t cap, size_t *len) {
         int (*gfn)(int, void *, size_t, size_t *) =
             (int (*)(int, void *, size_t, size_t *))s_encoder_api.get_au_data;
         size_t au_len = (size_t)0xDEADBEEFULL;
-        if (gfn(s_encoder_session.handle, out, cap, &au_len) == 0 &&
-            au_len > 0 && au_len != (size_t)0xDEADBEEFULL && au_len <= cap) {
-            *len = au_len;
-            s_encoded_frames++;
-            return PORTHOLE_OK;
+        if (gfn(s_encoder_session.handle, out, cap, &au_len) == 0 && au_len > 0 &&
+            au_len != (size_t)0xDEADBEEFULL) {
+            if (au_len <= cap) {
+                *len = au_len;
+                s_encoded_frames++;
+                return PORTHOLE_OK;
+            }
+            /* **Too large must not look like working video.** Falling through to the template
+             * puts a test pattern on the wire, and a host watching that sees a stream which
+             * frames and keyframes perfectly well, so nothing downstream can tell. Said once
+             * rather than per frame, because this runs sixty times a second. */
+            static int said = 0;
+            if (!said) {
+                said = 1;
+                klog_write_hex("access unit too large for the frame buffer, bytes: ",
+                               (uint64_t)au_len);
+                klog_write_hex("  the buffer holds: ", (uint64_t)cap);
+            }
         }
     }
 #endif
@@ -818,173 +870,45 @@ porthole_status porthole_capture_encode(uint8_t *out, size_t cap, size_t *len) {
 /* ---- Networking & Dual-Socket Server -------------------------------------- */
 
 /*
- * Neither socket is waited on. The loop below runs at the frame rate and, each time round,
- * accepts whoever has arrived, reads whatever input has arrived, and sends one frame - so a
- * read or an accept that waited would hold the frame with it. That is not hypothetical: the
- * host goes quiet on the input socket whenever a pad is at rest, so a receive that waited
- * stalled the video every time somebody let go of the keys, and an accept that waited meant
- * no video at all until something also connected for input.
+ * The sockets come from oops-sdk, and one code path serves both builds.
  *
- * So the listeners are non-blocking, the input receive takes only what has arrived, and the
- * one socket allowed to wait is the video connection - a send that returned "try later"
- * would otherwise be read as the connection having gone.
+ * **This was a private socket layer until 2026-09-09.** It had to be, because the SDK's was built
+ * on `sceNet*` and a payload resolves none of that (obSCEne REQ-20260908T1400Z-0001). The SDK has
+ * since been rebuilt on the POSIX exports a payload *can* reach, so the duplication goes: the
+ * measurements Porthole gathered - the socket-creation route, the option that sets non-blocking
+ * mode, the errno behaviour - now live in `oops/net.h` where the next payload gets them for free.
+ *
+ * Neither socket is waited on. The loop runs at the frame rate and, each time round, accepts
+ * whoever has arrived, reads whatever input has arrived, and sends one frame - so a read or an
+ * accept that waited would hold the frame with it. That is not hypothetical: the host goes quiet
+ * on the input socket whenever a pad is at rest, so a receive that waited stalled the video every
+ * time somebody let go of the keys, and an accept that waited meant no video at all until
+ * something also connected for input.
  */
 
-#if defined(PORTHOLE_HOST_BUILD) || (!defined(__FreeBSD__) && !defined(__PS5__))
-#ifndef _DEFAULT_SOURCE
-#define _DEFAULT_SOURCE
-#endif
-#include <errno.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <time.h>
-#include <unistd.h>
-
-static int porthole_set_blocking(int s, int blocking) {
-    int flags = fcntl(s, F_GETFL, 0);
-    if (flags < 0) return -1;
-    if (blocking) {
-        flags &= ~O_NONBLOCK;
-    } else {
-        flags |= O_NONBLOCK;
-    }
-    return fcntl(s, F_SETFL, flags);
-}
-
-static int porthole_listen_port(uint16_t port) {
-    int s = socket(AF_INET, SOCK_STREAM, 0);
-    if (s < 0) return -1;
-    int one = 1;
-    (void)setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    addr.sin_port = htons(port);
-    if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) < 0 || listen(s, 1) < 0 ||
-        porthole_set_blocking(s, 0) < 0) {
-        close(s);
-        return -1;
-    }
-    return s;
-}
-
-/* Whoever is waiting, or -1 at once if nobody is. */
-static int porthole_accept_conn(int listener) {
-    return accept(listener, NULL, NULL);
-}
-
-/* What has already arrived, without waiting for more. */
-static long porthole_recv_bytes(int conn, void *buf, size_t len) {
-    return (long)recv(conn, buf, len, MSG_DONTWAIT);
-}
-
-/* Whether the last negative return meant "nothing yet" rather than "broken". */
-static int porthole_would_block(long rc) {
-    (void)rc;
-    int e = errno;
-    return e == EAGAIN || e == EWOULDBLOCK;
-}
-
-static long porthole_send_bytes(int conn, const void *buf, size_t len) {
-    return (long)send(conn, buf, len, 0);
-}
-
-static void porthole_close_conn(int conn) {
-    if (conn >= 0) {
-        close(conn);
-    }
-}
-#else
-
-/* libSceNet's socket-option namespace and its non-blocking switch. The values oops-sdk's own
- * net layer uses (OOPS_SOL_SOCKET in oops/net.h, and SO_NBIO as noted in src/net/net.c),
- * and the same two that CTurt's public PS4-SDK network.h carries as SOL_SOCKET 0xffff and
- * SO_NBIO 0x1200. Not yet read back off this console: if the option is refused, the klog
- * says the listeners could not be made non-blocking. */
-#define PORTHOLE_SCE_SOL_SOCKET 0xFFFF
-#define PORTHOLE_SCE_SO_NBIO 0x1200
-
-/* "Do not wait" on one receive. FreeBSD's MSG_DONTWAIT, which the platform's network stack
- * descends from; CTurt's PS4-SDK network.h and the vitasdk net header both give the sceNet
- * flag of the same name this value. */
-#define PORTHOLE_SCE_MSG_DONTWAIT 0x80
-
-typedef struct porthole_net_api {
-    int (*socket)(const char *name, int family, int type, int protocol);
-    int (*bind)(int s, const void *addr, uint32_t addrlen);
-    int (*listen)(int s, int backlog);
-    int (*accept)(int s, void *addr, uint32_t *paddrlen);
-    int (*recv)(int s, void *buf, uint64_t len, int flags);
-    int (*send)(int s, const void *buf, uint64_t len, int flags);
-    int (*close)(int s);
-    int (*setsockopt)(int s, int level, int optname, const void *optval, uint32_t optlen);
-} porthole_net_api;
-
-static porthole_net_api s_net_api;
-static int s_net_inited = 0;
-/* Set when a listener could not be made non-blocking, so porthole_run can say so. The loop
- * still runs, but each accept then waits, and video needs an input client connected too. */
+/* Set when a listener could not be made non-blocking, so porthole_run can say so. The loop still
+ * runs, but each accept then waits, and video needs an input client connected too. */
 static int s_net_accept_waits = 0;
 
-static void porthole_net_init(void) {
-    if (s_net_inited) return;
-    pid_t mypid = 0;
-#if defined(SYS_getpid)
-    mypid = (pid_t)sys_call(SYS_getpid, 0, 0, 0, 0, 0, 0);
-#endif
-    s_net_api.socket = (int (*)(const char *, int, int, int))
-        (&sceNetSocket != NULL ? (void *)&sceNetSocket : porthole_resolve_symbol(mypid, "sceNetSocket"));
-    s_net_api.bind = (int (*)(int, const void *, uint32_t))
-        (&sceNetBind != NULL ? (void *)&sceNetBind : porthole_resolve_symbol(mypid, "sceNetBind"));
-    s_net_api.listen = (int (*)(int, int))
-        (&sceNetListen != NULL ? (void *)&sceNetListen : porthole_resolve_symbol(mypid, "sceNetListen"));
-    s_net_api.accept = (int (*)(int, void *, uint32_t *))
-        (&sceNetAccept != NULL ? (void *)&sceNetAccept : porthole_resolve_symbol(mypid, "sceNetAccept"));
-    s_net_api.recv = (int (*)(int, void *, uint64_t, int))
-        (&sceNetRecv != NULL ? (void *)&sceNetRecv : porthole_resolve_symbol(mypid, "sceNetRecv"));
-    s_net_api.send = (int (*)(int, const void *, uint64_t, int))
-        (&sceNetSend != NULL ? (void *)&sceNetSend : porthole_resolve_symbol(mypid, "sceNetSend"));
-    s_net_api.close = (int (*)(int))
-        (&sceNetSocketClose != NULL ? (void *)&sceNetSocketClose : porthole_resolve_symbol(mypid, "sceNetSocketClose"));
-    s_net_api.setsockopt = (int (*)(int, int, int, const void *, uint32_t))
-        (&sceNetSetsockopt != NULL ? (void *)&sceNetSetsockopt : porthole_resolve_symbol(mypid, "sceNetSetsockopt"));
-    s_net_inited = 1;
+static int porthole_set_blocking(int s, int blocking) {
+    return oops_set_nonblocking(s, blocking ? 0 : 1);
 }
 
-static int porthole_set_blocking(int s, int blocking) {
-    if (s_net_api.setsockopt == NULL) return -1;
-    int nbio = blocking ? 0 : 1;
-    return s_net_api.setsockopt(s, PORTHOLE_SCE_SOL_SOCKET, PORTHOLE_SCE_SO_NBIO, &nbio,
-                                (uint32_t)sizeof(nbio));
+/* Whether a negative return meant "nothing yet" rather than "broken". The SDK answers for both
+ * worlds - errno through `__error()` on the POSIX path, and the `sceNet` encoding otherwise - so
+ * Porthole no longer decides which it is looking at. */
+static int porthole_would_block(long rc) {
+    return oops_net_would_block(rc);
 }
 
 static int porthole_listen_port(uint16_t port) {
-    porthole_net_init();
-    if (s_net_api.socket == NULL || s_net_api.bind == NULL || s_net_api.listen == NULL ||
-        s_net_api.accept == NULL || s_net_api.recv == NULL || s_net_api.send == NULL) {
+    int s = oops_socket(OOPS_AF_INET, OOPS_SOCK_STREAM, OOPS_IPPROTO_TCP);
+    if (s < 0) {
         return -1;
     }
-    int s = s_net_api.socket("porthole", 2, 1, 6);
-    if (s < 0) return -1;
-
-    struct {
-        uint8_t sin_len;
-        uint8_t sin_family;
-        uint16_t sin_port;
-        uint32_t sin_addr;
-        char sin_zero[8];
-    } addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_len = sizeof(addr);
-    addr.sin_family = 2;
-    addr.sin_port = (uint16_t)((port << 8) | (port >> 8));
-    addr.sin_addr = 0;
-
-    if (s_net_api.bind(s, &addr, sizeof(addr)) < 0 || s_net_api.listen(s, 1) < 0) {
-        if (s_net_api.close != NULL) s_net_api.close(s);
+    /* A null address is INADDR_ANY: this listens on whatever interface reaches the host. */
+    if (oops_bind(s, (const char *)0, port) < 0 || oops_listen(s, 1) < 0) {
+        oops_close(s);
         return -1;
     }
     if (porthole_set_blocking(s, 0) < 0) {
@@ -994,39 +918,37 @@ static int porthole_listen_port(uint16_t port) {
 }
 
 static int porthole_accept_conn(int listener) {
-    if (s_net_api.accept == NULL) return -1;
-    return s_net_api.accept(listener, NULL, NULL);
+    return oops_accept(listener, (char *)0, 0, (uint16_t *)0);
 }
 
 static long porthole_recv_bytes(int conn, void *buf, size_t len) {
-    if (s_net_api.recv == NULL) return -1;
-    return (long)s_net_api.recv(conn, buf, (uint64_t)len, PORTHOLE_SCE_MSG_DONTWAIT);
-}
-
-/* Whether a negative libSceNet return meant "nothing yet" rather than "broken".
- *
- * libSceNet reports a BSD errno as 0x8041xxxx with the errno in the low byte, and "would
- * block" on FreeBSD is EAGAIN, 35. The vitasdk net header - the same sceNet lineage - gives
- * SCE_NET_ERROR_EAGAIN and SCE_NET_ERROR_EWOULDBLOCK as 0x80410123, which is that shape; no
- * public PS4 header on hand names them, and it has not been read back off this console. If
- * it is wrong, the input connection closes at its first quiet moment and the klog line in
- * porthole_run names the code that did it. */
-static int porthole_would_block(long rc) {
-    uint32_t code = (uint32_t)rc;
-    return (code >> 16) == 0x8041u && (code & 0xFFu) == 35u;
+    /* Take only what has already arrived. The flag's value was measured on this console before it
+     * had a name; it has one now, and it lives in the SDK where the next payload finds it. */
+    return oops_recv(conn, buf, len, OOPS_MSG_DONTWAIT);
 }
 
 static long porthole_send_bytes(int conn, const void *buf, size_t len) {
-    if (s_net_api.send == NULL) return -1;
-    return (long)s_net_api.send(conn, buf, (uint64_t)len, 0);
+    return oops_send(conn, buf, len, 0);
 }
 
 static void porthole_close_conn(int conn) {
-    if (conn >= 0 && s_net_api.close != NULL) {
-        s_net_api.close(conn);
+    if (conn >= 0) {
+        oops_close(conn);
     }
 }
+
+/* Wait, on whichever side of the build this is. One helper rather than the same guarded pair
+ * written out at each of the two places the loop waits. */
+static void porthole_sleep_ms(unsigned int ms) {
+#if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__))
+    oops_time_sleep_ms(ms);
+#else
+    struct timespec ts;
+    ts.tv_sec = (time_t)(ms / 1000u);
+    ts.tv_nsec = (long)((ms % 1000u) * 1000000u);
+    nanosleep(&ts, NULL);
 #endif
+}
 
 /*
  * The payload's main server loop:
@@ -1034,13 +956,49 @@ static void porthole_close_conn(int conn) {
  * Serves video out and accepts input in, waiting on neither.
  */
 porthole_status porthole_run(void) {
+    /* The encoder is attempted, not required.
+     *
+     * With the session gated off the video path is the template stream, which needs no
+     * encoder at all, so requiring one here meant the build designed to exercise the sockets
+     * could never reach them. That is not hypothetical: obSCEne measured on 2026-09-08 that
+     * an elfldr payload resolves neither the sysmodule loader nor any sceVencCore entry
+     * point, so a payload that insisted on the encoder would exit before opening a port. */
     porthole_status enc_status = porthole_encoder_open();
     if (enc_status != PORTHOLE_OK) {
+#if defined(PORTHOLE_HOST_BUILD) || (!defined(__FreeBSD__) && !defined(__PS5__))
+        /* A host build has no target to serve and would bind real ports if it tried, so it
+         * stops here rather than starting a server inside a test binary. */
         return enc_status;
+#elif defined(PORTHOLE_ENCODER_SESSION)
+        /* This build was asked for real video and has no way to produce any. */
+        return enc_status;
+#else
+        klog_write_num("encoder unavailable, serving the template stream anyway, status: ",
+                       (int64_t)enc_status);
+#endif
     }
 
     (void)porthole_pad_open();
-    (void)porthole_display_open();
+
+    /* **The display will not open in a payload, and the log says so rather than implying it did.**
+     * obSCEne measured `oops_display_*` as `supported: 0x0` there - no GPU library is mapped in an
+     * unsigned payload - and every route to the composited pixels came back null
+     * (REQ-20260909T1021Z-af02). The call is still made, because a future route may change that
+     * and the failure is harmless: the framebuffer stays null, the test pattern draws nothing and
+     * the flip refuses. What must not happen is a payload that quietly draws into nowhere while
+     * its log reads like a working capture path. */
+    porthole_status disp_status = porthole_display_open();
+#if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__))
+    if (disp_status != PORTHOLE_OK) {
+        klog_write_num("display unavailable, so nothing is captured; the stream is the template "
+                       "only. status: ",
+                       (int64_t)disp_status);
+    } else if (porthole_display_get_framebuffer() == NULL) {
+        klog_write("display opened but handed back no framebuffer: nothing to capture");
+    }
+#else
+    (void)disp_status;
+#endif
 
     int s_video = porthole_listen_port(PORTHOLE_PORT_VIDEO);
     int s_input = porthole_listen_port(PORTHOLE_PORT_INPUT);
@@ -1055,6 +1013,12 @@ porthole_status porthole_run(void) {
         klog_write("listeners could not be made non-blocking: each accept waits, so video "
                    "needs an input client connected too");
     }
+    /* Which route the descriptor came by is the SDK's business now, not this payload's - it owns
+     * the choice between the export and the system call, and both were measured working. What is
+     * still worth saying here is that two listeners exist at all, because everything downstream
+     * depends on it and a first run has no other way to know. */
+    klog_write_num("video listening on 9805, descriptor: ", (int64_t)s_video);
+    klog_write_num("input listening on 9806, descriptor: ", (int64_t)s_input);
 #endif
 
     s_porthole_running = 1;
@@ -1125,27 +1089,45 @@ porthole_status porthole_run(void) {
             porthole_display_draw_test_pattern(frame_counter++);
             (void)porthole_display_flip();
 
-            uint8_t frame_buf[4096];
             size_t frame_len = 0;
             porthole_status cap_rc =
-                porthole_capture_encode(frame_buf, sizeof(frame_buf), &frame_len);
+                porthole_capture_encode(s_frame_buf, sizeof(s_frame_buf), &frame_len);
             if (cap_rc == PORTHOLE_OK && frame_len > 0) {
-                long sent = porthole_send_bytes(conn_video, frame_buf, frame_len);
-                if (sent < 0) {
+                /* **Until all of it has gone.** A send may take less than it was offered, and
+                 * a short write drops the tail of an access unit. The host's reader
+                 * resynchronises past the damage, so the loss would surface as a picture that
+                 * stutters rather than as an error anywhere - the worst shape a fault can
+                 * take. The template units are small enough that this cannot bite today; the
+                 * real frames M3 brings are not.
+                 *
+                 * **A full buffer is waited out, not treated as a death.** An accepted socket
+                 * inherits the listener's non-blocking mode here - measured, by reading the
+                 * flags back off one (REQ-20260908T1528Z-b4a2) - so this connection is put
+                 * back to blocking above. Should that ever fail, a full send buffer answers
+                 * try-again, and closing on it would drop a working connection every time the
+                 * network fell behind. Giving up mid-unit is not an option either: half an
+                 * access unit on the wire is the corruption this loop exists to avoid. So it
+                 * waits, which costs a millisecond and cannot lose the stream. */
+                size_t off = 0;
+                while (off < frame_len) {
+                    long sent =
+                        porthole_send_bytes(conn_video, s_frame_buf + off, frame_len - off);
+                    if (sent > 0) {
+                        off += (size_t)sent;
+                        continue;
+                    }
+                    if (sent < 0 && porthole_would_block(sent)) {
+                        porthole_sleep_ms(1);
+                        continue;
+                    }
                     porthole_close_conn(conn_video);
                     conn_video = -1;
+                    break;
                 }
             }
         }
 
-#if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__))
-        oops_time_sleep_ms(16);
-#else
-        struct timespec ts;
-        ts.tv_sec = 0;
-        ts.tv_nsec = 16000000;
-        nanosleep(&ts, NULL);
-#endif
+        porthole_sleep_ms(16);
     }
 
     if (conn_input >= 0) porthole_close_conn(conn_input);

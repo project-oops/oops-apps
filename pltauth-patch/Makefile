@@ -4,6 +4,7 @@ include $(OOPS_SDK)/oops-sdk.mk
 CC ?= clang
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion \
           -Wstrict-prototypes -Wmissing-prototypes -O1 -DOOPS_HOST_BUILD \
+          $(OOPS_SDK_INCLUDE)
 
 TARGET_CC ?= clang
 TARGET_CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion \
@@ -17,42 +18,41 @@ DIST ?= dist
 
 .PHONY: all check skeleton elf dist clean
 
-all: $(BUILD)/injector_selftest skeleton elf
+all: $(BUILD)/pltauth_patch_selftest elf
 
 $(BUILD):
 	mkdir -p $(BUILD)
 
-$(BUILD)/injector_selftest: injector_selftest.c $(SDK_HOST_SRCS) | $(BUILD)
-	$(CC) $(CFLAGS) -o $@ injector_selftest.c $(SDK_HOST_SRCS)
+$(BUILD)/pltauth_patch_selftest: pltauth_patch_selftest.c | $(BUILD)
+	$(CC) $(CFLAGS) -o $@ pltauth_patch_selftest.c $(OOPS_SDK_DIR)/src/system/freestd.c
 
+check: $(BUILD)/pltauth_patch_selftest
+	./$(BUILD)/pltauth_patch_selftest
 
 skeleton: | $(BUILD)
-	$(TARGET_CC) $(TARGET_CFLAGS) -c -o $(BUILD)/injector.o injector.c
-	@echo "injector skeleton: compiles freestanding for the target (object only, not linked)"
+	$(TARGET_CC) $(TARGET_CFLAGS) -c -o $(BUILD)/pltauth_patch.o pltauth_patch.c
+	@echo "pltauth-patch skeleton: compiles freestanding for the target (object only)"
 
-INJECTOR_PAYLOAD_SRC := injector.c \
-                        $(OOPS_SDK_DIR)/src/system/freestd.c \
-                        $(OOPS_SDK_DIR)/src/system/syscall.c \
-                        $(OOPS_SDK_DIR)/src/system/krw.c \
-                        $(OOPS_SDK_DIR)/src/system/procctl.c \
-                        $(OOPS_SDK_DIR)/src/system/loader.c \
-                        $(OOPS_SDK_DIR)/src/system/target.c \
-                        $(OOPS_SDK_DIR)/src/system/inject.c
+PLTAUTH_PAYLOAD_SRC := pltauth_patch.c \
+                       $(OOPS_SDK_DIR)/src/system/freestd.c \
+                       $(OOPS_SDK_DIR)/src/system/syscall.c \
+                       $(OOPS_SDK_DIR)/src/system/krw.c
 
-$(BUILD)/injector.elf: $(INJECTOR_PAYLOAD_SRC) | $(BUILD)
-	$(TARGET_CC) $(TARGET_CFLAGS) -fuse-ld=lld -shared -Wl,-e,injector_start \
+$(BUILD)/pltauth-patch.elf: $(PLTAUTH_PAYLOAD_SRC) | $(BUILD)
+	$(TARGET_CC) $(TARGET_CFLAGS) -fuse-ld=lld -shared -Wl,-e,pltauth_patch_start \
 	    -Wl,--unresolved-symbols=ignore-all -Wl,-z,noexecstack \
 	    -Wl,-z,max-page-size=0x4000 -Wl,-z,common-page-size=0x4000 \
-	    -o $@ $(INJECTOR_PAYLOAD_SRC)
+	    -o $@ $(PLTAUTH_PAYLOAD_SRC)
 
-elf: $(BUILD)/injector.elf
+elf: $(BUILD)/pltauth-patch.elf
 
 # The release contract (see bin/oops-apps): put what ships under dist/.
 # Staged artifacts explicitly encode target generation per CONVENTIONS.md section 2.
-dist: $(BUILD)/injector.elf
+dist: $(BUILD)/pltauth-patch.elf
 	@mkdir -p $(DIST)
-	cp $(BUILD)/injector.elf $(DIST)/injector-$(TARGET).elf
+	cp $(BUILD)/pltauth-patch.elf $(DIST)/pltauth-patch-$(TARGET).elf
 	@$(call oops_verify_dist,$(DIST))
 
 clean:
 	rm -rf $(BUILD) $(DIST)
+

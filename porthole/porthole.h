@@ -46,6 +46,16 @@
  * the meaning of individual button bits is Ghostpad's and belongs beside the code that
  * fills them, not here.
  */
+/* The version this reads and writes.
+ *
+ * A record of any other version is **refused rather than interpreted**. The reserved bytes
+ * below are where a later version puts gyro or the touchpad, so reading a version-two record
+ * through this layout would take a real value for a reserved zero. The host half
+ * (pros-link::pad) has refused a mismatch from the start and this side did not, which meant
+ * the two ends disagreed about what the field was for: the sender's upgrade path was a
+ * receiver that quietly accepted anything. */
+#define PORTHOLE_PAD_VERSION 1u
+
 #define PORTHOLE_PAD_MAGIC0 'P'
 #define PORTHOLE_PAD_MAGIC1 'P'
 #define PORTHOLE_PAD_MAGIC2 'A'
@@ -75,6 +85,24 @@ typedef struct porthole_pad {
  * discovered. */
 #define PORTHOLE_PAD_BYTES 24u
 
+/* The bitrate an encoder session asks for by default, and the room one access unit gets.
+ *
+ * **A keyframe is several times the size of an average frame.** At 10 Mbps and 60 fps the
+ * average frame is about 21 KB, and the IDR opening a 60-frame group runs many times that, so
+ * a buffer sized for the average would refuse every keyframe - and refusing a keyframe is the
+ * one failure the host cannot diagnose, because a stream of dependent pictures decodes to
+ * nothing and looks exactly like no stream at all.
+ *
+ * So one access unit gets **a second of the configured bitrate**. That is generous rather than
+ * exact: an IDR at this rate normally runs a small fraction of it. It is headroom chosen to be
+ * explainable, not a bound read off the codec specification, and an access unit that still
+ * does not fit says so in the log rather than quietly becoming a test pattern.
+ *
+ * The buffer is static, never automatic: a payload's stack will not hold a megabyte and there
+ * is no allocator here. */
+#define PORTHOLE_DEFAULT_BITRATE 10000000u
+#define PORTHOLE_FRAME_BYTES (PORTHOLE_DEFAULT_BITRATE / 8u)
+
 /* What a payload operation reports. A non-zero status means the thing did not happen,
  * and each value says why - "it did not work" and "it worked and produced nothing" must
  * never look alike. PORTHOLE_NO_ENCODER is the one that decides whether Porthole is
@@ -88,7 +116,7 @@ typedef enum porthole_status {
     PORTHOLE_NO_PAD = 4,     /* pad injection unavailable */
     PORTHOLE_NET = 5,        /* a socket call refused */
     PORTHOLE_BAD_RECORD =
-        6, /* an input record failed its own checks (magic/slot/reserved) */
+        6, /* an input record failed its own checks (magic/version/slot/reserved) */
     PORTHOLE_STALE = 7 /* an input record no newer than the last applied to its slot, so it
                           was not applied - the newest state supersedes it, by design */
 } porthole_status;

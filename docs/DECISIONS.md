@@ -11,6 +11,7 @@ choice being re-litigated by somebody who only has the choice.
 | 🟢 | D001 | [A repository for apps built on the SDK, and obSCEne is not one](decisions/D001-a-repository-for-apps-built-on-the-sdk.md) | decided | 2026-09-04 |
 | 🟢 | D002 | [The base layer is on loan, and belongs in the SDK](decisions/D002-the-base-layer-is-on-loan-from-obscene.md) | decided | 2026-09-04 |
 | 🟢 | D003 | [The encoder session is gated off until its parameter layouts are known](decisions/D003-the-encoder-session-is-gated-off-until.md) | decided | 2026-09-07 |
+| 🟢 | D004 | [Hardware encode and pad injection are both out of reach from a payload](decisions/D004-hardware-encode-and-pad-injection-are.md) | hardware | 2026-09-09 |
 
 | | meaning |
 |---|---|

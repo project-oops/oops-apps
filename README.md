@@ -68,21 +68,25 @@ constraint oops-sdk and obSCEne build under.
 ## Shipping an app
 
 An app says what it ships with a `dist` target in its own `Makefile`: it stages its release
-artifacts under `dist/`, and that is the whole contract. What it stages is the app's business
-- a plain `.elf` payload a homebrew loader runs, a `.zip` title directory, a package. The
-entry point and CI never learn a format; they run `make dist` and take whatever `dist/` holds.
+artifacts under `dist/`, following the four-axis naming conventions in
+[CONVENTIONS.md](https://github.com/project-oops/OOPS/blob/main/docs/CONVENTIONS.md#the-four-axes-of-a-build-and-a-run).
+Every artifact must encode the target generation (e.g. `$(TARGET)`, default: `prospero`) and
+its role/format: a plain `.elf` payload for a homebrew loader, a `.zip` native title directory
+for `/user/app/`, or a package. The shared SDK helper `oops_verify_dist` enforces this at the
+Makefile level and fails if an un-generation-tagged file or an unzipped folder is staged.
 
 ```makefile
 dist: $(BUILD)/myapp.elf          # porthole's is the worked example
 	@mkdir -p $(DIST)
-	cp $(BUILD)/myapp.elf $(DIST)/myapp.elf
+	cp $(BUILD)/myapp.elf $(DIST)/myapp-$(TARGET).elf
+	@$(call oops_verify_dist,$(DIST))
 ```
 
 `./bin/oops-apps dist` stages every app that has a `dist` target and says so for every app
 that does not - an app still in development ships nothing, out loud, rather than an empty
-release. On a push to `main`, CI does the same across a matrix of the apps and publishes each
-app's artifacts to the rolling **`latest-main`** prerelease. A new app appears there the day
-its Makefile grows a `dist` target, with nothing to add to the workflow.
+release. On a push to `main`, CI validates and publishes each app's artifacts to the rolling
+**`latest-main`** prerelease. A new app appears there the day its Makefile grows a conforming
+`dist` target, with nothing to add to the workflow.
 
 ## Downloads
 

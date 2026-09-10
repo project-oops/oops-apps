@@ -31,7 +31,7 @@ SDK_ELF_SRCS := $(OOPS_SDK_DIR)/src/display.c \
 
 CC ?= clang
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion \
-          -Wstrict-prototypes -Wmissing-prototypes -O1 $(OOPS_SDK_INCLUDE)
+          -Wstrict-prototypes -Wmissing-prototypes -O1 -DOOPS_HOST_BUILD $(OOPS_SDK_INCLUDE)
 
 TARGET_CC ?= clang
 TARGET_CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion \
@@ -40,8 +40,9 @@ TARGET_CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-con
                  -fno-stack-protector -fvisibility=hidden $(OOPS_SDK_INCLUDE)
 
 BUILD ?= build
+DIST ?= dist
 
-.PHONY: all check skeleton elf clean
+.PHONY: all check skeleton elf dist clean
 
 # check and skeleton run on any machine; elf is the on-console payload. All three build.
 # The elf links only the SDK sources a gallery uses (SDK_ELF_SRCS), so it does not drag in the
@@ -72,5 +73,12 @@ $(BUILD)/gallery.elf: gallery.c gallery_main.c gallery.h $(SDK_ELF_SRCS) | $(BUI
 
 elf: $(BUILD)/gallery.elf
 
+# The release contract (see bin/oops-apps): put what ships under dist/.
+# Staged artifacts explicitly encode target generation per CONVENTIONS.md section 2.
+dist: $(BUILD)/gallery.elf
+	@mkdir -p $(DIST)
+	cp $(BUILD)/gallery.elf $(DIST)/gallery-$(TARGET).elf
+	@$(call oops_verify_dist,$(DIST))
+
 clean:
-	rm -rf $(BUILD)
+	rm -rf $(BUILD) $(DIST)

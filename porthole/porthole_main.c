@@ -115,15 +115,21 @@ int porthole_start(const payload_args_t *args) {
 
     klog_write("Initializing controller pad subsystem (M5)...");
     porthole_status pad_status = porthole_pad_open();
-    if (pad_status == PORTHOLE_OK) {
-        const porthole_pad_api *papi = porthole_pad_get_api();
-        if (papi != NULL) {
-            klog_write("Pad API self-resolved successfully:");
-            klog_write_hex("  scePadInit:                 ", (uint64_t)(uintptr_t)papi->pad_init);
-            klog_write_hex("  scePadVirtualDeviceAdd:     ", (uint64_t)(uintptr_t)papi->virtual_device_add);
-            klog_write_hex("  scePadVirtualDeviceInsert:  ", (uint64_t)(uintptr_t)papi->virtual_device_insert);
-            klog_write_hex("  scePadVirtualDeviceDelete:  ", (uint64_t)(uintptr_t)papi->virtual_device_delete);
-        }
+    const porthole_pad_api *papi = porthole_pad_get_api();
+    if (papi != NULL) {
+        /* **The addresses go out either way, and the headline says which case this is.** An
+         * earlier version printed "self-resolved successfully" whenever the subsystem had been
+         * opened, and opening always succeeded - so on this hardware, where none of the four is
+         * in a payload's export table, it announced success above four zeroes. Printing them
+         * only on success would hide the one case worth reading. */
+        klog_write(pad_status == PORTHOLE_OK
+                       ? "Pad API resolved; controller injection is available:"
+                       : "Pad API did NOT resolve; records will be read and checked but not "
+                         "injected:");
+        klog_write_hex("  scePadInit:                 ", (uint64_t)(uintptr_t)papi->pad_init);
+        klog_write_hex("  scePadVirtualDeviceAdd:     ", (uint64_t)(uintptr_t)papi->virtual_device_add);
+        klog_write_hex("  scePadVirtualDeviceInsert:  ", (uint64_t)(uintptr_t)papi->virtual_device_insert);
+        klog_write_hex("  scePadVirtualDeviceDelete:  ", (uint64_t)(uintptr_t)papi->virtual_device_delete);
     }
 
     /* Start main payload dual-socket server loop (M4/M5) */

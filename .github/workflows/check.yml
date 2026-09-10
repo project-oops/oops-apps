@@ -51,3 +51,6 @@ jobs:
       - name: Each app's own gate
         run: ./bin/oops-apps check
         working-directory: OOPS/oops-apps
+      - name: Stage every app and verify naming conventions
+        run: ./bin/oops-apps dist
+        working-directory: OOPS/oops-apps

@@ -32,3 +32,37 @@ structures from public toolchain sources - and then a build with the define. The
 build flag rather than a runtime switch on purpose: a switch that could be flipped from a
 socket would put the unconfirmed calls one packet away from the first run this exists to
 protect.
+
+---
+
+**amended** · 2026-09-08
+
+The gate did not do what this entry claimed for it, and hardware said so.
+
+obSCEne's run of 2026-09-08 measured all three delivery routes, and no `sceVencCore` entry
+point resolved on any of them. Not one of the twenty-four is in the export table an elfldr
+payload is handed either, read directly out of that run's own dump. So `porthole_encoder_open`
+fails on the hardware this is aimed at, on the route Porthole ships on - it has to be a
+resident service, and a title cannot be one.
+
+**A correction to an earlier draft of this entry.** It said `sceSysmoduleLoadModule` was not
+available to a payload at all. That was wrong, and the mistake is worth keeping visible for its
+shape: the probe's encoder section reported the loader absent, and the loader is in fact in the
+payload's export table at a real address. The section had not looked there. An absence in a
+report is a statement about where the report looked, and this entry repeated one as a fact.
+
+That was fatal to the gate's purpose, because two places required the encoder before anything
+else could happen: `porthole_run` returned immediately unless the open succeeded, and
+`porthole_capture_encode` refused unless it had. A gated payload would therefore have logged
+one line and exited **without opening a socket**, and the run designed to exercise the sockets
+could never have reached them.
+
+The encoder is now **attempted, never required**. Gated off, the video path is the template
+stream, which needs no encoder at all: `porthole_run` logs the status and carries on, and
+capture serves the template. A build *with* the gate on still refuses, because it was asked for
+real video and has none to give, and a host build still refuses because it has no target to
+serve and would bind real ports if it tried.
+
+The host selftest now checks the template stream is well-formed Annex-B, opening on sequence
+parameters, picture parameters and an IDR, since that is what a first hardware run puts on the
+wire.

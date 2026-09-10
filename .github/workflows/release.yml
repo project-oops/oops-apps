@@ -119,14 +119,34 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           shopt -s nullglob
-          # Each artifact is `app-<name>/` holding that app's dist files. Flatten to
-          # `<name>-<file>` so one app's payload is told from another's on the releases page,
-          # and two apps shipping a file of the same name do not collide into one.
+          # Each artifact is `app-<name>/` holding that app's dist files.
+          # Enforce OOPS CONVENTIONS.md section 2: every file must start with the app name,
+          # encode the target generation, and be packaged as a file (never an unzipped directory).
           for d in staged/app-*/; do
             app=$(basename "$d"); app=${app#app-}
             for f in "$d"*; do
-              [ -f "$f" ] || continue
-              cp "$f" "dist/${app}-$(basename "$f")"
+              [ -e "$f" ] || continue
+              if [ -d "$f" ]; then
+                echo "::error file=$f::Directory in staged artifacts for $app; titles must be packaged as .zip" >&2
+                exit 1
+              fi
+              fname=$(basename "$f")
+              case "$fname" in
+                "$app"-*)
+                  case "$fname" in
+                    *-orbis*|*-neo*|*-prospero*|*-trinity*) ;;
+                    *)
+                      echo "::error file=$f::Artifact $fname does not encode a target generation per CONVENTIONS.md section 2" >&2
+                      exit 1
+                      ;;
+                  esac
+                  cp "$f" "dist/${fname}"
+                  ;;
+                *)
+                  echo "::error file=$f::Artifact $fname in $app does not begin with the app name '$app-'" >&2
+                  exit 1
+                  ;;
+              esac
             done
           done
           if [ -n "$(ls -A dist 2>/dev/null)" ]; then

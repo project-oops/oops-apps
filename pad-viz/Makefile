@@ -33,8 +33,9 @@ TARGET_CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-con
                  -fno-stack-protector -fvisibility=hidden $(OOPS_SDK_INCLUDE)
 
 BUILD ?= build
+DIST ?= dist
 
-.PHONY: all check skeleton elf clean
+.PHONY: all check skeleton elf dist clean
 
 all: $(BUILD)/pad-viz_selftest skeleton elf
 
@@ -61,5 +62,12 @@ $(BUILD)/pad-viz.elf: pad-viz.c pad-viz_main.c pad-viz.h $(SDK_ELF_SRCS) | $(BUI
 
 elf: $(BUILD)/pad-viz.elf
 
+# The release contract (see bin/oops-apps): put what ships under dist/.
+# Staged artifacts explicitly encode target generation per CONVENTIONS.md section 2.
+dist: $(BUILD)/pad-viz.elf
+	@mkdir -p $(DIST)
+	cp $(BUILD)/pad-viz.elf $(DIST)/pad-viz-$(TARGET).elf
+	@$(call oops_verify_dist,$(DIST))
+
 clean:
-	rm -rf $(BUILD)
+	rm -rf $(BUILD) $(DIST)
