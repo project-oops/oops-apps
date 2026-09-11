@@ -11,6 +11,7 @@ __attribute__((weak)) oops_display_t *oops_display_open(oops_display_backend_t b
     (void)b; (void)w; (void)h; return (oops_display_t *)0;
 }
 __attribute__((weak)) int oops_display_is_ready(const oops_display_t *d) { (void)d; return 0; }
+__attribute__((weak)) int oops_display_is_gpu_accelerated(const oops_display_t *d) { (void)d; return 0; }
 __attribute__((weak)) uint32_t *oops_display_get_framebuffer(oops_display_t *d) { (void)d; return (uint32_t *)0; }
 __attribute__((weak)) int oops_display_flip(oops_display_t *d) { (void)d; return 0; }
 __attribute__((weak)) void oops_display_close(oops_display_t *d) { (void)d; }

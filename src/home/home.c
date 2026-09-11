@@ -1,5 +1,5 @@
 /*
- * home - clean-room reimplementation of the PS5 shell (Prospero UX / SceShellCore)
+ * home - clean-room reimplementation of the Prospero shell (Prospero UX / SceShellCore)
  * for homebrew and the Orbistoun emulator.
  *
  * Shared between the host self-test and the payload, so nothing here may call libc, allocate, or
@@ -13,7 +13,7 @@
 
 static const home_theme_t s_themes[] = {
     {
-        "MODERN",        /* PS5 UX: tiles over a detail strip */
+        "MODERN",        /* Prospero UX: tiles over a detail strip */
         0xFF10141Cu, 0xFF3D8BFDu, 0xFFF2F5FAu, 0xFF7C8493u, 0xFF3D8BFDu, 0xFF1B212Cu,
         200, 56, 132, 132, 28, 48, 64, 2,
         HOME_LAYOUT_TILES, HOME_CURSOR_BOX
@@ -192,7 +192,7 @@ static void build_captures_menu(home_model_t *m) {
 
 static void build_saves_menu(home_model_t *m) {
     home_menu_t *menu = &m->menus[HOME_SCREEN_SETTINGS_SAVES];
-    menu_reset(menu, "SAVED DATA (PS5)");
+    menu_reset(menu, "SAVED DATA (PROSPERO)");
     for (int i = 0; i < m->save_count; i++) {
         menu_add(menu, m->saves[i].name, m->saves[i].timestamp, HOME_ACTION_NONE, 0, 1);
     }
@@ -257,15 +257,15 @@ void home_model_init(home_model_t *m) {
     m->last_arg = 0;
     m->last_refused = 0;
 
-    /* Realistic PS5 default titles */
+    /* Realistic Prospero default titles */
     static const home_title_t default_titles[] = {
-        { "PPSA01325", "ASTRO'S PLAYROOM",         "PS5 BIG APP (0)", "1.004.000", 11400, 1,  420, 0, 28, 42 },
-        { "PPSA01342", "DEMON'S SOULS",            "PS5 BIG APP (0)", "1.002.000", 66200, 1, 1850, 1, 34, 37 },
-        { "PPSA01284", "RETURNAL",                 "PS5 BIG APP (0)", "1.003.000", 56100, 1,  720, 3, 19, 31 },
-        { "PPSA01521", "HORIZON FORBIDDEN WEST",   "PS5 BIG APP (0)", "1.018.000", 98400, 1, 2400, 5, 48, 50 },
-        { "OOPS00001", "OBSCENE HARDWARE PROBE",   "ELF",             "1.000.000",     4, 1,   45, 0,  0,  0 },
-        { "OOPS00002", "PORTHOLE STREAMER",        "ELF",             "1.000.000",     2, 1,   15, 0,  0,  0 },
-        { "CUSA00123", "BLOODBORNE",               "PS4",             "1.009.000", 32000, 1, 5300, 12, 40, 40 }
+        { "PPSA01325", "ASTRO'S PLAYROOM",         "PROSPERO BIG APP (0)", "1.004.000", 11400, 1,  420, 0, 28, 42 },
+        { "PPSA01342", "DEMON'S SOULS",            "PROSPERO BIG APP (0)", "1.002.000", 66200, 1, 1850, 1, 34, 37 },
+        { "PPSA01284", "RETURNAL",                 "PROSPERO BIG APP (0)", "1.003.000", 56100, 1,  720, 3, 19, 31 },
+        { "PPSA01521", "HORIZON FORBIDDEN WEST",   "PROSPERO BIG APP (0)", "1.018.000", 98400, 1, 2400, 5, 48, 50 },
+        { "OOPS00001", "OBSCENE HARDWARE PROBE",   "ELF",                  "1.000.000",     4, 1,   45, 0,  0,  0 },
+        { "OOPS00002", "PORTHOLE STREAMER",        "ELF",                  "1.000.000",     2, 1,   15, 0,  0,  0 },
+        { "CUSA00123", "BLOODBORNE",               "ORBIS",                "1.009.000", 32000, 1, 5300, 12, 40, 40 }
     };
     home_set_titles(m, default_titles, (int)(sizeof(default_titles) / sizeof(default_titles[0])));
 
@@ -428,7 +428,7 @@ void home_model_init(home_model_t *m) {
 
     menu = &m->menus[HOME_SCREEN_SETTINGS_SYSTEM];
     menu_reset(menu, "SYSTEM");
-    menu_add(menu, "CONSOLE INFORMATION", "PS5 PROSPERO (FW 12.40)", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "CONSOLE INFORMATION", "PROSPERO (FW 12.40)", HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "SYSTEM SOFTWARE UPDATE", "CHECK AUTOMATICALLY", HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "POWER SAVING", "REST MODE IN 1 HOUR", HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "HDMI", "HDMI DEVICE LINK ENABLED", HOME_ACTION_NONE, 0, 1);

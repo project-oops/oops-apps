@@ -23,6 +23,7 @@ PAYLOAD_SRCS = platform_oops.c \
                $(OOPS_SDK_DIR)/src/videodec/videodec.c $(OOPS_SDK_DIR)/src/memory/memory.c \
                $(OOPS_SDK_DIR)/src/time/time.c $(OOPS_SDK_DIR)/src/system/system.c \
                $(OOPS_SDK_DIR)/src/system/freestd.c $(OOPS_SDK_DIR)/src/system/syscall.c \
+               $(OOPS_SDK_DIR)/src/system/sysmodule.c \
                $(OOPS_SDK_DIR)/src/system/krw.c $(OOPS_SDK_DIR)/src/draw/draw.c
 
 ENTRY_POINT := wipeout_start

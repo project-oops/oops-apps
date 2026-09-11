@@ -406,6 +406,10 @@ int main(void) {
         printf("FAIL: display flip should succeed\n");
         failures++;
     }
+    if (porthole_display_is_gpu_accelerated() != 0) {
+        printf("FAIL: porthole display should not be GPU accelerated on host\n");
+        failures++;
+    }
     porthole_display_close();
     if (porthole_display_get_framebuffer() != NULL) {
         printf("FAIL: display fb should be NULL after close\n");

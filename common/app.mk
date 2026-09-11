@@ -15,13 +15,26 @@ OOPS_SDK_DIR := $(abspath $(OOPS_SDK))
 
 # Application identity & metadata defaults
 APP_NAME       ?= $(notdir $(CURDIR))
-TITLE_ID       ?= OOPS00001
 TITLE_NAME     ?= $(APP_NAME)
 TITLE_CATEGORY ?= big-app
 TITLE_VERSION  ?= 01.00
 TITLE_ICON     ?= $(firstword $(wildcard sce_sys/icon0.png icon0.png assets/icon0.png))
 FORMATS        ?= elf
 ENTRY_POINT    ?= $(subst -,_,$(APP_NAME))_start
+
+# Target-agnostic Title ID synthesis (reserving 3 characters for the target tag: ORB/NEO/PRO/TRI)
+# Sony Title ID format requires strictly 9 characters: 4 letters + 5 digits ([A-Z]{4}[0-9]{5}).
+# The 3-character target tag occupies indices 0..2, followed by 1 app letter and 5 digits.
+ifeq ($(EXPLICIT_TITLE_ID),1)
+    TITLE_ID ?= OOPS00001
+else
+    APP_RAW_ID  := $(strip $(if $(TITLE_CODE),$(TITLE_CODE),$(if $(filter-out OOPS00001,$(TITLE_ID)),$(TITLE_ID),$(APP_NAME)00001)))
+    APP_CHAR    := $(shell echo "$(APP_RAW_ID)" | tr -dc 'A-Za-z' | cut -c1 | tr 'a-z' 'A-Z')
+    APP_CHAR    := $(if $(APP_CHAR),$(APP_CHAR),X)
+    APP_NUM_RAW := $(shell echo "$(APP_RAW_ID)" | tr -dc '0-9')
+    APP_NUM     := $(shell echo "00000$(if $(APP_NUM_RAW),$(APP_NUM_RAW),00001)" | tail -c 6)
+    TITLE_ID    := $(OOPS_TARGET_TAG)$(APP_CHAR)$(APP_NUM)
+endif
 
 # Application macro identifier for host builds (e.g. PORTHOLE_HOST_BUILD, WIPEOUT_HOST_BUILD)
 APP_UPPER := $(shell echo $(APP_NAME) | tr a-z- A-Z_)
@@ -44,9 +57,15 @@ TARGET_CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-con
                  -fno-stack-protector -fvisibility=hidden \
                  $(OOPS_SDK_INCLUDE) $(EXTRA_TARGET_CFLAGS)
 
-TARGET_LDFLAGS ?= -fuse-ld=lld -shared -Wl,-e,$(ENTRY_POINT) \
+LLD_AVAILABLE := $(shell which lld >/dev/null 2>&1 && echo yes || echo no)
+LLD_FLAG := $(if $(filter yes,$(LLD_AVAILABLE)),-fuse-ld=lld,)
+
+TARGET_LD_SCRIPT ?= $(if $(filter 1 2,$(OOPS_TARGET_NUM)),$(SELFISH)/link/eboot.ld,$(SELFISH)/link/native_eboot.ld)
+TARGET_LD_FLAG   := $(if $(wildcard $(TARGET_LD_SCRIPT)),-T $(TARGET_LD_SCRIPT),)
+
+TARGET_LDFLAGS ?= $(LLD_FLAG) -shared -Wl,-e,$(ENTRY_POINT) \
                   -Wl,--unresolved-symbols=ignore-all -Wl,-z,noexecstack \
-                  -Wl,-z,max-page-size=0x4000 -Wl,-z,common-page-size=0x4000 \
+                  $(TARGET_LD_FLAG) \
                   $(EXTRA_TARGET_LDFLAGS)
 
 # Release artifact names encoding the four axes (OOPS CONVENTIONS.md section 2)
@@ -59,7 +78,11 @@ EBOOT_ARTIFACT     ?= $(DIST)/$(APP_NAME)-eboot-$(TARGET).bin
 TITLE_ZIP_ARTIFACT ?= $(DIST)/$(APP_NAME)-title-$(TARGET).zip
 
 # Sibling selfish toolchain (for eboot.bin, native title directory, and packages)
-SELFISH_BIN ?= $(firstword $(wildcard $(SELFISH)/target/debug/selfish.exe $(SELFISH)/target/release/selfish.exe $(SELFISH)/target/debug/selfish $(SELFISH)/target/release/selfish))
+ifeq ($(OS),Windows_NT)
+    SELFISH_BIN ?= $(firstword $(wildcard $(SELFISH)/target/debug/selfish.exe $(SELFISH)/target/release/selfish.exe $(SELFISH)/target/debug/selfish $(SELFISH)/target/release/selfish))
+else
+    SELFISH_BIN ?= $(firstword $(wildcard $(SELFISH)/target/debug/selfish $(SELFISH)/target/release/selfish $(SELFISH)/target/debug/selfish.exe $(SELFISH)/target/release/selfish.exe))
+endif
 
 .DEFAULT_GOAL := all
 
@@ -87,9 +110,11 @@ skeleton: | $(BUILD)
 	$(TARGET_CC) $(TARGET_CFLAGS) -c -o $(BUILD)/$(APP_NAME).o $(firstword $(PAYLOAD_SRCS))
 	@echo "$(APP_NAME) skeleton: compiles freestanding for the target (object only)"
 
+TARGET_SYS_SRCS ?= $(wildcard $(OOPS_SDK_DIR)/src/system/procparam.c)
+
 # Full freestanding target payload ELF
-$(BUILD)/$(APP_NAME).elf: $(PAYLOAD_SRCS) $(PAYLOAD_EXTRA_DEPS) | $(BUILD)
-	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) -o $@ $(PAYLOAD_SRCS)
+$(BUILD)/$(APP_NAME).elf: $(PAYLOAD_SRCS) $(TARGET_SYS_SRCS) $(PAYLOAD_EXTRA_DEPS) | $(BUILD)
+	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) -o $@ $(PAYLOAD_SRCS) $(TARGET_SYS_SRCS)
 
 elf: $(BUILD)/$(APP_NAME).elf
 
@@ -99,7 +124,7 @@ eboot: $(BUILD)/$(APP_NAME).elf
 	@if [ -n "$(SELFISH_BIN)" ]; then \
 	    IN=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$<" || echo "$<"); \
 	    OUT=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$(EBOOT_ARTIFACT)" || echo "$(EBOOT_ARTIFACT)"); \
-	    $(SELFISH_BIN) --input "$$IN" --target $(TARGET) --format eboot --output "$$OUT"; \
+	    $(SELFISH_BIN) --input "$$IN" --target $(TARGET) --format eboot --sdk $(TARGET) --output "$$OUT"; \
 	    echo "$(APP_NAME): created $(EBOOT_ARTIFACT)"; \
 	else \
 	    echo "selfish not found at $(SELFISH) - build it with cargo build -p selfish-cli"; \
@@ -118,8 +143,9 @@ title: $(BUILD)/$(APP_NAME).elf
 	    fi; \
 	    $(SELFISH_BIN) --input "$$IN" --target $(TARGET) --format title \
 	        --title-id $(TITLE_ID) --title $(TITLE_NAME) --category $(TITLE_CATEGORY) \
-	        --title-version $(TITLE_VERSION) $$ICON_FLAG --output "$$OUT"; \
-	    ( cd $(BUILD)/title && zip -qr $(CURDIR)/$(TITLE_ZIP_ARTIFACT) $(TITLE_ID) ); \
+	        --title-version $(TITLE_VERSION) --sdk $(TARGET) $$ICON_FLAG --output "$$OUT"; \
+	    ZIP_CMD=$$(command -v zip 2>/dev/null && echo "zip -qr" || echo "tar -a -cf"); \
+	    ( cd $(BUILD)/title && $$ZIP_CMD $(CURDIR)/$(TITLE_ZIP_ARTIFACT) $(TITLE_ID) ); \
 	    echo "$(APP_NAME): created $(TITLE_ZIP_ARTIFACT)"; \
 	else \
 	    echo "selfish not found at $(SELFISH) - build it with cargo build -p selfish-cli"; \

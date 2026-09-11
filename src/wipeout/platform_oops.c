@@ -44,7 +44,11 @@ int wipeout_platform_init(wipeout_platform_t *plat, uint32_t width, uint32_t hei
     plat->audio = oops_audio_open(44100, 2, 1024);
     plat->running = true;
 
-    klog("platform initialized with AGC presentation");
+    if (oops_display_is_gpu_accelerated(plat->disp)) {
+        klog("platform initialized with hardware RDNA2 compute presentation");
+    } else {
+        klog("platform initialized with software presentation");
+    }
     return 0;
 }
 

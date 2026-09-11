@@ -30,16 +30,16 @@ measurement ends up shipped as a feature.
 
 ## Applications
 
-- **home**: Unified homebrew shell reimplementation for PS5 (Prospero) mimicking the native PS5 system UI (PS button overlay, title launcher, settings, media player, storage/save manager, notifications).
+- **home**: Unified homebrew shell reimplementation for Prospero mimicking the native system UI (PS button overlay, title launcher, settings, media player, storage/save manager, notifications).
 - **wipeout**: Native clean-room WipEout engine port for Prospero / Trinity using AGC hardware compute tiler, PCM audio streaming, and DualSense input.
 - **porthole**: Background daemon payload exposing the console's unencrypted remote play stream on TCP port 9805 and accepting controller input injection on TCP port 9806.
-- **pltauth-patch**: Kernel DMAP patcher that bypasses SceShellCore entitlement checks for native PS5 Big Apps (`category 0` / direct HDMI scanout / LibAgc GPU).
+- **pltauth-patch**: Kernel DMAP patcher that bypasses SceShellCore entitlement checks for native Big Apps (`category 0` / direct HDMI scanout / LibAgc GPU).
 - **gallery**: Visual showcase and capability inspector across display, draw, input, system, audio, net, and media decoding.
 - **pad-viz**: DualSense/DualShock controller telemetry visualizer (live analog stick drift bounds, triggers, touch-pad, 6-axis IMU tilt, and rumble/lightbar test).
 - **net-tool**: Network configuration, interface diagnostics, and UDP status echo server.
 - **injector**: Dedicated process payload injector.
 
-> **Subsystem Unification:** Media viewing, notification overlays, save management, shell skinning, and system diagnostics are unified directly inside **`home`** as a complete PS5 shell reimplementation.
+> **Subsystem Unification:** Media viewing, notification overlays, save management, shell skinning, and system diagnostics are unified directly inside **`home`** as a complete Prospero shell reimplementation.
 
 ## Layout
 
@@ -49,7 +49,7 @@ oops-apps/
 ├── common/
 │   └── app.mk          # shared application Makefile helper with app.env support
 ├── src/                # each app in its own directory
-│   ├── home/           # unified PS5 shell reimplementation
+│   ├── home/           # unified Prospero shell reimplementation
 │   ├── wipeout/        # native clean-room 3D WipEout port
 │   ├── porthole/       # remote play daemon
 │   └── ...             # the other apps, all the same shape

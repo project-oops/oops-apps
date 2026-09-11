@@ -1,4 +1,4 @@
-# home - unified homebrew shell reimplementation for PS5 (Prospero).
+# home - unified homebrew shell reimplementation for Prospero.
 #
 #   make check      drive the model and render into memory, verifying both (runs anywhere)
 #   make skeleton   the model and renderer compile freestanding for the target, object only

@@ -5,7 +5,7 @@
 #include "oops/input.h"
 
 /*
- * home - clean-room reimplementation of the PS5 shell (Prospero UX / SceShellCore) for homebrew
+ * home - clean-room reimplementation of the Prospero shell (Prospero UX / SceShellCore) for homebrew
  * and the Orbistoun emulator.
  *
  * Two audiences, one codebase:
@@ -198,7 +198,7 @@ typedef struct home_menu {
 typedef struct home_title {
     const char *id;           /* "PPSA01325" or "OOPS00001" */
     const char *name;         /* Uppercase */
-    const char *category;     /* "PS5 BIG APP (0)", "MINI APP (1)", "PS4", "ELF" */
+    const char *category;     /* "PROSPERO BIG APP (0)", "MINI APP (1)", "ORBIS", "ELF" */
     const char *version;      /* "1.002.000" */
     int size_mb;
     int installed;            /* 1 = installed, 0 = available */

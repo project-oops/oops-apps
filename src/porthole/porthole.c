@@ -689,6 +689,13 @@ void porthole_display_close(void) {
         s_porthole_disp = NULL;
     }
 }
+
+int porthole_display_is_gpu_accelerated(void) {
+    if (s_porthole_disp == NULL) {
+        return 0;
+    }
+    return oops_display_is_gpu_accelerated(s_porthole_disp);
+}
 #else
 static uint32_t s_host_fb[1920 * 1080];
 static int s_host_disp_opened = 0;
@@ -708,6 +715,10 @@ int porthole_display_flip(void) {
 
 void porthole_display_close(void) {
     s_host_disp_opened = 0;
+}
+
+int porthole_display_is_gpu_accelerated(void) {
+    return 0;
 }
 #endif
 
@@ -984,6 +995,12 @@ porthole_status porthole_run(void) {
                        (int64_t)disp_status);
     } else if (porthole_display_get_framebuffer() == NULL) {
         klog_write("display opened but handed back no framebuffer: nothing to capture");
+    } else {
+        if (porthole_display_is_gpu_accelerated()) {
+            klog_write("display: hardware RDNA2 compute presentation enabled");
+        } else {
+            klog_write("display: software presentation active");
+        }
     }
 #else
     (void)disp_status;

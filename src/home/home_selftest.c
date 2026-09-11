@@ -1,7 +1,7 @@
 /*
  * home - the host self-test.
  *
- * Validates the full clean-room PS5 shell reimplementation headlessly:
+ * Validates the full clean-room Prospero shell reimplementation headlessly:
  * - Shell model state transitions, mode switching (Games <-> Media), top-bar navigation
  * - Control Centre 13-dock quick menu & Switcher lifecycle (running app resume / close)
  * - Deep settings trees (System, Storage visual meter, Developer & Debug, Emulator)
@@ -109,7 +109,7 @@ int main(void) {
         failures++;
     }
     if (m.card_count != 13) {
-        printf("FAIL: control centre must have all 13 PS5 dock items, found %d\n", m.card_count);
+        printf("FAIL: control centre must have all 13 Prospero dock items, found %d\n", m.card_count);
         failures++;
     }
     if (m.activity_count <= 0) {
@@ -320,7 +320,7 @@ int main(void) {
         }
     }
 
-    /* ---- 9. Pad Input Mapping (Real PS5 Controls) --------------------------------------- */
+    /* ---- 9. Pad Input Mapping (Real Prospero Controls) ---------------------------------- */
 
     home_model_init(&m);
     {
@@ -442,7 +442,7 @@ int main(void) {
     }
 
     if (failures == 0) {
-        printf("home selftest: ok (full PS5 shell model, seam, dialogs, IME, and renderer)\n");
+        printf("home selftest: ok (full Prospero shell model, seam, dialogs, IME, and renderer)\n");
 
         return 0;
     }

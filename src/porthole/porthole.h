@@ -152,6 +152,7 @@ uint32_t *porthole_display_get_framebuffer(void);
 void porthole_display_draw_test_pattern(uint32_t frame_index);
 int porthole_display_flip(void);
 void porthole_display_close(void);
+int porthole_display_is_gpu_accelerated(void);
 
 /*
  * Hardware video encoder interface (libSceVencCore).

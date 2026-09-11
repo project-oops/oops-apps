@@ -126,6 +126,11 @@ int home_start(const payload_args_t *args) {
         klog("display would not open - see oops_display_get_last_error");
         return -1;
     }
+    if (oops_display_is_gpu_accelerated(disp)) {
+        klog("display: hardware RDNA2 compute presentation enabled");
+    } else {
+        klog("display: software presentation active");
+    }
     oops_input_init();
 
     home_model_t model;
