@@ -95,7 +95,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: app-${{ matrix.app }}
-          path: OOPS/oops-apps/${{ matrix.app }}/dist/
+          path: OOPS/oops-apps/src/${{ matrix.app }}/dist/
           if-no-files-found: ignore
 
   # Collect every app's staged files and replace the rolling `latest-main` prerelease. Runs

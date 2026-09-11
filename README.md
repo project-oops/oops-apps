@@ -28,13 +28,31 @@ belongs in obSCEne; if its purpose is to put a picture on the screen or a stream
 it is an app and it belongs here. Blurring that puts two homes under one roof and is how a
 measurement ends up shipped as a feature.
 
+## Applications
+
+- **home**: Unified homebrew shell reimplementation for PS5 (Prospero) mimicking the native PS5 system UI (PS button overlay, title launcher, settings, media player, storage/save manager, notifications).
+- **wipeout**: Native clean-room WipEout engine port for Prospero / Trinity using AGC hardware compute tiler, PCM audio streaming, and DualSense input.
+- **porthole**: Background daemon payload exposing the console's unencrypted remote play stream on TCP port 9805 and accepting controller input injection on TCP port 9806.
+- **pltauth-patch**: Kernel DMAP patcher that bypasses SceShellCore entitlement checks for native PS5 Big Apps (`category 0` / direct HDMI scanout / LibAgc GPU).
+- **gallery**: Visual showcase and capability inspector across display, draw, input, system, audio, net, and media decoding.
+- **pad-viz**: DualSense/DualShock controller telemetry visualizer (live analog stick drift bounds, triggers, touch-pad, 6-axis IMU tilt, and rumble/lightbar test).
+- **net-tool**: Network configuration, interface diagnostics, and UDP status echo server.
+- **injector**: Dedicated process payload injector.
+
+> **Subsystem Unification:** Media viewing, notification overlays, save management, shell skinning, and system diagnostics are unified directly inside **`home`** as a complete PS5 shell reimplementation.
+
 ## Layout
 
 ```
 oops-apps/
 ├── bin/oops-apps       # build and check any app, the collection's one entry-point shape
-├── porthole/           # each app in its own directory: its sources, sce_sys/ assets, a Makefile
-├── ...                 # the other apps, all the same shape
+├── common/
+│   └── app.mk          # shared application Makefile helper with app.env support
+├── src/                # each app in its own directory
+│   ├── home/           # unified PS5 shell reimplementation
+│   ├── wipeout/        # native clean-room 3D WipEout port
+│   ├── porthole/       # remote play daemon
+│   └── ...             # the other apps, all the same shape
 └── docs/
 ```
 
@@ -45,42 +63,48 @@ duplicate base layer; see [docs/decisions/D002-the-base-layer-is-on-loan-from-ob
 
 ## Building an app
 
-Each app carries its own `Makefile` and builds on its own, reaching the SDK by the sibling
-layout the whole collection uses:
+Each app lives under `src/<name>`, carries a minimal `Makefile` and an optional `app.env` configuration file, reaching the shared build helper and SDK by sibling layout:
 
 ```bash
-./bin/oops-apps build          # every app, or: ./bin/oops-apps build porthole
+./bin/oops-apps build          # every app, or: ./bin/oops-apps build wipeout
 ./bin/oops-apps list           # what is here
+./bin/oops-apps check          # run each app's host selftest
 ```
 
-An app's `Makefile` includes the SDK's helper and gets the include paths and the sources from
-one line:
+An app's `Makefile` defines its host test and target payload sources, then includes the shared helper:
 
 ```makefile
-OOPS_SDK ?= $(abspath ../../oops-sdk)
-include $(OOPS_SDK)/oops-sdk.mk
+OOPS_APPS_ROOT ?= $(abspath ../..)
+HOST_TEST_SRCS = myapp_selftest.c
+PAYLOAD_SRCS   = myapp.c $(OOPS_SDK_DIR)/src/system/freestd.c
+include $(OOPS_APPS_ROOT)/common/app.mk
 ```
 
 **It cross-compiles for the target, so build under WSL on Windows** - the toolchain targets a
 FreeBSD-derived system and the Windows shell has no `clang` on its path. This is the same
 constraint oops-sdk and obSCEne build under.
 
-## Shipping an app
+## Shipping an app & `app.env`
 
-An app says what it ships with a `dist` target in its own `Makefile`: it stages its release
-artifacts under `dist/`, following the four-axis naming conventions in
-[CONVENTIONS.md](https://github.com/project-oops/OOPS/blob/main/docs/CONVENTIONS.md#the-four-axes-of-a-build-and-a-run).
-Every artifact must encode the target generation (e.g. `$(TARGET)`, default: `prospero`) and
-its role/format: a plain `.elf` payload for a homebrew loader, a `.zip` native title directory
-for `/user/app/`, or a package. The shared SDK helper `oops_verify_dist` enforces this at the
-Makefile level and fails if an un-generation-tagged file or an unzipped folder is staged.
+An app declares its identity, title metadata, and release formats in an `app.env` file alongside its `Makefile`:
 
-```makefile
-dist: $(BUILD)/myapp.elf          # porthole's is the worked example
-	@mkdir -p $(DIST)
-	cp $(BUILD)/myapp.elf $(DIST)/myapp-$(TARGET).elf
-	@$(call oops_verify_dist,$(DIST))
+```properties
+APP_NAME=wipeout
+TITLE_ID=WIPE00001
+TITLE_NAME="WipEout"
+TITLE_CATEGORY=big-app
+TITLE_VERSION=01.00
+# Supported formats: elf, eboot, title (or combinations)
+FORMATS=title eboot
 ```
+
+Running `make dist` (or `./bin/oops-apps dist`) builds the requested format(s) under `dist/`, following the four-axis naming conventions in
+[CONVENTIONS.md](https://github.com/project-oops/OOPS/blob/main/docs/CONVENTIONS.md#the-four-axes-of-a-build-and-a-run):
+- `elf`: stages plain target executable `myapp-<target>.elf`
+- `eboot`: invokes `selfish` to produce signed executable container `myapp-eboot-<target>.bin`
+- `title`: invokes `selfish` to package a native PS5 title directory into `myapp-title-<target>.zip`
+
+Every artifact encodes the target generation (`$(TARGET)`, default: `prospero`). The shared SDK helper `oops_verify_dist` enforces this at the Makefile level and fails if an un-generation-tagged file or an unzipped folder is staged.
 
 `./bin/oops-apps dist` stages every app that has a `dist` target and says so for every app
 that does not - an app still in development ships nothing, out loud, rather than an empty

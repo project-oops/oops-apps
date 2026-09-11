@@ -26,10 +26,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 HERE="$PWD"
 
-# Every directory that carries a Makefile, one per line.
+# Every directory under src/ that carries a Makefile, one per line.
 apps() {
-    for d in */; do
-        [ -f "$HERE/${d}Makefile" ] && printf '%s\n' "${d%/}"
+    for d in src/*/; do
+        [ -f "$HERE/${d}Makefile" ] && {
+            name="${d%/}"
+            printf '%s\n' "${name#src/}"
+        }
     done
 }
 
@@ -41,10 +44,12 @@ resolve() {
         return
     fi
     for name in "$@"; do
-        if [ -f "$HERE/$name/Makefile" ]; then
+        if [ -f "$HERE/src/$name/Makefile" ]; then
+            printf '%s\n' "$name"
+        elif [ -f "$HERE/$name/Makefile" ]; then
             printf '%s\n' "$name"
         else
-            echo "oops-apps: no app '$name' (a directory with a Makefile)" >&2
+            echo "oops-apps: no app '$name' (a directory with a Makefile under src/)" >&2
             exit 2
         fi
     done
@@ -56,8 +61,10 @@ over() {
     local any=0
     for app in $(resolve "$@"); do
         any=1
+        app_dir="$HERE/src/$app"
+        [ -f "$app_dir/Makefile" ] || app_dir="$HERE/$app"
         printf '=== %s: %s ===\n' "$app" "$target"
-        make -C "$HERE/$app" "$target"
+        make -C "$app_dir" "$target"
     done
     if [ "$any" -eq 0 ]; then
         echo "oops-apps: no apps here yet" >&2
@@ -72,9 +79,11 @@ distribute() {
     local any=0 shipped=0
     for app in $(resolve "$@"); do
         any=1
-        if make -C "$HERE/$app" -n dist >/dev/null 2>&1; then
+        app_dir="$HERE/src/$app"
+        [ -f "$app_dir/Makefile" ] || app_dir="$HERE/$app"
+        if make -C "$app_dir" -n dist >/dev/null 2>&1; then
             printf '=== %s: dist ===\n' "$app"
-            make -C "$HERE/$app" dist
+            make -C "$app_dir" dist
             shipped=$((shipped + 1))
         else
             printf '=== %s: no dist target, nothing to ship yet ===\n' "$app"

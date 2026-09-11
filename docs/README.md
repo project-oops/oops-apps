@@ -9,10 +9,14 @@ that keeps obSCEne separate, and how an app builds.
 
 ## The apps
 
-- **[porthole](../porthole/README.md)** - the target half of the capture-and-input path; its
-  host half is [Prosperous](https://github.com/project-oops/Prosperous). The first member.
-- **[system-panel](../system-panel/README.md)** - what the machine is, drawn to the screen.
-  The smallest app that proves the SDK reaches hardware end to end.
+- **[home](../src/home/README.md)** - the unified PS5 shell reimplementation, mimicking the native PS5 system UI (PS button overlay, title launcher, settings, media player, storage/save manager, notifications).
+- **[wipeout](../src/wipeout/README.md)** - native clean-room WipEout engine port for Prospero / Trinity using AGC GPU compute tiler.
+- **[porthole](../src/porthole/README.md)** - the target half of the capture-and-input path; its host half is [Prosperous](../../prosperous).
+- **[gallery](../src/gallery/README.md)** - visual showcase and capability inspector across display, draw, input, audio, net, and media decoding.
+- **[pad-viz](../src/pad-viz/README.md)** - DualSense/DualShock controller telemetry visualizer.
+- **[net-tool](../src/net-tool/README.md)** - network configuration and interface diagnostics.
+- **[pltauth-patch](../src/pltauth-patch/README.md)** - kernel DMAP patcher for SceShellCore entitlement checks.
+- **[injector](../src/injector/README.md)** - standalone process payload injector.
 
 ## Project memory
 
