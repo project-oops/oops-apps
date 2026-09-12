@@ -63,8 +63,10 @@ LLD_FLAG := $(if $(filter yes,$(LLD_AVAILABLE)),-fuse-ld=lld,)
 TARGET_LD_SCRIPT ?= $(if $(filter 1 2,$(OOPS_TARGET_NUM)),$(SELFISH)/link/eboot.ld,$(SELFISH)/link/native_eboot.ld)
 TARGET_LD_FLAG   := $(if $(wildcard $(TARGET_LD_SCRIPT)),-T $(TARGET_LD_SCRIPT),)
 
-TARGET_LDFLAGS ?= $(LLD_FLAG) -shared -Wl,-e,$(ENTRY_POINT) \
-                  -Wl,--unresolved-symbols=ignore-all -Wl,-z,noexecstack \
+TARGET_LDFLAGS ?= $(LLD_FLAG) -shared -Wl,-Bsymbolic -Wl,-e,$(ENTRY_POINT) \
+                  -Wl,--unresolved-symbols=ignore-all \
+                  -Wl,-z,norelro -Wl,-z,noexecstack \
+                  -Wl,-z,max-page-size=0x4000 -Wl,-z,common-page-size=0x4000 \
                   $(TARGET_LD_FLAG) \
                   $(EXTRA_TARGET_LDFLAGS)
 
@@ -80,9 +82,13 @@ TITLE_ZIP_ARTIFACT ?= $(DIST)/$(APP_NAME)-title-$(TARGET).zip
 # Sibling selfish toolchain (for eboot.bin, native title directory, and packages)
 ifeq ($(OS),Windows_NT)
     SELFISH_BIN ?= $(firstword $(wildcard $(SELFISH)/target/debug/selfish.exe $(SELFISH)/target/release/selfish.exe $(SELFISH)/target/debug/selfish $(SELFISH)/target/release/selfish))
+    MKMODULE_BIN ?= $(firstword $(wildcard $(OOPS_APPS_ROOT)/../obscene/tool/target/release/obscene-tool.exe $(OOPS_APPS_ROOT)/../obscene/tool/target/debug/obscene-tool.exe $(OOPS_APPS_ROOT)/../obscene/tool/target/release/obscene-tool $(OOPS_APPS_ROOT)/../obscene/tool/target/debug/obscene-tool))
 else
     SELFISH_BIN ?= $(firstword $(wildcard $(SELFISH)/target/debug/selfish $(SELFISH)/target/release/selfish $(SELFISH)/target/debug/selfish.exe $(SELFISH)/target/release/selfish.exe))
+    MKMODULE_BIN ?= $(firstword $(wildcard $(OOPS_APPS_ROOT)/../obscene/tool/target/release/obscene-tool $(OOPS_APPS_ROOT)/../obscene/tool/target/debug/obscene-tool $(OOPS_APPS_ROOT)/../obscene/tool/target/release/obscene-tool.exe $(OOPS_APPS_ROOT)/../obscene/tool/target/debug/obscene-tool.exe))
 endif
+SYMBOLS_FILE ?= $(OOPS_APPS_ROOT)/common/symbols.txt
+MKMODULE_GEN ?= $(if $(filter 1 2,$(OOPS_TARGET_NUM)),4,5)
 
 .DEFAULT_GOAL := all
 
@@ -121,6 +127,11 @@ elf: $(BUILD)/$(APP_NAME).elf
 # Wrap target ELF into a signed executable container (eboot.bin) via selfish
 eboot: $(BUILD)/$(APP_NAME).elf
 	@mkdir -p $(DIST)
+	@if [ -n "$(MKMODULE_BIN)" ] && [ -f "$(SYMBOLS_FILE)" ]; then \
+	    IN=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$<" || echo "$<"); \
+	    SYM=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$(SYMBOLS_FILE)" || echo "$(SYMBOLS_FILE)"); \
+	    $(MKMODULE_BIN) mkmodule --symbols "$$SYM" --generation $(MKMODULE_GEN) --kind fixed "$$IN"; \
+	fi
 	@if [ -n "$(SELFISH_BIN)" ]; then \
 	    IN=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$<" || echo "$<"); \
 	    OUT=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$(EBOOT_ARTIFACT)" || echo "$(EBOOT_ARTIFACT)"); \
@@ -133,6 +144,11 @@ eboot: $(BUILD)/$(APP_NAME).elf
 # Package target ELF into a native PS5 title directory (.zip) via selfish
 title: $(BUILD)/$(APP_NAME).elf
 	@mkdir -p $(DIST) $(BUILD)/title
+	@if [ -n "$(MKMODULE_BIN)" ] && [ -f "$(SYMBOLS_FILE)" ] && $(MKMODULE_BIN) --help >/dev/null 2>&1; then \
+	    IN=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$<" || echo "$<"); \
+	    SYM=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$(SYMBOLS_FILE)" || echo "$(SYMBOLS_FILE)"); \
+	    $(MKMODULE_BIN) mkmodule --symbols "$$SYM" --generation $(MKMODULE_GEN) --kind fixed "$$IN"; \
+	fi
 	@if [ -n "$(SELFISH_BIN)" ]; then \
 	    IN=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$<" || echo "$<"); \
 	    OUT=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$(BUILD)/title" || echo "$(BUILD)/title"); \
@@ -144,6 +160,20 @@ title: $(BUILD)/$(APP_NAME).elf
 	    $(SELFISH_BIN) --input "$$IN" --target $(TARGET) --format title \
 	        --title-id $(TITLE_ID) --title $(TITLE_NAME) --category $(TITLE_CATEGORY) \
 	        --title-version $(TITLE_VERSION) --sdk $(TARGET) $$ICON_FLAG --output "$$OUT"; \
+	    if [ "$(TITLE_CATEGORY)" = "big-app" ] || [ -z "$(TITLE_CATEGORY)" ]; then \
+	        mkdir -p $(BUILD)/title/$(TITLE_ID)/sce_module; \
+	        $(TARGET_CC) -std=c11 -target x86_64-unknown-freebsd -ffreestanding -fno-builtin \
+	            -nostdlib -fPIC -fno-stack-protector -fvisibility=hidden -shared \
+	            -Wl,-e,module_start -Wl,-T,$(SELFISH)/link/library.ld \
+	            -Wl,-z,noexecstack -Wl,-z,max-page-size=0x4000 -Wl,-z,common-page-size=0x4000 -Wl,-z,norelro \
+	            -o $(BUILD)/libc.module.elf $(OOPS_SDK_DIR)/src/system/sce_module.c; \
+	        if [ -n "$(MKMODULE_BIN)" ] && [ -f "$(SYMBOLS_FILE)" ] && $(MKMODULE_BIN) --help >/dev/null 2>&1; then \
+	            LIB_IN=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$(BUILD)/libc.module.elf" || echo "$(BUILD)/libc.module.elf"); \
+	            $(MKMODULE_BIN) mkmodule --symbols "$$SYM" --module-name libc --kind shared --generation $(MKMODULE_GEN) --table legacy "$$LIB_IN"; \
+	            PRX_OUT=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$(BUILD)/title/$(TITLE_ID)/sce_module/libc.prx" || echo "$(BUILD)/title/$(TITLE_ID)/sce_module/libc.prx"); \
+	            $(MKMODULE_BIN) mkself "$$LIB_IN" --generation $(MKMODULE_GEN) --privilege app --sdk $(TARGET) --out "$$PRX_OUT"; \
+	        fi; \
+	    fi; \
 	    ZIP_CMD=$$(command -v zip 2>/dev/null && echo "zip -qr" || echo "tar -a -cf"); \
 	    ( cd $(BUILD)/title && $$ZIP_CMD $(CURDIR)/$(TITLE_ZIP_ARTIFACT) $(TITLE_ID) ); \
 	    echo "$(APP_NAME): created $(TITLE_ZIP_ARTIFACT)"; \
