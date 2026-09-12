@@ -1,6 +1,5 @@
 #include "gl_hello_world.h"
 #include "oops/freestd.h"
-#include "oops/agc.h"
 
 #ifndef OOPS_HOST_BUILD
 #include "oops/memory.h"
@@ -49,32 +48,18 @@ static void klog_val(const char *tag, uint64_t val) {
     (void)sys_call(SYS_klog, 7, (long)buf, 0, 0, 0, 0);
 }
 #endif
-
-static inline uint32_t float_as_u32(float f) __attribute__((unused));
-static inline uint32_t float_as_u32(float f) {
-    union { float f; uint32_t u; } pun;
-    pun.f = f;
-    return pun.u;
-}
-
-static float fast_sin(float x) __attribute__((unused));
-static float fast_cos(float x) __attribute__((unused));
-
-static float fast_sin(float x) {
-    const float TWO_PI = 6.28318530717958647692f;
+__attribute__((unused)) static float fast_sin9(float x) {
     const float PI = 3.14159265358979323846f;
-    const float HALF_PI = 1.57079632679489661923f;
-    while (x < 0.0f) x += TWO_PI;
-    while (x >= TWO_PI) x -= TWO_PI;
-    if (x > PI) x -= TWO_PI;
-    if (x > HALF_PI) x = PI - x;
-    else if (x < -HALF_PI) x = -PI - x;
+    const float TWO_PI = 6.28318530717958647692f;
+    while (x > PI) x -= TWO_PI;
+    while (x < -PI) x += TWO_PI;
     float x2 = x * x;
-    return x * (1.0f - x2 * (0.16666667f - x2 * (0.00833333f - x2 * 0.00019841f)));
+    return x * (1.0f - x2 * (1.0f / 6.0f - x2 * (1.0f / 120.0f - x2 * (1.0f / 5040.0f - x2 * (1.0f / 362880.0f)))));
 }
 
-static float fast_cos(float x) {
-    return fast_sin(x + 1.57079632679489661923f);
+__attribute__((unused)) static float fast_cos9(float x) {
+    const float HALF_PI = 1.57079632679489661923f;
+    return fast_sin9(x + HALF_PI);
 }
 
 int gl_triangle_init(gl_triangle_pipeline_t *pipe, uint32_t *target_buffer,
@@ -125,164 +110,167 @@ int gl_triangle_init(gl_triangle_pipeline_t *pipe, uint32_t *target_buffer,
     pipe->agc_queue = queue;
     pipe->use_hardware = true;
 
-    /* 3. Assemble RDNA2 NGG Primitive & Pixel Shaders across 4 ring-buffer slots */
+    /* 3. Assemble RDNA2 NGG Primitive Shader Bytecode (gpu_payload + 0x000)
+     *
+     * Stage: NGG Primitive / Export Shader
+     * Function:
+     * - Allocates 1 primitive + 3 vertices via MSG_GS_ALLOC_REQ
+     * - Activates lanes 0, 1, 2 via exec_lo = 7
+     * - Each lane evaluates its NDC vertex position
+     * - Emits exp pos0 for each vertex
+     * - Masks to lane 0 via exec_lo = 1
+     * - Emits exp prim with 0x00200400 (triangle indices 0, 1, 2)
+     * - Writes canaries and ends
+     */
     uint64_t canary_gpu = (uint64_t)(uintptr_t)pipe->canary;
+    uint32_t *vs = (uint32_t *)pipe->gpu_payload;
 
-    for (int slot = 0; slot < 4; slot++) {
-        uint8_t *slot_ptr = pipe->gpu_payload + (slot * 0x400);
-        uint32_t *vs = (uint32_t *)slot_ptr;
-        uint32_t *gs = (uint32_t *)(slot_ptr + 0x100);
-        uint32_t *ps = (uint32_t *)(slot_ptr + 0x200);
-        uint32_t *fb = (uint32_t *)(slot_ptr + 0x300);
+    vs[0]  = 0xbefc03ffu; /* s_mov_b32 m0, 0x1003 (1 prim, 3 verts) */
+    vs[1]  = 0x00001003u;
+    vs[2]  = 0xbf900009u; /* s_sendmsg sendmsg(MSG_GS_ALLOC_REQ) */
+    vs[3]  = 0xbe84037eu; /* s_mov_b32 s4, exec_lo */
+    vs[4]  = 0x7e160300u; /* v_mov_b32 v11, v0 */
+    vs[5]  = 0x7e180301u; /* v_mov_b32 v12, v1 */
+    vs[6]  = 0x7e1a0204u; /* v_mov_b32 v13, s4 */
+    vs[7]  = 0xbefe0381u; /* s_mov_b32 exec_lo, 1 (lane 0 only) */
+    vs[8]  = 0xbe8003ffu; /* s_mov_b32 s0, canary_lo */
+    vs[9]  = (uint32_t)canary_gpu;
+    vs[10] = 0xbe8103ffu; /* s_mov_b32 s1, canary_hi */
+    vs[11] = (uint32_t)(canary_gpu >> 32);
+    vs[12] = 0x7e100200u; /* v_mov_b32 v8, s0 */
+    vs[13] = 0x7e120201u; /* v_mov_b32 v9, s1 */
+    vs[14] = 0x7e1402ffu; /* v_mov_b32 v10, 0xbeef0001 */
+    vs[15] = 0xbeef0001u;
+    vs[16] = 0xdc708000u; /* global_store_dword v[8:9], v10, off offset:0 */
+    vs[17] = 0x007d0a08u;
+    vs[18] = 0xbe8203ffu; /* s_mov_b32 s2, theta (2 DWORDs: opcode + literal) */
+    vs[19] = 0x00000000u; /* initial theta = 0.0f */
+    vs[20] = 0xdc70800cu; /* global_store_dword v[8:9], v12, off offset:12 */
+    vs[21] = 0x007d0c08u;
+    vs[22] = 0xdc708014u; /* global_store_dword v[8:9], v13, off offset:20 */
+    vs[23] = 0x007d0d08u;
+    vs[24] = 0xbf8c3f70u; /* s_waitcnt vmcnt(0) */
 
-        /* VS: NGG Primitive / Export Shader */
-        vs[0]  = 0xbefc03ffu; /* s_mov_b32 m0, 0x1003 (1 prim, 3 verts) */
-        vs[1]  = 0x00001003u;
-        vs[2]  = 0xbf900009u; /* s_sendmsg sendmsg(MSG_GS_ALLOC_REQ) */
-        vs[3]  = 0xbe84037eu; /* s_mov_b32 s4, exec_lo */
-        vs[4]  = 0x7e160300u; /* v_mov_b32 v11, v0 */
-        vs[5]  = 0x7e180301u; /* v_mov_b32 v12, v1 */
-        vs[6]  = 0x7e1a0204u; /* v_mov_b32 v13, s4 */
-        vs[7]  = 0xbefe0381u; /* s_mov_b32 exec_lo, 1 (lane 0 only) */
-        vs[8]  = 0xbe8003ffu; /* s_mov_b32 s0, canary_lo */
-        vs[9]  = (uint32_t)canary_gpu;
-        vs[10] = 0xbe8103ffu; /* s_mov_b32 s1, canary_hi */
-        vs[11] = (uint32_t)(canary_gpu >> 32);
-        vs[12] = 0x7e100200u; /* v_mov_b32 v8, s0 */
-        vs[13] = 0x7e120201u; /* v_mov_b32 v9, s1 */
-        vs[14] = 0x7e1402ffu; /* v_mov_b32 v10, 0xbeef0001 */
-        vs[15] = 0xbeef0001u;
-        vs[16] = 0xdc708000u; /* global_store_dword v[8:9], v10, off offset:0 */
-        vs[17] = 0x007d0a08u;
-        vs[18] = 0xdc708008u; /* global_store_dword v[8:9], v11, off offset:8 */
-        vs[19] = 0x007d0b08u;
-        vs[20] = 0xdc70800cu; /* global_store_dword v[8:9], v12, off offset:12 */
-        vs[21] = 0x007d0c08u;
-        vs[22] = 0xdc708014u; /* global_store_dword v[8:9], v13, off offset:20 */
-        vs[23] = 0x007d0d08u;
-        vs[24] = 0xbf8c3f70u; /* s_waitcnt vmcnt(0) */
+    /* Activate lanes 0, 1, 2 for the 3 triangle vertices */
+    vs[25] = 0xbefe03ffu; /* s_mov_b32 exec_lo, 7 */
+    vs[26] = 0x00000007u;
 
-        /* Dynamic per-vertex assignment using lane masking */
-        /* Lane 0: Vertex 0 (X0, Y0) */
-        vs[25] = 0xbefe0381u; /* s_mov_b32 exec_lo, 1 */
-        vs[26] = 0x7e0a02ffu; /* v_mov_b32 v5, X0 */
-        vs[27] = 0x00000000u; /* X0 = 0.0f */
-        vs[28] = 0x7e0c02ffu; /* v_mov_b32 v6, Y0 */
-        vs[29] = 0xbf0ccccdu; /* Y0 = -0.55f */
+    /* Compute rotating vertex positions via hardware VALU transcendental unit (12 DWORDs) */
+    vs[27] = 0xd765000eu; /* v_mbcnt_lo_u32_b32 v14, -1, 0 */
+    vs[28] = 0x000100c1u;
+    vs[29] = 0x7e020d0eu; /* v_cvt_f32_u32 v1, v14 (lane float: 0.0, 1.0, 2.0) */
+    vs[30] = 0x7e040202u; /* v_mov_b32 v2, s2 (load theta into v2) */
+    vs[31] = 0x560402ffu; /* v_fmac_f32 v2, 0.33333334f, v1 (angle = theta + lane / 3) */
+    vs[32] = 0x3eaaaaabu;
+    vs[33] = 0x7e0a6d02u; /* v_cos_f32 v5, v2 (X = cos(2*pi*angle)) */
+    vs[34] = 0x7e0c6b02u; /* v_sin_f32 v6, v2 (Y = sin(2*pi*angle)) */
+    vs[35] = 0x100a0af0u; /* v_mul_f32 v5, 0.5f, v5 (radius = 0.5) */
+    vs[36] = 0x100c0cf0u; /* v_mul_f32 v6, 0.5f, v6 (radius = 0.5) */
+    vs[37] = 0x7e060280u; /* v_mov_b32 v3,  0.0f (Z = 0.0) */
+    vs[38] = 0x7e0802f2u; /* v_mov_b32 v4,  1.0f (W = 1.0) */
 
-        /* Lane 1: Vertex 1 (X1, Y1) */
-        vs[30] = 0xbefe0382u; /* s_mov_b32 exec_lo, 2 */
-        vs[31] = 0x7e0a02ffu; /* v_mov_b32 v5, X1 */
-        vs[32] = 0x3e892e85u; /* X1 = +0.267927f */
-        vs[33] = 0x7e0c02ffu; /* v_mov_b32 v6, Y1 */
-        vs[34] = 0x3e8ccccdu; /* Y1 = +0.275f */
+    /* Primitive connectivity MUST be exported BEFORE position exports in NGG */
+    /* Lane 0 exports primitive connectivity: exp prim, v7, off, off, off done */
+    vs[39] = 0xbefe0381u; /* s_mov_b32 exec_lo, 1 */
+    vs[40] = 0x7e0e02ffu; /* v_mov_b32 v7, 0x20280600 (indices 0, 1, 2 with edge flags) */
+    vs[41] = 0x20280600u;
+    vs[42] = 0xf8000941u; /* exp prim, v7, off, off, off done */
+    vs[43] = 0x00000007u;
 
-        /* Lane 2: Vertex 2 (X2, Y2) */
-        vs[35] = 0xbefe0384u; /* s_mov_b32 exec_lo, 4 */
-        vs[36] = 0x7e0a02ffu; /* v_mov_b32 v5, X2 */
-        vs[37] = 0xbe892e85u; /* X2 = -0.267927f */
-        vs[38] = 0x7e0c02ffu; /* v_mov_b32 v6, Y2 */
-        vs[39] = 0x3e8ccccdu; /* Y2 = +0.275f */
+    /* Export positions: exp pos0, v5, v6, v3, v4 done */
+    vs[44] = 0xbefe03ffu; /* s_mov_b32 exec_lo, 7 */
+    vs[45] = 0x00000007u;
+    vs[46] = 0xf80008cfu; /* exp pos0, v5, v6, v3, v4 done */
+    vs[47] = 0x04030605u;
 
-        /* Lanes 0, 1, 2: Z=0.0f, W=1.0f */
-        vs[40] = 0xbefe0387u; /* s_mov_b32 exec_lo, 7 */
-        vs[41] = 0x7e060280u; /* v_mov_b32 v3, 0.0f */
-        vs[42] = 0x7e0802f2u; /* v_mov_b32 v4, 1.0f */
+    /* Write completion canary (lane 0 only to prevent invalid writes) */
+    vs[48] = 0xbefe0381u; /* s_mov_b32 exec_lo, 1 */
+    vs[49] = 0x7e1402ffu; /* v_mov_b32 v10, 0xbeef0003 */
+    vs[50] = 0xbeef0003u;
+    vs[51] = 0xdc708018u; /* global_store_dword v[8:9], v10, off offset:24 */
+    vs[52] = 0x007d0a08u;
+    vs[53] = 0xbf8c3f70u; /* s_waitcnt vmcnt(0) */
+    vs[54] = 0xbefe0304u; /* s_mov_b32 exec_lo, s4 */
+    vs[55] = 0xbf810000u; /* s_endpgm */
 
-        /* Primitive connectivity MUST be exported BEFORE position exports in NGG */
-        /* Lane 0 exports primitive connectivity: exp prim, v7, off, off, off done */
-        vs[43] = 0xbefe0381u; /* s_mov_b32 exec_lo, 1 */
-        vs[44] = 0x7e0e02ffu; /* v_mov_b32 v7, 0x20280600 (indices 0, 1, 2 with edge flags) */
-        vs[45] = 0x20280600u;
-        vs[46] = 0xf8000941u; /* exp prim, v7, off, off, off done */
-        vs[47] = 0x00000007u;
+    for (size_t p = 56; p < 64; p++) {
+        vs[p] = 0xbf800000u; /* s_nop */
+    }
 
-        /* Export positions: exp pos0, v5, v6, v3, v4 done */
-        vs[48] = 0xbefe0387u; /* s_mov_b32 exec_lo, 7 */
-        vs[49] = 0xf80008cfu; /* exp pos0, v5, v6, v3, v4 done */
-        vs[50] = 0x04030605u;
+    /* Mirror to GS stage at offset 0x100 */
+    uint32_t *gs = (uint32_t *)((char *)pipe->gpu_payload + 0x100);
+    for (size_t p = 0; p < 64; p++) {
+        gs[p] = vs[p];
+    }
 
-        /* Write completion canary (lane 0 only to prevent invalid writes) */
-        vs[51] = 0xbefe0381u; /* s_mov_b32 exec_lo, 1 */
-        vs[52] = 0x7e1402ffu; /* v_mov_b32 v10, 0xbeef0003 */
-        vs[53] = 0xbeef0003u;
-        vs[54] = 0xdc708018u; /* global_store_dword v[8:9], v10, off offset:24 */
-        vs[55] = 0x007d0a08u;
-        vs[56] = 0xbf8c3f70u; /* s_waitcnt vmcnt(0) */
-        vs[57] = 0xbefe0304u; /* s_mov_b32 exec_lo, s4 */
-        vs[58] = 0xbf810000u; /* s_endpgm */
+    /* 4. Assemble RDNA2 Pixel Shader Bytecode (gpu_payload + 0x200)
+     *
+     * Stage: Pixel Shader (PS)
+     * Function:
+     * - Exports solid cyan color (R=0.0, G=1.0, B=1.0, A=1.0) to MRT0
+     * - Sets done and vm flags
+     */
+    uint32_t *ps = (uint32_t *)((char *)pipe->gpu_payload + 0x200);
+    ps[0]  = 0xbf8c0000u; /* s_waitcnt 0 */
+    ps[1]  = 0xbe84037eu; /* s_mov_b32 s4, exec_lo */
+    ps[2]  = 0x7e160300u; /* v_mov_b32 v11, v0 */
+    ps[3]  = 0x7e180301u; /* v_mov_b32 v12, v1 */
+    ps[4]  = 0x7e1a0204u; /* v_mov_b32 v13, s4 */
+    ps[5]  = 0xbefe0381u; /* s_mov_b32 exec_lo, 1 (lane 0 only) */
+    ps[6]  = 0xbe8003ffu; /* s_mov_b32 s0, canary_lo */
+    ps[7]  = (uint32_t)canary_gpu;
+    ps[8]  = 0xbe8103ffu; /* s_mov_b32 s1, canary_hi */
+    ps[9]  = (uint32_t)(canary_gpu >> 32);
+    ps[10] = 0x7e100200u; /* v_mov_b32 v8, s0 */
+    ps[11] = 0x7e120201u; /* v_mov_b32 v9, s1 */
+    ps[12] = 0x7e1402ffu; /* v_mov_b32 v10, 0xbeef0002 */
+    ps[13] = 0xbeef0002u;
+    ps[14] = 0xdc708004u; /* global_store_dword v[8:9], v10, off offset:4 */
+    ps[15] = 0x007d0a08u;
+    ps[16] = 0xbe8203ffu; /* s_mov_b32 s2, color_r */
+    ps[17] = 0x00000000u; /* R (updated dynamically by CPU each frame) */
+    ps[18] = 0xbe8303ffu; /* s_mov_b32 s3, color_g */
+    ps[19] = 0x3f800000u; /* G (updated dynamically by CPU each frame) */
+    ps[20] = 0xbe8503ffu; /* s_mov_b32 s5, color_b */
+    ps[21] = 0x3f800000u; /* B (updated dynamically by CPU each frame) */
+    /* Write completion canary before color export */
+    ps[22] = 0x7e1402ffu; /* v_mov_b32 v10, 0xbeef0004 */
+    ps[23] = 0xbeef0004u;
+    ps[24] = 0xdc708028u; /* global_store_dword v[8:9], v10, off offset:40 */
+    ps[25] = 0x007d0a08u;
+    ps[26] = 0xbf8c3f70u; /* s_waitcnt vmcnt(0) */
+    ps[27] = 0xbefe0304u; /* s_mov_b32 exec_lo, s4 */
 
-        for (size_t p = 59; p < 64; p++) {
-            vs[p] = 0xbf800000u; /* s_nop */
-        }
+    /* Dynamic RGB Color Output: R=s2, G=s3, B=s5, A=1.0f */
+    ps[28] = 0x7e000202u; /* v_mov_b32 v0, s2 (R) */
+    ps[29] = 0x7e020203u; /* v_mov_b32 v1, s3 (G) */
+    ps[30] = 0x7e040205u; /* v_mov_b32 v2, s5 (B) */
+    ps[31] = 0x7e0602f2u; /* v_mov_b32 v3, 1.0f (A) */
+    ps[32] = 0xf800180fu; /* exp mrt0, v0, v1, v2, v3 done vm */
+    ps[33] = 0x03020100u;
+    ps[34] = 0xbf810000u; /* s_endpgm */
 
-        /* Mirror to GS stage at offset 0x100 */
-        for (size_t p = 0; p < 64; p++) {
-            gs[p] = vs[p];
-        }
+    for (size_t p = 35; p < 64; p++) {
+        ps[p] = 0xbf800000u; /* s_nop */
+    }
 
-        /* Pixel Shader */
-        ps[0]  = 0xbf8c0000u; /* s_waitcnt 0 */
-        ps[1]  = 0xbe84037eu; /* s_mov_b32 s4, exec_lo */
-        ps[2]  = 0x7e160300u; /* v_mov_b32 v11, v0 */
-        ps[3]  = 0x7e180301u; /* v_mov_b32 v12, v1 */
-        ps[4]  = 0x7e1a0204u; /* v_mov_b32 v13, s4 */
-        ps[5]  = 0xbefe0381u; /* s_mov_b32 exec_lo, 1 (lane 0 only) */
-        ps[6]  = 0xbe8003ffu; /* s_mov_b32 s0, canary_lo */
-        ps[7]  = (uint32_t)canary_gpu;
-        ps[8]  = 0xbe8103ffu; /* s_mov_b32 s1, canary_hi */
-        ps[9]  = (uint32_t)(canary_gpu >> 32);
-        ps[10] = 0x7e100200u; /* v_mov_b32 v8, s0 */
-        ps[11] = 0x7e120201u; /* v_mov_b32 v9, s1 */
-        ps[12] = 0x7e1402ffu; /* v_mov_b32 v10, 0xbeef0002 */
-        ps[13] = 0xbeef0002u;
-        ps[14] = 0xdc708004u; /* global_store_dword v[8:9], v10, off offset:4 */
-        ps[15] = 0x007d0a08u;
-        ps[16] = 0xdc70801cu; /* global_store_dword v[8:9], v11, off offset:28 */
-        ps[17] = 0x007d0b08u;
-        ps[18] = 0xdc708020u; /* global_store_dword v[8:9], v12, off offset:32 */
-        ps[19] = 0x007d0c08u;
-        ps[20] = 0xdc708024u; /* global_store_dword v[8:9], v13, off offset:36 */
-        ps[21] = 0x007d0d08u;
-        ps[22] = 0x7e1402ffu; /* v_mov_b32 v10, 0xbeef0004 */
-        ps[23] = 0xbeef0004u;
-        ps[24] = 0xdc708028u; /* global_store_dword v[8:9], v10, off offset:40 */
-        ps[25] = 0x007d0a08u;
-        ps[26] = 0xbf8c3f70u; /* s_waitcnt vmcnt(0) */
-        ps[27] = 0xbefe0304u; /* s_mov_b32 exec_lo, s4 */
-
-        /* Dynamic RGB output */
-        ps[28] = 0x7e0002ffu; /* v_mov_b32 v0, literal (R) */
-        ps[29] = 0x00000000u; /* R = 0.0f */
-        ps[30] = 0x7e0202ffu; /* v_mov_b32 v1, literal (G) */
-        ps[31] = 0x3f800000u; /* G = 1.0f */
-        ps[32] = 0x7e0402ffu; /* v_mov_b32 v2, literal (B) */
-        ps[33] = 0x3f800000u; /* B = 1.0f */
-        ps[34] = 0x7e0602f2u; /* v_mov_b32 v3, 1.0f (A) */
-        ps[35] = 0xf800180fu; /* exp mrt0, v0, v1, v2, v3 done vm */
-        ps[36] = 0x03020100u;
-        ps[37] = 0xbf810000u; /* s_endpgm */
-
-        for (size_t p = 38; p < 64; p++) {
-            ps[p] = 0xbf800000u; /* s_nop */
-        }
-
-        /* Fallback shader (offset 0x300) */
-        fb[0] = 0xbefc0380u; /* s_mov_b32 m0, 0 */
-        fb[1] = 0xbf900009u; /* s_sendmsg sendmsg(MSG_GS_ALLOC_REQ) */
-        fb[2] = 0xbf810000u; /* s_endpgm */
-        for (size_t p = 3; p < 64; p++) {
-            fb[p] = 0xbf800000u;
-        }
+    /* 5. Fallback shader (offset 0x300) */
+    uint32_t *fb = (uint32_t *)((char *)pipe->gpu_payload + 0x300);
+    fb[0] = 0xbefc0380u; /* s_mov_b32 m0, 0 */
+    fb[1] = 0xbf900009u; /* s_sendmsg sendmsg(MSG_GS_ALLOC_REQ) */
+    fb[2] = 0xbf810000u; /* s_endpgm */
+    for (size_t p = 3; p < 64; p++) {
+        fb[p] = 0xbf800000u;
     }
 
 #if defined(__x86_64__)
-    for (size_t p = 0; p < 0x1000; p += 64) {
-        __builtin_ia32_clflush((const void *)(pipe->gpu_payload + p));
-    }
+    __builtin_ia32_clflush((const void *)pipe->gpu_payload);
+    __builtin_ia32_clflush((const void *)((const char *)pipe->gpu_payload + 0x100));
+    __builtin_ia32_clflush((const void *)((const char *)pipe->gpu_payload + 0x200));
+    __builtin_ia32_clflush((const void *)((const char *)pipe->gpu_payload + 0x300));
 #endif
 
-    klog_line("RDNA2 NGG Vertex and Pixel Shaders assembled across 4 slots and flushed");
+    klog_line("RDNA2 NGG Vertex and Pixel Shaders assembled and flushed");
 #else
     pipe->initialized = true;
     pipe->use_hardware = false;
@@ -309,72 +297,55 @@ int gl_triangle_dispatch(gl_triangle_pipeline_t *pipe, uint32_t clear_color,
 
     *pipe->fence = 0x11111111u;
 
-    /* Dynamic rotation angle: 0.035 rad/frame (~2.0 deg/frame) */
-    float theta = (float)pipe->frame_count * 0.035f;
-    float cos_th = fast_cos(theta);
-    float sin_th = fast_sin(theta);
+    /* Compute dynamic continuous rotation angle and RGB color for Stage 2 */
+    /* 1 full rotation every 360 frames (~6.0 seconds at 60 FPS) */
+    float theta_norm = (float)(pipe->frame_count % 360) / 360.0f;
+    float theta_rad = theta_norm * 6.28318530717958647692f;
+    uint32_t theta_raw = 0;
+    memcpy(&theta_raw, &theta_norm, 4);
 
-    /* Base equilateral triangle (R = 0.55f):
-     * Vertex 0: (0.0f, -0.55f)
-     * Vertex 1: (+0.47631397f, +0.275f)
-     * Vertex 2: (-0.47631397f, +0.275f)
-     */
-    static const float base_vx[3] = { 0.0f,  0.47631397f, -0.47631397f };
-    static const float base_vy[3] = {-0.55f, 0.275f,       0.275f };
+    /* Update Vertex Shader rotation angle */
+    uint32_t *vs_ptr = (uint32_t *)pipe->gpu_payload;
+    vs_ptr[19] = theta_raw;
+#if defined(__x86_64__)
+    __builtin_ia32_clflush((const void *)&vs_ptr[19]);
+#endif
 
-    /* Rotate and apply 16:9 aspect ratio correction (9/16 = 0.5625f) */
-    float rvx[3], rvy[3];
-    for (int i = 0; i < 3; i++) {
-        float rx = base_vx[i] * cos_th - base_vy[i] * sin_th;
-        float ry = base_vx[i] * sin_th + base_vy[i] * cos_th;
-        rvx[i] = rx * 0.5625f;
-        rvy[i] = ry;
-    }
-
-    /* Dynamic RGB color cycling */
+    /* Dynamic RGB Rainbow Color Cycling */
     float cr, cg, cb;
     if (prim_color != 0) {
         cr = (float)((prim_color >> 16) & 0xff) / 255.0f;
         cg = (float)((prim_color >> 8) & 0xff) / 255.0f;
         cb = (float)(prim_color & 0xff) / 255.0f;
     } else {
-        float phi = theta * 1.5f;
-        cr = 0.5f + 0.5f * fast_cos(phi);
-        cg = 0.5f + 0.5f * fast_cos(phi + 2.0943951f);
-        cb = 0.5f + 0.5f * fast_cos(phi + 4.1887902f);
+        cr = 0.5f + 0.5f * fast_cos9(theta_rad);
+        cg = 0.5f + 0.5f * fast_cos9(theta_rad + 2.0943951f);
+        cb = 0.5f + 0.5f * fast_cos9(theta_rad + 4.1887902f);
     }
 
-    /* Select active ring-buffer slot (4 slots) */
-    uint32_t slot = (uint32_t)(pipe->frame_count % 4);
-    uint8_t *slot_ptr = pipe->gpu_payload + (slot * 0x400u);
-    uint32_t *vs = (uint32_t *)slot_ptr;
-    uint32_t *gs = (uint32_t *)(slot_ptr + 0x100u);
-    uint32_t *ps = (uint32_t *)(slot_ptr + 0x200u);
+    uint32_t raw_r = 0, raw_g = 0, raw_b = 0;
+    memcpy(&raw_r, &cr, 4);
+    memcpy(&raw_g, &cg, 4);
+    memcpy(&raw_b, &cb, 4);
 
-    /* Patch vertex coordinates into active slot VS */
-    vs[27] = float_as_u32(rvx[0]);
-    vs[29] = float_as_u32(rvy[0]);
-    vs[32] = float_as_u32(rvx[1]);
-    vs[34] = float_as_u32(rvy[1]);
-    vs[37] = float_as_u32(rvx[2]);
-    vs[39] = float_as_u32(rvy[2]);
-
-    /* Mirror to active slot GS */
-    for (size_t p = 0; p < 64; p++) {
-        gs[p] = vs[p];
-    }
-
-    /* Patch RGB color into active slot PS */
-    ps[29] = float_as_u32(cr);
-    ps[31] = float_as_u32(cg);
-    ps[33] = float_as_u32(cb);
-
-    /* Flush active slot to coherent memory */
+    /* Update Pixel Shader colors at payload + 0x200 */
+    uint32_t *ps_ptr = (uint32_t *)((char *)pipe->gpu_payload + 0x200);
+    ps_ptr[17] = raw_r;
+    ps_ptr[19] = raw_g;
+    ps_ptr[21] = raw_b;
 #if defined(__x86_64__)
-    for (size_t p = 0; p < 0x400; p += 64) {
-        __builtin_ia32_clflush((const void *)(slot_ptr + p));
-    }
+    __builtin_ia32_clflush((const void *)&ps_ptr[16]);
 #endif
+
+    pipe->metrics.rotation_angle = theta_rad; /* radians for HUD */
+
+    uint32_t ir = (uint32_t)(cr * 255.0f + 0.5f);
+    uint32_t ig = (uint32_t)(cg * 255.0f + 0.5f);
+    uint32_t ib = (uint32_t)(cb * 255.0f + 0.5f);
+    if (ir > 255) ir = 255;
+    if (ig > 255) ig = 255;
+    if (ib > 255) ib = 255;
+    pipe->metrics.current_color = 0xff000000u | (ir << 16) | (ig << 8) | ib;
 
     uint32_t *dw = pipe->dcb_mem;
 
@@ -389,7 +360,7 @@ int gl_triangle_dispatch(gl_triangle_pipeline_t *pipe, uint32_t clear_color,
         {0x31cu, 0x000180a8u}, /* CB_COLOR0_INFO: COLOR_8_8_8_8, LINEAR_GENERAL, UNORM */
         {0x31du, 0x00000000u}, /* CB_COLOR0_ATTRIB: 0 */
         {0x31eu, 0x00000000u}, /* CB_COLOR0_DCC_CONTROL: disabled */
-        {0x3b0u, AGC_CB_COLOR_ATTRIB2(1920, 1080)}, /* CB_COLOR0_ATTRIB2: MIP0_HEIGHT=1079, MIP0_WIDTH=1919 */
+        {0x3b0u, (1919u << 14) | 1079u}, /* CB_COLOR0_ATTRIB2: MIP0_WIDTH=1919, MIP0_HEIGHT=1079 */
         {0x202u, 0x00cc0010u}, /* CB_COLOR_CONTROL: CB_NORMAL, ROP3_COPY */
         {0x08eu, 0x0000000fu}, /* CB_TARGET_MASK: MRT0 4 components enabled */
         {0x08fu, 0x0000000fu}, /* CB_SHADER_MASK: MRT0 4 components export enabled */
@@ -402,7 +373,7 @@ int gl_triangle_dispatch(gl_triangle_pipeline_t *pipe, uint32_t clear_color,
         {0x201u, 0x00130000u}, /* DB_EQAA: HIGH_QUALITY_INTERSECTIONS | INCOHERENT_EQAA_READS | STATIC_ANCHOR_ASSOCIATIONS */
         {0x203u, 0x00000600u}, /* DB_SHADER_CONTROL: Z_ORDER=LATE_Z | EXEC_ON_HIER_FAIL | EXEC_ON_NOOP */
         {0x08cu, 0xaa99aaaau}, /* PA_SC_EDGERULE: D3D/OpenGL standard edge rule */
-        {0x1d4u, 0x000000ffu}, /* SX_PS_DOWNCONVERT_CONTROL: disabled / no conversion (obSCEne 166-agc confirmed) */
+        {0x1d4u, 0x000000ffu}, /* SX_PS_DOWNCONVERT_CONTROL: disabled / no conversion (RDNA2 GFX10.3 hardware default) */
         {0x291u, (128u << 22) | (128u << 11) | 256u}, /* VGT_GS_ONCHIP_CNTL: GS_INST_PRIMS=128, GS_PRIMS=128, ES_VERTS=256 */
         {0x29bu, 0x00000002u},       /* VGT_GS_OUT_PRIM_TYPE: TRILIST */
         {0x2d3u, 0x00000001u}, /* GE_NGG_SUBGRP_CNTL: PRIM_AMP=1, THDS_PER_SUBGRP=0 */
@@ -419,7 +390,7 @@ int gl_triangle_dispatch(gl_triangle_pipeline_t *pipe, uint32_t clear_color,
         {0x30eu, 0xffffffffu}, /* PA_SC_AA_MASK_X0Y0_X1Y0: enable all samples */
         {0x30fu, 0xffffffffu}, /* PA_SC_AA_MASK_X0Y1_X1Y1: enable all samples */
         {0x310u, 0x00000000u}, /* PA_SC_SHADER_CONTROL */
-        {0x314u, 0x00000202u}, /* PA_SC_NGG_MODE_CNTL: MAX_DEALLOCS=2, MAX_FPOVS=2 (obSCEne 166-agc confirmed) */
+        {0x314u, 0x00000200u}, /* PA_SC_NGG_MODE_CNTL: MAX_DEALLOCS_IN_WAVE=512 (RDNA2 GFX10 hardware default) */
         {0x311u, 0x19fc0122u}, /* PA_SC_BINNER_CNTL_0: DISABLE_BINNING_USE_NEW_SC (128x128 extend=2, fpovs=63, opt_bin=1, flush=1) */
         {0x312u, 0x03ff0080u}, /* PA_SC_BINNER_CNTL_1 */
         {0x313u, 0x00100000u}, /* PA_SC_CONSERVATIVE_RASTERIZATION_CNTL: NULL_SQUAD_AA_MASK_ENABLE */
@@ -460,16 +431,18 @@ int gl_triangle_dispatch(gl_triangle_pipeline_t *pipe, uint32_t clear_color,
         {0x293u, 0x760201b5u}, /* PA_SC_MODE_CNTL_1: WALK_SIZE=1, WALK_ALIGN8=1, OUT_OF_ORDER_WATER_MARK=7, etc */
         {0x2f8u, 0x20000000u}, /* PA_SC_AA_CONFIG: 1x MSAA, COVERED_CENTROID_IS_CENTER=1 */
         {0x2f9u, 0x0000002du}, /* PA_SU_VTX_CNTL: 1/16th subpixel, half-pixel center */
+        {0x191u, 0x00000000u}, /* SPI_PS_INPUT_CNTL_0 */
         {0x1b1u, 0x00000080u}, /* SPI_VS_OUT_CONFIG: NO_PC_EXPORT */
         {0x1c2u, 0x00000001u}, /* SPI_SHADER_IDX_FORMAT: IDX0 = 1COMP */
         {0x1c3u, 0x00000004u}, /* SPI_SHADER_POS_FORMAT: POS0 = 4COMP */
         {0x1c4u, 0x00000000u}, /* SPI_SHADER_Z_FORMAT: ZERO (no Z export) */
         {0x1c5u, 0x00000009u}, /* SPI_SHADER_COL_FORMAT: COL0 = 32_ABGR */
-        {0x1b3u, 0x00000002u}, /* SPI_PS_INPUT_ENA: PERSP_CENTER_ENA */
-        {0x1b4u, 0x00000002u}, /* SPI_PS_INPUT_ADDR: PERSP_CENTER_ENA */
-        {0x1b5u, 0x00000001u}, /* SPI_INTERP_CONTROL_0: FLAT_SHADE_ENA */
-        {0x1b6u, 0x00000000u}, /* SPI_PS_IN_CONTROL */
-        {0x1b8u, 0x01000000u}, /* SPI_BARYC_CNTL: FRONT_FACE_ALL_BITS */
+        {0x1b3u, 0x00000080u}, /* SPI_PS_INPUT_ENA: LINE_STIPPLE_TEX_ENA (minimum required for PS wave spawn) */
+        {0x1b4u, 0x00000080u}, /* SPI_PS_INPUT_ADDR: LINE_STIPPLE_TEX_ENA */
+        {0x1b5u, 0x00000000u}, /* SPI_INTERP_CONTROL_0: 0 */
+        {0x1b5u, 0x00000000u}, /* SPI_INTERP_CONTROL_0: 0 */
+        {0x1b6u, 0x00008000u}, /* SPI_PS_IN_CONTROL: PS_W32_EN, NUM_INTERP=0 */
+        {0x1b8u, 0x00000000u}, /* SPI_BARYC_CNTL: 0 */
     };
 
     for (size_t i = 0; i < sizeof(ctx_regs) / sizeof(ctx_regs[0]); i++) {
@@ -483,14 +456,6 @@ int gl_triangle_dispatch(gl_triangle_pipeline_t *pipe, uint32_t clear_color,
         *dw++ = 0xc0016900u; /* PACKET3_SET_CONTEXT_REG, count 1 */
         *dw++ = reg;
         *dw++ = val;
-    }
-
-    /* Clear all 32 SPI_PS_INPUT_CNTL registers (0x191 .. 0x1b0) to 0,
-     * matching libSceAgc.sprx and obSCEne 166-agc confirmed default pipeline state */
-    for (uint32_t i = 0; i < 32; i++) {
-        *dw++ = 0xc0016900u; /* PACKET3_SET_CONTEXT_REG, count 1 */
-        *dw++ = 0x191u + i;
-        *dw++ = 0x00000000u;
     }
 
     /* 2. Shader Program Bindings: bind PS, VS, GS, ES, HS, LS */
@@ -507,10 +472,9 @@ int gl_triangle_dispatch(gl_triangle_pipeline_t *pipe, uint32_t clear_color,
         {0x108u, 0x000u, 0x000c0010u, 0x00000008u}, /* HS */
         {0x148u, 0x000u, 0x000c0010u, 0x00000008u}, /* LS */
     };
-    uint64_t slot_offset = (uint64_t)slot * 0x400u;
     for (size_t s = 0; s < sizeof(stages) / sizeof(stages[0]); s++) {
         uint32_t base_reg = stages[s].base_reg;
-        uint64_t s_va = payload_va + slot_offset + stages[s].va_offset;
+        uint64_t s_va = payload_va + stages[s].va_offset;
         *dw++ = 0xc0017600u; /* SET_SH_REG, count 1 */
         *dw++ = base_reg;
         *dw++ = (uint32_t)(s_va >> 8);
@@ -543,10 +507,10 @@ int gl_triangle_dispatch(gl_triangle_pipeline_t *pipe, uint32_t clear_color,
     *dw++ = 0x4u;        /* DI_PT_TRILIST */
     *dw++ = 0xc0017900u; /* mmGE_CNTL */
     *dw++ = 0x25bu;
-    *dw++ = OOPS_AGC_GE_CNTL_DEFAULT; /* 0x00008040u: 64-prim / 64-vert group size */
-    *dw++ = 0xc0017900u; /* mmGE_PC_ALLOC */
+    *dw++ = 0x00020080u;
+    *dw++ = 0xc0017900u; /* mmGE_PC_ALLOC: 256 lines per SE with oversub enabled (RDNA2 GFX10.3 hardware default) */
     *dw++ = 0x260u;
-    *dw++ = OOPS_AGC_GE_PC_ALLOC_DEFAULT; /* 0x000003ffu: parameter cache oversubscription and 511 lines (obSCEne 166-agc confirmed) */
+    *dw++ = 0x000001ffu;
 
     /* 5. Primitive Draw: DRAW_INDEX_AUTO (opcode 0x2D, count 3, initiator 2) */
     *dw++ = 0xc0012d00u;
@@ -576,13 +540,6 @@ int gl_triangle_dispatch(gl_triangle_pipeline_t *pipe, uint32_t clear_color,
     desc.size = words_written; /* length in DWORDs */
     desc.flags = 0u;
     desc.pad = 0u;
-
-#if defined(__x86_64__)
-    __builtin_ia32_clflush((const void *)pipe->fence);
-    for (size_t p = 0; p < (size_t)words_written * sizeof(uint32_t); p += 64) {
-        __builtin_ia32_clflush((const void *)((const char *)pipe->dcb_mem + p));
-    }
-#endif
 
     int submit_rc = -1;
     if (sceAgcDriverSubmitCommandBuffer) {
@@ -627,36 +584,21 @@ int gl_triangle_dispatch(gl_triangle_pipeline_t *pipe, uint32_t clear_color,
     pipe->metrics.canary_vs_done = pipe->canary[6];
     pipe->metrics.canary_ps_done = pipe->canary[10];
 
-    pipe->metrics.rotation_angle = theta;
-    uint32_t int_r = (uint32_t)(cr * 255.0f + 0.5f);
-    uint32_t int_g = (uint32_t)(cg * 255.0f + 0.5f);
-    uint32_t int_b = (uint32_t)(cb * 255.0f + 0.5f);
-    if (int_r > 255) int_r = 255;
-    if (int_g > 255) int_g = 255;
-    if (int_b > 255) int_b = 255;
-    pipe->metrics.current_color = 0xFF000000u | (int_r << 16) | (int_g << 8) | int_b;
-
-    klog_val("frame-tick", pipe->frame_count);
-    klog_val("fence-hit-tick", (uint64_t)fence_hit);
-
-    if (pipe->frame_count < 5 || pipe->frame_count % 60 == 0) {
-        /* Sample target buffer and count modified pixels on diagnostic frames */
-        uint32_t modified = 0;
-        size_t total_px = (size_t)pipe->target_width * (size_t)pipe->target_height;
-        for (size_t i = 0; i < total_px; i += 64) {
+    /* Count modified pixels in target buffer */
+    uint32_t modified = 0;
+    size_t total_px = (size_t)pipe->target_width * (size_t)pipe->target_height;
+    for (size_t i = 0; i < total_px; i += 64) {
 #if defined(__x86_64__)
-            __builtin_ia32_clflush((const void *)&pipe->target_buffer[i]);
+        __builtin_ia32_clflush((const void *)&pipe->target_buffer[i]);
 #endif
-            if (pipe->target_buffer[i] != clear_color) {
-                modified++;
-            }
+        if (pipe->target_buffer[i] != clear_color) {
+            modified++;
         }
-        pipe->metrics.pixels_modified = modified;
+    }
+    pipe->metrics.pixels_modified = modified;
 
+    if (pipe->frame_count % 30 == 0 || pipe->frame_count < 5) {
         klog_val("frame", pipe->frame_count);
-        klog_val("slot", (uint64_t)slot);
-        klog_val("rot-deg", (uint64_t)((uint32_t)(theta * 57.2957795f) % 360u));
-        klog_val("color-rgb", (uint64_t)pipe->metrics.current_color);
         klog_val("submit-rc", (uint64_t)(uint32_t)submit_rc);
         klog_val("fence-hit", (uint64_t)fence_hit);
         klog_val("fence-val", (uint64_t)f_val);
@@ -667,6 +609,8 @@ int gl_triangle_dispatch(gl_triangle_pipeline_t *pipe, uint32_t clear_color,
         klog_val("canary-vs-done", (uint64_t)pipe->metrics.canary_vs_done);
         klog_val("canary-ps", (uint64_t)pipe->metrics.canary_ps);
         klog_val("canary-ps-done", (uint64_t)pipe->metrics.canary_ps_done);
+        klog_val("rot-deg", (uint64_t)(uint32_t)(theta_norm * 360.0f));
+        klog_val("color-rgb", (uint64_t)pipe->metrics.current_color);
         klog_val("pixels-mod", (uint64_t)modified);
     }
 
@@ -679,8 +623,6 @@ int gl_triangle_dispatch(gl_triangle_pipeline_t *pipe, uint32_t clear_color,
     pipe->metrics.canary_ps = 0xbeef0002u;
     pipe->metrics.canary_ps_done = 0xbeef0004u;
     pipe->metrics.pixels_modified = (pipe->target_width * pipe->target_height) / 4;
-    pipe->metrics.rotation_angle = (float)pipe->frame_count * 0.035f;
-    pipe->metrics.current_color = prim_color ? prim_color : 0xFF00FFFFu;
 #endif
 
     pipe->frame_count++;
