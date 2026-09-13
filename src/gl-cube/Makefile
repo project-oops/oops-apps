@@ -9,6 +9,15 @@ OOPS_APPS_ROOT ?= $(abspath ../..)
 EXTRA_TARGET_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 EXTRA_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 
+# Host test sources
+HOST_TEST_SRCS = gl_cube_selftest.c \
+                 $(OOPS_SDK_DIR)/src/gl/gl_context.c \
+                 $(OOPS_SDK_DIR)/src/gl/gl_state.c \
+                 $(OOPS_SDK_DIR)/src/gl/gl_matrix.c \
+                 $(OOPS_SDK_DIR)/src/gl/gl_draw.c \
+                 $(OOPS_SDK_DIR)/src/system/system.c
+HOST_TEST_LIBS = -lm
+
 # Target payload sources
 PAYLOAD_SRCS = gl_cube_main.c \
                $(OOPS_APPS_ROOT)/common/obj_loader.c \
