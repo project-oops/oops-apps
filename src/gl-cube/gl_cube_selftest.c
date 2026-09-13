@@ -226,7 +226,27 @@ int main(void) {
         return 1;
     }
 
-    /* 8. Cleanup */
+    /* 8. Verify dynamic color mask and culling state */
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glDisable(GL_TEXTURE_2D);
+    /* Mask out Red and Blue, allowing only Green and Alpha */
+    glColorMask(GL_FALSE, GL_TRUE, GL_FALSE, GL_TRUE);
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+
+    uint32_t masked_pixel = fb[240 * 640 + 320];
+    uint32_t masked_b = masked_pixel & 0xffu;
+    uint32_t masked_r = (masked_pixel >> 16) & 0xffu;
+    uint32_t masked_g = (masked_pixel >> 8) & 0xffu;
+    if (masked_b != 0 || masked_r != 0 || masked_g == 0) {
+        fprintf(stderr, "gl-cube selftest: color mask failure (got 0x%08x)\n", masked_pixel);
+        glDeleteTextures(1, &tex_id);
+        glContextDestroy(ctx);
+        oops_display_close(disp);
+        return 1;
+    }
+
+    /* 9. Cleanup */
     glDeleteTextures(1, &tex_id);
     glContextDestroy(ctx);
     oops_display_close(disp);
