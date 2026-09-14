@@ -89,7 +89,8 @@ else
 endif
 SYMBOLS_FILE ?= $(OOPS_APPS_ROOT)/common/symbols.txt
 MKMODULE_GEN ?= $(if $(filter 1 2,$(OOPS_TARGET_NUM)),4,5)
-MKMODULE_TABLE ?= $(if $(filter 1 2,$(OOPS_TARGET_NUM)),orbis,prospero)
+MKMODULE_TABLE ?= orbis
+MKMODULE_KIND ?= executable
 
 .DEFAULT_GOAL := all
 
@@ -130,7 +131,7 @@ $(BUILD)/.mkmodule-fixed.stamp: $(BUILD)/$(APP_NAME).elf
 	@if [ -n "$(MKMODULE_BIN)" ] && [ -f "$(SYMBOLS_FILE)" ] && $(MKMODULE_BIN) --help >/dev/null 2>&1; then \
 	    IN="$<"; SYM="$(SYMBOLS_FILE)"; \
 	    case "$(MKMODULE_BIN)" in *.exe) command -v wslpath >/dev/null 2>&1 && { IN=$$(wslpath -m "$$IN"); SYM=$$(wslpath -m "$$SYM"); } ;; esac; \
-	    $(MKMODULE_BIN) mkmodule --symbols "$$SYM" --generation $(MKMODULE_GEN) --table $(MKMODULE_TABLE) --kind fixed "$$IN"; \
+	    $(MKMODULE_BIN) mkmodule --symbols "$$SYM" --generation $(MKMODULE_GEN) --table $(MKMODULE_TABLE) --kind $(MKMODULE_KIND) "$$IN"; \
 	fi
 	@touch $@
 
@@ -172,8 +173,8 @@ title: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	            LIB_IN="$(BUILD)/libc.module.elf"; SYM="$(SYMBOLS_FILE)"; \
 	            PRX_OUT="$(BUILD)/title/$(TITLE_ID)/sce_module/libc.prx"; \
 	            case "$(MKMODULE_BIN)" in *.exe) command -v wslpath >/dev/null 2>&1 && { LIB_IN=$$(wslpath -m "$$LIB_IN"); SYM=$$(wslpath -m "$$SYM"); PRX_OUT=$$(wslpath -m "$$PRX_OUT"); } ;; esac; \
-	            $(MKMODULE_BIN) mkmodule --symbols "$$SYM" --module-name libc --kind shared --generation $(MKMODULE_GEN) --table $(MKMODULE_TABLE) "$$LIB_IN"; \
-	            $(MKMODULE_BIN) mkself "$$LIB_IN" --generation $(MKMODULE_GEN) --privilege app --sdk $(TARGET) --out "$$PRX_OUT"; \
+	            $(MKMODULE_BIN) mkmodule --symbols "$$SYM" --module-name libc --kind shared --generation $(MKMODULE_GEN) --table orbis "$$LIB_IN"; \
+	            $(MKMODULE_BIN) mkself "$$LIB_IN" --generation 4 --privilege app --out "$$PRX_OUT"; \
 	        fi; \
 	    fi; \
 	    ZIP_CMD=$$(command -v zip 2>/dev/null && echo "zip -qr" || echo "tar -a -cf"); \
