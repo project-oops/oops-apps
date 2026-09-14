@@ -3,21 +3,10 @@
 #include "oops/syscall.h"
 #include "oops/krw.h"
 #include "oops/freestd.h"
+#include "oops/system.h"
 
 static void klog(const char *msg) {
-#ifndef OOPS_HOST_BUILD
-    char buf[160];
-    const char *prefix = "[WIPEOUT] ";
-    int n = 0;
-    while (prefix[n] && n < 16) { buf[n] = prefix[n]; n++; }
-    int m = 0;
-    while (msg[m] && n < (int)sizeof(buf) - 2) { buf[n++] = msg[m++]; }
-    buf[n++] = '\n';
-    buf[n] = '\0';
-    (void)sys_call(SYS_klog, 7, (long)buf, 0, 0, 0, 0);
-#else
-    (void)msg;
-#endif
+    oops_klog("WIPEOUT", msg);
 }
 
 #ifndef OOPS_HOST_BUILD
@@ -27,33 +16,7 @@ __attribute__((weak)) void exit(int status);
 __attribute__((weak)) int sceKernelUsleep(unsigned int microseconds);
 
 static void wipeout_agc_logger(const char *tag, const char *msg, uint64_t val) {
-    char buf[160];
-    char hex[17];
-    uint64_t v = val;
-    for (int i = 15; i >= 0; i--) {
-        uint8_t d = (uint8_t)(v & 0xf);
-        hex[i] = (char)(d < 10 ? ('0' + d) : ('a' + d - 10));
-        v >>= 4;
-    }
-    hex[16] = '\0';
-    int hstart = 0;
-    while (hstart < 15 && hex[hstart] == '0') {
-        hstart++;
-    }
-
-    int n = 0;
-    const char *pfx = "[AGC] ";
-    while (pfx[n] && n < 8) { buf[n] = pfx[n]; n++; }
-    int m = 0;
-    while (tag && tag[m] && n < 32) { buf[n++] = tag[m++]; }
-    if (n < 34) { buf[n++] = ':'; buf[n++] = ' '; }
-    m = 0;
-    while (msg && msg[m] && n < 80) { buf[n++] = msg[m++]; }
-    if (n < 84) { buf[n++] = ' '; buf[n++] = '='; buf[n++] = ' '; buf[n++] = '0'; buf[n++] = 'x'; }
-    m = hstart;
-    while (hex[m] && n < (int)sizeof(buf) - 2) { buf[n++] = hex[m++]; }
-    buf[n] = '\0';
-    klog(buf);
+    oops_kprintf("AGC", "%s: %s = 0x%llx\n", tag ? tag : "", msg ? msg : "", (unsigned long long)val);
 }
 #endif
 

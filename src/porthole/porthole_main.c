@@ -8,45 +8,19 @@
 #include "oops/freestd.h"
 #include "oops/krw.h"
 #include "oops/syscall.h"
+#include "oops/system.h"
 
 void klog_write(const char *msg) {
     if (msg == NULL) return;
-    char buf[256];
-    const char *prefix = "[PORTHOLE] ";
-    size_t plen = obs_strlen(prefix);
-    size_t mlen = obs_strlen(msg);
-    if (plen + mlen + 2 > sizeof(buf)) {
-        mlen = sizeof(buf) - plen - 2;
-    }
-    memcpy(buf, prefix, plen);
-    memcpy(buf + plen, msg, mlen);
-    buf[plen + mlen] = '\n';
-    buf[plen + mlen + 1] = '\0';
-    sys_call(SYS_klog, 7, (long)buf, 0, 0, 0, 0);
+    oops_klog("PORTHOLE", msg);
 }
 
 void klog_write_hex(const char *prefix, uint64_t hex) {
-    char buf[128];
-    size_t plen = obs_strlen(prefix);
-    if (plen > sizeof(buf) - OBS_NUM_MAX - 1) {
-        plen = sizeof(buf) - OBS_NUM_MAX - 1;
-    }
-    memcpy(buf, prefix, plen);
-    size_t hlen = obs_format_hex(buf + plen, hex);
-    buf[plen + hlen] = '\0';
-    klog_write(buf);
+    oops_kprintf("PORTHOLE", "%s: 0x%llx\n", prefix ? prefix : "", (unsigned long long)hex);
 }
 
 void klog_write_num(const char *prefix, int64_t num) {
-    char buf[128];
-    size_t plen = obs_strlen(prefix);
-    if (plen > sizeof(buf) - OBS_NUM_MAX - 1) {
-        plen = sizeof(buf) - OBS_NUM_MAX - 1;
-    }
-    memcpy(buf, prefix, plen);
-    size_t nlen = obs_format_i64(buf + plen, num);
-    buf[plen + nlen] = '\0';
-    klog_write(buf);
+    oops_kprintf("PORTHOLE", "%s: %lld\n", prefix ? prefix : "", (long long)num);
 }
 
 int porthole_start(const payload_args_t *args);

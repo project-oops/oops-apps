@@ -13,7 +13,35 @@ static int row(oops_surface_t *surf, int y, const char *label, const char *value
     return y + 44;
 }
 
-int net_tool_render(oops_surface_t *surf, const oops_net_info_t *info) {
+static void format_latency(int ms, char *out, size_t out_sz) {
+    if (out_sz < 16) return;
+    if (ms < 0) {
+        out[0] = '-';
+        out[1] = '\0';
+        return;
+    }
+    char tmp[12];
+    int pos = 0;
+    uint32_t val = (uint32_t)ms;
+    if (val == 0) {
+        tmp[pos++] = '0';
+    } else {
+        while (val > 0) {
+            tmp[pos++] = (char)('0' + (val % 10));
+            val /= 10;
+        }
+    }
+    size_t k = 0;
+    while (pos > 0 && k < out_sz - 4) {
+        out[k++] = tmp[--pos];
+    }
+    out[k++] = ' ';
+    out[k++] = 'm';
+    out[k++] = 's';
+    out[k] = '\0';
+}
+
+int net_tool_render(oops_surface_t *surf, const oops_net_info_t *info, int latency_ms) {
     if (!surf || !info) {
         return 0;
     }
@@ -41,6 +69,10 @@ int net_tool_render(oops_surface_t *surf, const oops_net_info_t *info) {
     rows++;
     y = row(surf, y, "gateway", info->default_gateway[0] ? info->default_gateway : "-");
     rows++;
+    y = row(surf, y, "dns-pri", info->primary_dns[0] ? info->primary_dns : "-");
+    rows++;
+    y = row(surf, y, "dns-sec", info->secondary_dns[0] ? info->secondary_dns : "-");
+    rows++;
     y = row(surf, y, "mac", info->mac_address[0] ? info->mac_address : "-");
     rows++;
 
@@ -48,6 +80,11 @@ int net_tool_render(oops_surface_t *surf, const oops_net_info_t *info) {
         y = row(surf, y, "ssid", info->ssid);
         rows++;
     }
+
+    char lat_str[24];
+    format_latency(latency_ms, lat_str, sizeof(lat_str));
+    y = row(surf, y, "latency", lat_str);
+    rows++;
 
     oops_draw_text(surf, 48, y + 24, "an echo server would listen on 9007", LABEL, 2);
 

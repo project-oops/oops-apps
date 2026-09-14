@@ -20,6 +20,7 @@ enum {
     GALLERY_PAGE_AUDIO,      /* audio: port status */
     GALLERY_PAGE_NET,        /* netctl: link and address */
     GALLERY_PAGE_CAPS,       /* media-decode + input-device capability matrix */
+    GALLERY_PAGE_RUNTIME,    /* runtime: heap, fs, math, dns */
     GALLERY_PAGE_COUNT
 };
 
@@ -40,6 +41,14 @@ typedef struct gallery_caps {
     int agc_gpu;           /* oops_display_is_gpu_accelerated */
 } gallery_caps_t;
 
+typedef struct gallery_runtime {
+    size_t heap_allocated;
+    size_t heap_active;
+    int fs_ready;
+    int math_ready;
+    int dns_ready;
+} gallery_runtime_t;
+
 /* What the gallery draws for a page, gathered so render stays a pure function of it. */
 typedef struct gallery_state {
     int page;                    /* which page, wrapped into [0, GALLERY_PAGE_COUNT) */
@@ -49,6 +58,7 @@ typedef struct gallery_state {
     int net_linked;             /* for the net page: is the link up */
     const char *net_ip;          /* for the net page: address, or NULL */
     gallery_caps_t caps;         /* for the capabilities page */
+    gallery_runtime_t runtime;   /* for the runtime page */
 } gallery_state_t;
 
 /* The number of pages. */

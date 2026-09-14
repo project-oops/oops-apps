@@ -35,49 +35,31 @@ void klog_write_hex(const char *prefix, uint64_t hex);
 void klog_write_num(const char *prefix, int64_t num);
 int pltauth_patch_start(payload_args_t *args);
 
+#include "oops/system.h"
+
 /* Direct socket/terminal logging: elfldr maps socket to stdout (fd 1) and stderr (fd 2) */
 void klog_write(const char *msg) {
     if (msg == NULL) {
         return;
     }
+    oops_klog("PLTAUTH", msg);
     char buf[256];
-    size_t len = obs_strlen(msg);
-    if (len > sizeof(buf) - 2) {
-        len = sizeof(buf) - 2;
+    int len = oops_snprintf(buf, sizeof(buf), "%s\n", msg);
+    if (len > 0) {
+        sys_call(SYS_write, 1, (long)buf, (long)len, 0, 0, 0);
+        sys_call(SYS_write, 2, (long)buf, (long)len, 0, 0, 0);
     }
-    memcpy(buf, msg, len);
-    buf[len] = '\n';
-    buf[len + 1] = '\0';
-    sys_call(SYS_klog, 7, (long)buf, 0, 0, 0, 0);
-    sys_call(SYS_write, 1, (long)buf, (long)(len + 1), 0, 0, 0);
-    sys_call(SYS_write, 2, (long)buf, (long)(len + 1), 0, 0, 0);
 }
 
 void klog_write_hex(const char *prefix, uint64_t hex) {
     char buf[128];
-    size_t plen = prefix != NULL ? obs_strlen(prefix) : 0;
-    if (plen > sizeof(buf) - 20) {
-        plen = sizeof(buf) - 20;
-    }
-    if (prefix != NULL && plen > 0) {
-        memcpy(buf, prefix, plen);
-    }
-    size_t hlen = obs_format_hex(buf + plen, hex);
-    buf[plen + hlen] = '\0';
+    oops_snprintf(buf, sizeof(buf), "%s: 0x%llx", prefix ? prefix : "", (unsigned long long)hex);
     klog_write(buf);
 }
 
 void klog_write_num(const char *prefix, int64_t num) {
     char buf[128];
-    size_t plen = prefix != NULL ? obs_strlen(prefix) : 0;
-    if (plen > sizeof(buf) - 24) {
-        plen = sizeof(buf) - 24;
-    }
-    if (prefix != NULL && plen > 0) {
-        memcpy(buf, prefix, plen);
-    }
-    size_t nlen = obs_format_i64(buf + plen, num);
-    buf[plen + nlen] = '\0';
+    oops_snprintf(buf, sizeof(buf), "%s: %lld", prefix ? prefix : "", (long long)num);
     klog_write(buf);
 }
 

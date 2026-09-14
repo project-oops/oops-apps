@@ -10,7 +10,7 @@
 OOPS_APPS_ROOT ?= $(abspath ../..)
 
 # Host test sources
-HOST_TEST_SRCS = wipeout_selftest.c platform_oops.c $(OOPS_SDK_DIR)/src/system/system.c
+HOST_TEST_SRCS = wipeout_selftest.c platform_oops.c $(OOPS_SDK_DIR)/src/system/system.c $(OOPS_SDK_DIR)/src/system/freestd.c
 
 # Target payload sources
 PAYLOAD_SRCS = platform_oops.c \

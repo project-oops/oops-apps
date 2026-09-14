@@ -10,7 +10,10 @@
 OOPS_APPS_ROOT ?= $(abspath ../..)
 
 # Host test sources
-HOST_TEST_SRCS = home_selftest.c home.c $(OOPS_SDK_DIR)/src/draw/draw.c
+HOST_TEST_SRCS = home_selftest.c home.c \
+                 $(OOPS_SDK_DIR)/src/draw/draw.c \
+                 $(OOPS_SDK_DIR)/src/system/system.c \
+                 $(OOPS_SDK_DIR)/src/system/freestd.c
 
 # Target payload sources
 PAYLOAD_SRCS = home.c home_main.c \
@@ -19,6 +22,9 @@ PAYLOAD_SRCS = home.c home_main.c \
                $(OOPS_SDK_DIR)/src/gnm/gnm_display.c \
                $(OOPS_SDK_DIR)/src/input/input.c \
                $(OOPS_SDK_DIR)/src/memory/memory.c \
+               $(OOPS_SDK_DIR)/src/system/system.c \
+               $(OOPS_SDK_DIR)/src/system/fs.c \
+               $(OOPS_SDK_DIR)/src/system/pkg.c \
                $(OOPS_SDK_DIR)/src/system/freestd.c \
                $(OOPS_SDK_DIR)/src/system/syscall.c \
                $(OOPS_SDK_DIR)/src/system/krw.c \

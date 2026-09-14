@@ -21,15 +21,7 @@
 
 /* A line to the system log, the one output a payload always has. */
 static void klog(const char *msg) {
-    char buf[160];
-    const char *prefix = "[PAD-VIZ] ";
-    int n = 0;
-    while (prefix[n] && n < 16) { buf[n] = prefix[n]; n++; }
-    int m = 0;
-    while (msg[m] && n < (int)sizeof(buf) - 2) { buf[n++] = msg[m++]; }
-    buf[n++] = '\n';
-    buf[n] = '\0';
-    (void)sys_call(SYS_klog, 7, (long)buf, 0, 0, 0, 0);
+    oops_klog("PAD-VIZ", msg);
 }
 
 /* The exit gesture: L1, R1 and Options together - a combo no single press triggers, so the

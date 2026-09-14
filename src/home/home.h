@@ -280,6 +280,17 @@ typedef struct home_dev_state {
     int fps_overlay;
     int frame_limit_60;
     int shaders_compiled;
+    int cpu_temp_c;
+    int soc_temp_c;
+    int fan_duty_pct;
+    int total_ram_mb;
+    int direct_mem_mb;
+    char fw_version[16];
+    char model_name[32];
+    char username[32];
+    char console_info_str[64];
+    char pltauth_str[48];
+    char hw_telemetry_str[64];
 } home_dev_state_t;
 
 /* Common dialog types */
@@ -421,6 +432,7 @@ typedef enum home_direction {
 /* ---- model API -------------------------------------------------------------------------- */
 
 void home_model_init(home_model_t *m);
+void home_refresh_telemetry(home_model_t *m);
 void home_set_host(home_model_t *m, const home_host_t *host);
 void home_set_titles(home_model_t *m, const home_title_t *titles, int count);
 

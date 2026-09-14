@@ -7,24 +7,22 @@
 #include "oops/freestd.h"
 #include "oops/memory.h"
 
-#define M_PI_F 3.14159265358979323846f
-#define M_TWO_PI_F 6.28318530717958647692f
-#define M_HALF_PI_F 1.57079632679489661923f
+#include "oops/math.h"
 
-static float mesh_sin(float x) {
-    while (x > M_PI_F) x -= M_TWO_PI_F;
-    while (x < -M_PI_F) x += M_TWO_PI_F;
-    float x2 = x * x;
-    return x * (1.0f - x2 * (1.0f / 6.0f - x2 * (1.0f / 120.0f - x2 * (1.0f / 5040.0f - x2 * (1.0f / 362880.0f)))));
+#define M_PI_F OOPS_PI
+#define M_TWO_PI_F OOPS_TWO_PI
+#define M_HALF_PI_F OOPS_HALF_PI
+
+static inline float mesh_sin(float x) {
+    return oops_sinf(x);
 }
 
-static float mesh_cos(float x) {
-    return mesh_sin(x + M_HALF_PI_F);
+static inline float mesh_cos(float x) {
+    return oops_cosf(x);
 }
 
-static float mesh_sqrt(float v) {
-    if (v <= 0.0f) return 0.0f;
-    return __builtin_sqrtf(v);
+static inline float mesh_sqrt(float v) {
+    return oops_sqrtf(v);
 }
 
 static inline bool is_space(char c) {

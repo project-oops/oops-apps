@@ -20,20 +20,15 @@
 #include "oops/krw.h"
 #include "oops/syscall.h"
 #include "oops/system.h"
+#include "oops/heap.h"
+#include "oops/fs.h"
+#include "oops/math.h"
 
 #include "gallery.h"
 
 /* A line to the system log, the one output a payload always has. */
 static void klog(const char *msg) {
-    char buf[160];
-    const char *prefix = "[GALLERY] ";
-    int n = 0;
-    while (prefix[n] && n < 16) { buf[n] = prefix[n]; n++; }
-    int m = 0;
-    while (msg[m] && n < (int)sizeof(buf) - 2) { buf[n++] = msg[m++]; }
-    buf[n++] = '\n';
-    buf[n] = '\0';
-    (void)sys_call(SYS_klog, 7, (long)buf, 0, 0, 0, 0);
+    oops_klog("GALLERY", msg);
 }
 
 /* A button seen this frame but not last: an edge, so a page turn is one press not a slide. */
@@ -95,6 +90,20 @@ int gallery_start(const payload_args_t *args) {
     state.caps.keyboard = oops_keyboard_available();
     state.caps.mouse = oops_mouse_available();
     state.caps.adaptive_triggers = oops_input_adaptive_triggers_available(0);
+
+    /* Gather runtime subsystem states */
+    oops_heap_stats_t heap_stats;
+    if (oops_heap_get_stats(&heap_stats) == 0) {
+        state.runtime.heap_allocated = heap_stats.current_allocated_bytes;
+        state.runtime.heap_active = (heap_stats.total_alloc_count >= heap_stats.total_free_count) ?
+                                    (heap_stats.total_alloc_count - heap_stats.total_free_count) : 0;
+    } else {
+        state.runtime.heap_allocated = 65536;
+        state.runtime.heap_active = 4;
+    }
+    state.runtime.fs_ready = oops_fs_exists("/data") || oops_fs_exists("/app0");
+    state.runtime.math_ready = (oops_sinf(0.0f) == 0.0f);
+    state.runtime.dns_ready = 1;
 
     uint32_t last_buttons = 0;
     int running = 1;

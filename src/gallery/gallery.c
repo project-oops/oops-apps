@@ -40,6 +40,7 @@ static const char *page_title(int page) {
         case GALLERY_PAGE_AUDIO:  return "audio";
         case GALLERY_PAGE_NET:    return "network";
         case GALLERY_PAGE_CAPS:   return "capabilities";
+        case GALLERY_PAGE_RUNTIME: return "runtime";
         default:                  return "?";
     }
 }
@@ -159,6 +160,24 @@ static void page_caps(oops_surface_t *surf, const gallery_caps_t *c) {
                    "available = library and entry points resolved on this console", LABEL, 2);
 }
 
+static void page_runtime(oops_surface_t *surf, const gallery_runtime_t *r) {
+    char num[16];
+    char buf[32];
+    int y = 132;
+    y = caps_row(surf, y, "heap: slab allocator (mmap)", 1);
+    u32_dec((uint32_t)(r->heap_allocated / 1024), num);
+    int k = 0;
+    const char *p = num;
+    while (*p) buf[k++] = *p++;
+    buf[k++] = ' '; buf[k++] = 'K'; buf[k++] = 'B'; buf[k] = '\0';
+    y = row(surf, y, "  allocated virtual", buf);
+    y = caps_row(surf, y, "filesystem: /data mount", r->fs_ready);
+    y = caps_row(surf, y, "math: 3D linear algebra (trig, mat4)", r->math_ready);
+    y = caps_row(surf, y, "network: RFC 1035 UDP DNS", r->dns_ready);
+    oops_draw_text(surf, 48, y + 16,
+                   "freestanding runtime: zero DMEM dependency, category 65536 safe", LABEL, 2);
+}
+
 int gallery_page_count(void) {
     return GALLERY_PAGE_COUNT;
 }
@@ -179,12 +198,13 @@ int gallery_render(oops_surface_t *surf, const gallery_state_t *state) {
     int page = gallery_wrap_page(state->page);
     frame(surf, page);
     switch (page) {
-        case GALLERY_PAGE_SHAPES: page_shapes(surf); break;
-        case GALLERY_PAGE_INPUT:  page_input(surf, &state->pad); break;
-        case GALLERY_PAGE_SYSTEM: page_system(surf, &state->system); break;
-        case GALLERY_PAGE_AUDIO:  page_audio(surf, state->audio_open); break;
-        case GALLERY_PAGE_NET:    page_net(surf, state->net_linked, state->net_ip); break;
-        case GALLERY_PAGE_CAPS:   page_caps(surf, &state->caps); break;
+        case GALLERY_PAGE_SHAPES:  page_shapes(surf); break;
+        case GALLERY_PAGE_INPUT:   page_input(surf, &state->pad); break;
+        case GALLERY_PAGE_SYSTEM:  page_system(surf, &state->system); break;
+        case GALLERY_PAGE_AUDIO:   page_audio(surf, state->audio_open); break;
+        case GALLERY_PAGE_NET:     page_net(surf, state->net_linked, state->net_ip); break;
+        case GALLERY_PAGE_CAPS:    page_caps(surf, &state->caps); break;
+        case GALLERY_PAGE_RUNTIME: page_runtime(surf, &state->runtime); break;
         default: break;
     }
     return page;

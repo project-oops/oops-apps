@@ -112,8 +112,8 @@ int main(void) {
         printf("FAIL: control centre must have all 13 Prospero dock items, found %d\n", m.card_count);
         failures++;
     }
-    if (m.activity_count <= 0) {
-        printf("FAIL: active game must have activity cards\n");
+    if (m.activity_count != 0) {
+        printf("FAIL: activity cards must not contain placeholder data\n");
         failures++;
     }
 
@@ -220,8 +220,16 @@ int main(void) {
     /* Switcher screen navigation */
     home_open(&m, HOME_SCREEN_SWITCHER);
     const home_menu_t *sw_menu = home_current_menu_const(&m);
+    if (sw_menu == 0 || sw_menu->count < 2) {
+        printf("FAIL: Switcher menu must contain idle status and actions\n");
+        failures++;
+    }
+    m.switcher.has_running_title = 1;
+    m.switcher.running_title_index = 0;
+    home_open(&m, HOME_SCREEN_SWITCHER);
+    sw_menu = home_current_menu_const(&m);
     if (sw_menu == 0 || sw_menu->count < 3) {
-        printf("FAIL: Switcher menu must contain running game and actions\n");
+        printf("FAIL: Switcher menu with active game must contain running title and actions\n");
         failures++;
     }
 
@@ -437,6 +445,26 @@ int main(void) {
         uint32_t bg = pixel_at(&surf, 0, 0);
         if (bg != home_theme_at(0)->background) {
             printf("FAIL: pixel_at origin does not match background\n");
+            failures++;
+        }
+    }
+
+    /* Test live telemetry and settings menu updates */
+    {
+        home_model_init(&m);
+        home_refresh_telemetry(&m);
+        if (m.dev.console_info_str[0] == '\0' || m.dev.pltauth_str[0] == '\0' || m.dev.hw_telemetry_str[0] == '\0') {
+            printf("FAIL: home_refresh_telemetry did not generate formatted strings\n");
+            failures++;
+        }
+        home_menu_t *sys_menu = &m.menus[HOME_SCREEN_SETTINGS_SYSTEM];
+        if (sys_menu->count < 3 || strcmp(sys_menu->items[0].label, "CONSOLE INFORMATION") != 0) {
+            printf("FAIL: system settings menu did not populate properly\n");
+            failures++;
+        }
+        home_menu_t *dev_menu = &m.menus[HOME_SCREEN_SETTINGS_DEVELOPER];
+        if (dev_menu->count < 4 || strcmp(dev_menu->items[3].label, "PLTAUTH STATUS") != 0) {
+            printf("FAIL: developer settings menu did not populate pltauth status\n");
             failures++;
         }
     }

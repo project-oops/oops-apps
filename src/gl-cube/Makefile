@@ -9,13 +9,19 @@ OOPS_APPS_ROOT ?= $(abspath ../..)
 EXTRA_TARGET_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 EXTRA_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 
+# oops-mesa's generated preamble (roadmap unit 2) is picked up from the sibling checkout when it
+# is there; gl_cube_main.c tests for the header and builds without the control files otherwise.
+OOPS_MESA ?= $(abspath $(OOPS_APPS_ROOT)/../oops-mesa)
+EXTRA_TARGET_CFLAGS += -I$(OOPS_MESA)/tools/preamble-dump
+
 # Host test sources
 HOST_TEST_SRCS = gl_cube_selftest.c \
                  $(OOPS_SDK_DIR)/src/gl/gl_context.c \
                  $(OOPS_SDK_DIR)/src/gl/gl_state.c \
                  $(OOPS_SDK_DIR)/src/gl/gl_matrix.c \
                  $(OOPS_SDK_DIR)/src/gl/gl_draw.c \
-                 $(OOPS_SDK_DIR)/src/system/system.c
+                 $(OOPS_SDK_DIR)/src/system/system.c \
+                 $(OOPS_SDK_DIR)/src/system/freestd.c
 HOST_TEST_LIBS = -lm
 
 # Target payload sources
@@ -43,6 +49,8 @@ PAYLOAD_SRCS = gl_cube_main.c \
                $(OOPS_SDK_DIR)/src/system/syscall.c \
                $(OOPS_SDK_DIR)/src/system/sysmodule.c \
                $(OOPS_SDK_DIR)/src/system/krw.c \
+               $(OOPS_SDK_DIR)/src/system/fs.c \
+               $(OOPS_SDK_DIR)/src/math/math.c \
                $(OOPS_SDK_DIR)/src/draw/draw.c
 
 ENTRY_POINT := gl_cube_start

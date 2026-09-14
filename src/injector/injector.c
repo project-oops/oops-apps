@@ -2,8 +2,8 @@
 #include "oops/freestd.h"
 #include "oops/syscall.h"
 #include "oops/krw.h"
-
-#define O_RDONLY 0
+#include "oops/fs.h"
+#include "oops/system.h"
 
 extern const uint8_t __payload_start[] __attribute__((weak, visibility("hidden")));
 extern const uint8_t __payload_end[] __attribute__((weak, visibility("hidden")));
@@ -18,21 +18,20 @@ static void injector_exit(int code) {
 
 static int read_file_from_disk(const char *path, uint8_t *buffer, size_t max_size,
                                size_t *out_size) {
-    long fd = sys_call(SYS_open, (long)path, O_RDONLY, 0, 0, 0, 0);
+    int fd = oops_fs_open(path, OOPS_O_RDONLY, 0);
     if (fd < 0) {
         return -1;
     }
 
     size_t total = 0;
     while (total < max_size) {
-        long n = sys_call(SYS_read, fd, (long)(buffer + total),
-                          (long)(max_size - total), 0, 0, 0);
+        long n = oops_fs_read(fd, buffer + total, max_size - total);
         if (n <= 0) {
             break;
         }
         total += (size_t)n;
     }
-    sys_call(SYS_close, fd, 0, 0, 0, 0, 0);
+    oops_fs_close(fd);
 
     if (out_size != NULL) {
         *out_size = total;
@@ -49,25 +48,25 @@ int injector_start(payload_args_t *args) {
 
     sys_call_init(args);
 
-    klog_write("starting oops-apps standalone injector...");
+    oops_klog("INJECTOR", "starting oops-apps standalone injector...");
 
     if (krw_init(args) != 0) {
-        klog_write("ERROR: krw_init failed");
+        oops_klog("INJECTOR", "ERROR: krw_init failed");
         injector_exit(-2);
     }
 
     if (krw_elevate_current_process() != 0) {
-        klog_write("ERROR: krw_elevate_current_process failed");
+        oops_klog("INJECTOR", "ERROR: krw_elevate_current_process failed");
         injector_exit(-3);
     }
 
     pid_t target_pid = target_resolve(NULL);
     if (target_pid <= 0) {
-        klog_write("ERROR: no running target game process found");
+        oops_klog("INJECTOR", "ERROR: no running target game process found");
         krw_restore_current_process();
         injector_exit(-4);
     }
-    klog_write_num("resolved target pid: ", (int64_t)target_pid);
+    oops_kprintf("INJECTOR", "resolved target pid: %lld\n", (long long)target_pid);
 
     const uint8_t *payload_data = NULL;
     size_t payload_size = 0;
@@ -76,21 +75,23 @@ int injector_start(payload_args_t *args) {
     if (__payload_start != NULL && __payload_end != NULL && __payload_end > __payload_start) {
         payload_data = __payload_start;
         payload_size = (size_t)(__payload_end - __payload_start);
-        klog_write_num("using embedded payload blob, size: ", (int64_t)payload_size);
+        oops_kprintf("INJECTOR", "using embedded payload blob, size: %llu\n", (unsigned long long)payload_size);
     } else {
-        if (read_file_from_disk("/data/home-launcher-prospero.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0 ||
+        if (read_file_from_disk("/data/tracer-prospero.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0 ||
+            read_file_from_disk("/data/tracer.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0 ||
+            read_file_from_disk("/data/home-launcher-prospero.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0 ||
             read_file_from_disk("/data/porthole-prospero.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0 ||
             read_file_from_disk("/data/obscene-probe-prospero.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0 ||
             read_file_from_disk("/data/porthole.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0 ||
             read_file_from_disk("/data/payload.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0 ||
             read_file_from_disk("/data/obscene-payload.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0) {
             payload_data = disk_buffer;
-            klog_write_num("loaded payload from disk, size: ", (int64_t)payload_size);
+            oops_kprintf("INJECTOR", "loaded payload from disk, size: %llu\n", (unsigned long long)payload_size);
         }
     }
 
     if (payload_data == NULL || payload_size == 0) {
-        klog_write("ERROR: no payload binary found");
+        oops_klog("INJECTOR", "ERROR: no payload binary found");
         krw_restore_current_process();
         injector_exit(-5);
     }

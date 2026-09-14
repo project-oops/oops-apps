@@ -21,6 +21,8 @@ HOST_TEST_SRCS = injector_selftest.c \
 
 # Target payload sources
 PAYLOAD_SRCS = injector.c \
+               $(OOPS_SDK_DIR)/src/system/system.c \
+               $(OOPS_SDK_DIR)/src/system/fs.c \
                $(OOPS_SDK_DIR)/src/system/freestd.c \
                $(OOPS_SDK_DIR)/src/system/syscall.c \
                $(OOPS_SDK_DIR)/src/system/krw.c \

@@ -44,9 +44,9 @@ int main(void) {
     strcpy(info.ssid, "home");
 
     int ok = 1;
-    int rows = net_tool_render(&surf, &info);
-    if (rows < 6) {
-        fprintf(stderr, "net-tool selftest: expected at least 6 rows, got %d\n", rows);
+    int rows = net_tool_render(&surf, &info, 12);
+    if (rows < 7) {
+        fprintf(stderr, "net-tool selftest: expected at least 7 rows, got %d\n", rows);
         ok = 0;
     }
     int any = 0;

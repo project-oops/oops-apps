@@ -89,6 +89,7 @@ else
 endif
 SYMBOLS_FILE ?= $(OOPS_APPS_ROOT)/common/symbols.txt
 MKMODULE_GEN ?= $(if $(filter 1 2,$(OOPS_TARGET_NUM)),4,5)
+MKMODULE_TABLE ?= $(if $(filter 1 2,$(OOPS_TARGET_NUM)),orbis,prospero)
 
 .DEFAULT_GOAL := all
 
@@ -124,17 +125,21 @@ $(BUILD)/$(APP_NAME).elf: $(PAYLOAD_SRCS) $(TARGET_SYS_SRCS) $(PAYLOAD_EXTRA_DEP
 
 elf: $(BUILD)/$(APP_NAME).elf
 
-# Wrap target ELF into a signed executable container (eboot.bin) via selfish
-eboot: $(BUILD)/$(APP_NAME).elf
-	@mkdir -p $(DIST)
-	@if [ -n "$(MKMODULE_BIN)" ] && [ -f "$(SYMBOLS_FILE)" ]; then \
-	    IN=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$<" || echo "$<"); \
-	    SYM=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$(SYMBOLS_FILE)" || echo "$(SYMBOLS_FILE)"); \
-	    $(MKMODULE_BIN) mkmodule --symbols "$$SYM" --generation $(MKMODULE_GEN) --kind fixed "$$IN"; \
+# Tag target ELF with fixed module metadata via obscene-tool mkmodule
+$(BUILD)/.mkmodule-fixed.stamp: $(BUILD)/$(APP_NAME).elf
+	@if [ -n "$(MKMODULE_BIN)" ] && [ -f "$(SYMBOLS_FILE)" ] && $(MKMODULE_BIN) --help >/dev/null 2>&1; then \
+	    IN="$<"; SYM="$(SYMBOLS_FILE)"; \
+	    case "$(MKMODULE_BIN)" in *.exe) command -v wslpath >/dev/null 2>&1 && { IN=$$(wslpath -m "$$IN"); SYM=$$(wslpath -m "$$SYM"); } ;; esac; \
+	    $(MKMODULE_BIN) mkmodule --symbols "$$SYM" --generation $(MKMODULE_GEN) --table $(MKMODULE_TABLE) --kind fixed "$$IN"; \
 	fi
+	@touch $@
+
+# Wrap target ELF into a signed executable container (eboot.bin) via selfish
+eboot: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
+	@mkdir -p $(DIST)
 	@if [ -n "$(SELFISH_BIN)" ]; then \
-	    IN=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$<" || echo "$<"); \
-	    OUT=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$(EBOOT_ARTIFACT)" || echo "$(EBOOT_ARTIFACT)"); \
+	    IN="$<"; OUT="$(EBOOT_ARTIFACT)"; \
+	    case "$(SELFISH_BIN)" in *.exe) command -v wslpath >/dev/null 2>&1 && { IN=$$(wslpath -m "$$IN"); OUT=$$(wslpath -m "$$OUT"); } ;; esac; \
 	    $(SELFISH_BIN) --input "$$IN" --target $(TARGET) --format eboot --sdk $(TARGET) --output "$$OUT"; \
 	    echo "$(APP_NAME): created $(EBOOT_ARTIFACT)"; \
 	else \
@@ -142,20 +147,16 @@ eboot: $(BUILD)/$(APP_NAME).elf
 	fi
 
 # Package target ELF into a native PS5 title directory (.zip) via selfish
-title: $(BUILD)/$(APP_NAME).elf
+title: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	@mkdir -p $(DIST) $(BUILD)/title
-	@if [ -n "$(MKMODULE_BIN)" ] && [ -f "$(SYMBOLS_FILE)" ] && $(MKMODULE_BIN) --help >/dev/null 2>&1; then \
-	    IN=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$<" || echo "$<"); \
-	    SYM=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$(SYMBOLS_FILE)" || echo "$(SYMBOLS_FILE)"); \
-	    $(MKMODULE_BIN) mkmodule --symbols "$$SYM" --generation $(MKMODULE_GEN) --kind fixed "$$IN"; \
-	fi
 	@if [ -n "$(SELFISH_BIN)" ]; then \
-	    IN=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$<" || echo "$<"); \
-	    OUT=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$(BUILD)/title" || echo "$(BUILD)/title"); \
+	    IN="$<"; OUT="$(BUILD)/title"; \
+	    case "$(SELFISH_BIN)" in *.exe) command -v wslpath >/dev/null 2>&1 && { IN=$$(wslpath -m "$$IN"); OUT=$$(wslpath -m "$$OUT"); } ;; esac; \
 	    ICON_FLAG=""; \
 	    if [ -n "$(TITLE_ICON)" ] && [ -f "$(TITLE_ICON)" ]; then \
-	        ICON_WIN=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$(TITLE_ICON)" || echo "$(TITLE_ICON)"); \
-	        ICON_FLAG="--icon $$ICON_WIN"; \
+	        ICON_PATH="$(TITLE_ICON)"; \
+	        case "$(SELFISH_BIN)" in *.exe) command -v wslpath >/dev/null 2>&1 && ICON_PATH=$$(wslpath -m "$$ICON_PATH") ;; esac; \
+	        ICON_FLAG="--icon $$ICON_PATH"; \
 	    fi; \
 	    $(SELFISH_BIN) --input "$$IN" --target $(TARGET) --format title \
 	        --title-id $(TITLE_ID) --title $(TITLE_NAME) --category $(TITLE_CATEGORY) \
@@ -168,9 +169,10 @@ title: $(BUILD)/$(APP_NAME).elf
 	            -Wl,-z,noexecstack -Wl,-z,max-page-size=0x4000 -Wl,-z,common-page-size=0x4000 -Wl,-z,norelro \
 	            -o $(BUILD)/libc.module.elf $(OOPS_SDK_DIR)/src/system/sce_module.c; \
 	        if [ -n "$(MKMODULE_BIN)" ] && [ -f "$(SYMBOLS_FILE)" ] && $(MKMODULE_BIN) --help >/dev/null 2>&1; then \
-	            LIB_IN=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$(BUILD)/libc.module.elf" || echo "$(BUILD)/libc.module.elf"); \
-	            $(MKMODULE_BIN) mkmodule --symbols "$$SYM" --module-name libc --kind shared --generation $(MKMODULE_GEN) --table legacy "$$LIB_IN"; \
-	            PRX_OUT=$$(command -v wslpath >/dev/null 2>&1 && wslpath -m "$(BUILD)/title/$(TITLE_ID)/sce_module/libc.prx" || echo "$(BUILD)/title/$(TITLE_ID)/sce_module/libc.prx"); \
+	            LIB_IN="$(BUILD)/libc.module.elf"; SYM="$(SYMBOLS_FILE)"; \
+	            PRX_OUT="$(BUILD)/title/$(TITLE_ID)/sce_module/libc.prx"; \
+	            case "$(MKMODULE_BIN)" in *.exe) command -v wslpath >/dev/null 2>&1 && { LIB_IN=$$(wslpath -m "$$LIB_IN"); SYM=$$(wslpath -m "$$SYM"); PRX_OUT=$$(wslpath -m "$$PRX_OUT"); } ;; esac; \
+	            $(MKMODULE_BIN) mkmodule --symbols "$$SYM" --module-name libc --kind shared --generation $(MKMODULE_GEN) --table $(MKMODULE_TABLE) "$$LIB_IN"; \
 	            $(MKMODULE_BIN) mkself "$$LIB_IN" --generation $(MKMODULE_GEN) --privilege app --sdk $(TARGET) --out "$$PRX_OUT"; \
 	        fi; \
 	    fi; \

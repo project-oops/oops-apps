@@ -11,7 +11,8 @@
  * made-up info block. The socket server is the console-only half.
  */
 
-/* Draw the network panel for `info` into `surf`. Returns the number of rows written. */
-int net_tool_render(oops_surface_t *surf, const oops_net_info_t *info);
+/* Draw the network panel for `info` into `surf`. If `latency_ms >= 0`, displays
+ * measured round-trip / connect latency, or '-' if negative. Returns the number of rows written. */
+int net_tool_render(oops_surface_t *surf, const oops_net_info_t *info, int latency_ms);
 
 #endif /* OOPS_APPS_NET_TOOL_H */

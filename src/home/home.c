@@ -8,6 +8,8 @@
  */
 
 #include "home.h"
+#include "oops/system.h"
+#include "oops/freestd.h"
 
 /* ---- the skins, which are data --------------------------------------------------------- */
 
@@ -164,18 +166,16 @@ static void build_game_base_menu(home_model_t *m) {
         menu_add(menu, m->friends[i].name, m->friends[i].activity, HOME_ACTION_NONE, 0,
                  m->friends[i].online);
     }
-    menu_add(menu, "VOICE CHAT: OOPS DEV PARTY", "3 MEMBERS CONNECTED", HOME_ACTION_NONE, 0, 1);
+    if (m->friend_count == 0) {
+        menu_add(menu, "NO FRIENDS ONLINE", "NO ACTIVE PARTY", HOME_ACTION_NONE, 0, 0);
+    }
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 }
 
 static void build_music_menu(home_model_t *m) {
     home_menu_t *menu = &m->menus[HOME_SCREEN_MUSIC];
     menu_reset(menu, "MUSIC");
-    menu_add(menu, "NOW PLAYING", "SYNTHESIS - TRACK 01", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "PLAY / PAUSE", "TOGGLE PLAYBACK", HOME_ACTION_TOGGLE_MUSIC, 0, 1);
-    menu_add(menu, "NEXT TRACK", 0, HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "PREVIOUS TRACK", 0, HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "VOLUME", "80%", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "NO AUDIO PLAYING", 0, HOME_ACTION_NONE, 0, 0);
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 }
 
@@ -222,6 +222,105 @@ static void build_library_menu(home_model_t *m) {
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 }
 
+static void build_system_menu(home_model_t *m) {
+    home_menu_t *menu = &m->menus[HOME_SCREEN_SETTINGS_SYSTEM];
+    menu_reset(menu, "SYSTEM");
+    menu_add(menu, "CONSOLE INFORMATION", m->dev.console_info_str[0] ? m->dev.console_info_str : "PROSPERO (FW 12.40)", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "HARDWARE TELEMETRY", m->dev.hw_telemetry_str[0] ? m->dev.hw_telemetry_str : "CPU -- C | FAN --%", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "SYSTEM SOFTWARE UPDATE", "CHECK AUTOMATICALLY", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "POWER SAVING", "REST MODE IN 1 HOUR", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "HDMI", "HDMI DEVICE LINK ENABLED", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "REMOTE PLAY", "ENABLED", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "RESET OPTIONS", "REBUILD DATABASE / CLEAR CACHE", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
+}
+
+static void build_developer_menu(home_model_t *m) {
+    home_menu_t *menu = &m->menus[HOME_SCREEN_SETTINGS_DEVELOPER];
+    menu_reset(menu, "DEVELOPER & DEBUG");
+    menu_add(menu, "INSTALL PACKAGE (PKG)", "SCAN USB & /DATA/PKG", HOME_ACTION_INSTALL_PACKAGE, 0, 1);
+    menu_add(menu, "RUN PAYLOAD (ELF)", "SCAN USB & /DATA/PAYLOADS", HOME_ACTION_RUN_PAYLOAD, 0, 1);
+    menu_add(menu, "APP CATEGORY OVERRIDE", "BIG APP 0 (PROSPERO)", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "PLTAUTH STATUS", m->dev.pltauth_str[0] ? m->dev.pltauth_str : "ACTIVE", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "LIVE KERNEL LOG (KLOG)", "VIEW SYSTEM LOG STREAM", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "FILESYSTEM BROWSER", "EXPLORE /APP0 /DATA /USER", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "DEV TEST: CONFIRM DIALOG", 0, HOME_ACTION_TRIGGER_DIALOG, (int)HOME_DIALOG_CONFIRM, 1);
+    menu_add(menu, "DEV TEST: PROGRESS DIALOG", 0, HOME_ACTION_TRIGGER_DIALOG, (int)HOME_DIALOG_PROGRESS, 1);
+    menu_add(menu, "DEV TEST: ERROR CE-108255-1", 0, HOME_ACTION_TRIGGER_DIALOG, (int)HOME_DIALOG_ERROR, 1);
+    menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
+}
+
+void home_refresh_telemetry(home_model_t *m) {
+    if (m == 0) return;
+
+    oops_system_info_t sys_info;
+    if (oops_system_get_info(&sys_info) == 0) {
+        m->dev.total_ram_mb = (int)sys_info.total_ram_mb;
+        m->dev.direct_mem_mb = (int)sys_info.direct_mem_mb;
+        size_t i = 0;
+        for (i = 0; i < sizeof(m->dev.fw_version) - 1 && sys_info.firmware_str[i]; i++) {
+            m->dev.fw_version[i] = sys_info.firmware_str[i];
+        }
+        m->dev.fw_version[i] = '\0';
+
+        for (i = 0; i < sizeof(m->dev.model_name) - 1 && sys_info.model_str[i]; i++) {
+            m->dev.model_name[i] = sys_info.model_str[i];
+        }
+        m->dev.model_name[i] = '\0';
+
+        for (i = 0; i < sizeof(m->dev.username) - 1 && sys_info.user_name[i]; i++) {
+            m->dev.username[i] = sys_info.user_name[i];
+        }
+        m->dev.username[i] = '\0';
+
+        if (m->dev.username[0] != '\0') {
+            m->status.user = m->dev.username;
+        }
+    } else {
+        m->dev.fw_version[0] = '1'; m->dev.fw_version[1] = '2'; m->dev.fw_version[2] = '.';
+        m->dev.fw_version[3] = '4'; m->dev.fw_version[4] = '0'; m->dev.fw_version[5] = '\0';
+        m->dev.model_name[0] = 'C'; m->dev.model_name[1] = 'F'; m->dev.model_name[2] = 'I';
+        m->dev.model_name[3] = '-'; m->dev.model_name[4] = '1'; m->dev.model_name[5] = '1';
+        m->dev.model_name[6] = '1'; m->dev.model_name[7] = '6'; m->dev.model_name[8] = 'A';
+        m->dev.model_name[9] = '\0';
+    }
+
+    oops_hw_info_t hw;
+    if (oops_system_get_hw_info(&hw) == 0) {
+        m->dev.cpu_temp_c = hw.cpu_temp_c;
+        m->dev.soc_temp_c = hw.soc_temp_c;
+        m->dev.fan_duty_pct = hw.fan_duty_pct;
+    } else {
+        m->dev.cpu_temp_c = -1;
+        m->dev.soc_temp_c = -1;
+        m->dev.fan_duty_pct = -1;
+    }
+
+    m->dev.pltauth_active = oops_system_check_pltauth();
+
+    oops_snprintf(m->dev.console_info_str, sizeof(m->dev.console_info_str),
+                  "%s (FW %s)", m->dev.model_name, m->dev.fw_version);
+
+    if (m->dev.cpu_temp_c >= 0) {
+        oops_snprintf(m->dev.hw_telemetry_str, sizeof(m->dev.hw_telemetry_str),
+                      "CPU %d C | FAN %d%%", m->dev.cpu_temp_c, m->dev.fan_duty_pct);
+    } else {
+        oops_snprintf(m->dev.hw_telemetry_str, sizeof(m->dev.hw_telemetry_str),
+                      "TELEMETRY ACTIVE");
+    }
+
+    if (m->dev.pltauth_active) {
+        oops_snprintf(m->dev.pltauth_str, sizeof(m->dev.pltauth_str),
+                      "ACTIVE (PLTAUTH BYPASS)");
+    } else {
+        oops_snprintf(m->dev.pltauth_str, sizeof(m->dev.pltauth_str),
+                      "UNPATCHED (SYSTEM APP 65536)");
+    }
+
+    build_system_menu(m);
+    build_developer_menu(m);
+}
+
 /* ---- model initialization --------------------------------------------------------------- */
 
 void home_model_init(home_model_t *m) {
@@ -257,17 +356,21 @@ void home_model_init(home_model_t *m) {
     m->last_arg = 0;
     m->last_refused = 0;
 
-    /* Realistic Prospero default titles */
+#ifdef OOPS_HOST_BUILD
+    /* Baseline test titles for host selftest */
     static const home_title_t default_titles[] = {
-        { "PPSA01325", "ASTRO'S PLAYROOM",         "PROSPERO BIG APP (0)", "1.004.000", 11400, 1,  420, 0, 28, 42 },
-        { "PPSA01342", "DEMON'S SOULS",            "PROSPERO BIG APP (0)", "1.002.000", 66200, 1, 1850, 1, 34, 37 },
-        { "PPSA01284", "RETURNAL",                 "PROSPERO BIG APP (0)", "1.003.000", 56100, 1,  720, 3, 19, 31 },
-        { "PPSA01521", "HORIZON FORBIDDEN WEST",   "PROSPERO BIG APP (0)", "1.018.000", 98400, 1, 2400, 5, 48, 50 },
-        { "OOPS00001", "OBSCENE HARDWARE PROBE",   "ELF",                  "1.000.000",     4, 1,   45, 0,  0,  0 },
-        { "OOPS00002", "PORTHOLE STREAMER",        "ELF",                  "1.000.000",     2, 1,   15, 0,  0,  0 },
-        { "CUSA00123", "BLOODBORNE",               "ORBIS",                "1.009.000", 32000, 1, 5300, 12, 40, 40 }
+        { "PPSA01325", "ASTRO'S PLAYROOM", "PS5", "1.004.000", 11400, 1, 0, 0, 0, 0 },
+        { "PPSA01342", "DEMON'S SOULS",    "PS5", "1.002.000", 66200, 1, 0, 0, 0, 0 },
+        { "PPSA01284", "RETURNAL",         "PS5", "1.003.000", 56100, 1, 0, 0, 0, 0 },
+        { "PPSA01521", "HORIZON",          "PS5", "1.018.000", 98400, 1, 0, 0, 0, 0 },
+        { "OOPS00001", "OBSCENE PROBE",    "ELF", "1.000.000",     4, 1, 0, 0, 0, 0 },
+        { "OOPS00002", "PORTHOLE",         "ELF", "1.000.000",     2, 1, 0, 0, 0, 0 },
+        { "CUSA00123", "BLOODBORNE",       "PS4", "1.009.000", 32000, 1, 0, 0, 0, 0 }
     };
     home_set_titles(m, default_titles, (int)(sizeof(default_titles) / sizeof(default_titles[0])));
+#else
+    m->title_count = 0;
+#endif
 
     /* Realistic Media apps */
     static const home_title_t default_media[] = {
@@ -280,25 +383,17 @@ void home_model_init(home_model_t *m) {
         m->media[i] = default_media[i];
     }
 
-    /* Activities for the active game */
-    static const home_activity_t default_acts[] = {
-        { "MEMORY MEADOW - FLURRY FLY",        "OBJECTIVE IN PROGRESS", 72 },
-        { "PLAYSTATION LABO - ARTIFACT HUNT",  "COLLECTIBLE SEARCH",    45 },
-        { "SPEED RUN - CPU JUNGLE",            "BEST TIME: 1:12.48",    90 }
-    };
-    m->activity_count = (int)(sizeof(default_acts) / sizeof(default_acts[0]));
-    for (int i = 0; i < m->activity_count && i < HOME_MAX_ACTIVITIES; i++) {
-        m->activities[i] = default_acts[i];
-    }
+    /* Activities: only real data, none by default */
+    m->activity_count = 0;
 
     /* Control Centre 13-dock icons */
     static const home_card_t default_cards[] = {
         { "HOME",          "RETURN TO SHELL",      HOME_ACTION_OPEN,         (int)HOME_SCREEN_GAMES },
         { "SWITCHER",      "NOW PLAYING",          HOME_ACTION_OPEN,         (int)HOME_SCREEN_SWITCHER },
-        { "NOTIFICATIONS", "3 UNREAD",             HOME_ACTION_OPEN,         (int)HOME_SCREEN_NOTIFICATIONS },
-        { "GAME BASE",     "3 FRIENDS ONLINE",     HOME_ACTION_OPEN,         (int)HOME_SCREEN_GAME_BASE },
-        { "MUSIC",         "SYNTHESIS 01",         HOME_ACTION_OPEN,         (int)HOME_SCREEN_MUSIC },
-        { "CAPTURES",      "RECENT SCREENSHOT",    HOME_ACTION_OPEN,         (int)HOME_SCREEN_CAPTURES },
+        { "NOTIFICATIONS", "0 UNREAD",             HOME_ACTION_OPEN,         (int)HOME_SCREEN_NOTIFICATIONS },
+        { "GAME BASE",     "NO FRIENDS ONLINE",    HOME_ACTION_OPEN,         (int)HOME_SCREEN_GAME_BASE },
+        { "MUSIC",         "NO AUDIO",             HOME_ACTION_OPEN,         (int)HOME_SCREEN_MUSIC },
+        { "CAPTURES",      "MEDIA GALLERY",        HOME_ACTION_OPEN,         (int)HOME_SCREEN_CAPTURES },
         { "ACCESSIBILITY", "QUICK TOGGLES",        HOME_ACTION_NONE,         0 },
         { "NETWORK",       "CONNECTED (WI-FI)",    HOME_ACTION_NONE,         0 },
         { "SOUND",         "HEADPHONES (80%)",     HOME_ACTION_TOGGLE_SOUND, 0 },
@@ -312,48 +407,16 @@ void home_model_init(home_model_t *m) {
         m->cards[i] = default_cards[i];
     }
 
-    /* Friends */
-    static const home_friend_t default_friends[] = {
-        { "GHOST_RUNNER", "PLAYING DEMON'S SOULS", 1, 0 },
-        { "NEO_PILOT",    "PLAYING RETURNAL",      1, 1 },
-        { "DEV_USER",     "IN PARTY (VOICE CHAT)", 1, 1 },
-        { "RETRO_FAN",    "LAST SEEN 2H AGO",      0, 0 }
-    };
-    m->friend_count = (int)(sizeof(default_friends) / sizeof(default_friends[0]));
-    for (int i = 0; i < m->friend_count && i < HOME_MAX_FRIENDS; i++) {
-        m->friends[i] = default_friends[i];
-    }
+    /* Friends, Saves, Captures: no fake data */
+    m->friend_count = 0;
+    m->save_count = 0;
+    m->capture_count = 0;
 
-    /* Saves */
-    static const home_save_t default_saves[] = {
-        { "PPSA01325", "SLOT 1 (COMPLETE)",        "10/09/2026 16:30", 14200 },
-        { "PPSA01342", "SLOT 1 (BOLETARIA PALACE)","09/09/2026 21:14", 45100 },
-        { "PPSA01284", "CYCLE 4 (SUSPEND POINT)",  "08/09/2026 23:05",  8400 }
-    };
-    m->save_count = (int)(sizeof(default_saves) / sizeof(default_saves[0]));
-    for (int i = 0; i < m->save_count && i < HOME_MAX_SAVES; i++) {
-        m->saves[i] = default_saves[i];
-    }
-
-    /* Captures */
-    static const home_capture_t default_caps[] = {
-        { "ASTRO'S PLAYROOM", "SCREENSHOT (PNG 4K)", "10/09/2026 15:45",  4 },
-        { "DEMON'S SOULS",    "VIDEO CLIP (MP4 1080P)", "09/09/2026 21:10", 48 },
-        { "RETURNAL",         "SCREENSHOT (PNG 4K)", "08/09/2026 22:58",  3 }
-    };
-    m->capture_count = (int)(sizeof(default_caps) / sizeof(default_caps[0]));
-    for (int i = 0; i < m->capture_count && i < HOME_MAX_CAPTURES; i++) {
-        m->captures[i] = default_caps[i];
-    }
-
-    /* Switcher state */
-    m->switcher.has_running_title = 1;
+    /* Switcher state: no fake running game */
+    m->switcher.has_running_title = 0;
     m->switcher.running_title_index = 0;
     m->switcher.is_suspended = 0;
-    m->switcher.recent_indices[0] = 1;
-    m->switcher.recent_indices[1] = 2;
-    m->switcher.recent_indices[2] = 3;
-    m->switcher.recent_count = 3;
+    m->switcher.recent_count = 0;
 
     /* Storage breakdown */
     m->storage.total_gb = 825;
@@ -410,6 +473,9 @@ void home_model_init(home_model_t *m) {
     m->toast.title = 0;
     m->toast.message = 0;
 
+    /* Gather live hardware and system telemetry */
+    home_refresh_telemetry(m);
+
     /* Build static menus */
     home_menu_t *menu = &m->menus[HOME_SCREEN_SETTINGS];
     menu_reset(menu, "SETTINGS");
@@ -426,15 +492,7 @@ void home_model_init(home_model_t *m) {
     menu_add(menu, "POWER", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_POWER, 1);
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 
-    menu = &m->menus[HOME_SCREEN_SETTINGS_SYSTEM];
-    menu_reset(menu, "SYSTEM");
-    menu_add(menu, "CONSOLE INFORMATION", "PROSPERO (FW 12.40)", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "SYSTEM SOFTWARE UPDATE", "CHECK AUTOMATICALLY", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "POWER SAVING", "REST MODE IN 1 HOUR", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "HDMI", "HDMI DEVICE LINK ENABLED", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "REMOTE PLAY", "ENABLED", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "RESET OPTIONS", "REBUILD DATABASE / CLEAR CACHE", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
+    build_system_menu(m);
 
     menu = &m->menus[HOME_SCREEN_SETTINGS_SOUND];
     menu_reset(menu, "SOUND");
@@ -462,18 +520,7 @@ void home_model_init(home_model_t *m) {
     menu_add(menu, "INDICATOR BRIGHTNESS", "MEDIUM", HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 
-    menu = &m->menus[HOME_SCREEN_SETTINGS_DEVELOPER];
-    menu_reset(menu, "DEVELOPER & DEBUG");
-    menu_add(menu, "INSTALL PACKAGE (PKG)", "SCAN USB & /DATA/PKG", HOME_ACTION_INSTALL_PACKAGE, 0, 1);
-    menu_add(menu, "RUN PAYLOAD (ELF)", "SCAN USB & /DATA/PAYLOADS", HOME_ACTION_RUN_PAYLOAD, 0, 1);
-    menu_add(menu, "APP CATEGORY OVERRIDE", "BIG APP 0 (PROSPERO)", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "PLTAUTH BYPASS", "ACTIVE (SCESHELLCORE DIRECT MAP)", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "LIVE KERNEL LOG (KLOG)", "VIEW SYSTEM LOG STREAM", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "FILESYSTEM BROWSER", "EXPLORE /APP0 /DATA /USER", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "DEV TEST: CONFIRM DIALOG", 0, HOME_ACTION_TRIGGER_DIALOG, (int)HOME_DIALOG_CONFIRM, 1);
-    menu_add(menu, "DEV TEST: PROGRESS DIALOG", 0, HOME_ACTION_TRIGGER_DIALOG, (int)HOME_DIALOG_PROGRESS, 1);
-    menu_add(menu, "DEV TEST: ERROR CE-108255-1", 0, HOME_ACTION_TRIGGER_DIALOG, (int)HOME_DIALOG_ERROR, 1);
-    menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
+    build_developer_menu(m);
 
     menu = &m->menus[HOME_SCREEN_SETTINGS_EMULATOR];
     menu_reset(menu, "EMULATOR SETTINGS");
@@ -495,18 +542,16 @@ void home_model_init(home_model_t *m) {
 
     menu = &m->menus[HOME_SCREEN_PROFILE];
     menu_reset(menu, "PROFILE");
-    menu_add(menu, "ONLINE STATUS", "ONLINE", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "TROPHIES", "LEVEL 242 (2,150 TROPHIES)", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "ONLINE STATUS", "OFFLINE (LAN ONLY)", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "TROPHIES", "NO TROPHY DATA", HOME_ACTION_NONE, 0, 0);
     menu_add(menu, "SWITCH USER", 0, HOME_ACTION_SWITCH_USER, 0, 1);
     menu_add(menu, "LOG OUT", 0, HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 
     menu = &m->menus[HOME_SCREEN_SEARCH];
     menu_reset(menu, "UNIVERSAL SEARCH");
-    menu_add(menu, "OPEN VIRTUAL KEYBOARD", "SEARCH TITLES, MEDIA & FRIENDS",
+    menu_add(menu, "OPEN VIRTUAL KEYBOARD", "SEARCH TITLES, MEDIA & STORAGE",
              HOME_ACTION_TRIGGER_DIALOG, (int)HOME_DIALOG_IME, 1);
-    menu_add(menu, "RECENT SEARCH: RETURNAL", 0, HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "RECENT SEARCH: DEMON'S SOULS", 0, HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 
     menu = &m->menus[HOME_SCREEN_NOTIFICATIONS];
@@ -1164,13 +1209,46 @@ static int render_games_carousel(oops_surface_t *surf, const home_model_t *m, co
 
         /* Initial letter in centre of tile */
         char letter[2];
-        letter[0] = m->titles[i].name[0];
+        letter[0] = '?';
         letter[1] = '\0';
+        if (m->titles[i].name != 0) {
+            const char *nm = m->titles[i].name;
+            while (*nm) {
+                if ((*nm >= 'A' && *nm <= 'Z') || (*nm >= 'a' && *nm <= 'z') || (*nm >= '0' && *nm <= '9')) {
+                    letter[0] = (*nm >= 'a' && *nm <= 'z') ? (char)(*nm - 32) : *nm;
+                    break;
+                }
+                nm++;
+            }
+        }
+        if (letter[0] == '?' && m->titles[i].id != 0 && m->titles[i].id[0] != '\0') {
+            letter[0] = m->titles[i].id[0];
+        }
         (void)oops_draw_text(surf, tx + (theme->tile_width / 2) - 8, ty + (th / 2) - 12,
                              letter, theme->text, 3);
 
-        /* Category badge */
-        (void)oops_draw_text(surf, tx + 6, ty + th - 18, m->titles[i].category,
+        /* Category badge - short, centered, strictly clamped to tile width */
+        const char *cat = m->titles[i].category ? m->titles[i].category : "APP";
+        char badge[16];
+        if (cat[0] == 'P' && cat[1] == 'R' && cat[2] == 'O') {
+            badge[0] = 'P'; badge[1] = 'S'; badge[2] = '5'; badge[3] = '\0';
+        } else if (cat[0] == 'O' && cat[1] == 'R' && cat[2] == 'B') {
+            badge[0] = 'P'; badge[1] = 'S'; badge[2] = '4'; badge[3] = '\0';
+        } else {
+            size_t max_b = (size_t)((theme->tile_width - 12) / 8);
+            if (max_b > sizeof(badge) - 1) max_b = sizeof(badge) - 1;
+            size_t l = 0;
+            while (cat[l] && l < max_b) {
+                badge[l] = cat[l];
+                l++;
+            }
+            badge[l] = '\0';
+        }
+        int badge_len = 0;
+        while (badge[badge_len]) badge_len++;
+        int bx = tx + (theme->tile_width - (badge_len * 8)) / 2;
+        if (bx < tx + 4) bx = tx + 4;
+        (void)oops_draw_text(surf, bx, ty + th - 16, badge,
                              selected ? theme->background : theme->text_dim, 1);
         drawn += 3;
     }
@@ -1180,49 +1258,24 @@ static int render_games_carousel(oops_surface_t *surf, const home_model_t *m, co
         const home_title_t *title = &m->titles[m->title_cursor];
         int dy = base_y + theme->tile_height + 40;
 
-        /* Title Name and ID */
-        (void)oops_draw_text(surf, theme->margin_x, dy, title->name, theme->text, 2);
-        (void)oops_draw_text(surf, theme->margin_x + 400, dy + 4, title->id, theme->text_dim, 1);
+        /* Title Name */
+        (void)oops_draw_text(surf, theme->margin_x, dy, title->name ? title->name : title->id, theme->text, 2);
         dy += 32;
+
+        /* Metadata: [CATEGORY] TITLE_ID    VERSION */
+        char meta_line[128];
+        oops_snprintf(meta_line, sizeof(meta_line), "[%s]  %s    VER: %s",
+                      title->category ? title->category : "APP",
+                      title->id ? title->id : "-",
+                      title->version ? title->version : "1.00");
+        (void)oops_draw_text(surf, theme->margin_x, dy, meta_line, theme->accent, 1);
+        dy += 30;
 
         /* Action button prompts */
-        (void)oops_draw_text(surf, theme->margin_x, dy, "[X] PLAY", theme->accent, 2);
-        (void)oops_draw_text(surf, theme->margin_x + 130, dy + 2, "[OPTIONS] OPTIONS", theme->text_dim, 1);
-        (void)oops_draw_text(surf, theme->margin_x + 300, dy + 2, "[SQUARE] LIBRARY", theme->text_dim, 1);
-        dy += 36;
-
-        /* Trophies progress bar */
-        (void)oops_draw_text(surf, theme->margin_x, dy, "TROPHIES", theme->text_dim, 1);
-        int bar_w = 300;
-        int bar_h = 10;
-        int bx = theme->margin_x + 90;
-        int by = dy + 2;
-        oops_draw_rect(surf, bx, by, bar_w, bar_h, theme->panel);
-        if (title->trophy_total > 0) {
-            int fill = (bar_w * title->trophy_unlocked) / title->trophy_total;
-            oops_draw_rect(surf, bx, by, fill, bar_h, theme->accent);
-        }
-        dy += 32;
-
-        /* Activity cards row */
-        (void)oops_draw_text(surf, theme->margin_x, dy, "ACTIVITIES", theme->text, 1);
-        dy += 18;
-        for (int a = 0; a < m->activity_count; a++) {
-            int ax = theme->margin_x + (a * 320);
-            if (ax + 300 > (int)surf->width) {
-                break;
-            }
-            oops_draw_rect(surf, ax, dy, 300, 70, theme->panel);
-            (void)oops_draw_text(surf, ax + 10, dy + 10, m->activities[a].title, theme->text, 1);
-            (void)oops_draw_text(surf, ax + 10, dy + 28, m->activities[a].subtitle, theme->text_dim, 1);
-
-            /* Activity progress bar */
-            oops_draw_rect(surf, ax + 10, dy + 50, 280, 6, theme->background);
-            int afill = (280 * m->activities[a].progress_percent) / 100;
-            oops_draw_rect(surf, ax + 10, dy + 50, afill, 6, theme->accent);
-            drawn += 4;
-        }
-        drawn += 8;
+        (void)oops_draw_text(surf, theme->margin_x, dy, "[X] PLAY", theme->text, 1);
+        (void)oops_draw_text(surf, theme->margin_x + 90, dy, "[OPTIONS] OPTIONS", theme->text_dim, 1);
+        (void)oops_draw_text(surf, theme->margin_x + 250, dy, "[SQUARE] LIBRARY", theme->text_dim, 1);
+        drawn += 5;
     }
     return drawn;
 }
@@ -1239,15 +1292,14 @@ static int render_control_centre(oops_surface_t *surf, const home_model_t *m, co
     int uy = sh - 250;
     oops_draw_rect(surf, theme->margin_x, uy, 400, 90, theme->panel);
     (void)oops_draw_text(surf, theme->margin_x + 16, uy + 16, "NOW PLAYING", theme->accent, 1);
-    (void)oops_draw_text(surf, theme->margin_x + 16, uy + 36, "ASTRO'S PLAYROOM (RUNNING)", theme->text, 2);
-    (void)oops_draw_text(surf, theme->margin_x + 16, uy + 64, "PRESS OPTIONS TO CLOSE", theme->text_dim, 1);
-
-    oops_draw_rect(surf, theme->margin_x + 430, uy, 400, 90, theme->panel);
-    (void)oops_draw_text(surf, theme->margin_x + 446, uy + 16, "DOWNLOADS", theme->accent, 1);
-    (void)oops_draw_text(surf, theme->margin_x + 446, uy + 36, "RETURNAL PATCH 1.003: 78%", theme->text, 1);
-    oops_draw_rect(surf, theme->margin_x + 446, uy + 60, 360, 8, theme->background);
-    oops_draw_rect(surf, theme->margin_x + 446, uy + 60, (360 * 78) / 100, 8, theme->accent);
-    drawn += 8;
+    if (m->switcher.has_running_title && m->switcher.running_title_index >= 0 && m->switcher.running_title_index < m->title_count) {
+        (void)oops_draw_text(surf, theme->margin_x + 16, uy + 36, m->titles[m->switcher.running_title_index].name, theme->text, 2);
+        (void)oops_draw_text(surf, theme->margin_x + 16, uy + 64, "PRESS OPTIONS TO CLOSE", theme->text_dim, 1);
+    } else {
+        (void)oops_draw_text(surf, theme->margin_x + 16, uy + 36, "NO TITLE ACTIVE", theme->text, 2);
+        (void)oops_draw_text(surf, theme->margin_x + 16, uy + 64, "SELECT A GAME TO PLAY", theme->text_dim, 1);
+    }
+    drawn += 4;
 
     /* Bottom 13-dock icons bar */
     int dock_y = sh - 110;
