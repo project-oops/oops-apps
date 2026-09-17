@@ -52,7 +52,7 @@ make check
 # Build freestanding target ELF payload
 make elf
 
-# Stage target release artifact (dist/wipeout-prospero.elf)
+# Stage release artifacts per FORMATS (dist/wipeout-eboot-prospero.bin and dist/wipeout-title-prospero.zip)
 make dist
 ```
 

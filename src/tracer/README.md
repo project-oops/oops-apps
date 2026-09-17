@@ -37,7 +37,7 @@ Commercial Title Executing on Physical PS5 Hardware
                      │
                      ▼ (pulled via pros pull)
 ┌────────────────────────────────────────────────────────┐
-│ obscene-tool trace <bin>                               │
+│ Offline host-side decode                               │
 │ - Emits standard OBS| records                          │
 └────────────────────┬───────────────────────────────────┘
                      │
@@ -66,7 +66,8 @@ make dist
 ```bash
 # Pull binary trace from target console
 pros.exe pull /data/trace-CUSA12345.bin .
-
-# Decode into human-readable / machine-parsable OBS records
-obscene-tool trace trace-CUSA12345.bin > trace-CUSA12345.obs.log
 ```
+Decoding is host-side: the on-disk trace format and its reader live in this app's own
+`trace_decode.c` / `trace_format.h` (exercised by `make check`). The decoded OBS records -
+PM4 draw streams and RDNA2 shader bytecode - are what ground Orbistoun's packet decoders
+and shader recompiler.

@@ -75,12 +75,17 @@ pros.exe logs --seconds 15
 | Application | Path | Description |
 |---|---|---|
 | **`gl-cube`** | `src/gl-cube/` | 3D spinning cube graphics demo exercising RDNA2 AGC universal queues, PM4 direct register packets, and 64 KB tile swizzling. |
-| **`wipeout`** | `src/wipeout/` | Native clean-room 3D WipEout engine port for Prospero. |
+| **`wipeout`** | `src/wipeout/` | Native clean-room *WipEout* anti-gravity racing-game engine port for Prospero / Trinity. |
 | **`seashell`** | `src/seashell/` | SeaShell unified homebrew shell for Prospero (title launcher, settings, save manager). |
-| **`porthole`** | `src/porthole/` | Background remote play daemon streaming unencrypted video and receiving controller input over TCP. |
-| **`pad-viz`** | `src/pad-viz/` | Live DualSense controller telemetry visualizer (analog stick drift, triggers, 6-axis IMU). |
-| **`tracer`** | `src/tracer/` | In-process passive telemetry recorder and hook engine. Intercepts API calls, out-parameter buffers, AGC PM4 DCB submissions, and bound RDNA2 shader bytecode from running games to feed `obscene-tool` and `orbistoun`. |
+| **`porthole`** | `src/porthole/` | Remote-play target payload streaming video out and receiving controller input over TCP (host half in Prosperous). |
+| **`pad-viz`** | `src/pad-viz/` | Live DualSense controller telemetry visualizer (analog sticks, triggers, 6-axis IMU, touchpad). |
+| **`tracer`** | `src/tracer/` | In-process passive telemetry recorder and hook engine. Intercepts API calls, out-parameter buffers, AGC PM4 DCB submissions, and bound RDNA2 shader bytecode from running games. |
 | **`gallery`** | `src/gallery/` | Visual showcase of SDK display, audio PCM, and media playback capabilities. |
+| **`net-tool`** | `src/net-tool/` | Network configuration and interface diagnostics (link status, SDK inet helpers, UDP status responder). |
+| **`mesa-probe`** | `src/mesa-probe/` | OpenGL-through-Mesa bring-up app (`USE_MESA`; hosted rather than freestanding). |
+| **`sandbox-daemon`** | `src/sandbox-daemon/` | On-demand filesystem-namespace unsandboxing daemon over loopback IPC (`127.0.0.1:9069`). |
+| **`pltauth-patch`** | `src/pltauth-patch/` | Kernel patcher for SceShellCore / platform-authentication entitlement checks. |
+| **`injector`** | `src/injector/` | Standalone process payload injector. |
 
 ---
 
