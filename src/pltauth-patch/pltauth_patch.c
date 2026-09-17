@@ -35,14 +35,16 @@ void klog_write_hex(const char *prefix, uint64_t hex);
 void klog_write_num(const char *prefix, int64_t num);
 int pltauth_patch_start(payload_args_t *args);
 
-#include "oops/system.h"
-
 /* Direct socket/terminal logging: elfldr maps socket to stdout (fd 1) and stderr (fd 2) */
 void klog_write(const char *msg) {
     if (msg == NULL) {
         return;
     }
-    oops_klog("PLTAUTH", msg);
+    char kbuf[300];
+    int klen = oops_snprintf(kbuf, sizeof(kbuf), "[PLTAUTH] %s\n", msg);
+    if (klen > 0) {
+        sys_call(SYS_klog, 7, (long)kbuf, 0, 0, 0, 0);
+    }
     char buf[256];
     int len = oops_snprintf(buf, sizeof(buf), "%s\n", msg);
     if (len > 0) {

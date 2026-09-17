@@ -76,7 +76,7 @@ pros.exe logs --seconds 15
 |---|---|---|
 | **`gl-cube`** | `src/gl-cube/` | 3D spinning cube graphics demo exercising RDNA2 AGC universal queues, PM4 direct register packets, and 64 KB tile swizzling. |
 | **`wipeout`** | `src/wipeout/` | Native clean-room 3D WipEout engine port for Prospero. |
-| **`home`** | `src/home/` | Unified homebrew shell reimplementation for Prospero (title launcher, settings, save manager). |
+| **`seashell`** | `src/seashell/` | SeaShell unified homebrew shell for Prospero (title launcher, settings, save manager). |
 | **`porthole`** | `src/porthole/` | Background remote play daemon streaming unencrypted video and receiving controller input over TCP. |
 | **`pad-viz`** | `src/pad-viz/` | Live DualSense controller telemetry visualizer (analog stick drift, triggers, 6-axis IMU). |
 | **`tracer`** | `src/tracer/` | In-process passive telemetry recorder and hook engine. Intercepts API calls, out-parameter buffers, AGC PM4 DCB submissions, and bound RDNA2 shader bytecode from running games to feed `obscene-tool` and `orbistoun`. |

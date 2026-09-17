@@ -2,7 +2,6 @@ libkernel sceKernelGetProcessTime
 libkernel sceKernelGetProcessTimeCounter
 libkernel sceKernelGetTscFrequency
 libkernel sceKernelWrite
-libkernel sceKernelDebugOutText
 libkernel sceKernelRead
 libkernel sceKernelOpen
 libkernel sceKernelClose
@@ -51,6 +50,13 @@ libkernel listen
 libkernel _listen
 libkernel recv
 libkernel _recv
+libkernel read
+libkernel _read
+libkernel write
+libkernel _write
+libkernel sceKernelGetProcessId
+libkernel sceKernelReadProcessMemory
+libkernel sceKernelWriteProcessMemory
 libSceLibcInternal strlen
 libSceLibcInternal strcmp
 libSceLibcInternal strncmp
@@ -102,6 +108,11 @@ libSceSysmodule sceSysmoduleIsLoaded
 libSceUserService sceUserServiceInitialize
 libSceUserService sceUserServiceGetInitialUser
 libSceUserService sceUserServiceTerminate
+libSceSystemService sceSystemServiceLaunchApp
+libSceSystemService sceSystemServiceHideSplashScreen
+libSceSystemService sceSystemServicePowerTick
+libSceSystemService sceSystemServiceNavigateToGoHome
+libSceSystemService sceSystemServiceParamGetInt
 libSceVideoOut sceVideoOutOpen
 libSceVideoOut sceVideoOutClose
 libSceVideoOut sceVideoOutSetFlipRate
@@ -129,6 +140,9 @@ libSceKeyboard sceKeyboardInit
 libSceKeyboard sceKeyboardOpen
 libSceKeyboard sceKeyboardClose
 libSceKeyboard sceKeyboardReadState
+libSceKeyboard sceKeyboardConnectPort
+libSceKeyboard sceKeyboardGetConnection
+libSceKeyboard sceKeyboardSetProcessFocus
 libSceMouse sceMouseInit
 libSceMouse sceMouseOpen
 libSceMouse sceMouseClose

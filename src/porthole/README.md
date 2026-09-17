@@ -1,10 +1,10 @@
 # Porthole - DIY Remote-Play Payload for the Prospero generation
 
-Porthole is a freestanding, zero-dependency remote-play payload for a jailbroken Prospero-generation console. It provides our own video stream out and our own controller state in, communicating directly with PC host tooling (`pros-core::watch` in [Prosperous](../../prosperous)) without speaking the vendor's Remote Play protocol.
+Porthole is a freestanding, zero-dependency remote-play payload for a jailbroken Prospero-generation console. It provides our own video stream out and our own controller state in, communicating directly with PC host tooling (`pros-core::watch` in [Prosperous](../../../prosperous)) without speaking the vendor's Remote Play protocol.
 
 Because the console is jailbroken and runs our code, the protocol is a design decision rather than a reverse-engineering problem: no PIN pairing, no per-session AES-GCM crypto handshakes, and no AGPL Chiaki client dependencies.
 
-The overarching design specification lives in [`prosperous/docs/VIDEO.md`](../../prosperous/docs/VIDEO.md) ("Part three: Porthole"). This directory contains the on-console payload implementation, built and tested as an independent subtree.
+The overarching design specification lives in [`prosperous/docs/VIDEO.md`](../../../prosperous/docs/VIDEO.md) ("Part three: Porthole"). This directory contains the on-console payload implementation, built and tested as an independent subtree.
 
 ---
 
@@ -77,7 +77,7 @@ Offset  Size  Field        Description
 
 ## Build & Verification
 
-Porthole builds on its own, or through the repository's `./bin/oops-apps` CLI, which reaches each app through its Makefile. Deploying is [Prosperous](../../prosperous)'s job, as the host half of this path.
+Porthole builds on its own, or through the repository's `./bin/oops-apps` CLI, which reaches each app through its Makefile. Deploying is [Prosperous](../../../prosperous)'s job, as the host half of this path.
 
 ### 1. Host Selftest (Wire Contract Validation)
 Verifies that `sizeof(porthole_pad) == 24`, struct offsets match the wire specification, valid `PPAD` packets decode accurately, invalid packets (wrong magic, bad slot, non-zero reserved bytes) are rejected, and host returns `PORTHOLE_NO_ENCODER`:

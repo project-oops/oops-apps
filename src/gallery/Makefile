@@ -19,6 +19,7 @@ HOST_TEST_SRCS = gallery_selftest.c gallery.c \
 PAYLOAD_SRCS = gallery.c gallery_main.c \
                $(OOPS_SDK_DIR)/src/display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_display.c $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
+               $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
                $(OOPS_SDK_DIR)/src/gnm/gnm_display.c $(OOPS_SDK_DIR)/src/input/input.c \
                $(OOPS_SDK_DIR)/src/input/keyboard.c $(OOPS_SDK_DIR)/src/input/mouse.c \
                $(OOPS_SDK_DIR)/src/audio/audio.c $(OOPS_SDK_DIR)/src/audio/audiodec.c \
@@ -30,6 +31,7 @@ PAYLOAD_SRCS = gallery.c gallery_main.c \
                $(OOPS_SDK_DIR)/src/math/math.c \
                $(OOPS_SDK_DIR)/src/system/offsets.c $(OOPS_SDK_DIR)/src/system/freestd.c \
                $(OOPS_SDK_DIR)/src/system/syscall.c $(OOPS_SDK_DIR)/src/system/krw.c \
+               $(OOPS_SDK_DIR)/src/time/time.c \
                $(OOPS_SDK_DIR)/src/draw/draw.c
 
 ENTRY_POINT := gallery_start

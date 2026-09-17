@@ -206,6 +206,9 @@ typedef struct home_title {
     int last_played_days_ago;
     int trophy_unlocked;
     int trophy_total;
+    const uint32_t *icon_pixels; /* 32bpp ARGB pixels or NULL */
+    int icon_width;
+    int icon_height;
 } home_title_t;
 
 /* One activity card beneath carousel */
@@ -453,6 +456,14 @@ void home_show_error(home_model_t *m, const char *code, const char *desc);
 void home_close_dialog(home_model_t *m);
 void home_show_toast(home_model_t *m, const char *title, const char *msg);
 void home_tick(home_model_t *m);
+
+/*
+ * A digest of the whole model, for deciding whether a frame needs drawing at
+ * all. Equal digests on consecutive frames mean home_render() would produce the
+ * same pixels, so the caller can skip the render and the flip; see the note on
+ * the definition for why it hashes everything rather than a list of fields.
+ */
+uint64_t home_model_digest(const home_model_t *m);
 
 const home_title_t *home_selected_title(const home_model_t *m);
 const home_item_t *home_selected_item(const home_model_t *m);

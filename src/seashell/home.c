@@ -327,6 +327,18 @@ void home_model_init(home_model_t *m) {
     if (m == 0) {
         return;
     }
+    /* Zero first, then set. Callers hold the model as a local, so everything
+     * this function does not reach - padding, the tail of titles[] past
+     * title_count, the unused depth of stack[] - would otherwise keep whatever
+     * was on the stack. Nothing reads those (every loop is bounded by its
+     * count), but home_model_digest() hashes the whole struct, and a digest
+     * over indeterminate bytes is only as stable as the bytes happen to be. */
+    {
+        unsigned char *raw = (unsigned char *)m;
+        for (size_t i = 0; i < sizeof(*m); i++) {
+            raw[i] = 0;
+        }
+    }
     for (int s = 0; s < HOME_SCREEN_COUNT; s++) {
         menu_reset(&m->menus[s], 0);
     }
@@ -359,13 +371,13 @@ void home_model_init(home_model_t *m) {
 #ifdef OOPS_HOST_BUILD
     /* Baseline test titles for host selftest */
     static const home_title_t default_titles[] = {
-        { "PPSA01325", "ASTRO'S PLAYROOM", "PS5", "1.004.000", 11400, 1, 0, 0, 0, 0 },
-        { "PPSA01342", "DEMON'S SOULS",    "PS5", "1.002.000", 66200, 1, 0, 0, 0, 0 },
-        { "PPSA01284", "RETURNAL",         "PS5", "1.003.000", 56100, 1, 0, 0, 0, 0 },
-        { "PPSA01521", "HORIZON",          "PS5", "1.018.000", 98400, 1, 0, 0, 0, 0 },
-        { "OOPS00001", "OBSCENE PROBE",    "ELF", "1.000.000",     4, 1, 0, 0, 0, 0 },
-        { "OOPS00002", "PORTHOLE",         "ELF", "1.000.000",     2, 1, 0, 0, 0, 0 },
-        { "CUSA00123", "BLOODBORNE",       "PS4", "1.009.000", 32000, 1, 0, 0, 0, 0 }
+        { "PPSA01325", "ASTRO'S PLAYROOM", "PS5", "1.004.000", 11400, 1, 0, 0, 0, 0, NULL, 0, 0 },
+        { "PPSA01342", "DEMON'S SOULS",    "PS5", "1.002.000", 66200, 1, 0, 0, 0, 0, NULL, 0, 0 },
+        { "PPSA01284", "RETURNAL",         "PS5", "1.003.000", 56100, 1, 0, 0, 0, 0, NULL, 0, 0 },
+        { "PPSA01521", "HORIZON",          "PS5", "1.018.000", 98400, 1, 0, 0, 0, 0, NULL, 0, 0 },
+        { "OOPS00001", "OBSCENE PROBE",    "ELF", "1.000.000",     4, 1, 0, 0, 0, 0, NULL, 0, 0 },
+        { "OOPS00002", "PORTHOLE",         "ELF", "1.000.000",     2, 1, 0, 0, 0, 0, NULL, 0, 0 },
+        { "CUSA00123", "BLOODBORNE",       "PS4", "1.009.000", 32000, 1, 0, 0, 0, 0, NULL, 0, 0 }
     };
     home_set_titles(m, default_titles, (int)(sizeof(default_titles) / sizeof(default_titles[0])));
 #else
@@ -374,9 +386,9 @@ void home_model_init(home_model_t *m) {
 
     /* Realistic Media apps */
     static const home_title_t default_media[] = {
-        { "MEDIA001", "MEDIA PLAYER (USB & LOCAL)", "SYSTEM", "1.00.00", 120, 1, 60, 0, 0, 0 },
-        { "MEDIA002", "MEDIA GALLERY (CAPTURES)",   "SYSTEM", "1.00.00",  85, 1, 30, 0, 0, 0 },
-        { "MEDIA003", "WEB BROWSER (WEBKIT)",       "SYSTEM", "1.00.00",  42, 1, 90, 0, 0, 0 }
+        { "MEDIA001", "MEDIA PLAYER (USB & LOCAL)", "SYSTEM", "1.00.00", 120, 1, 60, 0, 0, 0, NULL, 0, 0 },
+        { "MEDIA002", "MEDIA GALLERY (CAPTURES)",   "SYSTEM", "1.00.00",  85, 1, 30, 0, 0, 0, NULL, 0, 0 },
+        { "MEDIA003", "WEB BROWSER (WEBKIT)",       "SYSTEM", "1.00.00",  42, 1, 90, 0, 0, 0, NULL, 0, 0 }
     };
     m->media_count = (int)(sizeof(default_media) / sizeof(default_media[0]));
     for (int i = 0; i < m->media_count && i < HOME_MAX_MEDIA; i++) {
@@ -819,6 +831,45 @@ void home_tick(home_model_t *m) {
     }
 }
 
+/*
+ * FNV-1a over the whole model.
+ *
+ * Hashing every byte rather than a chosen list of fields is the point: the
+ * renderer reads from most of this structure, a caller that skips a frame on
+ * this digest is trusting it completely, and a list is a thing someone forgets
+ * to extend when they add a field. The whole struct cannot miss a change. It
+ * can only be conservative - two different models colliding is a 2^-64 event,
+ * and anything that perturbs a byte the renderer ignores costs one redraw.
+ *
+ * Everything the renderer reads is either in here or constant for the run: the
+ * theme is a static table indexed by m->theme, the surface extent does not
+ * change, and title icon pixels are filled in before the first frame and never
+ * again. Add anything that breaks that and this stops being sufficient.
+ *
+ * The trap runs the other way too. home_refresh_telemetry() writes CPU
+ * temperature and fan duty into the model, and it is called once, from
+ * home_model_init(). Call it from the frame loop instead and the digest changes
+ * whenever a fan speed does - the shell would redraw continuously and nothing
+ * would look wrong, because the output is correct and merely wasteful. If those
+ * readings should update live, give them their own cadence and let the redraw
+ * follow from that, rather than refreshing every frame.
+ *
+ * ~18 KB a frame, against 1920x1080 of clear and swizzle - under half a percent
+ * of the work it decides whether to skip.
+ */
+uint64_t home_model_digest(const home_model_t *m) {
+    if (m == 0) {
+        return 0u;
+    }
+    const unsigned char *raw = (const unsigned char *)m;
+    uint64_t h = 1469598103934665603ull; /* FNV-1a 64-bit offset basis */
+    for (size_t i = 0; i < sizeof(*m); i++) {
+        h ^= (uint64_t)raw[i];
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+
 /* ---- navigation movement ---------------------------------------------------------------- */
 
 static void move_ime(home_dialog_t *dlg, home_direction_t dir) {
@@ -1207,25 +1258,44 @@ static int render_games_carousel(oops_surface_t *surf, const home_model_t *m, co
         oops_color_t card_bg = selected ? theme->accent : theme->panel;
         oops_draw_rect(surf, tx, ty, theme->tile_width, th, card_bg);
 
-        /* Initial letter in centre of tile */
-        char letter[2];
-        letter[0] = '?';
-        letter[1] = '\0';
-        if (m->titles[i].name != 0) {
-            const char *nm = m->titles[i].name;
-            while (*nm) {
-                if ((*nm >= 'A' && *nm <= 'Z') || (*nm >= 'a' && *nm <= 'z') || (*nm >= '0' && *nm <= '9')) {
-                    letter[0] = (*nm >= 'a' && *nm <= 'z') ? (char)(*nm - 32) : *nm;
-                    break;
-                }
-                nm++;
+        /* If title has an icon, blit it; otherwise fall back to initial letter */
+        if (m->titles[i].icon_pixels != 0 && m->titles[i].icon_width > 0 && m->titles[i].icon_height > 0) {
+            int iw = m->titles[i].icon_width;
+            int ih = m->titles[i].icon_height;
+            int ix = tx + (theme->tile_width - iw) / 2;
+            int iy = ty + 8;
+            if (iy + ih > ty + th - 20) {
+                ih = (ty + th - 20) - iy;
             }
+            if (ih > 0 && iw > 0) {
+                oops_surface_t isurf;
+                isurf.pixels = (uint32_t *)m->titles[i].icon_pixels;
+                isurf.width = (uint32_t)m->titles[i].icon_width;
+                isurf.height = (uint32_t)m->titles[i].icon_height;
+                isurf.pitch = (uint32_t)m->titles[i].icon_width;
+                oops_draw_blit_blend(surf, ix, iy, &isurf, 0, 0, iw, ih);
+            }
+        } else {
+            /* Initial letter in centre of tile */
+            char letter[2];
+            letter[0] = '?';
+            letter[1] = '\0';
+            if (m->titles[i].name != 0) {
+                const char *nm = m->titles[i].name;
+                while (*nm) {
+                    if ((*nm >= 'A' && *nm <= 'Z') || (*nm >= 'a' && *nm <= 'z') || (*nm >= '0' && *nm <= '9')) {
+                        letter[0] = (*nm >= 'a' && *nm <= 'z') ? (char)(*nm - 32) : *nm;
+                        break;
+                    }
+                    nm++;
+                }
+            }
+            if (letter[0] == '?' && m->titles[i].id != 0 && m->titles[i].id[0] != '\0') {
+                letter[0] = m->titles[i].id[0];
+            }
+            (void)oops_draw_text(surf, tx + (theme->tile_width / 2) - 8, ty + (th / 2) - 12,
+                                 letter, theme->text, 3);
         }
-        if (letter[0] == '?' && m->titles[i].id != 0 && m->titles[i].id[0] != '\0') {
-            letter[0] = m->titles[i].id[0];
-        }
-        (void)oops_draw_text(surf, tx + (theme->tile_width / 2) - 8, ty + (th / 2) - 12,
-                             letter, theme->text, 3);
 
         /* Category badge - short, centered, strictly clamped to tile width */
         const char *cat = m->titles[i].category ? m->titles[i].category : "APP";

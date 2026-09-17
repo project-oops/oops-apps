@@ -16,6 +16,7 @@ HOST_TEST_SRCS = pad-viz_selftest.c pad-viz.c $(OOPS_SDK_DIR)/src/draw/draw.c
 PAYLOAD_SRCS = pad-viz.c pad-viz_main.c \
                $(OOPS_SDK_DIR)/src/display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_display.c $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
+               $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
                $(OOPS_SDK_DIR)/src/gnm/gnm_display.c $(OOPS_SDK_DIR)/src/input/input.c \
                $(OOPS_SDK_DIR)/src/memory/memory.c $(OOPS_SDK_DIR)/src/system/system.c \
                $(OOPS_SDK_DIR)/src/system/offsets.c $(OOPS_SDK_DIR)/src/system/freestd.c \

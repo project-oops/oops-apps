@@ -14,7 +14,7 @@ neutral, all-pressed, deflected, and disconnected states into a buffer and check
 compiles freestanding (`make skeleton`). The on-console payload - `pad-viz_main.c`, the display
 and the batched read loop - compiles freestanding; `make elf` links it for the console.
 
-**On the probe line** (see [D001](../docs/decisions/D001-a-repository-for-apps-built-on-the-sdk.md)):
+**On the probe line** (see [D001](../../docs/decisions/D001-a-repository-for-apps-built-on-the-sdk.md)):
 it shows the controller, a person judges whether it matches what they are pressing, and there is
 no verdict. Confirming the input record's field layout is obSCEne's job (the input census); this
 just draws whatever the SDK maps.

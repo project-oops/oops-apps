@@ -20,6 +20,8 @@ HOST_TEST_SRCS = gl_cube_selftest.c \
                  $(OOPS_SDK_DIR)/src/gl/gl_state.c \
                  $(OOPS_SDK_DIR)/src/gl/gl_matrix.c \
                  $(OOPS_SDK_DIR)/src/gl/gl_draw.c \
+                 $(OOPS_SDK_DIR)/src/gl/gl_list.c \
+                 $(OOPS_SDK_DIR)/src/gl/gl_attrib.c \
                  $(OOPS_SDK_DIR)/src/system/system.c \
                  $(OOPS_SDK_DIR)/src/system/freestd.c
 HOST_TEST_LIBS = -lm
@@ -32,6 +34,8 @@ PAYLOAD_SRCS = gl_cube_main.c \
                $(OOPS_SDK_DIR)/src/gl/gl_state.c \
                $(OOPS_SDK_DIR)/src/gl/gl_matrix.c \
                $(OOPS_SDK_DIR)/src/gl/gl_draw.c \
+               $(OOPS_SDK_DIR)/src/gl/gl_list.c \
+               $(OOPS_SDK_DIR)/src/gl/gl_attrib.c \
                $(OOPS_SDK_DIR)/src/agc/agc_display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
                $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
@@ -43,6 +47,7 @@ PAYLOAD_SRCS = gl_cube_main.c \
                $(OOPS_SDK_DIR)/src/audio/audiodec.c \
                $(OOPS_SDK_DIR)/src/videodec/videodec.c \
                $(OOPS_SDK_DIR)/src/memory/memory.c \
+               $(OOPS_SDK_DIR)/src/memory/heap.c \
                $(OOPS_SDK_DIR)/src/time/time.c \
                $(OOPS_SDK_DIR)/src/system/system.c \
                $(OOPS_SDK_DIR)/src/system/freestd.c \

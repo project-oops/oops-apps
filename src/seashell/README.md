@@ -1,4 +1,4 @@
-# home — clean-room reimplementation of the PS5 shell (Prospero UX / SceShellCore)
+# SeaShell — clean-room reimplementation of the PS5 shell (Prospero UX)
 
 A freestanding homebrew shell and launcher. It draws a complete console interface — a Games/Media
 carousel, game hubs with activity cards and trophy progress, an authentic 13-dock Control Centre,
@@ -99,12 +99,40 @@ Or using the repository CLI runner:
 
 ---
 
+## Architecture: Dynamic Filesystem Discovery & Sandbox Escape
+
+On physical hardware, SeaShell operates as a native Big App (category 0). By default, the console kernel confines Big Apps to their private `/app0` sandbox mount, which denies access to other installed titles on the internal SSD.
+
+### 1. Zero-Polling Event-Driven Handshake
+SeaShell elevates its filesystem namespace dynamically at startup without relying on third-party daemons (etaHEN, Lapy JB daemon), cheats, or background polling loops:
+1. **Single Connect at Boot**: SeaShell invokes `oops_system_escape_sandbox()` once on startup.
+2. **Loopback IPC**: Connects via TCP to `127.0.0.1:9069`, where the resident first-party `sandbox-daemon` is suspended in a blocking `accept()` call (0% CPU, 0 disk I/O).
+3. **Namespace Elevation**: `sandbox-daemon` repoints SeaShell's `fd_rdir` (`0x10`), `fd_jdir` (`0x18`), and `fd_cdir` (`0x08`) to the dynamically resolved `rootvnode`, elevates its credentials to root UID `0` and `cr_sceauthid = 0x4801000000000013`, and acknowledges with status `0`.
+4. **Immediate Close**: SeaShell closes the socket and proceeds with global storage access.
+
+### 2. Title Discovery & Metadata Extraction
+Once elevated, SeaShell queries console storage:
+- **Directory Enumeration**: Probes `/user/appmeta`, `/data/homebrew`, and `/user/app` using modern FreeBSD 12 `SYS_getdirentries` (554) with a 64-bit `basep` pointer and `ino64` layout.
+- **Candidate Probing Fallback**: Validates installed candidates directly on disk via `oops_fs_exists()` checking `/user/appmeta/<ID>/param.json`, `/user/appmeta/<ID>/icon0.png`, and executable paths.
+- **Metadata Extraction**: Parses genuine `titleName` and master/content versions directly from `param.json`. Zero invented titles.
+- **Icon Loading**: Reads and decodes genuine `icon0.png` images from disk into 96x96 RGB tile surfaces for the home carousel.
+
+### 3. Periodic Background Storage Polling
+To automatically reflect newly installed packages, games, or staged homebrew without requiring a shell restart, SeaShell performs periodic background storage scans:
+- **Interval**: Scans every 600 frames (~10 seconds at 60 Hz).
+- **Telemetry**: Emits a `[SCSH00001:HOME]` status line to `klog` on every cycle (e.g. `periodic storage poll: 17 titles, no changes`).
+- **Silent Steady-State**: If no new titles are detected, the scan completes silently with zero UI modification, zero frame hitches, and no toast popups.
+- **Dynamic Discovery**: When a new title is found on disk, SeaShell parses its `param.json`, decodes its `icon0.png`, appends it to the active carousel model, and displays a temporary notification toast (`LIBRARY UPDATED`).
+
+---
+
 ## Status
 
 **Compiled and verified across all formats.** Built under strict compiler warning flags
 (`-std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion -Wstrict-prototypes -Wmissing-prototypes`).
 Headless host selftest passes cleanly. Shipped outputs under `dist/` follow the project-wide four-axis conventions (`OOPS/docs/CONVENTIONS.md` section 2):
-- `dist/home-launcher-prospero.elf`: freestanding ELF for Orbistoun and `elfldr`.
-- `dist/home-eboot-prospero.bin`: fake-signed Prospero executable container (`fSELF`).
-- `dist/home-title-prospero.zip`: full native PS5 Big App category 0 bundle (`HOME00001/` with `eboot.bin`, `sce_sys/param.json`, `icon0.png`, `keystone`) ready to deploy to `/user/app/HOME00001` or auto-mount via ShadowMountPlus.
+- `dist/seashell-launcher-prospero.elf`: freestanding ELF for Orbistoun and `elfldr`.
+- `dist/seashell-eboot-prospero.bin`: fake-signed Prospero executable container (`fSELF`).
+- `dist/seashell-title-prospero.zip`: full native PS5 Big App category 0 bundle (`SCSH00001/` with `eboot.bin`, `sce_sys/param.json`, `icon0.png`, `keystone`) ready to deploy to `/user/app/SCSH00001` or auto-mount via ShadowMountPlus.
+
 

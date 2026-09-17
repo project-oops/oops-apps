@@ -449,6 +449,126 @@ int main(void) {
         }
     }
 
+    /* The frame digest: the console loop skips rendering and flipping whenever
+     * this does not change, so a state change it fails to notice is a shell that
+     * stops redrawing. Each case below is a thing the renderer shows. */
+    {
+        home_model_init(&m);
+
+        uint64_t base = home_model_digest(&m);
+
+        if (home_model_digest(&m) != base) {
+            printf("FAIL: digest is not stable across calls on an unchanged model\n");
+            failures++;
+        }
+        if (home_model_digest(NULL) != 0) {
+            printf("FAIL: digest of NULL is not 0\n");
+            failures++;
+        }
+
+        /*
+         * Note for anyone tempted to add it: two separately initialised models do
+         * NOT digest alike, and asserting that they do fails. Menu items carry
+         * `const char *` fields pointing into the model's own character buffers -
+         * build_system_menu() hands out m->dev.console_info_str, and others do
+         * the same - so the hashed bytes include the address the model lives at.
+         * Within one model those pointers are fixed for its lifetime, which is
+         * all the console loop relies on; across two models they differ by
+         * construction.
+         */
+
+        /* Stable over more repeats than a frame ever needs. */
+        for (int i = 0; i < 8; i++) {
+            if (home_model_digest(&m) != base) {
+                printf("FAIL: digest drifted on an untouched model\n");
+                failures++;
+                break;
+            }
+        }
+
+        struct {
+            const char *what;
+            uint64_t seen;
+        } steps[10];
+        unsigned step_count = 0;
+
+        home_move(&m, HOME_RIGHT);
+        steps[step_count].what = "carousel cursor moved";
+        steps[step_count++].seen = home_model_digest(&m);
+
+        home_open(&m, HOME_SCREEN_LIBRARY);
+        steps[step_count].what = "screen opened";
+        steps[step_count++].seen = home_model_digest(&m);
+
+        home_move(&m, HOME_DOWN);
+        steps[step_count].what = "menu cursor moved";
+        steps[step_count++].seen = home_model_digest(&m);
+
+        home_next_theme(&m);
+        steps[step_count].what = "theme changed";
+        steps[step_count++].seen = home_model_digest(&m);
+
+        home_show_toast(&m, "TOAST", "SHOWN");
+        steps[step_count].what = "toast raised";
+        steps[step_count++].seen = home_model_digest(&m);
+
+        home_tick(&m);
+        steps[step_count].what = "toast timer ticked";
+        steps[step_count++].seen = home_model_digest(&m);
+
+        home_show_dialog(&m, HOME_DIALOG_IME, "SEARCH", "");
+        steps[step_count].what = "dialog opened";
+        steps[step_count++].seen = home_model_digest(&m);
+
+        home_move(&m, HOME_RIGHT);
+        steps[step_count].what = "IME key cursor moved";
+        steps[step_count++].seen = home_model_digest(&m);
+
+        home_close_dialog(&m);
+        steps[step_count].what = "dialog closed";
+        steps[step_count++].seen = home_model_digest(&m);
+
+        home_toggle_control_centre(&m);
+        steps[step_count].what = "control centre toggled";
+        steps[step_count++].seen = home_model_digest(&m);
+
+        /* Every step must differ from the one before it, and from the start. */
+        uint64_t prev = base;
+        for (unsigned i = 0; i < step_count; i++) {
+            if (steps[i].seen == prev) {
+                printf("FAIL: digest unchanged after %s - the loop would not redraw\n",
+                       steps[i].what);
+                failures++;
+            }
+            prev = steps[i].seen;
+        }
+
+        /*
+         * Returning to a state must return the digest to it, or an idle shell
+         * would redraw for ever. Carousel movement is the reversible case that
+         * matters: it is what a user leans on.
+         *
+         * Screen navigation is deliberately not asserted here. home_open() builds
+         * the target screen's menu and home_back() only pops the stack, so the
+         * built menu stays in the model and the digest does not come back. That
+         * is the digest being conservative about state the renderer would not
+         * have shown - it costs one extra frame, which is the direction this is
+         * allowed to be wrong in.
+         */
+        home_model_init(&m);
+        uint64_t settled = home_model_digest(&m);
+        home_move(&m, HOME_RIGHT);
+        if (home_model_digest(&m) == settled) {
+            printf("FAIL: carousel move did not change the digest\n");
+            failures++;
+        }
+        home_move(&m, HOME_LEFT);
+        if (home_model_digest(&m) != settled) {
+            printf("FAIL: moving right then left did not restore the digest\n");
+            failures++;
+        }
+    }
+
     /* Test live telemetry and settings menu updates */
     {
         home_model_init(&m);
@@ -465,6 +585,62 @@ int main(void) {
         home_menu_t *dev_menu = &m.menus[HOME_SCREEN_SETTINGS_DEVELOPER];
         if (dev_menu->count < 4 || strcmp(dev_menu->items[3].label, "PLTAUTH STATUS") != 0) {
             printf("FAIL: developer settings menu did not populate pltauth status\n");
+            failures++;
+        }
+    }
+
+    /* Test icon rendering and first-letter fallback */
+    {
+        oops_surface_t surf = test_surface();
+        home_model_init(&m);
+
+        /* Case 1: Default titles have icon_pixels == NULL, should render initial letter */
+        (void)home_render(&surf, &m, home_theme_at(0));
+        const home_theme_t *theme = home_theme_at(0);
+        int tx = theme->margin_x;
+        int base_y = theme->margin_y + (theme->row_height * 2);
+        int ty = base_y - 10; /* selected title */
+        int center_x = tx + (theme->tile_width / 2);
+        int center_y = ty + (theme->tile_height + 20) / 2;
+        int text_pixels_found = 0;
+        for (int dy = -20; dy <= 20; dy++) {
+            for (int dx = -20; dx <= 20; dx++) {
+                uint32_t px = pixel_at(&surf, center_x + dx, center_y + dy);
+                if (px == theme->text) {
+                    text_pixels_found++;
+                }
+            }
+        }
+        if (text_pixels_found == 0) {
+            printf("FAIL: fallback initial-letter was not rendered for title without icon\n");
+            failures++;
+        }
+
+        /* Case 2: Title with valid icon_pixels blits icon over card */
+        static uint32_t s_mock_icon[96 * 96];
+        uint32_t icon_marker_color = 0xFF55FFAAu;
+        for (int p = 0; p < 96 * 96; p++) {
+            s_mock_icon[p] = icon_marker_color;
+        }
+        home_title_t icon_title = m.titles[0];
+        icon_title.icon_pixels = s_mock_icon;
+        icon_title.icon_width = 96;
+        icon_title.icon_height = 96;
+        home_set_titles(&m, &icon_title, 1);
+
+        (void)home_render(&surf, &m, theme);
+        int icon_pixels_found = 0;
+        int icon_x = tx + (theme->tile_width - 96) / 2;
+        int icon_y = ty + 8;
+        for (int dy = 10; dy < 80; dy++) {
+            for (int dx = 10; dx < 80; dx++) {
+                if (pixel_at(&surf, icon_x + dx, icon_y + dy) == icon_marker_color) {
+                    icon_pixels_found++;
+                }
+            }
+        }
+        if (icon_pixels_found == 0) {
+            printf("FAIL: icon_pixels was not blitted onto tile\n");
             failures++;
         }
     }

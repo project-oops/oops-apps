@@ -13,6 +13,29 @@ OOPS_SDK_DIR := $(abspath $(OOPS_SDK))
 # Load project-level configuration (app.env) if present
 -include app.env
 
+# OpenGL through Mesa, for a title that asks for it.
+#
+# A title opts in with `USE_MESA = 1` in its own Makefile or app.env. Everything it brings is
+# additive: Mesa's headers, the winsys and runtime shims, and the archives in the order Mesa
+# links them. Nothing changes for a title that does not ask.
+#
+# **A title that sets this is hosted and is not freestanding.** Mesa calls `malloc`, `snprintf`
+# and their kin by their published names, and the platform's own C library answers at load. The
+# rest of oops-apps links no C library at all. That divergence is oops-mesa's D002, confined to
+# titles that set this switch, and `OOPS_MESA_HOSTED` is defined so the title and its packaging
+# can both say which kind they are.
+ifeq ($(USE_MESA),1)
+    OOPS_MESA ?= $(abspath $(OOPS_APPS_ROOT)/../oops-mesa)
+    ifeq ($(wildcard $(OOPS_MESA)/oops-mesa.mk),)
+        $(error USE_MESA=1 but no oops-mesa at $(OOPS_MESA); clone it beside the collection or set OOPS_MESA)
+    endif
+    include $(OOPS_MESA)/oops-mesa.mk
+
+    EXTRA_TARGET_CFLAGS  += $(OOPS_MESA_INCLUDE)
+    EXTRA_TARGET_LDFLAGS += $(OOPS_MESA_LIBS) $(OOPS_MESA_SYSLIBS)
+    PAYLOAD_SRCS         += $(OOPS_MESA_SRCS)
+endif
+
 # Application identity & metadata defaults
 APP_NAME       ?= $(notdir $(CURDIR))
 TITLE_NAME     ?= $(APP_NAME)
@@ -57,6 +80,26 @@ TARGET_CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-con
                  -fno-stack-protector -fvisibility=hidden \
                  $(OOPS_SDK_INCLUDE) $(EXTRA_TARGET_CFLAGS)
 
+# Standardized application telemetry & log identity macros
+TARGET_CFLAGS += -DOOPS_APP_ID=\"$(TITLE_ID)\" -DOOPS_APP_NAME=\"$(APP_NAME)\"
+CFLAGS        += -DOOPS_APP_ID=\"$(TITLE_ID)\" -DOOPS_APP_NAME=\"$(APP_NAME)\"
+
+# A hosted title drops the freestanding flags, and only those.
+#
+# `-ffreestanding` tells the compiler there is no standard library and `-fno-builtin` stops it
+# recognising `memcpy` and its kin. Mesa is written for a hosted environment and needs both gone.
+#
+# `-nostdlib` stays, and the difference matters. It is a *link* flag, and nothing here links a C
+# library: the platform's own answers `malloc` and its kin at load, exactly as oops-sdk's vendor
+# calls are answered. Dropping it too makes the linker go looking for `crtbeginS.o`, `libgcc` and
+# `libc` on the build machine, none of which belong in this binary.
+#
+# Filtered here rather than by a different default above, so a title that overrode
+# `TARGET_CFLAGS` itself gets the same treatment.
+ifeq ($(USE_MESA),1)
+    TARGET_CFLAGS := $(filter-out -ffreestanding -fno-builtin,$(TARGET_CFLAGS))
+endif
+
 LLD_AVAILABLE := $(shell which lld >/dev/null 2>&1 && echo yes || echo no)
 LLD_FLAG := $(if $(filter yes,$(LLD_AVAILABLE)),-fuse-ld=lld,)
 
@@ -81,11 +124,11 @@ TITLE_ZIP_ARTIFACT ?= $(DIST)/$(APP_NAME)-title-$(TARGET).zip
 
 # Sibling selfish toolchain (for eboot.bin, native title directory, and packages)
 ifeq ($(OS),Windows_NT)
-    SELFISH_BIN ?= $(firstword $(wildcard $(SELFISH)/target/debug/selfish.exe $(SELFISH)/target/release/selfish.exe $(SELFISH)/target/debug/selfish $(SELFISH)/target/release/selfish))
-    MKMODULE_BIN ?= $(firstword $(wildcard $(OOPS_APPS_ROOT)/../obscene/tool/target/release/obscene-tool.exe $(OOPS_APPS_ROOT)/../obscene/tool/target/debug/obscene-tool.exe $(OOPS_APPS_ROOT)/../obscene/tool/target/release/obscene-tool $(OOPS_APPS_ROOT)/../obscene/tool/target/debug/obscene-tool))
+    SELFISH_BIN ?= $(firstword $(wildcard $(SELFISH)/target/debug/selfish.exe $(SELFISH)/target/release/selfish.exe $(SELFISH)/target-win/debug/selfish.exe $(SELFISH)/target-win/release/selfish.exe $(SELFISH)/target/debug/selfish $(SELFISH)/target/release/selfish))
+    MKMODULE_BIN ?= $(firstword $(wildcard $(OOPS_APPS_ROOT)/../obscene/tool/target/release/obscene-tool.exe $(OOPS_APPS_ROOT)/../obscene/tool/target/debug/obscene-tool.exe $(OOPS_APPS_ROOT)/../obscene/tool/target-win/release/obscene-tool.exe $(OOPS_APPS_ROOT)/../obscene/tool/target-win/debug/obscene-tool.exe $(OOPS_APPS_ROOT)/../obscene/tool/target/release/obscene-tool $(OOPS_APPS_ROOT)/../obscene/tool/target/debug/obscene-tool))
 else
-    SELFISH_BIN ?= $(firstword $(wildcard $(SELFISH)/target/debug/selfish $(SELFISH)/target/release/selfish $(SELFISH)/target/debug/selfish.exe $(SELFISH)/target/release/selfish.exe))
-    MKMODULE_BIN ?= $(firstword $(wildcard $(OOPS_APPS_ROOT)/../obscene/tool/target/release/obscene-tool $(OOPS_APPS_ROOT)/../obscene/tool/target/debug/obscene-tool $(OOPS_APPS_ROOT)/../obscene/tool/target/release/obscene-tool.exe $(OOPS_APPS_ROOT)/../obscene/tool/target/debug/obscene-tool.exe))
+    SELFISH_BIN ?= $(firstword $(wildcard $(SELFISH)/target/debug/selfish $(SELFISH)/target/release/selfish $(SELFISH)/target/debug/selfish.exe $(SELFISH)/target/release/selfish.exe $(SELFISH)/target-win/debug/selfish.exe $(SELFISH)/target-win/release/selfish.exe))
+    MKMODULE_BIN ?= $(firstword $(wildcard $(OOPS_APPS_ROOT)/../obscene/tool/target/release/obscene-tool $(OOPS_APPS_ROOT)/../obscene/tool/target/debug/obscene-tool $(OOPS_APPS_ROOT)/../obscene/tool/target/release/obscene-tool.exe $(OOPS_APPS_ROOT)/../obscene/tool/target/debug/obscene-tool.exe $(OOPS_APPS_ROOT)/../obscene/tool/target-win/release/obscene-tool.exe $(OOPS_APPS_ROOT)/../obscene/tool/target-win/debug/obscene-tool.exe))
 endif
 SYMBOLS_FILE ?= $(OOPS_APPS_ROOT)/common/symbols.txt
 MKMODULE_GEN ?= $(if $(filter 1 2,$(OOPS_TARGET_NUM)),4,5)
@@ -118,7 +161,11 @@ skeleton: | $(BUILD)
 	$(TARGET_CC) $(TARGET_CFLAGS) -c -o $(BUILD)/$(APP_NAME).o $(firstword $(PAYLOAD_SRCS))
 	@echo "$(APP_NAME) skeleton: compiles freestanding for the target (object only)"
 
-TARGET_SYS_SRCS ?= $(wildcard $(OOPS_SDK_DIR)/src/system/procparam.c)
+CORE_SDK_SRCS := $(OOPS_SDK_DIR)/src/system/procparam.c \
+                 $(OOPS_SDK_DIR)/src/system/fs.c \
+                 $(OOPS_SDK_DIR)/src/memory/heap.c \
+                 $(OOPS_SDK_DIR)/src/time/time.c
+TARGET_SYS_SRCS ?= $(filter-out $(PAYLOAD_SRCS), $(wildcard $(CORE_SDK_SRCS)))
 
 # Full freestanding target payload ELF
 $(BUILD)/$(APP_NAME).elf: $(PAYLOAD_SRCS) $(TARGET_SYS_SRCS) $(PAYLOAD_EXTRA_DEPS) | $(BUILD)
@@ -126,9 +173,24 @@ $(BUILD)/$(APP_NAME).elf: $(PAYLOAD_SRCS) $(TARGET_SYS_SRCS) $(PAYLOAD_EXTRA_DEP
 
 elf: $(BUILD)/$(APP_NAME).elf
 
-# Tag target ELF with fixed module metadata via obscene-tool mkmodule
+# Tag target ELF with fixed module metadata via obscene-tool mkmodule.
+#
+# A missing symbols file is fatal, not a reason to skip. It used to be part of the same guard as
+# the tool itself, so a project that names a symbols file it has not generated yet built, packaged
+# and deployed an ELF that mkmodule never touched - no `PT_SCE_DYNLIBDATA`, so the loader refuses
+# it with "found illegal segment header" and nothing before the console says a word. mesa-probe
+# generates its symbols file with `make imports`, and skipping that step cost a launch.
+#
+# An absent *tool* is still tolerated, because a checkout without obSCEne built is a real state and
+# the target ELF is still worth having. An absent *input the project asked for* is not.
 $(BUILD)/.mkmodule-fixed.stamp: $(BUILD)/$(APP_NAME).elf
-	@if [ -n "$(MKMODULE_BIN)" ] && [ -f "$(SYMBOLS_FILE)" ] && $(MKMODULE_BIN) --help >/dev/null 2>&1; then \
+	@if [ -n "$(MKMODULE_BIN)" ] && $(MKMODULE_BIN) --help >/dev/null 2>&1; then \
+	    if [ ! -f "$(SYMBOLS_FILE)" ]; then \
+	        echo "$(APP_NAME): $(SYMBOLS_FILE) does not exist, so mkmodule cannot say where this" >&2; \
+	        echo "  module's imports resolve. Without it the container loads nothing on hardware." >&2; \
+	        echo "  If this project generates it, generate it - mesa-probe uses 'make imports'." >&2; \
+	        exit 1; \
+	    fi; \
 	    IN="$<"; SYM="$(SYMBOLS_FILE)"; \
 	    case "$(MKMODULE_BIN)" in *.exe) command -v wslpath >/dev/null 2>&1 && { IN=$$(wslpath -m "$$IN"); SYM=$$(wslpath -m "$$SYM"); } ;; esac; \
 	    $(MKMODULE_BIN) mkmodule --symbols "$$SYM" --generation $(MKMODULE_GEN) --table $(MKMODULE_TABLE) --kind $(MKMODULE_KIND) "$$IN"; \
@@ -159,9 +221,13 @@ title: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	        case "$(SELFISH_BIN)" in *.exe) command -v wslpath >/dev/null 2>&1 && ICON_PATH=$$(wslpath -m "$$ICON_PATH") ;; esac; \
 	        ICON_FLAG="--icon $$ICON_PATH"; \
 	    fi; \
+	    PRIV_FLAG=""; \
+	    if [ -n "$(PRIVILEGE)" ]; then \
+	        PRIV_FLAG="--privilege $(PRIVILEGE)"; \
+	    fi; \
 	    $(SELFISH_BIN) --input "$$IN" --target $(TARGET) --format title \
 	        --title-id $(TITLE_ID) --title $(TITLE_NAME) --category $(TITLE_CATEGORY) \
-	        --title-version $(TITLE_VERSION) --sdk $(TARGET) $$ICON_FLAG --output "$$OUT"; \
+	        --title-version $(TITLE_VERSION) --sdk $(TARGET) $$ICON_FLAG $$PRIV_FLAG --output "$$OUT"; \
 	    if [ "$(TITLE_CATEGORY)" = "big-app" ] || [ -z "$(TITLE_CATEGORY)" ]; then \
 	        mkdir -p $(BUILD)/title/$(TITLE_ID)/sce_module; \
 	        $(TARGET_CC) -std=c11 -target x86_64-unknown-freebsd -ffreestanding -fno-builtin \
@@ -177,7 +243,7 @@ title: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	            $(MKMODULE_BIN) mkself "$$LIB_IN" --generation 4 --privilege app --out "$$PRX_OUT"; \
 	        fi; \
 	    fi; \
-	    ZIP_CMD=$$(command -v zip 2>/dev/null && echo "zip -qr" || echo "tar -a -cf"); \
+	    ZIP_CMD=$$(command -v zip >/dev/null 2>&1 && echo "zip -qr" || echo "tar -a -cf"); \
 	    ( cd $(BUILD)/title && $$ZIP_CMD $(CURDIR)/$(TITLE_ZIP_ARTIFACT) $(TITLE_ID) ); \
 	    echo "$(APP_NAME): created $(TITLE_ZIP_ARTIFACT)"; \
 	else \

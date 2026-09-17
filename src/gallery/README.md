@@ -17,7 +17,7 @@ capability matrix) and compiles freestanding (`make skeleton`). The on-console p
 `gallery_main.c`, the display and pad loop, which also gathers the capability matrix - is written
 and compiles freestanding; `make elf` links it for the console.
 
-**Closest to the probe line** (see [D001](../docs/decisions/D001-a-repository-for-apps-built-on-the-sdk.md)):
+**Closest to the probe line** (see [D001](../../docs/decisions/D001-a-repository-for-apps-built-on-the-sdk.md)):
 it shows, a person judges, there is no verdict. A pass/fail-per-subsystem version - one that calls
 each function and rules on whether it *worked* - is a probe and belongs in obSCEne. The
 capabilities page stays on the near side of that line by reporting only what resolved, never

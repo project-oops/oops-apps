@@ -409,9 +409,14 @@ __attribute__((visibility("default"))) int gl_cube_start(const payload_args_t *a
      * variant A (with CLEAR_STATE) or B (without), and measure what the compositor makes of it. */
     const bool ctl_preamble_a = cube_stop_file_present("/app0/preamble-a") != 0;
     const bool ctl_preamble_b = cube_stop_file_present("/app0/preamble-b") != 0;
+    /* Read a hardware configuration register with a command stream, because the vendor library
+     * has no call that does it: obSCEne's sweep of 2026-09-14 found `sceAgcGetRegisterDefaults`
+     * and `sceAgcGetDeviceInfo` unresolvable, and recorded that a command-stream capture is
+     * what is left (its `166-agc/hardware-registers`, partial, for 0x263e). */
+    const bool ctl_gbaddr = cube_stop_file_present("/app0/gbaddr") != 0;
 #else
     const bool ctl_pause = false, ctl_dump = false, ctl_nodepth = false, ctl_tex = false;
-    const bool ctl_preamble_a = false, ctl_preamble_b = false;
+    const bool ctl_preamble_a = false, ctl_preamble_b = false, ctl_gbaddr = false;
 #endif
     bool auto_rotate = !ctl_pause;
     bool opt_texture = ctl_tex;
@@ -427,6 +432,72 @@ __attribute__((visibility("default"))) int gl_cube_start(const payload_args_t *a
 #else
     if (ctl_preamble_a || ctl_preamble_b) cube_klog("prelude: requested but this build has no oops-mesa preamble header");
 #endif
+
+    /*
+     * Reading GB_ADDR_CONFIG off the GPU.
+     *
+     * It describes how memory is banked, interleaved and pipe-mapped, and a tiling library
+     * computes every surface layout from it. Nothing in the collection has ever read it, and
+     * oops-mesa's winsys refuses to answer for it rather than supply a plausible number
+     * (oops-mesa worklog 010, REQ-20260914T1712Z-5b60).
+     *
+     * The command processor can copy a register into memory, which is the route obSCEne said
+     * was left once it found no register-read function exported. So this builds a five-dword
+     * COPY_DATA packet naming the register and a buffer, hands it to the frame as a prelude,
+     * and reads the buffer back afterwards. The GPU answers the question about itself.
+     *
+     * The register is R_0098F8_GB_ADDR_CONFIG: byte offset 0x98f8, which is dword 0x263e, and
+     * the same number libdrm passes to its own register read.
+     */
+    uint32_t *gb_buf = NULL;
+    uint32_t gb_prelude[5 + 1];
+    if (ctl_gbaddr) {
+        gb_buf = (uint32_t *)oops_mem_alloc(256, 256, OOPS_MEM_WB_ONION);
+        if (!gb_buf) {
+            cube_klog("gbaddr: could not allocate the destination buffer");
+        } else {
+            uint64_t dst = (uint64_t)(uintptr_t)gb_buf;
+            gb_buf[0] = 0xa5a5a5a5u;    /* so an untouched buffer is obvious in the log */
+
+            /*
+             * The packet, copied from Mesa's own emitter rather than assembled from memory.
+             * The first version of this was assembled from memory, two of its six dwords were
+             * wrong, and it took the console down.
+             *
+             * Mesa reads a hardware register into memory in exactly one place,
+             * `ac_sqtt.c:579`, and it uses:
+             *
+             *     PKT3(PKT3_COPY_DATA, 4, 0)
+             *     COPY_DATA_SRC_SEL(COPY_DATA_PERF) | COPY_DATA_DST_SEL(COPY_DATA_TC_L2)
+             *         | COPY_DATA_WR_CONFIRM
+             *     reg >> 2
+             *     0
+             *     dst_lo
+             *     dst_hi
+             *
+             * The two corrections, and why each matters:
+             *
+             *   SRC_SEL is PERF (4), not REG (0). GB_ADDR_CONFIG sits at byte 0x98f8, inside
+             *   the configuration register range (0x8000 to 0xb000), and Mesa reaches that
+             *   range through the PERF selector - `ac_pm4_set_privileged_reg` asserts exactly
+             *   that range and uses PERF to write it. Across the whole Mesa tree, REG is never
+             *   used as a source selector. It is the one value I picked.
+             *
+             *   DST_SEL is TC_L2 (2), not MEM (5). The write goes through the GPU's level-two
+             *   cache, which is the same path oops-gl's frame readback already uses so that the
+             *   CPU sees the result after the end-of-pipe flush.
+             */
+            gb_prelude[0] = 0xc0044000u; /* PKT3 COPY_DATA, five data dwords */
+            gb_prelude[1] = 0x00100204u; /* SRC_SEL=PERF(4) | DST_SEL=TC_L2(2)<<8 | WR_CONFIRM */
+            gb_prelude[2] = 0x000098f8u >> 2; /* R_0098F8_GB_ADDR_CONFIG, as Mesa passes it */
+            gb_prelude[3] = 0u;
+            gb_prelude[4] = (uint32_t)dst;
+            gb_prelude[5] = (uint32_t)(dst >> 32);
+
+            glSetHardwarePrelude(gb_prelude, 6u);
+            cube_klog("gbaddr: reading GB_ADDR_CONFIG (dword 0x263e) through a command stream");
+        }
+    }
     bool opt_lighting = true;
     bool opt_cull = true;
     if (opt_depth) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
@@ -523,6 +594,24 @@ __attribute__((visibility("default"))) int gl_cube_start(const payload_args_t *a
 
 #ifndef OOPS_HOST_BUILD
         if (ctl_dump && frame == 30u) glRequestHardwareDump(); /* this frame's stream becomes the oracle record */
+
+        /*
+         * Read back what the command processor copied. Frame 3 rather than frame 1, so that
+         * several frames have certainly retired and the answer cannot be a race. It is logged
+         * once and then the prelude is removed, because the register does not change and there
+         * is no reason for every later frame to carry the packet.
+         */
+        if (ctl_gbaddr && gb_buf && frame == 3u) {
+            /* The buffer is CPU-cached, so the line has to be dropped before reading or the
+             * stale fill pattern comes back. Same step the frame readback takes. */
+            __builtin_ia32_clflush((const void *)gb_buf);
+            if (gb_buf[0] == 0xa5a5a5a5u) {
+                cube_klog("gbaddr: the buffer was never written; the copy did not happen");
+            } else {
+                cube_klog_hex("gbaddr-GB_ADDR_CONFIG", gb_buf[0]);
+            }
+            glSetHardwarePrelude(NULL, 0);
+        }
         /* Paused runs toggle the depth test at frames 60 and 90, so the frames either side compare. */
         if (ctl_pause && (frame == 60u || frame == 90u)) {
             opt_depth = !opt_depth;
