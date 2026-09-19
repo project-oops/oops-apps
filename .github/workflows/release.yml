@@ -89,21 +89,29 @@ jobs:
       # has no `dist` target it stages nothing and the upload below finds no files - honest,
       # and not a failure.
       - name: Stage ${{ matrix.app }}
-        run: ./bin/oops-apps dist ${{ matrix.app }}
+        run: |
+          ./bin/oops-apps dist ${{ matrix.app }}
+          mkdir -p staging
+          for d in src/*/${{ matrix.app }}/dist; do
+            if [ -d "$d" ]; then
+              cp -r "$d"/* staging/ 2>/dev/null || true
+            fi
+          done
         working-directory: OOPS/oops-apps
 
       - uses: actions/upload-artifact@v4
         with:
           name: app-${{ matrix.app }}
-          path: OOPS/oops-apps/src/${{ matrix.app }}/dist/
+          # Upload directly from flat staging directory so category hierarchy is not preserved
+          path: OOPS/oops-apps/staging/*
           if-no-files-found: ignore
 
   # Collect every app's staged files and replace the rolling `latest-main` prerelease. Runs
-  # only on a push to main; a pull request builds the apps but publishes nothing.
+  # only on a push to main (or manual dispatch); a pull request builds the apps but publishes nothing.
   release:
     name: publish latest-main
     needs: [discover, build]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write

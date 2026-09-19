@@ -26,14 +26,36 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 HERE="$PWD"
 
-# Every directory under src/ that carries a Makefile, one per line.
+# Every app under src/, one per line, as a bare name.
+#
+# Apps are filed by category - `src/oops-gl/gl1-cube` - so the glob is two deep. **The name
+# stays bare**: `oops-apps dist gl1-cube` should not have to know which category something is
+# filed under, CI's artefact names would change if it did, and an app moving between categories
+# should not be a rename.
 apps() {
-    for d in src/*/; do
+    for d in src/*/*/; do
         [ -f "$HERE/${d}Makefile" ] && {
             name="${d%/}"
-            printf '%s\n' "${name#src/}"
+            printf '%s\n' "${name##*/}"
         }
     done
+}
+
+# Where an app of this name lives, or nothing. **Two categories carrying the same app name is
+# refused rather than resolved**: bare names are only usable as identifiers while they are
+# unique, and silently picking whichever the glob reached first is how the wrong thing gets
+# built for a long time before anybody notices.
+app_path() {
+    local want="$1" found="" d
+    for d in "$HERE"/src/*/"$want"; do
+        [ -f "$d/Makefile" ] || continue
+        if [ -n "$found" ]; then
+            echo "oops-apps: '$want' exists in more than one category ($found and $d)" >&2
+            exit 2
+        fi
+        found="$d"
+    done
+    [ -n "$found" ] && printf '%s\n' "$found"
 }
 
 # The apps to act on: the ones named, or all of them. A named directory without a Makefile is
@@ -44,12 +66,10 @@ resolve() {
         return
     fi
     for name in "$@"; do
-        if [ -f "$HERE/src/$name/Makefile" ]; then
-            printf '%s\n' "$name"
-        elif [ -f "$HERE/$name/Makefile" ]; then
+        if [ -n "$(app_path "$name")" ] || [ -f "$HERE/$name/Makefile" ]; then
             printf '%s\n' "$name"
         else
-            echo "oops-apps: no app '$name' (a directory with a Makefile under src/)" >&2
+            echo "oops-apps: no app '$name' (a directory with a Makefile under src/<category>/)" >&2
             exit 2
         fi
     done
@@ -61,8 +81,8 @@ over() {
     local any=0
     for app in $(resolve "$@"); do
         any=1
-        app_dir="$HERE/src/$app"
-        [ -f "$app_dir/Makefile" ] || app_dir="$HERE/$app"
+        app_dir="$(app_path "$app")"
+        [ -n "$app_dir" ] || app_dir="$HERE/$app"
         printf '=== %s: %s ===\n' "$app" "$target"
         make -C "$app_dir" "$target"
     done
@@ -79,8 +99,8 @@ distribute() {
     local any=0 shipped=0
     for app in $(resolve "$@"); do
         any=1
-        app_dir="$HERE/src/$app"
-        [ -f "$app_dir/Makefile" ] || app_dir="$HERE/$app"
+        app_dir="$(app_path "$app")"
+        [ -n "$app_dir" ] || app_dir="$HERE/$app"
         if make -C "$app_dir" -n dist >/dev/null 2>&1; then
             printf '=== %s: dist ===\n' "$app"
             make -C "$app_dir" dist

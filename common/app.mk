@@ -34,14 +34,32 @@ ifeq ($(USE_MESA),1)
     EXTRA_TARGET_CFLAGS  += $(OOPS_MESA_INCLUDE)
     EXTRA_TARGET_LDFLAGS += $(OOPS_MESA_LIBS) $(OOPS_MESA_SYSLIBS)
     PAYLOAD_SRCS         += $(OOPS_MESA_SRCS)
+
+    # The archives are inputs to the link, so the title has to relink when they change. Naming
+    # them in LDFLAGS alone does not do that: make sees a flag, not a file, and a title whose own
+    # sources are untouched is considered up to date however much Mesa underneath it moved.
+    #
+    # That is not theoretical. On 2026-09-17 a Mesa patch was built into the archives, the title
+    # was rebuilt, packaged and deployed, and the console ran the *previous* module - the wrap
+    # step had faithfully wrapped a stale ELF. The log came back identical, which read as "the
+    # fix did nothing" when the fix had never been in the binary. A build that silently ships the
+    # last one is worse than a build that fails.
+    #
+    # Flags are filtered out rather than assumed absent. `OOPS_MESA_LIBS` is mostly a list of
+    # archive paths, but it also carries the `--whole-archive` pair that brackets the GL entry
+    # points, and a flag named as a prerequisite is a target make has no rule for. Only the files
+    # are dependencies; the flags are already in LDFLAGS above.
+    PAYLOAD_EXTRA_DEPS   += $(filter-out -%,$(OOPS_MESA_LIBS))
 endif
 
 # Application identity & metadata defaults
 APP_NAME       ?= $(notdir $(CURDIR))
 TITLE_NAME     ?= $(APP_NAME)
 TITLE_CATEGORY ?= big-app
-TITLE_VERSION  ?= 01.00
-TITLE_ICON     ?= $(firstword $(wildcard sce_sys/icon0.png icon0.png assets/icon0.png))
+TITLE_ICON     ?= $(firstword $(wildcard sce_sys/icon0.png icon0.png assets/icon0.png assets/icon.png))
+TITLE_PIC0     ?= $(firstword $(wildcard sce_sys/pic0.png pic0.png assets/pic0.png assets/background.png))
+TITLE_LOGO     ?= $(firstword $(wildcard sce_sys/logo.png logo.png assets/logo.png assets/badge.png))
+TITLE_SUBTITLE ?= $(APP_SUBTITLE)
 FORMATS        ?= elf
 ENTRY_POINT    ?= $(subst -,_,$(APP_NAME))_start
 
@@ -50,6 +68,46 @@ ENTRY_POINT    ?= $(subst -,_,$(APP_NAME))_start
 # The 3-character target tag occupies indices 0..2, followed by 1 app letter and 5 digits.
 ifeq ($(EXPLICIT_TITLE_ID),1)
     TITLE_ID ?= OOPS00001
+
+    # The four letters are the app's own mnemonic - GLCB, SCSH, GALR, MESA - and they must not be
+    # one of the vendor's. A vendor prefix is not ours to use, and it is the sort of mistake that
+    # is invisible in the build and expensive on the hardware: on 2026-09-17 two titles carrying
+    # `PPSA` were refused by the loader at `sceSblAuthMgrAuthHeader` with nothing in the log
+    # naming the identifier, and several hours went into the module before the prefix was noticed.
+    #
+    # Checked here rather than left to review, because the build is the only place that sees
+    # every app.
+    #
+    # **This was a warning until 2026-09-17, and the reason it was a warning has been measured.**
+    # It said: `gl1-probe` and `gl2-cube` carry GL1P and GL2C, which put digits in the letter
+    # positions, and whether the loader minds is not known - neither has been deployed. That was
+    # the right call to make on no evidence. There is evidence now. gl1-probe was deployed with
+    # `GL1P00001`: every file staged onto the target, the directory was complete and correct, and
+    # the console refused it in its own log and nowhere else -
+    #
+    #     20 Invalid TitleId : [GL1P00001]
+    #     AppPromote Error [GL1P00001] ret = [0x80bd000a]
+    #     AppInstallTitleDirMain GL1P00001 0x80bd000a
+    #
+    # while GLCB, MESA, TLSP and PLDM - four letters each - indexed normally alongside it. So the
+    # loader does mind, the failure is silent on the host side, and the only symptom is a title
+    # that stages perfectly and never appears. That is exactly the kind of thing this file exists
+    # to stop, so it is an error.
+    TITLE_ID_SHAPE := $(shell printf '%s' '$(TITLE_ID)' | grep -cE '^[A-Z]{4}[0-9]{5}$$')
+    ifneq ($(TITLE_ID_SHAPE),1)
+        $(error TITLE_ID "$(TITLE_ID)" is not four capital letters followed by five digits. \
+                The console stages a malformed id without complaint and then never indexes it - \
+                measured on GL1P00001, 2026-09-17. Pick a mnemonic of four letters, as the other \
+                apps do: gl1-cube is GLCB, seashell is SCSH, gallery is GALR)
+    endif
+
+    # Reserved by the vendor for retail titles and system applications.
+    TITLE_ID_PREFIX := $(shell printf '%s' '$(TITLE_ID)' | cut -c1-4)
+    ifneq ($(filter $(TITLE_ID_PREFIX),PPSA PPSC CUSA PCSA PCSB PCSC PCSD PCSE PCSF PCSG NPXS),)
+        $(error TITLE_ID "$(TITLE_ID)" uses "$(TITLE_ID_PREFIX)", which the vendor reserves. \
+                Pick a mnemonic for this app instead, as the other apps do: gl1-cube is GLCB, \
+                seashell is SCSH, gallery is GALR)
+    endif
 else
     APP_RAW_ID  := $(strip $(if $(TITLE_CODE),$(TITLE_CODE),$(if $(filter-out OOPS00001,$(TITLE_ID)),$(TITLE_ID),$(APP_NAME)00001)))
     APP_CHAR    := $(shell echo "$(APP_RAW_ID)" | tr -dc 'A-Za-z' | cut -c1 | tr 'a-z' 'A-Z')
@@ -59,7 +117,7 @@ else
     TITLE_ID    := $(OOPS_TARGET_TAG)$(APP_CHAR)$(APP_NUM)
 endif
 
-# Application macro identifier for host builds (e.g. PORTHOLE_HOST_BUILD, WIPEOUT_HOST_BUILD)
+# Application macro identifier for host builds (e.g. PORTHOLE_HOST_BUILD, GL1_PROBE_HOST_BUILD)
 APP_UPPER := $(shell echo $(APP_NAME) | tr a-z- A-Z_)
 
 # Build & Dist output directories
@@ -81,8 +139,17 @@ TARGET_CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-con
                  $(OOPS_SDK_INCLUDE) $(EXTRA_TARGET_CFLAGS)
 
 # Standardized application telemetry & log identity macros
-TARGET_CFLAGS += -DOOPS_APP_ID=\"$(TITLE_ID)\" -DOOPS_APP_NAME=\"$(APP_NAME)\"
-CFLAGS        += -DOOPS_APP_ID=\"$(TITLE_ID)\" -DOOPS_APP_NAME=\"$(APP_NAME)\"
+ifeq ($(strip $(BUILD_VERSION)),)
+    ifneq ($(strip $(CI)$(GITHUB_ACTIONS)),)
+        GIT_COMMIT := $(shell git -C $(OOPS_APPS_ROOT) rev-parse --short HEAD 2>/dev/null)
+        BUILD_VERSION := $(if $(GIT_COMMIT),$(GIT_COMMIT),$(shell echo "$${GITHUB_SHA:-ci}" | cut -c1-7))
+    else
+        BUILD_VERSION := $(shell date +'%Y-%m-%d %H:%M')
+    endif
+endif
+
+TARGET_CFLAGS += -DOOPS_APP_ID=\"$(TITLE_ID)\" -DOOPS_APP_NAME=\"$(APP_NAME)\" -D'OOPS_APP_VERSION="$(BUILD_VERSION)"'
+CFLAGS        += -DOOPS_APP_ID=\"$(TITLE_ID)\" -DOOPS_APP_NAME=\"$(APP_NAME)\" -D'OOPS_APP_VERSION="$(BUILD_VERSION)"'
 
 # A hosted title drops the freestanding flags, and only those.
 #
@@ -106,10 +173,21 @@ LLD_FLAG := $(if $(filter yes,$(LLD_AVAILABLE)),-fuse-ld=lld,)
 TARGET_LD_SCRIPT ?= $(if $(filter 1 2,$(OOPS_TARGET_NUM)),$(SELFISH)/link/eboot.ld,$(SELFISH)/link/native_eboot.ld)
 TARGET_LD_FLAG   := $(if $(wildcard $(TARGET_LD_SCRIPT)),-T $(TARGET_LD_SCRIPT),)
 
+# A link map beside every module.
+#
+# The module-fixup step leaves no symbol table a reader can use, so a crash on the console reports
+# its backtrace as bare addresses and there is nothing on this side to turn them into names. That
+# is not a small loss: on 2026-09-17 a `PRX_RUNTIME_ERROR` gave five perfectly good frames and the
+# only way to read them would have been to relink and hope the layout matched.
+#
+# The map is written at link time, so it describes the module that was actually built rather than
+# one reconstructed afterwards. A crash address is the load base (`0x400000`) plus the offset the
+# map lists. It costs a file next to the ELF and nothing at run time.
 TARGET_LDFLAGS ?= $(LLD_FLAG) -shared -Wl,-Bsymbolic -Wl,-e,$(ENTRY_POINT) \
                   -Wl,--unresolved-symbols=ignore-all \
                   -Wl,-z,norelro -Wl,-z,noexecstack \
                   -Wl,-z,max-page-size=0x4000 -Wl,-z,common-page-size=0x4000 \
+                  -Wl,-Map=$(BUILD)/$(APP_NAME).map \
                   $(TARGET_LD_FLAG) \
                   $(EXTRA_TARGET_LDFLAGS)
 
@@ -139,7 +217,11 @@ MKMODULE_KIND ?= executable
 
 .PHONY: all check skeleton elf eboot title dist clean
 
+ifneq ($(strip $(PAYLOAD_SRCS)),)
 all: $(if $(HOST_TEST_SRCS),$(BUILD)/$(APP_NAME)_selftest) skeleton $(BUILD)/$(APP_NAME).elf
+else
+all: $(if $(HOST_TEST_SRCS),$(BUILD)/$(APP_NAME)_selftest)
+endif
 
 $(BUILD):
 	@mkdir -p $(BUILD)
@@ -158,8 +240,12 @@ endif
 
 # Freestanding target skeleton compilation (object-only)
 skeleton: | $(BUILD)
+ifneq ($(strip $(PAYLOAD_SRCS)),)
 	$(TARGET_CC) $(TARGET_CFLAGS) -c -o $(BUILD)/$(APP_NAME).o $(firstword $(PAYLOAD_SRCS))
 	@echo "$(APP_NAME) skeleton: compiles freestanding for the target (object only)"
+else
+	@echo "$(APP_NAME) skeleton: no target payload defined"
+endif
 
 CORE_SDK_SRCS := $(OOPS_SDK_DIR)/src/system/procparam.c \
                  $(OOPS_SDK_DIR)/src/system/fs.c \
@@ -168,10 +254,12 @@ CORE_SDK_SRCS := $(OOPS_SDK_DIR)/src/system/procparam.c \
 TARGET_SYS_SRCS ?= $(filter-out $(PAYLOAD_SRCS), $(wildcard $(CORE_SDK_SRCS)))
 
 # Full freestanding target payload ELF
+ifneq ($(strip $(PAYLOAD_SRCS)),)
 $(BUILD)/$(APP_NAME).elf: $(PAYLOAD_SRCS) $(TARGET_SYS_SRCS) $(PAYLOAD_EXTRA_DEPS) | $(BUILD)
 	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) -o $@ $(PAYLOAD_SRCS) $(TARGET_SYS_SRCS)
 
 elf: $(BUILD)/$(APP_NAME).elf
+endif
 
 # Tag target ELF with fixed module metadata via obscene-tool mkmodule.
 #
@@ -183,7 +271,7 @@ elf: $(BUILD)/$(APP_NAME).elf
 #
 # An absent *tool* is still tolerated, because a checkout without obSCEne built is a real state and
 # the target ELF is still worth having. An absent *input the project asked for* is not.
-$(BUILD)/.mkmodule-fixed.stamp: $(BUILD)/$(APP_NAME).elf
+$(BUILD)/.mkmodule-fixed.stamp: $(BUILD)/$(APP_NAME).elf $(SYMBOLS_FILE)
 	@if [ -n "$(MKMODULE_BIN)" ] && $(MKMODULE_BIN) --help >/dev/null 2>&1; then \
 	    if [ ! -f "$(SYMBOLS_FILE)" ]; then \
 	        echo "$(APP_NAME): $(SYMBOLS_FILE) does not exist, so mkmodule cannot say where this" >&2; \
@@ -221,13 +309,27 @@ title: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	        case "$(SELFISH_BIN)" in *.exe) command -v wslpath >/dev/null 2>&1 && ICON_PATH=$$(wslpath -m "$$ICON_PATH") ;; esac; \
 	        ICON_FLAG="--icon $$ICON_PATH"; \
 	    fi; \
+	    PIC0_FLAG=""; \
+	    if [ -n "$(TITLE_PIC0)" ] && [ -f "$(TITLE_PIC0)" ]; then \
+	        PIC0_PATH="$(TITLE_PIC0)"; \
+	        case "$(SELFISH_BIN)" in *.exe) command -v wslpath >/dev/null 2>&1 && PIC0_PATH=$$(wslpath -m "$$PIC0_PATH") ;; esac; \
+	        PIC0_FLAG="--pic0 $$PIC0_PATH"; \
+	    fi; \
+	    LOGO_FLAG=""; \
+	    if [ -n "$(TITLE_LOGO)" ] && [ -f "$(TITLE_LOGO)" ]; then \
+	        LOGO_PATH="$(TITLE_LOGO)"; \
+	        case "$(SELFISH_BIN)" in *.exe) command -v wslpath >/dev/null 2>&1 && LOGO_PATH=$$(wslpath -m "$$LOGO_PATH") ;; esac; \
+	        LOGO_FLAG="--logo $$LOGO_PATH"; \
+	    fi; \
 	    PRIV_FLAG=""; \
 	    if [ -n "$(PRIVILEGE)" ]; then \
 	        PRIV_FLAG="--privilege $(PRIVILEGE)"; \
 	    fi; \
 	    $(SELFISH_BIN) --input "$$IN" --target $(TARGET) --format title \
-	        --title-id $(TITLE_ID) --title $(TITLE_NAME) --category $(TITLE_CATEGORY) \
-	        --title-version $(TITLE_VERSION) --sdk $(TARGET) $$ICON_FLAG $$PRIV_FLAG --output "$$OUT"; \
+	        --title-id $(TITLE_ID) --title "$(subst ",,$(TITLE_NAME))" --category $(TITLE_CATEGORY) \
+	        --title-version $(TITLE_VERSION) --sdk $(TARGET) $$ICON_FLAG $$PIC0_FLAG $$LOGO_FLAG \
+	        $(if $(strip $(TITLE_SUBTITLE)),--subtitle "$(subst ",,$(strip $(TITLE_SUBTITLE)))") \
+	        $$PRIV_FLAG --output "$$OUT"; \
 	    if [ "$(TITLE_CATEGORY)" = "big-app" ] || [ -z "$(TITLE_CATEGORY)" ]; then \
 	        mkdir -p $(BUILD)/title/$(TITLE_ID)/sce_module; \
 	        $(TARGET_CC) -std=c11 -target x86_64-unknown-freebsd -ffreestanding -fno-builtin \
@@ -250,6 +352,8 @@ title: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	    echo "selfish not found at $(SELFISH) - build it with cargo build -p selfish-cli"; \
 	fi
 
+ifneq ($(filter-out check-only,$(FORMATS)),)
+ifneq ($(strip $(PAYLOAD_SRCS)),)
 # Release staging: stages artifacts for each requested format in $(FORMATS)
 dist: $(BUILD)/$(APP_NAME).elf
 	@mkdir -p $(DIST)
@@ -271,6 +375,8 @@ dist: $(BUILD)/$(APP_NAME).elf
 	    esac; \
 	done
 	@$(call oops_verify_dist,$(DIST))
+endif
+endif
 
 clean:
 	rm -rf $(BUILD) $(DIST)

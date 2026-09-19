@@ -30,10 +30,10 @@ jobs:
         with:
           path: OOPS/oops-apps
 
-      - name: Install clang and lld
+      - name: Install clang, lld and zip
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq clang lld
+          sudo apt-get install -y -qq clang lld zip
 
       - name: Siblings this build needs
         run: OOPS/bin/oops bootstrap oops-apps
@@ -52,5 +52,35 @@ jobs:
         run: ./bin/oops-apps check
         working-directory: OOPS/oops-apps
       - name: Stage every app and verify naming conventions
-        run: ./bin/oops-apps dist
+        run: |
+          ./bin/oops-apps dist
+          shopt -s nullglob
+          for app in $(./bin/oops-apps list); do
+            for d in src/*/"$app"/dist; do
+              [ -d "$d" ] || continue
+              for f in "$d"/*; do
+                [ -e "$f" ] || continue
+                if [ -d "$f" ]; then
+                  echo "::error file=$f::Directory in staged artifacts for $app; titles must be packaged as .zip" >&2
+                  exit 1
+                fi
+                fname=$(basename "$f")
+                case "$fname" in
+                  "$app"-*)
+                    case "$fname" in
+                      *-orbis*|*-neo*|*-prospero*|*-trinity*) ;;
+                      *)
+                        echo "::error file=$f::Artifact $fname does not encode a target generation per CONVENTIONS.md section 2" >&2
+                        exit 1
+                        ;;
+                    esac
+                    ;;
+                  *)
+                    echo "::error file=$f::Artifact $fname in $app does not begin with the app name '$app-'" >&2
+                    exit 1
+                    ;;
+                esac
+              done
+            done
+          done
         working-directory: OOPS/oops-apps

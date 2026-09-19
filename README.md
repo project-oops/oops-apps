@@ -6,7 +6,7 @@
 
 | 📖 **[User & Operator Guide](docs/USER_GUIDE.md)** | ⚙️ **[Technical Reference & Architecture](README.md)** |
 | :--- | :--- |
-| *App catalog, building demos (gl-cube), and using tracer.* | *Testbed role in THE LOOP, AGC pipelines, and tracer hooks.* |
+| *App catalog, building demos (gl1-cube), and using tracer.* | *Testbed role in THE LOOP, AGC pipelines, and tracer hooks.* |
 
 ---
 
@@ -15,7 +15,7 @@
 Within the [OOPS ecosystem](../docs/THE_LOOP.md), `oops-apps` is the **Known Ground-Truth Testbed**:
 
 ```
-[Write Application in oops-apps (e.g. gl-cube)]
+[Write Application in oops-apps (e.g. gl1-cube)]
                         │
                         ▼
 ┌───────────────────────────────────────────────┐
@@ -35,7 +35,7 @@ Within the [OOPS ecosystem](../docs/THE_LOOP.md), `oops-apps` is the **Known Gro
 ```
 
 1. **Unambiguous Ground Truth**: Commercial games are massive, opaque, and fail without clear diagnostics. In `oops-apps`, we know every line of code, every vertex buffer, and every expected return value.
-2. **End-to-End Pipeline Verification**: If `gl-cube` renders a red cube on physical PS5 hardware, but fails in [Orbistoun](../orbistoun/), the gap is isolated immediately without guessing.
+2. **End-to-End Pipeline Verification**: If `gl1-cube` renders a red cube on physical PS5 hardware, but fails in [Orbistoun](../orbistoun/), the gap is isolated immediately without guessing.
 3. **Dogfooding First-Party Tooling**: Every application builds with `app.mk`, packages with `selfish`, and deploys with `pros`.
 
 ---
@@ -50,9 +50,9 @@ Cross-compilation uses the `oops-builder` WSL distribution on Windows or native 
 ./bin/oops-apps check    # runs host-side self tests
 ```
 
-### 2. Build a Complete Title Package (`gl-cube`)
+### 2. Build a Complete Title Package (`gl1-cube`)
 ```bash
-cd src/gl-cube
+cd src/oops-gl/gl1-cube
 make title
 ```
 This invokes `selfish` to generate a fully conforming title directory:
@@ -72,20 +72,33 @@ pros.exe logs --seconds 15
 
 ## Application Catalog
 
+Apps are filed by **category**, and the category says which part of the collection an app
+exercises rather than what kind of program it is. `oops-gl` and `oops-mesa` are named after the
+implementations they test - "opengl" and "mesa" as siblings would be confusing, since Mesa *is*
+OpenGL - and the split also matches who works on what.
+
+**An app's name stays bare**: `./bin/oops-apps dist gl1-cube` does not need to know the
+category, and `oops-apps` refuses two categories sharing a name rather than resolving it, since
+bare names are only usable while they are unique.
+
 | Application | Path | Description |
 |---|---|---|
-| **`gl-cube`** | `src/gl-cube/` | 3D spinning cube graphics demo exercising RDNA2 AGC universal queues, PM4 direct register packets, and 64 KB tile swizzling. |
-| **`wipeout`** | `src/wipeout/` | Native clean-room *WipEout* anti-gravity racing-game engine port for Prospero / Trinity. |
-| **`seashell`** | `src/seashell/` | SeaShell unified homebrew shell for Prospero (title launcher, settings, save manager). |
-| **`porthole`** | `src/porthole/` | Remote-play target payload streaming video out and receiving controller input over TCP (host half in Prosperous). |
-| **`pad-viz`** | `src/pad-viz/` | Live DualSense controller telemetry visualizer (analog sticks, triggers, 6-axis IMU, touchpad). |
-| **`tracer`** | `src/tracer/` | In-process passive telemetry recorder and hook engine. Intercepts API calls, out-parameter buffers, AGC PM4 DCB submissions, and bound RDNA2 shader bytecode from running games. |
-| **`gallery`** | `src/gallery/` | Visual showcase of SDK display, audio PCM, and media playback capabilities. |
-| **`net-tool`** | `src/net-tool/` | Network configuration and interface diagnostics (link status, SDK inet helpers, UDP status responder). |
-| **`mesa-probe`** | `src/mesa-probe/` | OpenGL-through-Mesa bring-up app (`USE_MESA`; hosted rather than freestanding). |
-| **`sandbox-daemon`** | `src/sandbox-daemon/` | On-demand filesystem-namespace unsandboxing daemon over loopback IPC (`127.0.0.1:9069`). |
-| **`pltauth-patch`** | `src/pltauth-patch/` | Kernel patcher for SceShellCore / platform-authentication entitlement checks. |
-| **`injector`** | `src/injector/` | Standalone process payload injector. |
+| **`gl1-cube`** | `src/oops-gl/gl1-cube/` | 3D spinning cube demo, and the **pinned hardware oracle**: its frame is measured on a retail console and asserted register by register by oops-sdk. Its run modes and what a console run should measure are in [its README](src/oops-gl/gl1-cube/README.md). |
+| **`gl1-probe`** | `src/oops-gl/gl1-probe/` | Thirty-three checks that each drive one GL 1.x feature and read the pixels back to decide. Runs the same suite on the host rasteriser and on the console, so a difference between them is a hardware-path bug. |
+| **`gl2-cube`** | `src/oops-gl/gl2-cube/` | The GL 2.0 oracle, once there is a GL 2.0 back end to record. Today it checks its own shaders through the GLSL front end and builds no payload. |
+| **`mesa-probe`** | `src/oops-mesa/mesa-probe/` | OpenGL-through-Mesa bring-up app (`USE_MESA`; hosted rather than freestanding). |
+| **`seashell`** | `src/oops-utilities/seashell/` | SeaShell unified homebrew shell for Prospero (title launcher, settings, save manager). |
+| **`porthole`** | `src/oops-payloads/porthole/` | Remote-play target payload streaming video out and receiving controller input over TCP (host half in Prosperous). |
+| **`tracer`** | `src/oops-payloads/tracer/` | In-process passive telemetry recorder and hook engine. Intercepts API calls, out-parameter buffers, AGC PM4 DCB submissions, and bound RDNA2 shader bytecode from running games. |
+| **`sandbox-daemon`** | `src/oops-payloads/sandbox-daemon/` | On-demand filesystem-namespace unsandboxing daemon over loopback IPC (`127.0.0.1:9069`). |
+| **`pltauth-patch`** | `src/oops-payloads/pltauth-patch/` | Kernel patcher for SceShellCore / platform-authentication entitlement checks. |
+| **`injector`** | `src/oops-payloads/injector/` | Standalone process payload injector. |
+| **`pad-viz`** | `src/oops-utilities/pad-viz/` | Live DualSense controller telemetry visualizer (analog sticks, triggers, 6-axis IMU, touchpad). |
+| **`gallery`** | `src/oops-utilities/gallery/` | Visual showcase of SDK display, audio PCM, and media playback capabilities. |
+| **`net-tool`** | `src/oops-utilities/net-tool/` | Network configuration and interface diagnostics (link status, SDK inet helpers, UDP status responder). |
+
+The title targets - which open-source games go in which slot, and what was actually verified
+about each - are in [`src/oops-titles/README.md`](src/oops-titles/README.md).
 
 ---
 

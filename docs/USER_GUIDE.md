@@ -4,7 +4,7 @@ Welcome to the **oops-apps** catalog and operator guide.
 
 This guide provides instructions for **building, testing, and running our homebrew demo titles**, as well as using the **`tracer`** tool to passively record hardware telemetry and graphics command streams.
 
-If you are an AI coding agent or graphics systems architect seeking the internal AGC shader pipelines or hook trampoline disassembly, see the **[Technical Reference](README.md)** and **[src/tracer/README.md](../src/tracer/README.md)**.
+If you are an AI coding agent or graphics systems architect seeking the internal AGC shader pipelines or hook trampoline disassembly, see the **[Technical Reference](README.md)** and **[src/oops-payloads/tracer/README.md](../src/oops-payloads/tracer/README.md)**.
 
 ---
 
@@ -13,7 +13,6 @@ If you are an AI coding agent or graphics systems architect seeking the internal
 1. [Application Catalog](#1-application-catalog)
 2. [Building & Running the Demo Titles](#2-building--running-the-demo-titles)
    - [GL-Cube (`src/gl-cube`)](#gl-cube-srcgl-cube)
-   - [WipEout (`src/wipeout`)](#wipeout-srcwipeout)
 3. [Using `tracer` for Passive Telemetry](#3-using-tracer-for-passive-telemetry)
    - [What `tracer` Does](#a-what-tracer-does)
    - [Attaching `tracer` to an Application](#b-attaching-tracer-to-an-application)
@@ -29,7 +28,6 @@ If you are an AI coding agent or graphics systems architect seeking the internal
 | Application | Title ID | Description | Notes / Subsystems |
 | :--- | :--- | :--- | :--- |
 | **`gl-cube`** | `GLCB00001` | 3D rotating cube demo (OpenGL via `oops-sdk` `gl/` on AGC). | Direct memory mapping, RDNA2 AGC universal queue, PM4 DCB submission, fence synchronisation. |
-| **`wipeout`** | `WIPE00001` | Native clean-room port of the *WipEout* anti-gravity racing game. | AGC compute-tiler display, DualSense analog input, 44.1 kHz PCM audio, monotonic timing. |
 | **`seashell`** | `SCSH00001` | SeaShell unified homebrew shell (title launcher, settings, save/media manager). | Ships as a native eboot Big App (category 0, root). Display + software canvas, multi-port pad, filesystem discovery, PNG icon decode. |
 | **`gallery`** | `GALR00001` | Capability showcase across SDK subsystems. | `oops_*_available()` reachability across display, draw, input, audio, net, and media decode. |
 | **`pad-viz`** | `PADV00001` | Live DualSense/DualShock controller telemetry visualizer. | Batched low-latency input (`oops_input_poll_batch`); sticks, triggers, 6-axis IMU, touchpad. |
@@ -66,22 +64,6 @@ All apps follow the standard Makefile workflow.
 
 ---
 
-### WipEout (`src/wipeout`)
-
-1. **Build Title Directory**:
-   ```bash
-   cd oops-apps/src/wipeout
-   make title
-   ```
-2. **Launch & Control** (place the extracted game data under `/data/wipeout/` first):
-   - `Left Stick` (X) / `D-Pad`: Steer.
-   - `Left Stick` (Y): Pitch.
-   - `Cross`: Thrust. `L2` / `R2`: Left / right airbrake.
-   - `Square`: Fire weapon. `Circle`: Rear view. `Triangle`: Change camera. `Options`: Pause.
-   - `L1 + R1 + Options`: Clean exit to loader.
-
----
-
 ## 3. Using `tracer` for Passive Telemetry
 
 ### A. What `tracer` Does
@@ -103,7 +85,7 @@ Pull the binary trace capture off the console:
 ```powershell
 pros.exe pull /data/trace-<TITLE_ID>.bin .
 ```
-The on-disk trace format and its reader live in `tracer`'s own host-side decoder (`trace_decode.c` / `trace_format.h`, exercised by `make check`). The decoded PM4 draw streams and RDNA2 shader bytecode are what ground Orbistoun's packet decoders and shader recompiler (see [`src/tracer/README.md`](../src/tracer/README.md)).
+The on-disk trace format and its reader live in `tracer`'s own host-side decoder (`trace_decode.c` / `trace_format.h`, exercised by `make check`). The decoded PM4 draw streams and RDNA2 shader bytecode are what ground Orbistoun's packet decoders and shader recompiler (see [`src/oops-payloads/tracer/README.md`](../src/oops-payloads/tracer/README.md)).
 
 ---
 
