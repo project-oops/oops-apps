@@ -31,6 +31,32 @@ SECTIONS
     .rela.plt       : { *(.rela.plt) }        :data
     .rodata         : { *(.rodata .rodata.*) } :data
 
+    /*
+     * C++ dynamic-initialiser tables. There are no crt start-up objects here to walk these, so a
+     * title runs them itself (oops-mesa `abi.c`, `oops_mesa_run_init_array`) using the bounds
+     * symbols placed here. Without this, dynamically-initialised Mesa globals - ACO's opcode
+     * table among them - stay zeroed (oops-mesa worklog 062). Writable because each entry carries
+     * a RELATIVE relocation the loader applies.
+     */
+    . = ALIGN(8);
+    .preinit_array  : {
+        PROVIDE_HIDDEN(__preinit_array_start = .);
+        KEEP(*(.preinit_array))
+        PROVIDE_HIDDEN(__preinit_array_end = .);
+    } :data
+    .init_array     : {
+        PROVIDE_HIDDEN(__init_array_start = .);
+        KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*) SORT_BY_INIT_PRIORITY(.ctors.*)))
+        KEEP(*(.init_array .ctors))
+        PROVIDE_HIDDEN(__init_array_end = .);
+    } :data
+    .fini_array     : {
+        PROVIDE_HIDDEN(__fini_array_start = .);
+        KEEP(*(SORT_BY_INIT_PRIORITY(.fini_array.*) SORT_BY_INIT_PRIORITY(.dtors.*)))
+        KEEP(*(.fini_array .dtors))
+        PROVIDE_HIDDEN(__fini_array_end = .);
+    } :data
+
     .sce_process_param : { KEEP(*(.sce_process_param)) } :data :procparam
 
     .tdata          : { *(.tdata .tdata.*) }   :data :tls

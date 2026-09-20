@@ -44,6 +44,8 @@
 #pragma clang diagnostic pop
 
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 static void say(const char *msg)
 {
@@ -117,8 +119,18 @@ static void report_string(const char *label, GLenum name)
 
 void dri_probe_start(void);
 
+/*
+ * Run the C++ dynamic initialisers. This module has no crt start-up object to walk `.init_array`,
+ * and Mesa has globals that stay zeroed until it does - ACO's opcode table `instr_info` among
+ * them, which left every emitted instruction with opcode 0 and faulted the GPU (oops-mesa
+ * worklog 062). Defined in oops-mesa's runtime shim (`abi.c`).
+ */
+extern void oops_mesa_run_init_array(void);
+
 void dri_probe_start(void)
 {
+    oops_mesa_run_init_array();
+
     say("bringing GL up through the DRI frontend (v" OOPS_APP_VERSION ")");
 
     struct oops_gl *gl = oops_gl_create(PROBE_WIDTH, PROBE_HEIGHT);
