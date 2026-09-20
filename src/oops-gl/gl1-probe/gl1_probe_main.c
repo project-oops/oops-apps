@@ -44,6 +44,43 @@ static void report(const char *name, int passed) {
     probe_klog(line);
 }
 
+/*
+ * The running commentary: each check named as it starts, and again with its verdict when it
+ * ends. The name alone is what a hang leaves behind, and on 2026-09-20 a hang was the first
+ * thing the first console run of this suite produced - nine frames and then nothing, with every
+ * result still sitting in an array that was never printed.
+ */
+static void trace(const char *name, int verdict) {
+    char line[64];
+    int at = 0;
+    const char *head = (verdict < 0) ? "-> " : "   ";
+    for (int i = 0; head[i]; i++) line[at++] = head[i];
+    for (int i = 0; name[i] && at < 24; i++) line[at++] = name[i];
+    if (verdict >= 0) {
+        while (at < 26) line[at++] = ' ';
+        const char *v = verdict ? "pass" : "FAIL";
+        for (int i = 0; v[i] && at < (int)sizeof(line) - 1; i++) line[at++] = v[i];
+    }
+    line[at] = '\0';
+    probe_klog(line);
+}
+
+/* "   name                saw 0xff204060" - the colour a failing check left at the centre of the
+ * probe region, in the byte order px() returns. Only failures reach here. */
+static void saw(const char *name, uint32_t centre) {
+    static const char hex[] = "0123456789abcdef";
+    char line[64];
+    int at = 0;
+    line[at++] = ' '; line[at++] = ' '; line[at++] = ' ';
+    for (int i = 0; name[i] && at < 24; i++) line[at++] = name[i];
+    while (at < 26) line[at++] = ' ';
+    const char *head = "saw 0x";
+    for (int i = 0; head[i]; i++) line[at++] = head[i];
+    for (int s = 28; s >= 0; s -= 4) line[at++] = hex[(centre >> s) & 0xfu];
+    line[at] = '\0';
+    probe_klog(line);
+}
+
 static void report_total(int passed, int ran) {
     char line[64];
     int at = 0;
@@ -69,11 +106,13 @@ __attribute__((visibility("default"))) int gl1_probe_start(const payload_args_t 
         sys_call_init(args);
     }
     probe_klog("gl1-probe: running the OpenGL 1.x check suite [build " OOPS_APP_VERSION "]");
+    gl1_probe_trace = trace;
+    gl1_probe_saw = saw;
 #else
     (void)args;
 #endif
 
-    gl1_probe_result_t results[64];
+    gl1_probe_result_t results[GL1_PROBE_MAX_CASES];
     const int ran = gl1_probe_run(results, (int)(sizeof(results) / sizeof(results[0])));
     if (ran < 0) {
 #ifndef OOPS_HOST_BUILD

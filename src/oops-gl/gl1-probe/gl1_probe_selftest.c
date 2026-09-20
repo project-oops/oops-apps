@@ -45,11 +45,16 @@ unsigned int oops_display_get_width(const oops_display_t *disp) { (void)disp; re
 unsigned int oops_display_get_height(const oops_display_t *disp) { (void)disp; return s_host_h; }
 
 int main(void) {
-    gl1_probe_result_t results[64];
+    gl1_probe_result_t results[GL1_PROBE_MAX_CASES];
     const int ran = gl1_probe_run(results, (int)(sizeof(results) / sizeof(results[0])));
 
     if (ran < 0) {
         printf("gl1-probe selftest: FAIL (no GL context)\n");
+        return 1;
+    }
+    /* Every check in the table, or the build fails: a check not run is not a check passed. */
+    if (ran != gl1_probe_case_count()) {
+        printf("gl1-probe selftest: FAIL (%d of %d checks ran)\n", ran, gl1_probe_case_count());
         return 1;
     }
 

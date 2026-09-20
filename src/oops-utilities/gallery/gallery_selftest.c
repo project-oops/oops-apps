@@ -17,12 +17,6 @@
 
 #include "gallery.h"
 
-/* draw.c defines oops_display_get_surface, which reaches the display backend this host test
- * never opens; these satisfy the link, the SDK's own host-stub shape. */
-uint32_t *oops_display_get_framebuffer(oops_display_t *disp) { (void)disp; return 0; }
-unsigned int oops_display_get_width(const oops_display_t *disp) { (void)disp; return 0; }
-unsigned int oops_display_get_height(const oops_display_t *disp) { (void)disp; return 0; }
-
 #define W 1280
 #define H 720
 #define GUARD 0xDEADBEEFu

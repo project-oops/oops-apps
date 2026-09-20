@@ -102,24 +102,23 @@ static void draw_static_channel(oops_surface_t *surf, int x, int y, int w, int h
     /* Base soft gray card */
     oops_draw_rect(surf, x + 2, y + 2, w - 4, h - 4, 0xFFECEEF2u);
 
-    /* Subtle television scanlines & static pattern */
-    for (int ly = y + 4; ly < y + h - 4; ly += 2) {
-        oops_draw_line_blend(surf, x + 4, ly, x + w - 5, ly, 0x0C000000u);
+    /* Subtle television scanlines using direct non-blended lines (fast memset) */
+    for (int ly = y + 4; ly < y + h - 4; ly += 3) {
+        oops_draw_line(surf, x + 4, ly, x + w - 5, ly, 0xFFE2E4EAu);
     }
-    for (int sx = x + 10; sx < x + w - 10; sx += 12) {
-        for (int sy = y + 8; sy < y + h - 8; sy += 10) {
-            uint32_t a = ((((uint32_t)sx * 13u) ^ ((uint32_t)sy * 29u)) % 25u) + 10u;
-            oops_draw_pixel_blend(surf, sx, sy, (a << 24) | 0x00607080u);
+    for (int sx = x + 10; sx < x + w - 10; sx += 16) {
+        for (int sy = y + 8; sy < y + h - 8; sy += 12) {
+            oops_draw_pixel(surf, sx, sy, 0xFFCAD0DAu);
         }
     }
 
     /* Faint embossed watermark */
     int wx = x + (w / 2) - 16;
     int wy = y + (h / 2) - 8;
-    (void)oops_draw_text(surf, wx, wy, "REV", 0x308892A0u, 2);
+    (void)oops_draw_text(surf, wx, wy, "REV", 0xFFB8C0CCu, 2);
 }
 
-/* Background renderer: soft platinum gradient with broadcast scanlines */
+/* Background renderer: soft platinum gradient */
 static int revolution_render_background(oops_surface_t *surf, const struct home_model *m,
                                         const struct home_skin *skin) {
     (void)m;
@@ -127,15 +126,10 @@ static int revolution_render_background(oops_surface_t *surf, const struct home_
     int sw = (int)surf->width;
     int sh = (int)surf->height;
 
-    /* Light metallic platinum gradient */
+    /* Light metallic platinum gradient (pure CPU cache-friendly vertical gradient) */
     oops_draw_rect_gradient(surf, 0, 0, sw, sh, 0xFFF5F7FAu, 0xFFDEE2E8u, 1);
 
-    /* Subtle television broadcast scanline texture */
-    for (int y = 0; y < sh; y += 3) {
-        oops_draw_line_blend(surf, 0, y, sw, y, 0x08000000u);
-    }
-
-    return 2;
+    return 1;
 }
 
 /* Main channel grid & bottom console bar renderer */

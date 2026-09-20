@@ -1,48 +1,27 @@
-# gl-cube - Clean-room OpenGL 3D Rotating Cube Demo for Prospero / Trinity.
+# glut-demo - a GLUT program built for Prospero / Trinity by compiling it.
 #
 #   make elf        the plain-ELF payload a homebrew loader runs
 #   make eboot      signed eboot.bin container via selfish
 #   make title      complete title package (.zip) for homebrew installation
-#   make dist       stages conforming release artifacts under dist/
+#
+# The point of this app is the build: glut_demo_main.c is ordinary GLUT code with one payload
+# entry point at the bottom, and if it links then a port of the same shape links.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 EXTRA_TARGET_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 EXTRA_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 
-# oops-mesa's generated preamble (roadmap unit 2) is picked up from the sibling checkout when it
-# is there; gl1_cube_main.c tests for the header and builds without the control files otherwise.
-OOPS_MESA ?= $(abspath $(OOPS_APPS_ROOT)/../oops-mesa)
-EXTRA_TARGET_CFLAGS += -I$(OOPS_MESA)/tools/preamble-dump
-
-# Host test sources
-#
-# obj_loader.c and math.c are here so the torus and sphere the payload can switch to are built
-# and rasterised on the host too; the self-test supplies its own oops_mem_alloc, since the SDK's
-# allocator is direct memory and has nothing to talk to on a build machine.
-HOST_TEST_SRCS = gl1_cube_selftest.c \
-                 $(OOPS_APPS_ROOT)/common/obj_loader.c \
-                 $(OOPS_SDK_DIR)/src/math/math.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_context.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_state.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_matrix.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_draw.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_list.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_attrib.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_raster.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_eval.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_select.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_pixel.c \
-                 $(OOPS_SDK_DIR)/src/system/system.c \
-                 $(OOPS_SDK_DIR)/src/system/freestd.c
-HOST_TEST_LIBS = -lm
-
-# Target payload sources
-PAYLOAD_SRCS = gl1_cube_main.c \
-               $(OOPS_APPS_ROOT)/common/obj_loader.c \
+# The SDK's GL, GLU and GLUT, and what they stand on. This list is the answer to "what does a
+# GLUT program need from this SDK": the GL implementation, the display, the input devices GLUT
+# reads, time for its timers and elapsed clock, and the heap the mipmap builder allocates from.
+PAYLOAD_SRCS = glut_demo_main.c \
                $(OOPS_SDK_DIR)/src/display.c \
                $(OOPS_SDK_DIR)/src/gl/gl_context.c \
                $(OOPS_SDK_DIR)/src/gl/gl_state.c \
                $(OOPS_SDK_DIR)/src/gl/gl_matrix.c \
+               $(OOPS_SDK_DIR)/src/gl/gl_glu.c \
+               $(OOPS_SDK_DIR)/src/gl/glut.c \
+               $(OOPS_SDK_DIR)/src/gl/glut_font.c \
                $(OOPS_SDK_DIR)/src/gl/gl_draw.c \
                $(OOPS_SDK_DIR)/src/gl/gl_list.c \
                $(OOPS_SDK_DIR)/src/gl/gl_attrib.c \
@@ -57,9 +36,6 @@ PAYLOAD_SRCS = gl1_cube_main.c \
                $(OOPS_SDK_DIR)/src/input/input.c \
                $(OOPS_SDK_DIR)/src/input/keyboard.c \
                $(OOPS_SDK_DIR)/src/input/mouse.c \
-               $(OOPS_SDK_DIR)/src/audio/audio.c \
-               $(OOPS_SDK_DIR)/src/audio/audiodec.c \
-               $(OOPS_SDK_DIR)/src/videodec/videodec.c \
                $(OOPS_SDK_DIR)/src/memory/memory.c \
                $(OOPS_SDK_DIR)/src/memory/heap.c \
                $(OOPS_SDK_DIR)/src/time/time.c \
@@ -72,6 +48,6 @@ PAYLOAD_SRCS = gl1_cube_main.c \
                $(OOPS_SDK_DIR)/src/math/math.c \
                $(OOPS_SDK_DIR)/src/draw/draw.c
 
-ENTRY_POINT := gl1_cube_start
+ENTRY_POINT := glut_demo_start
 
 include $(OOPS_APPS_ROOT)/common/app.mk

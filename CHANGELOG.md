@@ -10,7 +10,324 @@ Nothing has shipped yet - this is the initial state.
 
 ## [unreleased]
 
+### Added
+
+- **gl1-probe reports the pixel behind a failure** (2026-09-20). Its first full hardware run
+  produced seven `FAIL` rows and not one value between them, so the failures could be grouped by
+  what they call but not told apart by what they saw - and the difference between "the draw
+  never landed" and "it landed in the wrong colour" is most of the diagnosis. `gl1_probe_saw`
+  prints the centre of the probe region for a check that failed, and only for one: reading a
+  pixel costs a full synchronisation, which on the console is about half a second. It is the
+  same rule the obSCEne bus runs on - a result is its rows, not its verdict.
+
 ### Changed
+
+- **`multitexture` runs last** (2026-09-20). It took the GPU down on the first run that got past
+  the `raster-ops` stall - `ILLEGAL_INST` on two waves at one PC, then a GPU reset - and a fault
+  kills the process, so the thirty-nine checks after it went unmeasured. The table already kept
+  `tex-delete-in-frame` last for exactly this reason and now keeps both there. **Moving it is
+  not a fix and is commented as not being one**; the fault was in oops-sdk, and the run that
+  resolved it wanted the other rows too - it found `array-types` failing, which nothing had seen
+  because it sat behind the crash. The ordering stays: it is the standing rule for a check that
+  has ever taken the GPU down, not a workaround for one bug.
+  With that bug fixed, the suite runs to the end on a console: **`gl1-probe: 74/82 passed on
+  hardware`**, 16.6 seconds, every check with a verdict.
+
+- **Every payload link now checks its own undefined symbols, and fails** (2026-09-20).
+  A payload link passes `--unresolved-symbols=ignore-all` and has to: the console's own modules
+  resolve `sce*` imports when the payload loads. The consequence is that a call to a function
+  nobody defines **links cleanly** and faults on the console, which is the most expensive place
+  to find out. `docs/PORTING.md` has told a porter to run `nm -u` by hand since that guide
+  existed.
+  **Three times in one day it caught something nothing else would have** - `libc.c` missing from
+  a source list, then `glut_font.c`, then `scanf.c`. A check that has to be remembered is a check
+  that is not run, so `app.mk` runs it after every link: the symbols are named, the fix is
+  spelled out, the build fails, and **the ELF is deleted** - a payload that would fault on the
+  console should not sit in `build/` looking finished. An app with a module of its own adds to
+  `EXTRA_UNDEF_ALLOW` rather than editing the rule.
+  **The makefiles are prerequisites of the ELF now**, which they were not. A payload's ELF
+  depends on its sources, not on the file that lists them, so adding a source did not relink what
+  was already built - and the check then answered about the previous build, which is how a fix
+  that had worked looked like it had not. That cost a wrong conclusion twice before it was
+  understood.
+
+- **`scanf.c` joined `CORE_SDK_SRCS`** (2026-09-20), when oops-sdk gained `sscanf`. It is listed
+  centrally rather than left to each app for the reason `libc.c` is: `libc.c` names
+  `obs_vsscanf` whether or not the app calls `sscanf`, so an app that omitted it would link
+  cleanly with an undefined symbol and fault on the console. `nm -u` on a **freshly linked** ELF
+  is what caught it - `make clean` was not enough, since a payload's ELF does not depend on the
+  makefile that lists its sources, and the check then answered about the previous build.
+
+- **Every payload gets the C library a port calls** (2026-09-20). `app.mk` puts oops-sdk's
+  `include/libc` on the **target** include path - `<math.h>`, `<string.h>`, `<stdlib.h>` under
+  the names a port's own code uses - and adds `src/system/libc.c` and `src/math/math.c` to
+  `CORE_SDK_SRCS`, so a payload gets them whether it lists them or not.
+  That last part is not tidiness. A payload link passes `--unresolved-symbols=ignore-all`, so an
+  app that forgot to list `libc.c` would link clean under `-Werror` and fault on the console -
+  which is exactly what glut-demo did before this, with eleven standard functions undefined in a
+  build that reported no error. The host include path is untouched: a host test that includes
+  `<string.h>` must keep getting the real one.
+
+- **gl1-probe's `smooth` is expected to pass on the console** (2026-09-20) - the last of the six
+  checks written to fail there. oops-sdk's untextured pixel shader gained a coverage slot, so a
+  GL_POINT_SMOOTH point is a disc rather than the aliased square. The check reads the centre and
+  the corner of the square an aliased point would fill, which is what makes it a real check on
+  hardware: a coverage that came out as one everywhere passes at the centre and fails at the
+  corner. Only the comment changed.
+
+- **glut-demo draws a frame counter with `glutBitmapCharacter`** (2026-09-20), the way a GLUT
+  program draws a HUD: an ortho push, lighting and depth off, `glRasterPos2i`, the string, and
+  the state put back. oops-sdk gained the font the same day.
+  **The `nm -u` check earned its place here.** The demo linked cleanly with `glutBitmapString`,
+  `glutBitmapHeight` and the font handle all undefined, because `glut_font.c` was not in this
+  app's source list - exactly the trap `docs/PORTING.md` describes, caught by the recipe it
+  gives. It also needed a clean build to say so, since a payload's ELF does not depend on the
+  makefile that lists its sources; that caveat is now in the guide too.
+
+- **glut-demo draws a dodecahedron and names its window** (2026-09-20), because oops-sdk gained
+  both the same day. The solid is the evidence that matters: its twelve pentagons are lit flat,
+  so a face that came out with the wrong winding disappears under the cull and leaves a hole
+  rather than looking slightly off. The three window calls beside it - `glutSetWindowTitle`,
+  `glutFullScreen`, `glutSetCursor` - change nothing on this display and are there because a real
+  port makes them, which is the whole point of this app: the question is whether it compiles,
+  links and runs unedited.
+
+- **gl1-probe's `occlusion-query` asks the console for a real number** (2026-09-20). It always
+  accepted `GL_QUERY_COUNTER_BITS` 0 as an answer - GL 1.5's way of saying the count carries no
+  information, which is what the console reported. oops-sdk now counts the GPU's samples there,
+  so the check's other branch is the live one and the count has to be the rectangle's exact area.
+  **The check itself changed**, not only its comment: it enables the depth test around the query.
+  That was not needed while the software rasteriser answered it, and it is on the console, whose
+  counters live in the depth block and run only against a bound depth surface. `reset_view` has
+  just cleared depth to 1.0, so the rectangle still passes everywhere and the expected count is
+  unchanged.
+
+- **gl1-probe's `shadow-compare` is expected to pass on the console** (2026-09-20). oops-sdk
+  gained the comparison sample: the image format is 32_FLOAT, the sampler's own
+  DEPTH_COMPARE_FUNC does the comparison, and the pixel shader hands it the clamped reference.
+  The check draws a 2x1 depth texture of 0.25 and 0.75 against r = 0.5 under GL_LEQUAL and
+  expects black on the left and white on the right, which is what makes it a real check there:
+  a comparison that always passed, or a reference read from the wrong address register, comes
+  out as one colour across the whole area rather than as no colour. Only the comment changed.
+
+- **gl1-probe's `texture-3d` is expected to pass on the console** (2026-09-20), the last of the
+  three checks that drew white there. It samples a two-slice volume at `r = 0.75` and expects
+  green; oops-sdk now carries r to the pixel shader in the third parameter, divides it by q and
+  samples with `dim:SQ_RSRC_IMG_3D`. The check is unchanged, only the comment above it - and the
+  check is a real one either way, because the slice it asks for is the second: a volume handed to
+  a 2D descriptor would read the first and come back red.
+
+- **gl1-probe's `cube-map` is expected to pass on the console** (2026-09-20). It was written
+  expecting hardware to fail it: a cube-mapped draw was untextured there - white - while the
+  software rasteriser sampled the faces. oops-sdk now uploads the six faces as one array and
+  finds the face from the direction in the pixel shader, so both paths sample. The check is
+  unchanged; only the comment above it is. Because it looks along -z *and* along the normal, a
+  face-order mistake shows up as the wrong colour rather than as no colour.
+
+- **glut-demo reads a settings file, the way a port reads one** (2026-09-20). `fopen`, `fgets`, a
+  parser out of `<ctype.h>`, `atof`, `fclose` - and `printf` when the file is not there, which it
+  is not. That path is the point: a port's loader has to compile, link and take its not-found
+  branch rather than faulting on a missing `fopen`. With `<math.h>`, `<stdlib.h>` and
+  `<string.h>` already in it, the demo now uses the C library a real port uses, and still has no
+  SDK call in it above the entry point.
+
+- **glut-demo: a GLUT program ported by compiling it** (2026-09-20). oops-sdk grew `<GL/glut.h>`
+  the same day, and this app is the evidence for what that claimed. `glut_demo_main.c` is
+  ordinary GLUT - `main`, `glutInit`, `glutCreateWindow`, callbacks, `glutMainLoop`,
+  `gluPerspective`, `gluLookAt`, `gluBuild2DMipmaps`, the quadric solids - with no SDK call and
+  no header of this SDK's in it. The only platform-specific lines are the last twenty, where a
+  payload entry point initialises the syscall table and calls `main`, because a payload is
+  entered by name and not by the C runtime.
+  It builds under `-Werror -Wconversion` for the console target. **The link alone proves little**:
+  app links pass `--unresolved-symbols=ignore-all`, so a missing GLUT function would link
+  silently and fail later. The check that means something is the symbol table - every undefined
+  symbol is a platform `sce*` import (plus `sysctlbyname`), and 68 `glut*`/`glu*` names are
+  defined in the payload.
+  **Nothing here has run on a console**, and the README says so: the claim is about building and
+  linking, which is what a port stumbles over first, not about what the frame looks like.
+
+### Changed
+
+- **gl1-probe's `polygon-stipple` is expected to pass on the console** (2026-09-20). It was
+  written expecting hardware to fail it - the software rasteriser applied the mask and the
+  hardware path ignored it. oops-sdk's pixel shaders now discard against the mask, so a stippled
+  polygon is stippled on both paths. The check is unchanged; only the comment above it is. Its
+  row-95 anchor also catches a mask applied upside down, which is the mistake the rotation
+  invites.
+
+- **gl1-probe's `front-and-back` is expected to pass on the console** (2026-09-20). The check was
+  written expecting hardware to fail it: a draw under `GL_FRONT_AND_BACK` reached the back only
+  there. oops-sdk now binds a second colour target and exports to it, so the green quad blends
+  into both buffers on either path. Only the comment above the check changed; what it draws and
+  reads is the same.
+
+### Added
+
+- **gl1-probe, 34 checks to 82** (2026-09-17 to 2026-09-19), none of which has run on a console
+  yet. Each covers an oops-gl feature or fix that the host software rasteriser cannot vouch for
+  on hardware:
+  - `clip-plane`, `texgen`, `raster-ops`, `points-and-lines` - features that landed with a
+    hardware path of their own. `points-and-lines` in particular tests a reading of obSCEne's
+    measurement (the *primitive* stalls, the picture need not) that nothing on a console has
+    confirmed.
+  - `polygon-stipple`, `texture-3d`, `cube-map`, `smooth`, `shadow-compare` and
+    `multitexture` - implemented in software only, and **expected to fail**
+    on the console until their hardware halves exist. They are in the suite so that the day they
+    pass is visible - and for all six that day was 2026-09-20.
+  - `fog`, `fog-coord`, `combine`, `projective-texture` and `stencil` - on that list until
+    oops-gl's console path took fog, the general texture combine, the per-fragment q divide and
+    the stencil test (2026-09-19, unmeasured); expected to pass on the console now, and they are
+    the measurement. `stencil` especially: obSCEne could not measure the stencil surface from its
+    fixture (REQ-20260917T1845Z-3d5b), so this check is where it is settled.
+  - `stencil-pixels` was expected to fail on the console for a few hours on 2026-09-19. The
+    stencil buffer there had become the GPU's tiled surface, whose pixel operations oops-gl
+    refused as it refused depth's. It passes again now that oops-gl addresses the surface's
+    64KB_Z_X layout. Every step it takes is the CPU's, though, so it would pass under any
+    consistent addressing.
+  - `depth-readback` and `stencil-readback` are the checks that measure that addressing. In the
+    first, the GPU draws a depth plane slanted across x, and the CPU reads two whole rows back.
+    The tolerance is under half a pixel's step, so a swizzle that swaps neighbours fails. In the
+    second, the GPU stamps stencil and the CPU reads it back. Then the CPU writes a 16 x 16
+    stencil block, and a stencil-tested draw has to land on exactly those 256 pixels. Both
+    compare rows either side of window row 56, where the surfaces change block rows on a
+    1080-line display.
+  - `front-buffer` covers GL 1.0's front buffer, which oops-gl refused until 2026-09-19. A red
+    quad is drawn into the front over a blue back, and both are read by name with
+    `glReadBuffer`. On the console the front is a colour target of its own, and `glFlush`
+    puts it on screen, so the display shows it for a moment during the run.
+  - `front-and-back` draws green into both buffers with blending, and each must blend against
+    its own pixel. It is **expected to fail on the console**, where a draw reaches the back
+    only until oops-gl has a second colour target.
+  - `mipmap-levels` and `lod-bias` could not have passed on the console before 2026-09-19 either,
+    whatever the mip chain and the sampler held: the textured pixel shader sampled at level zero
+    (`image_sample_lz`). It samples with a level of detail now; they are the measurement of both.
+  - `line-stipple` - a dashed line across the area, 32 columns on and 32 off. The dashes are cut
+    on the CPU and drawn as quads, so unlike the polygon stipple this should pass on hardware.
+  - `scissored-clear` - a clear into a scissor box and a clear through a colour mask, which are
+    now drawn rather than filled; the unscissored clear before them is still the fill.
+  - `accumulation` - a red frame and a blue frame accumulated at half each and returned, purple.
+    The reads go through the flush and readback and the return is a CPU write, so this measures
+    both on a console.
+  - `logic-op` and `blend-constant` - `CB_COLOR_CONTROL`'s `ROP3` and `CB_BLEND_RED..ALPHA`.
+    Exact byte values for the logic op, with an opcode that tells GL's truth-table order from the
+    hardware's.
+  - `depth-range-in-frame` - two depth ranges in one frame. The existing `depth-range` check
+    samples between its halves, which submits the frame, so it could never see a range that did
+    not reach the hardware until the next frame - and that was exactly the bug.
+  - `many-triangles` - 600 triangles in one frame against a 450-slot vertex ring, counting the
+    first triangle's pixels.
+  - `polygon-mode` - an outlined quad (sides, no fill, no diagonal), a `GL_LINES` line surviving
+    `GL_CULL_FACE` set to both faces, and a flat quad taking its fourth vertex's colour. The
+    middle one is a hardware question: the cull bits used to reach the register for line quads.
+  - `mipmap-levels` - a level-1 upload leaves the base image alone (it used to overwrite it), an
+    incomplete texture draws untextured (on the console, the untextured pixel shader chosen per
+    draw), and an 8x8 mip chain drawn across 4x4 pixels shows its second level - the console's
+    verdict on the mip-chain layout, which was derived from addrlib rather than measured.
+  - `evaluators` - a Bezier patch through `glEvalMesh2`, coloured red to blue across by a colour
+    map that leaves the current colour white, and lit by `GL_AUTO_NORMAL` although the current
+    normal points away. Evaluation is CPU work; what this measures is that its vertices reach the
+    hardware like typed-out ones. gl1-probe and gl1-cube now build `gl_eval.c`.
+  - `selection` - a pick with `gluPickMatrix` and `GL_SELECT` around a pixel in the lower left:
+    one hit, the right name, and the red drawn before the pick pass still there - its `glClear`
+    and its quads must not reach the hardware. gl1-probe and gl1-cube now build `gl_select.c`.
+  - `texture-matrix` - a red | green texture turned green by a texture-matrix translation, which
+    no vertex went through until 2026-09-19.
+  - `pixel-transfer` - a white texel uploaded with the red scale at zero, sampled by the hardware
+    as cyan; a white `glDrawPixels` with green biased away, landing magenta in the GPU's frame;
+    and pure blue read back as luminance, 255.
+  - `pixel-types` - a 2x1 texture taken from the middle of a three-pixel
+    `GL_UNSIGNED_SHORT_5_6_5` row by `GL_UNPACK_SKIP_PIXELS`, sampled red | green by the hardware,
+    then read back as `GL_FLOAT` and as 5_6_5 through `GL_PACK_SKIP_PIXELS`. gl1-probe and
+    gl1-cube now build `gl_pixel.c`.
+  - `internal-formats` - four quadrants, one internal format each, with the pixel shader's combine
+    words rewritten between draws of one frame: an RGB texture under `GL_REPLACE` keeping the
+    fragment's alpha (blended away to the blue behind), an alpha texture leaving red alone, an
+    intensity texture as grey, and `GL_ADD` on the hardware as olive. Each drew something else
+    before.
+  - `border-and-mirror` - a blue `GL_CLAMP_TO_BORDER` border, which the sampler reads from the
+    border colour table `TA_BC_BASE_ADDR` now points at, and a `GL_MIRRORED_REPEAT` band whose
+    second repetition is reflected. Both wrap modes sampled as `GL_REPEAT` before.
+  - `lod-params` - `GL_TEXTURE_BASE_LEVEL` 1 sampled green through a one-level chain built from
+    level 1, `GL_TEXTURE_MAX_LEVEL` 0 completing a single-level mipmapped texture, and
+    `GL_TEXTURE_MIN_LOD` 2 holding a magnified draw at level 2 through the sampler's MIN_LOD.
+  - `rescale-normal` - a unit normal halved by `glScalef(2)` lighting grey, `GL_RESCALE_NORMAL`
+    restoring white, and a shininess of 0 lighting a full highlight. Lighting is CPU work, so
+    this should pass on the console.
+  - `separate-specular` - a white highlight kept apart from a black `GL_MODULATE` texture. It was
+    expected to fail on the console until the pixel shader had a second colour interpolant.
+    Since 2026-09-19 oops-gl carries that colour in a third parameter, so this should pass
+    there, and it is the measurement of the sum.
+  - `array-types` - a `GL_SHORT` position array with a `GL_UNSIGNED_SHORT` colour array, red, and
+    a white `glBitmap` placed by GL 1.4's `glWindowPos`. CPU work before the GPU, so it should
+    pass on the console.
+  - `colour-sum` - GL 1.4's `GL_COLOR_SUM` adding a blue secondary colour to red, magenta, from
+    `glSecondaryColor` and from a `GL_UNSIGNED_BYTE` secondary colour array. Untextured, where the
+    hardware's per-vertex sum is exact, so it should pass on the console.
+  - `fog-coord` - a red quad at the eye, which fog by distance leaves red, fogged fully blue by a
+    GL 1.4 fog coordinate of 10, and beside it one half fogged, purple, by a coordinate of 5. The
+    half-fogged quad (2026-09-19) is what catches a pixel shader reading the wrong component of
+    the texture parameter: full fog is a factor of 0, which the unused component holds too.
+  - `pixel-fragments` - a half-alpha red `glDrawPixels` image, zoomed eightfold, blended over blue
+    through a scissor box keeping its right half: blue, then purple. Pixel rectangles skipped both
+    until oops-gl made their pixels fragments; on the console that is CPU work on the flushed
+    frame, so it should pass.
+  - `point-params` - a size-16 point at eye distance 4 under GL 1.4's distance attenuation
+    (0, 0, 1), drawn 4 pixels a side, and two quads from one `glMultiDrawArrays`. Both are CPU
+    work before the GPU, so it should pass on the console.
+  - `lod-bias` - a 4x4 red | blue texture with `GL_GENERATE_MIPMAP`, drawn 4x4 pixels with a
+    level-of-detail bias of 2, so the whole quad samples the generated 1x1 level, purple. On the
+    console that is the sampler's `LOD_BIAS` field, derived from radeonsi and unmeasured - this
+    is the measurement.
+  - `projective-texture` - a 32-pixel strip with q running 1 to 3 over a red | green texture,
+    which turns green at column 8 when q is divided per fragment and at column 16 when it is
+    divided at the vertices; column 12 tells them apart. The console divides per fragment since
+    the same evening, so this should pass there too.
+  - `stencil-pixels` - four stencil indices through `glDrawPixels`, `glReadPixels` and
+    `glCopyPixels`, which oops-gl refused until 2026-09-19. Written when the stencil buffer was
+    the CPU's on both paths. The console's became the GPU's tiled surface the same evening, and
+    oops-gl addressed it through its tiling soon after (see above).
+  - `index-pixels` - colour indices 0 and 1, one of them a `GL_BITMAP` bit, drawn through
+    two-entry `GL_PIXEL_MAP_I_TO_*` maps as blue and red blocks. CPU work, so it should pass on
+    the console.
+  - `buffer-map` - a quad's corners written through GL 1.5's `glMapBuffer` and drawn from the
+    buffer once unmapped, green. CPU work, so it should pass on the console.
+  - `occlusion-query` - a 32x24 rectangle inside a `GL_SAMPLES_PASSED` query: the count exact, or
+    `GL_QUERY_COUNTER_BITS` 0, which is how oops-gl answers on the console until the GPU's samples
+    are counted. Passes on both; what it rules out is bits claimed with a wrong count.
+  - `polygon-mode` accepts its line in either of the two rows it lies between: the host's new tie
+    rule draws it one row thick, and which row is the rasteriser's choice on either path.
+  - `shadow-compare` - a 2x1 depth texture of 0.25 and 0.75 compared against r = 0.5 under
+    `GL_LEQUAL`: black, then white. Expected to fail on the console, where a depth texture draws
+    untextured.
+  - `smooth` - a size-6 `GL_POINT_SMOOTH` point blended over black: white at its centre, black
+    at the corner of the square an aliased point fills. Expected to fail on the console, where the
+    point is aliased.
+  - `combine` - `GL_COMBINE`'s `GL_SUBTRACT` and `GL_DOT3_RGB`, 0.75 grey and white. A combined
+    draw modulated on the console until 2026-09-19; it is a generated pixel-shader program now,
+    so this should pass there.
+  - `multitexture` - GL 1.3's second texture unit, which oops-gl lacked until 2026-09-19: unit 0
+    replaces with red, unit 1 adds blue, magenta. Expected to fail on the console, which applies
+    unit 0 alone (red there) and logs that once.
+  - `tex-env-blend-decal` - `GL_BLEND` towards a blue environment colour, (0, 0.5, 1), and
+    `GL_DECAL` of a half-alpha red texel over blue, (0.5, 0, 0.5) - the two GL 1.0 texture
+    functions the console's four combine words could not hold. Modulated, they read (0, 0.5, 0)
+    and black. Should pass on the console.
+  - `cube-map` - six 1x1 faces looked up along -z, by a texture coordinate and by
+    `GL_NORMAL_MAP` generation: cyan both times. Expected to fail on the console, where a
+    cube-mapped draw is untextured.
+  - `two-side` replaces `two-side-refused`: two-sided lighting is implemented, so the check that
+    confirmed its refusal now draws it - a back-facing quad lit red from the back material beside
+    a front-facing one lit green. Lighting is CPU work, so this should pass on the console.
+
+### Changed
+
+- **gallery, net-tool and pad-viz selftests drop their display stubs** (2026-09-19). They
+  defined `oops_display_get_framebuffer`, `_get_width` and `_get_height` only because the
+  SDK's `draw.c` defined `oops_display_get_surface`, which called them. That function lives
+  with the display now (oops-sdk `src/display.c`), and `draw.c` reaches no display call, so
+  the stubs were dead. gl1-cube's HUD is unchanged: on oops-gl's scanout path, once it is
+  switched on, `oops_display_get_surface` hands it the scanout buffer being drawn, in its
+  tiled layout, and the drawing calls address that layout.
 
 - **SeaShell 60 FPS presentation & keyboard process privilege** (2026-09-18):
   - **Locked 60.0 FPS Frame Pacing**: With `oops-sdk`'s cached scratch buffer and sequential macro-tiler reducing frame work to ~16 ms, SeaShell's main loop now dynamically paces frames to 16,666 us via `oops_time_sleep_us(16666 - work_us)` for locked 60 FPS presentation without jitter.
@@ -24,6 +341,13 @@ Nothing has shipped yet - this is the initial state.
   - **Symbol Tagging**: Added `scePadSetProcessPrivilege`, `scePadGetHandle`, `sceSystemServiceGetMainAppTitleId`, `sceSystemServiceIsAppSuspended`, `sceSystemServiceKillApp`, and `sceSystemServiceGetAppIdOfBigApp` to `common/symbols.txt`.
 
 ### Fixed
+
+- **gl1-probe dropped its last check once the suite passed 64** (2026-09-19). The self-test and
+  the console payload both held results in a 64-entry array, and `gl1_probe_run` stops at the
+  array's size: when the suite reached 65 checks, the last in the table -
+  `tex-delete-in-frame` - was run by neither and counted by neither, and the totals read 64/64.
+  The arrays are `GL1_PROBE_MAX_CASES` (128) now, `gl1_probe.c` refuses to build with more checks
+  than that, and the self-test fails unless every check in the table ran.
 
 - **Four probe titles no longer crash at the end of a successful run** (2026-09-17):
   `gl1-probe`, `tls-probe`, `mesa-probe` and `dri-probe` now end by calling oops-sdk's

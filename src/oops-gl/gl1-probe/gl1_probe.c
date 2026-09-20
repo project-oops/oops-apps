@@ -27,6 +27,7 @@
 #include "gl1_probe.h"
 
 #include <GL/gl.h>
+#include <GL/glu.h>
 #include <oops/display.h>
 
 #ifdef OOPS_HOST_BUILD
@@ -134,6 +135,30 @@ static int frame_matches(const uint32_t *want) {
     return 1;
 }
 
+/*
+ * **The probe's rectangle, synchronised once.**
+ *
+ * `px()` calls `frame()`, and `frame()` calls `glFinish()`. For a point sample that is exactly
+ * right: the question "what is at this pixel" is only answerable after the GPU has finished.
+ * For a *scan* it is catastrophic, and on 2026-09-20 the first console run of this suite proved
+ * it - `raster-ops` counts every pixel of the 128x96 region, so it asked for 12,288
+ * synchronisations, each one a command-buffer submission and a fence wait of about half a
+ * second. That is nearly two hours, which from the outside is indistinguishable from a hang:
+ * the run reported five checks and then went silent.
+ *
+ * On the host `glFinish()` is free, which is why the suite has always passed there. A scan takes
+ * one snapshot and reads that.
+ */
+static uint32_t g_scan[PROBE_W * PROBE_H];
+
+static const uint32_t *scan_frame(void) {
+    for (int i = 0; i < PROBE_W * PROBE_H; i++) g_scan[i] = 0u;
+    frame_snapshot(g_scan);
+    return g_scan;
+}
+
+#define SCAN_PX(s, x, y) ((s)[(y) * PROBE_W + (x)])
+
 static int chan_r(uint32_t c) { return (int)((c >> 16) & 0xffu); }
 static int chan_g(uint32_t c) { return (int)((c >> 8) & 0xffu); }
 static int chan_b(uint32_t c) { return (int)(c & 0xffu); }
@@ -161,6 +186,10 @@ static void reset_view(void) {
     glDisable(GL_CULL_FACE);
     glDisable(GL_SCISSOR_TEST);
     glDisable(GL_ALPHA_TEST);
+    glDisable(GL_COLOR_LOGIC_OP);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glShadeModel(GL_SMOOTH);
+    glLineWidth(1.0f);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     /* State the checks below drive and that nothing used to put back, so a check that changed
      * it would have silently changed the meaning of every check after it. */
@@ -321,13 +350,13 @@ static int check_texgen(void) {
 
 /* Stencil.
  *
- * **This is expected to fail on hardware today**, and that is the point of having it. Stencil is
- * implemented on the software rasteriser only; the hardware path needs a stencil surface and the
- * DB_STENCIL_INFO value that turns it on, which is obSCEne REQ-20260917T1845Z-3d5b. Until that
- * lands the console has no stencil buffer, so the masked draw below will not be masked.
- *
- * A check that fails honestly is worth more than a gap nothing mentions: this is the line that
- * will change from FAIL to pass when the surface is bound, and it is how we will know.
+ * **This is the measurement of the console's stencil test** (written 2026-09-19, never run). The
+ * hardware path binds a STENCIL_8 surface at the depth surface's 64KB_Z_X swizzle and sets the
+ * stencil function, operations and reference per draw, from radeonsi's programming - obSCEne could
+ * not measure it (REQ-20260917T1845Z-3d5b: its fixture cannot run oops-gl's stage), so this check
+ * is where it is settled. It failed on the console before, when there was no stencil surface and
+ * the masked draw below was not masked; a pass now means the surface, the clear and the test are
+ * right together.
  */
 static int check_stencil(void) {
     reset_view();
@@ -386,10 +415,12 @@ static int check_raster_ops(void) {
     glDrawPixels(8, 8, GL_RGBA, GL_UNSIGNED_BYTE, block);
     if (glGetError() != GL_NO_ERROR) return 0;
 
+    /* One snapshot for both counts - see `scan_frame`. */
+    const uint32_t *s = scan_frame();
     int drawn = 0;
     for (int y = 0; y < PROBE_H; y++) {
         for (int x = 0; x < PROBE_W; x++) {
-            if (near_rgb(px(x, y), 255, 0, 255, 8)) drawn++;
+            if (near_rgb(SCAN_PX(s, x, y), 255, 0, 255, 8)) drawn++;
         }
     }
     if (drawn < 60) return 0;
@@ -398,7 +429,7 @@ static int check_raster_ops(void) {
     int near_middle = 0;
     for (int y = PROBE_H / 4; y < PROBE_H * 3 / 4; y++) {
         for (int x = PROBE_W / 4; x < PROBE_W * 3 / 4; x++) {
-            if (near_rgb(px(x, y), 255, 0, 255, 8)) near_middle++;
+            if (near_rgb(SCAN_PX(s, x, y), 255, 0, 255, 8)) near_middle++;
         }
     }
     if (near_middle < 60) return 0;
@@ -410,9 +441,10 @@ static int check_raster_ops(void) {
     if (valid) return 0;
     glDrawPixels(8, 8, GL_RGBA, GL_UNSIGNED_BYTE, block);
     if (glGetError() != GL_NO_ERROR) return 0;
+    s = scan_frame();
     for (int y = 0; y < PROBE_H; y++) {
         for (int x = 0; x < PROBE_W; x++) {
-            if (near_rgb(px(x, y), 255, 0, 255, 8)) return 0;
+            if (near_rgb(SCAN_PX(s, x, y), 255, 0, 255, 8)) return 0;
         }
     }
     return 1;
@@ -749,13 +781,11 @@ static int check_points_and_lines(void) {
 
 /* Fog.
  *
- * **Expected to fail on hardware today**, like `stencil`. Fog is implemented on the software
- * rasteriser; the pixel shaders do not blend towards the fog colour yet. When they do this goes
- * from FAIL to pass, and that line is how we will know.
- *
- * The likely route does not need the third parameter export `-7c40` confirmed: the texture
- * coordinate the vertex shader already exports is a vec4 whose z is unused, so a fog factor
- * computed per vertex on the CPU can ride there and only the pixel shaders change.
+ * **The console's first fog** (written 2026-09-19, unmeasured): a fog factor computed per vertex
+ * on the CPU rides in the texture coordinate's spare z, which the vertex shader already exports,
+ * and both pixel shaders blend towards the fog colour by it - no third parameter export needed.
+ * This check is fully fogged, a factor of 0, so it proves the blend's direction; `fog-coord`'s
+ * half-fogged draw proves the factor is the one interpolated.
  */
 static int check_fog(void) {
     reset_view();
@@ -781,6 +811,1626 @@ static int check_fog(void) {
 
     if (!near_rgb(px(PROBE_W / 2, PROBE_H / 2), 0, 0, 255, 8)) return 0;
     return 1;
+}
+
+/* GL 1.4's fog coordinate: the same red quad at the eye, where fog by distance leaves it red,
+ * fogged fully blue by a glFogCoord of 10 under GL_FOG_COORD_SRC = GL_FOG_COORD - and then half
+ * fogged, purple, by a coordinate of 5 on a second quad beside it. The half is what tells the
+ * console's fog apart from a pixel shader reading the wrong component: a factor of 0 is also what
+ * the texture coordinate's unused w holds, so full fog alone would pass either way. */
+static int check_fog_coord(void) {
+    reset_view();
+    static const GLfloat blue[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+    glFogfv(GL_FOG_COLOR, blue);
+    glFogi(GL_FOG_MODE, GL_LINEAR);
+    glFogf(GL_FOG_START, 0.0f);
+    glFogf(GL_FOG_END, 10.0f);
+    glFogi(GL_FOG_COORD_SRC, GL_FOG_COORD);
+    glFogCoordf(10.0f);
+    glEnable(GL_FOG);
+    draw_rect(-0.5f, -0.5f, 0.0f, 0.5f, 1.0f, 0.0f, 0.0f);
+    glFogCoordf(5.0f);
+    draw_rect(0.0f, -0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f);
+    glDisable(GL_FOG);
+    glFogi(GL_FOG_COORD_SRC, GL_FRAGMENT_DEPTH);
+    glFogCoordf(0.0f);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W / 2 - PROBE_W / 8, PROBE_H / 2), 0, 0, 255, 8) &&
+           near_rgb(px(PROBE_W / 2 + PROBE_W / 8, PROBE_H / 2), 128, 0, 128, 8);
+}
+
+/* glLogicOp through CB_COLOR_CONTROL's ROP3.
+ *
+ * Exact byte values, because a logic op is bitwise and a result off by one is a wrong answer,
+ * not a rounding one. Two opcodes: GL_XOR is the same four-bit table in GL's order and the
+ * hardware's, so it cannot catch the mapping being read backwards - GL_AND_REVERSE (s & ~d) can,
+ * because read backwards it is GL_AND_INVERTED (~s & d) and gives different bytes.
+ *
+ * Clear 0x3c 0x3c 0x55, draw 0xf0 0x0f 0xaa. The channel order in the stored word does not
+ * matter to a per-channel bitwise op, so this is the one colour check with no swizzle question.
+ */
+static int check_logic_op(void) {
+    reset_view();
+    glClearColor(60.0f / 255.0f, 60.0f / 255.0f, 85.0f / 255.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_COLOR_LOGIC_OP);
+    glLogicOp(GL_XOR);
+    glColor4ub(0xf0, 0x0f, 0xaa, 0xff);
+    glRectf(-0.5f, -0.5f, 0.5f, 0.5f);
+    glDisable(GL_COLOR_LOGIC_OP);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    const uint32_t x = px(PROBE_W / 2, PROBE_H / 2);
+    if (chan_r(x) != 0xcc || chan_g(x) != 0x33 || chan_b(x) != 0xff) return 0;
+
+    glClearColor(60.0f / 255.0f, 60.0f / 255.0f, 85.0f / 255.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_COLOR_LOGIC_OP);
+    glLogicOp(GL_AND_REVERSE);
+    glColor4ub(0xf0, 0x0f, 0xaa, 0xff);
+    glRectf(-0.5f, -0.5f, 0.5f, 0.5f);
+    glDisable(GL_COLOR_LOGIC_OP);
+    glLogicOp(GL_COPY);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    const uint32_t a = px(PROBE_W / 2, PROBE_H / 2);
+    return chan_r(a) == 0xc0 && chan_g(a) == 0x03 && chan_b(a) == 0xaa;
+}
+
+/* glBlendColor and the constant factors, through CB_BLEND_RED..ALPHA. White scaled per channel
+ * by the constant (0.5, 1, 0), then by the constant's alpha 0.25 alone. */
+static int check_blend_constant(void) {
+    reset_view();
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_BLEND);
+    glBlendColor(0.5f, 1.0f, 0.0f, 0.25f);
+    glBlendFunc(GL_CONSTANT_COLOR, GL_ZERO);
+    draw_rect(-0.5f, -0.5f, 0.5f, 0.5f, 1.0f, 1.0f, 1.0f);
+    glDisable(GL_BLEND);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    if (!near_rgb(px(PROBE_W / 2, PROBE_H / 2), 128, 255, 0, 8)) return 0;
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_CONSTANT_ALPHA, GL_ZERO);
+    draw_rect(-0.5f, -0.5f, 0.5f, 0.5f, 1.0f, 1.0f, 1.0f);
+    glDisable(GL_BLEND);
+    glBlendColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glBlendFunc(GL_ONE, GL_ZERO);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 64, 64, 64, 8);
+}
+
+/* glPolygonMode, and the three things under it that reach the hardware's PA_SU_SC_MODE_CNTL.
+ *
+ * - An outlined quad: its sides lit, its centre not - so neither filled nor crossed by the
+ *   diagonal it is triangulated along. Counted, because an outline is thin.
+ * - A GL_LINES line with GL_CULL_FACE set to GL_FRONT_AND_BACK: still drawn. The cull bits in
+ *   that register used to go out for the quads a line becomes, so the hardware culled them.
+ * - A flat quad whose fourth vertex is blue and the rest red: no red at all. The colour used to
+ *   come from each triangle's last vertex, which for the first triangle is the third.
+ */
+static int check_polygon_mode(void) {
+    reset_view();
+    glLineWidth(3.0f);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    draw_rect(-0.5f, -0.5f, 0.5f, 0.5f, 1.0f, 1.0f, 1.0f);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    if (!near_rgb(px(PROBE_W / 2, PROBE_H / 2), 0x20, 0x20, 0x20, 8)) return 0;
+    int white = 0;
+    const uint32_t *s = scan_frame();
+    for (int y = 0; y < PROBE_H; y++) {
+        for (int x = 0; x < PROBE_W; x++) {
+            if (near_rgb(SCAN_PX(s, x, y), 255, 255, 255, 16)) white++;
+        }
+    }
+    /* The quad is 64x48 pixels: filled it would be ~3000; its outline three pixels wide ~700. */
+    if (white < 300 || white > 1500) return 0;
+
+    reset_view();
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_FRONT_AND_BACK);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glBegin(GL_LINES);
+    glVertex2f(-0.5f, 0.0f);
+    glVertex2f(0.5f, 0.0f);
+    glEnd();
+    glDisable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    /* The line lies exactly between two rows of pixel centres, so which row it lands on is the
+     * rasteriser's tie rule - one row since oops-gl's has one (2026-09-19), and whichever the
+     * GPU's picks on the console. Either row will do; that it drew at all is the check. */
+    if (!near_rgb(px(PROBE_W / 2, PROBE_H / 2), 255, 255, 255, 16) &&
+        !near_rgb(px(PROBE_W / 2, PROBE_H / 2 - 1), 255, 255, 255, 16)) {
+        return 0;
+    }
+
+    reset_view();
+    glShadeModel(GL_FLAT);
+    glBegin(GL_QUADS);
+    glColor3f(1.0f, 0.0f, 0.0f);
+    glVertex2f(-0.5f, -0.5f);
+    glVertex2f(0.5f, -0.5f);
+    glVertex2f(0.5f, 0.5f);
+    glColor3f(0.0f, 0.0f, 1.0f);
+    glVertex2f(-0.5f, 0.5f);
+    glEnd();
+    glShadeModel(GL_SMOOTH);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    int red = 0, blue = 0;
+    s = scan_frame(); /* a fresh snapshot: more was drawn since the count above */
+    for (int y = 0; y < PROBE_H; y++) {
+        for (int x = 0; x < PROBE_W; x++) {
+            const uint32_t c = SCAN_PX(s, x, y);
+            if (near_rgb(c, 255, 0, 0, 16)) red++;
+            else if (near_rgb(c, 0, 0, 255, 16)) blue++;
+        }
+    }
+    return red == 0 && blue > 1000;
+}
+
+/* Mip levels and completeness, on the path the hardware takes.
+ *
+ * A red 2x2 base and then a level-1 image: the base must stay red, which it did not while
+ * `level` was ignored - the level-1 upload landed on the base image. Then completeness: with a
+ * mipmapping filter and a level 1 of the wrong size the texture is incomplete, and GL draws the
+ * quad untextured - the vertex colour, white - which on the console means the untextured pixel
+ * shader, chosen per draw. Last, mip selection on the hardware through the chain - see the third
+ * part below.
+ */
+static int check_mipmap_levels(void) {
+    reset_view();
+    static const GLubyte red4[16] = {255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255};
+    static const GLubyte green1[4] = {0, 255, 0, 255};
+    static const GLubyte green4[16] = {0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255};
+    GLuint t = 0;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, red4);
+    glTexImage2D(GL_TEXTURE_2D, 1, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, green1);
+    glEnable(GL_TEXTURE_2D);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex2f(-0.5f, -0.5f);
+    glTexCoord2f(1.0f, 0.0f); glVertex2f(0.5f, -0.5f);
+    glTexCoord2f(1.0f, 1.0f); glVertex2f(0.5f, 0.5f);
+    glTexCoord2f(0.0f, 1.0f); glVertex2f(-0.5f, 0.5f);
+    glEnd();
+    if (glGetError() != GL_NO_ERROR) { glDisable(GL_TEXTURE_2D); glDeleteTextures(1, &t); return 0; }
+    const int kept = near_rgb(px(PROBE_W / 2, PROBE_H / 2), 255, 0, 0, 16);
+
+    /* Incomplete: a mipmapping filter, and a level 1 the size of the base. */
+    reset_view();
+    glEnable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexImage2D(GL_TEXTURE_2D, 1, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, green4);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex2f(-0.5f, -0.5f);
+    glTexCoord2f(1.0f, 0.0f); glVertex2f(0.5f, -0.5f);
+    glTexCoord2f(1.0f, 1.0f); glVertex2f(0.5f, 0.5f);
+    glTexCoord2f(0.0f, 1.0f); glVertex2f(-0.5f, 0.5f);
+    glEnd();
+    glDisable(GL_TEXTURE_2D);
+    const int untextured = near_rgb(px(PROBE_W / 2, PROBE_H / 2), 255, 255, 255, 16);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(1, &t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+
+    /* **Mip selection on the hardware**, through the chain gl_tex_hw_prepare builds: an 8x8
+     * texture whose levels are red, green, blue and yellow, drawn across 4x4 pixels - two texels
+     * a pixel, level of detail 1 - must come out green. The chain's layout is addrlib's
+     * arithmetic, not a measurement; this is the measurement. Red means the sampler found no
+     * levels (the chain is not being used); blue or yellow that it is finding the wrong ones. */
+    reset_view();
+    static GLubyte lvl[8 * 8 * 4];
+    static const GLubyte colours[4][4] = {
+        {255, 0, 0, 255}, {0, 255, 0, 255}, {0, 0, 255, 255}, {255, 255, 0, 255}};
+    GLuint m = 0;
+    glGenTextures(1, &m);
+    glBindTexture(GL_TEXTURE_2D, m);
+    for (int level = 0; level < 4; level++) {
+        const int side = 8 >> level;
+        for (int i = 0; i < side * side; i++) {
+            for (int k = 0; k < 4; k++) lvl[i * 4 + k] = colours[level][k];
+        }
+        glTexImage2D(GL_TEXTURE_2D, level, GL_RGBA, side, side, 0, GL_RGBA, GL_UNSIGNED_BYTE, lvl);
+    }
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glEnable(GL_TEXTURE_2D);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    /* 4 pixels each way: the probe area is 128x96 across NDC -1..1. */
+    const float hx = 2.0f / (float)(PROBE_W / 2), hy = 2.0f / (float)(PROBE_H / 2);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex2f(-hx, -hy);
+    glTexCoord2f(1.0f, 0.0f); glVertex2f(hx, -hy);
+    glTexCoord2f(1.0f, 1.0f); glVertex2f(hx, hy);
+    glTexCoord2f(0.0f, 1.0f); glVertex2f(-hx, hy);
+    glEnd();
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(1, &m);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    const int level1 = near_rgb(px(PROBE_W / 2, PROBE_H / 2), 0, 255, 0, 16);
+    return kept && untextured && level1;
+}
+
+/* Evaluators: a flat Bezier patch over the middle of the area, drawn with glEvalMesh2.
+ *
+ * Evaluation is CPU arithmetic that ends in ordinary glVertex calls, so what this measures is
+ * that those vertices reach the hardware like any others - and the two things evaluation adds on
+ * the way. A colour map running red to blue across u colours each vertex (the left of the patch
+ * red, the right blue) and leaves the current colour white. GL_AUTO_NORMAL lights the patch with
+ * its own normal, +z towards the default light, although the current normal points away.
+ */
+static int check_evaluators(void) {
+    reset_view();
+    static const GLfloat patch[12] = {-0.5f, -0.5f, 0.0f,  -0.5f, 0.5f, 0.0f,
+                                       0.5f, -0.5f, 0.0f,   0.5f, 0.5f, 0.0f};
+    static const GLfloat red_blue[8] = {1.0f, 0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f, 1.0f};
+    glMap2f(GL_MAP2_VERTEX_3, 0.0f, 1.0f, 6, 2, 0.0f, 1.0f, 3, 2, patch);
+    glMap2f(GL_MAP2_COLOR_4, 0.0f, 1.0f, 4, 2, 0.0f, 1.0f, 4, 1, red_blue);
+    glEnable(GL_MAP2_VERTEX_3);
+    glEnable(GL_MAP2_COLOR_4);
+    glMapGrid2f(4, 0.0f, 1.0f, 4, 0.0f, 1.0f);
+    glEvalMesh2(GL_FILL, 0, 4, 0, 4);
+    glDisable(GL_MAP2_COLOR_4);
+    GLfloat cur[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    glGetFloatv(GL_CURRENT_COLOR, cur);
+    if (glGetError() != GL_NO_ERROR) { glDisable(GL_MAP2_VERTEX_3); return 0; }
+    /* A quarter of the patch in from each side: u = 1/8 and 7/8. */
+    const uint32_t left = px(PROBE_W / 2 - PROBE_W / 8 - PROBE_W / 16, PROBE_H / 2);
+    const uint32_t right = px(PROBE_W / 2 + PROBE_W / 8 + PROBE_W / 16, PROBE_H / 2);
+    const int coloured = chan_r(left) > 180 && chan_b(left) < 70 &&
+                         chan_r(right) < 70 && chan_b(right) > 180;
+    const int current_kept = cur[0] == 1.0f && cur[1] == 1.0f && cur[2] == 1.0f;
+
+    reset_view();
+    glEnable(GL_LIGHTING);
+    glEnable(GL_LIGHT0);
+    glNormal3f(0.0f, 0.0f, -1.0f);
+    glEnable(GL_AUTO_NORMAL);
+    glEvalMesh2(GL_FILL, 0, 4, 0, 4);
+    glDisable(GL_AUTO_NORMAL);
+    glDisable(GL_LIGHT0);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_MAP2_VERTEX_3);
+    glNormal3f(0.0f, 0.0f, 1.0f);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    /* Ambient 0.2 x 0.2 plus diffuse 0.8 facing the light: 0.84, about 214. Facing away it
+     * would be the ambient alone, about 10. */
+    const int lit = near_rgb(px(PROBE_W / 2, PROBE_H / 2), 214, 214, 214, 16);
+    return coloured && current_kept && lit;
+}
+
+/* GL_SELECT, the way a program picks: a pick matrix around one pixel, the scene drawn again with
+ * a name per object, and the hits read back. Selection is CPU work that reports rather than
+ * draws - what this measures on a console is that **a pick pass leaves the frame alone**: its
+ * glClear and its quads must not reach the hardware, so the red drawn before it is still there.
+ */
+static int check_selection(void) {
+    reset_view();
+    draw_rect(-1.0f, -1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f);
+    GLuint hits[32];
+    GLint vp[4];
+    glGetIntegerv(GL_VIEWPORT, vp);
+    glSelectBuffer(32, hits);
+    glRenderMode(GL_SELECT);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    /* A pixel in the lower left quarter of the area. */
+    gluPickMatrix((GLdouble)(vp[0] + vp[2] / 4), (GLdouble)(vp[1] + vp[3] / 4), 2.0, 2.0, vp);
+    glMatrixMode(GL_MODELVIEW);
+    glInitNames();
+    glPushName(0);
+    glLoadName(1);
+    draw_rect(-1.0f, -1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+    glLoadName(2);
+    draw_rect(0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f);
+    const GLint n = glRenderMode(GL_RENDER);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glMatrixMode(GL_MODELVIEW);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    const int picked = n == 1 && hits[0] == 1u && hits[3] == 1u;
+    const int untouched = near_rgb(px(PROBE_W / 4, PROBE_H / 4), 255, 0, 0, 16) &&
+                          near_rgb(px(3 * PROBE_W / 4, 3 * PROBE_H / 4), 255, 0, 0, 16);
+    return picked && untouched;
+}
+
+/* Pixel transfer on the paths that end on the console: a white texel uploaded with the red scale
+ * at zero - sampled by the hardware as cyan - and a white glDrawPixels with the green biased
+ * away, written into the frame the GPU drew - magenta. Then a read back of pure blue as
+ * luminance, which is R + G + B: 255, where reading R alone gave 0. */
+static int check_pixel_transfer(void) {
+    reset_view();
+    static const GLubyte white[4] = {255, 255, 255, 255};
+    GLuint t = 0;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glPixelTransferf(GL_RED_SCALE, 0.0f);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
+    glPixelTransferf(GL_RED_SCALE, 1.0f);
+    glEnable(GL_TEXTURE_2D);
+    draw_rect(-0.5f, -0.5f, 0.5f, 0.5f, 1.0f, 1.0f, 1.0f);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(1, &t);
+    const int uploaded = near_rgb(px(PROBE_W / 2, PROBE_H / 2), 0, 255, 255, 16);
+
+    reset_view();
+    static GLubyte block[8 * 8 * 4];
+    for (int i = 0; i < 8 * 8 * 4; i++) block[i] = 255;
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glRasterPos2f(0.0f, 0.0f);
+    glPixelTransferf(GL_GREEN_BIAS, -1.0f);
+    glDrawPixels(8, 8, GL_RGBA, GL_UNSIGNED_BYTE, block);
+    glPixelTransferf(GL_GREEN_BIAS, 0.0f);
+    /* The block covers window (64..71, 48..55); px() counts rows down from the top of the area,
+     * so window row 52 is px row 43. */
+    const int drawn = near_rgb(px(PROBE_W / 2 + 4, PROBE_H / 2 - 5), 255, 0, 255, 16);
+
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    GLubyte lum = 0;
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(PROBE_W / 2, PROBE_H / 2, 1, 1, GL_LUMINANCE, GL_UNSIGNED_BYTE, &lum);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return uploaded && drawn && lum == 255;
+}
+
+/* GL 1.4's point attenuation and multi-draw: a size-16 point divided by its eye distance of 4
+ * under GL_POINT_DISTANCE_ATTENUATION (0, 0, 1) - 4 pixels a side, so white at its centre and
+ * background 4 pixels out, where the undivided point would reach - and two small quads, one
+ * glMultiDrawArrays, one each side. The size is the CPU's before the point becomes two triangles,
+ * so this should pass on the console. */
+static int check_point_params(void) {
+    reset_view();
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(-(double)PROBE_W / 2.0, (double)PROBE_W / 2.0, -(double)PROBE_H / 2.0,
+            (double)PROBE_H / 2.0, -10.0, 10.0);
+    glMatrixMode(GL_MODELVIEW);
+    static const GLfloat atten[3] = {0.0f, 0.0f, 1.0f}, none[3] = {1.0f, 0.0f, 0.0f};
+    glPointSize(16.0f);
+    glPointParameterfv(GL_POINT_DISTANCE_ATTENUATION, atten);
+    glBegin(GL_POINTS);
+    glVertex3f(0.0f, 0.0f, -4.0f);
+    glEnd();
+    glPointParameterfv(GL_POINT_DISTANCE_ATTENUATION, none);
+    glPointSize(1.0f);
+
+    static const GLfloat quads[16] = {-40, -4, -32, -4, -32, 4, -40, 4,   32, -4, 40, -4, 40, 4, 32, 4};
+    static const GLint first[2] = {0, 4};
+    static const GLsizei count[2] = {4, 4};
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(2, GL_FLOAT, 0, quads);
+    glMultiDrawArrays(GL_QUADS, first, count, 2);
+    glDisableClientState(GL_VERTEX_ARRAY);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    const int cx = PROBE_W / 2, cy = PROBE_H / 2;
+    return near_rgb(px(cx, cy), 255, 255, 255, 16) &&
+           near_rgb(px(cx + 4, cy), 0x20, 0x20, 0x20, 16) &&
+           near_rgb(px(cx - 36, cy), 255, 255, 255, 16) &&
+           near_rgb(px(cx + 36, cy), 255, 255, 255, 16);
+}
+
+/* GL 1.4's GL_GENERATE_MIPMAP and level-of-detail bias together: a 4x4 texture, red on the left
+ * and blue on the right, whose levels are generated - the 1x1 level their mean, purple - drawn
+ * 4x4 pixels, where it would sample level 0 and be red on the left, but biased by 2 so the whole
+ * quad samples the 1x1 level. On the console the bias is SQ_IMG_SAMP_WORD2's LOD_BIAS, derived
+ * from radeonsi and unmeasured, and the generated levels reach the mip chain `mipmap-levels`
+ * measures; this is the measurement of the first. */
+static int check_lod_bias(void) {
+    reset_view();
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0.0, (double)PROBE_W, 0.0, (double)PROBE_H, -1.0, 1.0);
+    glMatrixMode(GL_MODELVIEW);
+    static GLubyte img[4 * 4 * 4];
+    for (int i = 0; i < 16; i++) {
+        const int left = (i % 4) < 2;
+        img[i * 4] = left ? 255 : 0; img[i * 4 + 1] = 0;
+        img[i * 4 + 2] = left ? 0 : 255; img[i * 4 + 3] = 255;
+    }
+    GLuint t = 0;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_TRUE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, img);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, 2.0f);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    const float x0 = (float)(PROBE_W / 2 - 2), y0 = (float)(PROBE_H / 2 - 2);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex2f(x0, y0);
+    glTexCoord2f(1.0f, 0.0f); glVertex2f(x0 + 4.0f, y0);
+    glTexCoord2f(1.0f, 1.0f); glVertex2f(x0 + 4.0f, y0 + 4.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex2f(x0, y0 + 4.0f);
+    glEnd();
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(1, &t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    /* The quad's left column, window x PROBE_W / 2 - 2; px counts rows down from the top. */
+    return near_rgb(px(PROBE_W / 2 - 2, PROBE_H / 2), 128, 0, 128, 16);
+}
+
+/* Projective texturing: a 32-pixel strip whose left edge has (s, q) = (0, 1) and right edge
+ * (3, 3), over a two-texel texture, red then green. s/q runs 0 to 1 either way, but GL divides
+ * per fragment, after interpolation - 3f / (1 + 2f) at fraction f of the width - so the strip
+ * turns green at column 8, not column 16. Column 12 is the witness: green when q is divided per
+ * fragment, red when it was divided at the vertices. The console's pixel shader divides per
+ * fragment too since 2026-09-19, q in the texture parameter's w - unmeasured; this is the
+ * measurement. */
+static int check_projective_texture(void) {
+    reset_view();
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0.0, (double)PROBE_W, 0.0, (double)PROBE_H, -1.0, 1.0);
+    glMatrixMode(GL_MODELVIEW);
+    static const GLubyte texels[2 * 4] = {255, 0, 0, 255, 0, 255, 0, 255};
+    GLuint t = 0;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, texels);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    const float x0 = (float)(PROBE_W / 2 - 16), y0 = (float)(PROBE_H / 2 - 2);
+    glBegin(GL_QUADS);
+    glTexCoord4f(0.0f, 0.0f, 0.0f, 1.0f); glVertex2f(x0, y0);
+    glTexCoord4f(3.0f, 0.0f, 0.0f, 3.0f); glVertex2f(x0 + 32.0f, y0);
+    glTexCoord4f(3.0f, 0.0f, 0.0f, 3.0f); glVertex2f(x0 + 32.0f, y0 + 4.0f);
+    glTexCoord4f(0.0f, 0.0f, 0.0f, 1.0f); glVertex2f(x0, y0 + 4.0f);
+    glEnd();
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(1, &t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    const int left = PROBE_W / 2 - 16, row = PROBE_H / 2;
+    return near_rgb(px(left + 4, row), 255, 0, 0, 16) &&   /* red either way */
+           near_rgb(px(left + 12, row), 0, 255, 0, 16) &&  /* the witness */
+           near_rgb(px(left + 24, row), 0, 255, 0, 16);    /* green either way */
+}
+
+/* GL 1.5's buffer mapping: a buffer's store mapped, a quad's corners written through the pointer,
+ * unmapped, and drawn from it - green at the middle. The store is process memory on both paths
+ * and the draw reads it on the CPU, so this should pass on the console. */
+static int check_buffer_map(void) {
+    reset_view();
+    GLuint b = 0;
+    glGenBuffers(1, &b);
+    glBindBuffer(GL_ARRAY_BUFFER, b);
+    glBufferData(GL_ARRAY_BUFFER, 8 * (GLsizeiptr)sizeof(GLfloat), NULL, GL_DYNAMIC_DRAW);
+    GLfloat *p = (GLfloat *)glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+    if (!p) {
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glDeleteBuffers(1, &b);
+        return 0;
+    }
+    static const GLfloat quad[8] = {-0.5f, -0.5f, 0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f};
+    for (int i = 0; i < 8; i++) p[i] = quad[i];
+    const GLboolean kept = glUnmapBuffer(GL_ARRAY_BUFFER);
+    glColor3f(0.0f, 1.0f, 0.0f);
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(2, GL_FLOAT, 0, (const GLvoid *)0);
+    glDrawArrays(GL_QUADS, 0, 4);
+    glDisableClientState(GL_VERTEX_ARRAY);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glDeleteBuffers(1, &b);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    if (glGetError() != GL_NO_ERROR || kept != GL_TRUE) return 0;
+    return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 0, 255, 0, 16);
+}
+
+/* GL 1.5's occlusion query around a rectangle of known area, 32x24 pixels. **Either the count is
+ * exact or GL_QUERY_COUNTER_BITS is 0** - GL 1.5's declaration that the count carries no
+ * information. What would fail is a count that is neither: bits claimed and a wrong number.
+ *
+ * **The console claims the bits since 2026-09-20**, so this now asks it for an exact number
+ * there: oops-gl brackets the query with two ZPASS_DONE events and sums the sixteen render
+ * backends. The escape the check still leaves is the honest one, not a loophole - a query whose
+ * draws never test depth is not counted on that path, and this one enables the depth test so
+ * that it is. A sum that read one backend instead of all of them, or that took the counters'
+ * valid bit for count, comes out as a wrong number rather than as no answer. */
+static int check_occlusion_query(void) {
+    reset_view();
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0.0, (double)PROBE_W, 0.0, (double)PROBE_H, -1.0, 1.0);
+    glMatrixMode(GL_MODELVIEW);
+    GLuint q = 0;
+    glGenQueries(1, &q);
+    /* **The depth test on**, which reset_view leaves off and which the console needs: its
+     * counters live in the depth block and run only against a bound depth surface. reset_view
+     * has just cleared depth to 1.0, so the rectangle at z = 0 passes GL_LESS everywhere and
+     * the exact count is still the area. */
+    glEnable(GL_DEPTH_TEST);
+    glBeginQuery(GL_SAMPLES_PASSED, q);
+    glRectf(16.0f, 16.0f, 48.0f, 40.0f);
+    glEndQuery(GL_SAMPLES_PASSED);
+    glDisable(GL_DEPTH_TEST);
+    GLint bits = -1;
+    GLuint result = 0, ready = 0;
+    glGetQueryiv(GL_SAMPLES_PASSED, GL_QUERY_COUNTER_BITS, &bits);
+    glGetQueryObjectuiv(q, GL_QUERY_RESULT_AVAILABLE, &ready);
+    glGetQueryObjectuiv(q, GL_QUERY_RESULT, &result);
+    glDeleteQueries(1, &q);
+    if (glGetError() != GL_NO_ERROR || ready != GL_TRUE) return 0;
+    return bits == 0 || (bits >= 1 && result == 32u * 24u);
+}
+
+/* GL 1.0's colour-index images in an RGBA context, refused until 2026-09-19: indices 0 and 1 -
+ * the second as a GL_BITMAP bit - drawn through two-entry I_TO_R/G/B/A maps as blue and red
+ * blocks. The index maps are CPU work, so this should pass on the console. */
+static int check_index_pixels(void) {
+    reset_view();
+    static const GLfloat r[2] = {0.0f, 1.0f}, g[2] = {0.0f, 0.0f}, b[2] = {1.0f, 0.0f};
+    static const GLfloat a[2] = {1.0f, 1.0f}, zero[1] = {0.0f};
+    static const GLubyte idx[2] = {0, 1};
+    static const GLubyte bit[1] = {0x80};
+    glPixelMapfv(GL_PIXEL_MAP_I_TO_R, 2, r);
+    glPixelMapfv(GL_PIXEL_MAP_I_TO_G, 2, g);
+    glPixelMapfv(GL_PIXEL_MAP_I_TO_B, 2, b);
+    glPixelMapfv(GL_PIXEL_MAP_I_TO_A, 2, a);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glPixelZoom(8.0f, 8.0f);
+    glWindowPos2i(PROBE_W / 4, PROBE_H / 2);
+    glDrawPixels(2, 1, GL_COLOR_INDEX, GL_UNSIGNED_BYTE, idx);
+    glWindowPos2i(PROBE_W * 3 / 4, PROBE_H / 2);
+    glDrawPixels(1, 1, GL_COLOR_INDEX, GL_BITMAP, bit);
+    glPixelZoom(1.0f, 1.0f);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glPixelMapfv(GL_PIXEL_MAP_I_TO_R, 1, zero);
+    glPixelMapfv(GL_PIXEL_MAP_I_TO_G, 1, zero);
+    glPixelMapfv(GL_PIXEL_MAP_I_TO_B, 1, zero);
+    glPixelMapfv(GL_PIXEL_MAP_I_TO_A, 1, zero);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    /* px counts rows down from the top: the blocks are window rows PROBE_H / 2 .. + 7. */
+    const int row = PROBE_H / 2 - 4;
+    return near_rgb(px(PROBE_W / 4 + 4, row), 0, 0, 255, 16) &&
+           near_rgb(px(PROBE_W / 4 + 12, row), 255, 0, 0, 16) &&
+           near_rgb(px(PROBE_W * 3 / 4 + 4, row), 255, 0, 0, 16);
+}
+
+/* GL 1.0's stencil pixel rectangles, refused until 2026-09-19: four stencil indices drawn with
+ * glDrawPixels, read back with glReadPixels, and copied with glCopyPixels. On the console the
+ * stencil buffer is the GPU's surface, tiled 64KB_Z_X, and oops-gl addresses it through
+ * addrlib's vectors. Every step here is the CPU's, so this passes under any consistent
+ * addressing, right or wrong. `stencil-readback` is the check that crosses to the GPU. */
+static int check_stencil_pixels(void) {
+    reset_view();
+    static const GLubyte in[4] = {5, 6, 7, 8};
+    GLubyte out[4] = {0, 0, 0, 0}, copied[4] = {0, 0, 0, 0};
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glClearStencil(0);
+    glClear(GL_STENCIL_BUFFER_BIT);
+    glWindowPos2i(PROBE_W / 2, PROBE_H / 2);
+    glDrawPixels(2, 2, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, in);
+    glReadPixels(PROBE_W / 2, PROBE_H / 2, 2, 2, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, out);
+    glWindowPos2i(PROBE_W / 4, PROBE_H / 4);
+    glCopyPixels(PROBE_W / 2, PROBE_H / 2, 2, 2, GL_STENCIL);
+    glReadPixels(PROBE_W / 4, PROBE_H / 4, 2, 2, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, copied);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    for (int i = 0; i < 4; i++) {
+        if (out[i] != in[i] || copied[i] != in[i]) return 0;
+    }
+    return 1;
+}
+
+/* The centre pixel of the buffer glReadBuffer names, read with glReadPixels - which reaches
+ * the front as well as the back, where px() reads only what the back became. */
+static int read_centre(GLenum buffer, GLubyte out[4]) {
+    glReadBuffer(buffer);
+    glReadPixels(PROBE_W / 2, PROBE_H / 2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, out);
+    glReadBuffer(GL_BACK);
+    return glGetError() == GL_NO_ERROR;
+}
+
+static int near_bytes(const GLubyte c[4], int r, int g, int b) {
+    const int d[3] = {c[0] - r, c[1] - g, c[2] - b};
+    for (int i = 0; i < 3; i++) {
+        if (d[i] > 8 || d[i] < -8) return 0;
+    }
+    return 1;
+}
+
+/* **The front buffer** (GL 1.0; since 2026-09-19): glDrawBuffer(GL_FRONT) draws into a surface
+ * of its own. A red quad goes into the front over a blue back, the back must stay blue, and
+ * both are read by name. On the console the front is its own colour target, the address in
+ * CB_COLOR0_BASE, and glFlush puts it on screen, so the display shows it for a moment. */
+static int check_front_buffer(void) {
+    reset_view();
+    draw_rect(-1.0f, -1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f);
+    glDrawBuffer(GL_FRONT);
+    draw_rect(-1.0f, -1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f);
+    glDrawBuffer(GL_BACK);
+    GLubyte front[4], back[4];
+    if (!read_centre(GL_FRONT, front) || !read_centre(GL_BACK, back)) return 0;
+    return near_bytes(front, 255, 0, 0) && near_bytes(back, 0, 0, 255);
+}
+
+/* **Both buffers at once** - GL_FRONT_AND_BACK - with a green quad added over a red front
+ * and a blue back, each blended against its own pixel, so the front turns yellow and the back
+ * cyan. **Expected to pass on both paths since 2026-09-20.** The console binds `CB_COLOR1` to
+ * the front, carries MRT1 in `CB_TARGET_MASK`, `CB_SHADER_MASK` and `SPI_SHADER_COL_FORMAT`,
+ * and exports twice from both pixel shaders - the registers measured by obSCEne's
+ * `REQ-20260919T2258Z-3f62`, the two export words assembled in `tools/shader/mrt1-export.s`.
+ * It drew into the back only before that, which this check was expected to catch. */
+static int check_front_and_back(void) {
+    reset_view();
+    draw_rect(-1.0f, -1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f);
+    glDrawBuffer(GL_FRONT);
+    draw_rect(-1.0f, -1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f);
+    glDrawBuffer(GL_FRONT_AND_BACK);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    draw_rect(-1.0f, -1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 0.0f);
+    glDisable(GL_BLEND);
+    glDrawBuffer(GL_BACK);
+    GLubyte front[4], back[4];
+    if (!read_centre(GL_FRONT, front) || !read_centre(GL_BACK, back)) return 0;
+    return near_bytes(front, 255, 255, 0) && near_bytes(back, 0, 255, 255);
+}
+
+/* The two rows the readback checks compare whole, either side of window row 56. On a 1080-line
+ * display, the depth and stencil surfaces both change from one row of 64 KiB blocks to the next
+ * there: window row y is surface row 1079 - y, and 1024 starts a block row for depth's
+ * 128-pixel blocks and for stencil's 256-pixel ones. */
+#define PROBE_ZS_ROW_LOW 40
+#define PROBE_ZS_ROW_HIGH 70
+
+/* **The depth the GPU drew, read back by the CPU** (since 2026-09-19). On the console,
+ * glReadPixels of GL_DEPTH_COMPONENT reads the GPU's depth surface through oops-gl's 64KB_Z_X
+ * addressing - the vectors tools/zs-tiling took from addrlib - so this check measures that
+ * addressing. A wrong swizzle scatters the depths drawn here, and the rows come back out of
+ * order. The draw is a plane over the left three quarters, slanted so that depth rises across
+ * x by 1/192 a pixel. The tolerance is under half a step, so neighbours swapped would fail. The
+ * last quarter keeps the clear value, and every pixel of two rows is compared. */
+static int check_depth_readback(void) {
+    reset_view();
+    glClearDepth(1.0);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_ALWAYS);
+    /* Eye z 0.5 at x = -1 to -0.5 at x = 0.5: window depth (1 - z) / 2, 0.25 to 0.75 across
+     * columns 0 to 96. */
+    glColor3f(0.3f, 0.3f, 0.3f);
+    glBegin(GL_QUADS);
+    glVertex3f(-1.0f, -1.0f, 0.5f);
+    glVertex3f(0.5f, -1.0f, -0.5f);
+    glVertex3f(0.5f, 1.0f, -0.5f);
+    glVertex3f(-1.0f, 1.0f, 0.5f);
+    glEnd();
+    glDepthFunc(GL_LESS);
+    glDisable(GL_DEPTH_TEST);
+    static GLfloat row[2][PROBE_W];
+    glReadPixels(0, PROBE_ZS_ROW_LOW, PROBE_W, 1, GL_DEPTH_COMPONENT, GL_FLOAT, row[0]);
+    glReadPixels(0, PROBE_ZS_ROW_HIGH, PROBE_W, 1, GL_DEPTH_COMPONENT, GL_FLOAT, row[1]);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    for (int r = 0; r < 2; r++) {
+        for (int x = 0; x < PROBE_W; x++) {
+            const float want = x < PROBE_W * 3 / 4 ? 0.25f + ((float)x + 0.5f) / 192.0f : 1.0f;
+            const float d = row[r][x] - want;
+            if (d > 0.002f || d < -0.002f) return 0;
+        }
+    }
+    return 1;
+}
+
+/* **Stencil across the CPU and the GPU, both ways** (since 2026-09-19). First the GPU stamps 3
+ * into the left half, and glReadPixels reads two rows of it back. Then the CPU writes 5 into a
+ * 16 x 16 block on the right with glDrawPixels, and a draw tested GL_EQUAL 5 lands there and
+ * nowhere else. `stencil` stays on the GPU and `stencil-pixels` on the CPU, so this is the check
+ * that measures the stencil surface's 64KB_Z_X addressing on the console. */
+static int check_stencil_readback(void) {
+    reset_view();
+    glClearStencil(0);
+    glClear(GL_STENCIL_BUFFER_BIT);
+    glStencilMask(0xff);
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_ALWAYS, 3, 0xff);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+    draw_rect(-1.0f, -1.0f, 0.0f, 1.0f, 0.2f, 0.2f, 0.2f);
+    glDisable(GL_STENCIL_TEST);
+    static GLubyte row[2][PROBE_W];
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, PROBE_ZS_ROW_LOW, PROBE_W, 1, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, row[0]);
+    glReadPixels(0, PROBE_ZS_ROW_HIGH, PROBE_W, 1, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, row[1]);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+
+    static GLubyte fives[16 * 16];
+    for (int i = 0; i < 16 * 16; i++) fives[i] = 5;
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glWindowPos2i(PROBE_W * 3 / 4 - 8, PROBE_H / 2 - 8);
+    glDrawPixels(16, 16, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, fives);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_EQUAL, 5, 0xff);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+    draw_rect(-1.0f, -1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 0.0f);
+    glDisable(GL_STENCIL_TEST);
+    if (glGetError() != GL_NO_ERROR) return 0;
+
+    for (int r = 0; r < 2; r++) {
+        for (int x = 0; x < PROBE_W; x++) {
+            if (row[r][x] != (x < PROBE_W / 2 ? 3 : 0)) return 0;
+        }
+    }
+    /* Exactly the block is green: 256 pixels, all in the right half. */
+    int green = 0, green_left = 0;
+    const uint32_t *s = scan_frame();
+    for (int y = 0; y < PROBE_H; y++) {
+        for (int x = 0; x < PROBE_W; x++) {
+            if (!near_rgb(SCAN_PX(s, x, y), 0, 255, 0, 8)) continue;
+            green++;
+            if (x < PROBE_W / 2) green_left++;
+        }
+    }
+    return green == 16 * 16 && green_left == 0;
+}
+
+/* GL 1.4's depth texture and shadow comparison: a 2x1 depth texture of 0.25 and 0.75 compared
+ * against r = 0.5 under GL_LEQUAL across the area - black on the left, where 0.5 > 0.25, white
+ * on the right. **Expected to pass on the console since 2026-09-20**, when oops-sdk gained the
+ * comparison sample: the image format is 32_FLOAT, the sampler's own DEPTH_COMPARE_FUNC does the
+ * comparison, and the pixel shader hands it the clamped reference. It drew untextured before
+ * that. The two halves differing is what makes this a real check on hardware - a comparison that
+ * always passed, or a reference read from the wrong address register, shows up here as one
+ * colour across the whole area. */
+static int check_shadow_compare(void) {
+    reset_view();
+    static const GLfloat depths[2] = {0.25f, 0.75f};
+    GLuint t = 0;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, 2, 1, 0, GL_DEPTH_COMPONENT, GL_FLOAT, depths);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glBegin(GL_QUADS);
+    glTexCoord3f(0.0f, 0.0f, 0.5f); glVertex2f(-1.0f, -1.0f);
+    glTexCoord3f(1.0f, 0.0f, 0.5f); glVertex2f(1.0f, -1.0f);
+    glTexCoord3f(1.0f, 1.0f, 0.5f); glVertex2f(1.0f, 1.0f);
+    glTexCoord3f(0.0f, 1.0f, 0.5f); glVertex2f(-1.0f, 1.0f);
+    glEnd();
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(1, &t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W / 4, PROBE_H / 2), 0, 0, 0, 16) &&
+           near_rgb(px(PROBE_W * 3 / 4, PROBE_H / 2), 255, 255, 255, 16);
+}
+
+/* A pixel rectangle's pixels are fragments: a half-alpha red 8x8 image zoomed to 64x48 across the
+ * middle of a blue area, blended, through a scissor box that keeps only its right half - so the
+ * left half stays blue and the right is purple. Both were written straight into the frame until
+ * 2026-09-19. On the console these are the CPU's operations on the flushed frame, so this should
+ * pass there. */
+static int check_pixel_fragments(void) {
+    reset_view();
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    static GLubyte img[8 * 8 * 4];
+    for (int i = 0; i < 8 * 8; i++) {
+        img[i * 4] = 255; img[i * 4 + 1] = 0; img[i * 4 + 2] = 0; img[i * 4 + 3] = 128;
+    }
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(PROBE_W / 2, 0, PROBE_W / 2, PROBE_H);
+    glPixelZoom((float)(PROBE_W / 2) / 8.0f, (float)(PROBE_H / 2) / 8.0f);
+    glWindowPos2i(PROBE_W / 4, PROBE_H / 4);
+    glDrawPixels(8, 8, GL_RGBA, GL_UNSIGNED_BYTE, img);
+    glPixelZoom(1.0f, 1.0f);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_BLEND);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glClearColor(0.125f, 0.125f, 0.125f, 1.0f);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W * 3 / 8, PROBE_H / 2), 0, 0, 255, 16) &&
+           near_rgb(px(PROBE_W * 5 / 8, PROBE_H / 2), 128, 0, 127, 16);
+}
+
+/* A 3D texture: two slices, red then green, sampled at r = 0.75 - green. **Expected to pass on
+ * the console since 2026-09-20**, when the hardware half landed: the descriptor's TYPE is 0xa
+ * with the last slice in WORD4, the vertex carries r in its third parameter, and the pixel
+ * shader's sample slot divides it by q and samples with three coordinates. It drew untextured -
+ * the vertex colour, white - before that. */
+static int check_texture_3d(void) {
+    reset_view();
+    static GLubyte vol[2 * 2 * 2 * 4];
+    for (int i = 0; i < 8; i++) {
+        const int slice = i / 4;
+        vol[i * 4 + 0] = (GLubyte)(slice ? 0 : 255);
+        vol[i * 4 + 1] = (GLubyte)(slice ? 255 : 0);
+        vol[i * 4 + 2] = 0;
+        vol[i * 4 + 3] = 255;
+    }
+    GLuint t = 0;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_3D, t);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA, 2, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, vol);
+    glEnable(GL_TEXTURE_3D);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glTexCoord3f(0.5f, 0.5f, 0.75f);
+    glRectf(-0.5f, -0.5f, 0.5f, 0.5f);
+    glDisable(GL_TEXTURE_3D);
+    glBindTexture(GL_TEXTURE_3D, 0);
+    glDeleteTextures(1, &t);
+    glTexCoord4f(0.0f, 0.0f, 0.0f, 1.0f);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 0, 255, 0, 16);
+}
+
+/* Packed pixel types and the pixel-store skips, which glTexImage2D and glReadPixels refused until
+ * 2026-09-19. A 2x1 texture comes out of the middle of a three-pixel GL_UNSIGNED_SHORT_5_6_5 row
+ * (skip one pixel: white, then red, green), is drawn GL_NEAREST across a quad - red left, green
+ * right - and read back as floats and as 5_6_5 through a pack skip. The conversion is host code on
+ * both paths; what this puts on a console is that the converted texels are the ones the sampler
+ * gets, and that readback packs what the colour buffer holds. */
+static int check_pixel_types(void) {
+    reset_view();
+    static const GLushort row[3] = {0xFFFFu, 0xF800u, 0x07E0u}; /* white, red, green */
+    GLuint t = 0;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 3);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 2, 1, 0, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, row);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    const int uploaded = glGetError() == GL_NO_ERROR;
+
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex2f(-0.8f, -0.8f);
+    glTexCoord2f(1.0f, 0.0f); glVertex2f( 0.8f, -0.8f);
+    glTexCoord2f(1.0f, 1.0f); glVertex2f( 0.8f,  0.8f);
+    glTexCoord2f(0.0f, 1.0f); glVertex2f(-0.8f,  0.8f);
+    glEnd();
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(1, &t);
+    if (!uploaded || glGetError() != GL_NO_ERROR) return 0;
+    const int sampled = near_rgb(px(PROBE_W * 5 / 16, PROBE_H / 2), 255, 0, 0, 16) &&
+                        near_rgb(px(PROBE_W * 11 / 16, PROBE_H / 2), 0, 255, 0, 16);
+
+    GLfloat f[3] = {0.0f, 0.0f, 0.0f};
+    glReadPixels(PROBE_W * 11 / 16, PROBE_H / 2, 1, 1, GL_RGB, GL_FLOAT, f);
+    GLushort packed[3] = {0u, 0u, 0u};
+    glPixelStorei(GL_PACK_ALIGNMENT, 2);
+    glPixelStorei(GL_PACK_SKIP_PIXELS, 2);
+    glReadPixels(PROBE_W * 5 / 16, PROBE_H / 2, 1, 1, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, packed);
+    glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    const int read_float = f[0] < 0.07f && f[1] > 0.93f && f[2] < 0.07f;
+    const int read_packed = packed[0] == 0u && packed[2] == 0xF800u;
+    return sampled && read_float && read_packed;
+}
+
+/* One 1x1 texture of the given internal format, drawn over a quadrant in the given environment
+ * mode and colour. */
+static void internal_format_quad(GLuint t, GLint ifmt, const GLubyte texel[4], GLenum mode,
+                                 float x0, float y0, float r, float g, float b, float a) {
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, ifmt, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, texel);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, (GLint)mode);
+    glColor4f(r, g, b, a);
+    glTexCoord2f(0.5f, 0.5f);
+    glRectf(x0, y0, x0 + 1.0f, y0 + 1.0f);
+}
+
+/* Internal formats, which were ignored until 2026-09-19, and the texture environment's words
+ * that now depend on them - on a console, the combine slot rewritten between draws of one frame.
+ * Four quadrants over a blue clear, each of which drew something else before:
+ * - lower left, **an RGB texture under GL_REPLACE keeps the fragment's alpha** (`v_mov_b32 v7,
+ *   v11`): white at alpha 0 blended away, blue. It was white.
+ * - upper left, **an alpha texture leaves the colour alone**: black RGB uploaded as GL_ALPHA,
+ *   modulating red, is red. It was black.
+ * - upper right, **intensity is all four channels**: (128, 0, 0, 0) as GL_INTENSITY modulating
+ *   white, grey. It was dark red.
+ * - lower right, **GL_ADD on the hardware** (`v_add_f32`): green 128 added to red 128, olive. It
+ *   was the product, black. */
+static int check_internal_formats(void) {
+    reset_view();
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    GLuint t[4] = {0, 0, 0, 0};
+    glGenTextures(4, t);
+    glEnable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    static const GLubyte white[4] = {255, 255, 255, 255}, black[4] = {0, 0, 0, 255};
+    static const GLubyte dark_red[4] = {128, 0, 0, 0}, green[4] = {0, 128, 0, 255};
+    internal_format_quad(t[0], GL_RGB8, white, GL_REPLACE, -1.0f, -1.0f, 1.0f, 1.0f, 1.0f, 0.0f);
+    glDisable(GL_BLEND);
+    internal_format_quad(t[1], GL_ALPHA8, black, GL_MODULATE, -1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f);
+    internal_format_quad(t[2], GL_INTENSITY8, dark_red, GL_MODULATE, 0.0f, 0.0f,
+                         1.0f, 1.0f, 1.0f, 1.0f);
+    internal_format_quad(t[3], GL_RGBA8, green, GL_ADD, 0.0f, -1.0f, 0.5f, 0.0f, 0.0f, 1.0f);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(4, t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    /* px counts rows down from the top. */
+    const int lower_left = near_rgb(px(PROBE_W / 4, PROBE_H * 3 / 4), 0, 0, 255, 16);
+    const int upper_left = near_rgb(px(PROBE_W / 4, PROBE_H / 4), 255, 0, 0, 16);
+    const int upper_right = near_rgb(px(PROBE_W * 3 / 4, PROBE_H / 4), 128, 128, 128, 16);
+    const int lower_right = near_rgb(px(PROBE_W * 3 / 4, PROBE_H * 3 / 4), 128, 128, 0, 16);
+    return lower_left && upper_left && upper_right && lower_right;
+}
+
+/* One band of a red | green texture with the given s wrap, s running from -1 at the left edge to
+ * 2 at the right. */
+static void wrap_band(GLuint t, GLenum wrap, float y0, float y1) {
+    static const GLubyte rg[8] = {255, 0, 0, 255, 0, 255, 0, 255};
+    static const GLfloat blue[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+    glBindTexture(GL_TEXTURE_2D, t);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, rg);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (GLint)wrap);
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, blue);
+    glBegin(GL_QUADS);
+    glTexCoord2f(-1.0f, 0.5f); glVertex2f(-1.0f, y0);
+    glTexCoord2f(2.0f, 0.5f);  glVertex2f(1.0f, y0);
+    glTexCoord2f(2.0f, 0.5f);  glVertex2f(1.0f, y1);
+    glTexCoord2f(-1.0f, 0.5f); glVertex2f(-1.0f, y1);
+    glEnd();
+}
+
+/* GL_CLAMP_TO_BORDER and GL_MIRRORED_REPEAT, which were stored and sampled as GL_REPEAT until
+ * 2026-09-19 (any wrap value was kept, and the sampler knew two). A blue border is none of the
+ * sampler's built-in colours, so the upper band reads it from the border colour table
+ * TA_BC_BASE_ADDR points at - the console's verdict on that register and the table's layout. The
+ * lower band's second repetition is reflected: green where GL_REPEAT gives red. Pixel x samples
+ * s = -1 + 3 (x + 0.5) / PROBE_W: s = -0.5, 0.25, 1.25 and 1.75 at PROBE_W / 6, 5/12, 3/4, 11/12. */
+static int check_border_and_mirror(void) {
+    reset_view();
+    GLuint t[2] = {0, 0};
+    glGenTextures(2, t);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    wrap_band(t[0], GL_CLAMP_TO_BORDER, 0.1f, 0.9f);
+    wrap_band(t[1], GL_MIRRORED_REPEAT, -0.9f, -0.1f);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(2, t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    const int up = PROBE_H / 4, down = PROBE_H * 3 / 4; /* px counts rows down from the top */
+    const int border = near_rgb(px(PROBE_W / 6, up), 0, 0, 255, 16) &&
+                       near_rgb(px(PROBE_W * 5 / 12, up), 255, 0, 0, 16) &&
+                       near_rgb(px(PROBE_W * 3 / 4, up), 0, 0, 255, 16);
+    const int mirror = near_rgb(px(PROBE_W * 5 / 12, down), 255, 0, 0, 16) &&
+                       near_rgb(px(PROBE_W * 3 / 4, down), 0, 255, 0, 16) &&
+                       near_rgb(px(PROBE_W * 11 / 12, down), 255, 0, 0, 16);
+    return border && mirror;
+}
+
+/* Vertex arrays of the other GL 1.1 types, which were read as floats until 2026-09-19 whatever
+ * the pointer named: a GL_SHORT quad in pixel coordinates with a GL_UNSIGNED_SHORT colour array,
+ * red, on the left; and GL 1.4's glWindowPos placing a 4x4 white glBitmap on the right. Both are
+ * CPU work before anything reaches the GPU, so this should pass on the console. */
+static int check_array_types(void) {
+    reset_view();
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0.0, (double)PROBE_W, 0.0, (double)PROBE_H, -1.0, 1.0);
+    glMatrixMode(GL_MODELVIEW);
+    const GLshort x0 = (GLshort)(PROBE_W / 8), x1 = (GLshort)(PROBE_W * 3 / 8);
+    const GLshort y0 = (GLshort)(PROBE_H / 4), y1 = (GLshort)(PROBE_H * 3 / 4);
+    const GLshort quad[8] = {x0, y0, x1, y0, x1, y1, x0, y1};
+    static const GLushort red[12] = {65535, 0, 0, 65535, 0, 0, 65535, 0, 0, 65535, 0, 0};
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glEnableClientState(GL_COLOR_ARRAY);
+    glVertexPointer(2, GL_SHORT, 0, quad);
+    glColorPointer(3, GL_UNSIGNED_SHORT, 0, red);
+    glDrawArrays(GL_QUADS, 0, 4);
+    glDisableClientState(GL_COLOR_ARRAY);
+    glDisableClientState(GL_VERTEX_ARRAY);
+
+    static const GLubyte block[4] = {0xf0, 0xf0, 0xf0, 0xf0};
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glWindowPos2i(PROBE_W * 3 / 4, PROBE_H / 2);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glBitmap(4, 4, 0.0f, 0.0f, 0.0f, 0.0f, block);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    /* px counts rows down from the top: window row PROBE_H / 2 + 1 is px row PROBE_H / 2 - 2. */
+    return near_rgb(px(PROBE_W / 4, PROBE_H / 2), 255, 0, 0, 16) &&
+           near_rgb(px(PROBE_W * 3 / 4 + 1, PROBE_H / 2 - 2), 255, 255, 255, 16);
+}
+
+/* GL 1.4's colour sum: a red quad whose blue secondary colour GL_COLOR_SUM adds, magenta - from
+ * glSecondaryColor on the left and from a GL_UNSIGNED_BYTE secondary colour array on the right,
+ * with the current secondary black there so only the array can supply the blue. Untextured, so
+ * the hardware path's per-vertex sum is exact and this should pass on the console; the textured
+ * case is separate-specular's, which measures the third interpolant that carries the sum. */
+static int check_color_sum(void) {
+    reset_view();
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0.0, (double)PROBE_W, 0.0, (double)PROBE_H, -1.0, 1.0);
+    glMatrixMode(GL_MODELVIEW);
+    glEnable(GL_COLOR_SUM);
+    glColor3f(1.0f, 0.0f, 0.0f);
+    glSecondaryColor3f(0.0f, 0.0f, 1.0f);
+    glRectf((float)PROBE_W / 8.0f, (float)PROBE_H / 4.0f,
+            (float)PROBE_W * 3.0f / 8.0f, (float)PROBE_H * 3.0f / 4.0f);
+
+    const GLshort x0 = (GLshort)(PROBE_W * 5 / 8), x1 = (GLshort)(PROBE_W * 7 / 8);
+    const GLshort y0 = (GLshort)(PROBE_H / 4), y1 = (GLshort)(PROBE_H * 3 / 4);
+    const GLshort quad[8] = {x0, y0, x1, y0, x1, y1, x0, y1};
+    static const GLubyte blue[12] = {0, 0, 255, 0, 0, 255, 0, 0, 255, 0, 0, 255};
+    glSecondaryColor3f(0.0f, 0.0f, 0.0f);
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glEnableClientState(GL_SECONDARY_COLOR_ARRAY);
+    glVertexPointer(2, GL_SHORT, 0, quad);
+    glSecondaryColorPointer(3, GL_UNSIGNED_BYTE, 0, blue);
+    glDrawArrays(GL_QUADS, 0, 4);
+    glDisableClientState(GL_SECONDARY_COLOR_ARRAY);
+    glDisableClientState(GL_VERTEX_ARRAY);
+    glDisable(GL_COLOR_SUM);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W / 4, PROBE_H / 2), 255, 0, 255, 16) &&
+           near_rgb(px(PROBE_W * 3 / 4, PROBE_H / 2), 255, 0, 255, 16);
+}
+
+/* Antialiasing: a white GL_POINT_SMOOTH point of size 6 blended over black. Its centre is white
+ * and the corner of the 6x6 square an aliased point fills - 3.5 pixels out both ways, outside the
+ * disc - black. **Expected to pass on the console since 2026-09-20**, when the untextured pixel
+ * shader gained a coverage slot: the CPU writes each corner's offset from the centre into the
+ * texture-coordinate parameter and the shader turns the interpolated offset into GL's coverage.
+ * It drew the aliased square, corner and all, before that. The corner is what makes this a real
+ * check there - a coverage that came out as one everywhere passes at the centre and fails here. */
+static int check_smooth(void) {
+    reset_view();
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_POINT_SMOOTH);
+    glPointSize(6.0f);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glBegin(GL_POINTS);
+    glVertex2f(0.0f, 0.0f);
+    glEnd();
+    glDisable(GL_POINT_SMOOTH);
+    glPointSize(1.0f);
+    glDisable(GL_BLEND);
+    glClearColor(0.125f, 0.125f, 0.125f, 1.0f);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 255, 255, 255, 16) &&
+           near_rgb(px(PROBE_W / 2 + 2, PROBE_H / 2 + 2), 0, 0, 0, 16);
+}
+
+/* GL_COMBINE (GL 1.3): a white texture GL_SUBTRACT a quarter-grey fragment colour, 0.75, on the
+ * left; a +x normal-map texel GL_DOT3_RGB a +x light vector, white, on the right. On the console
+ * since 2026-09-19 as a program in the pixel shader's longer combine slot, unmeasured - it
+ * modulated there before, which reads as 0.25 grey and a pink. */
+static int check_combine(void) {
+    reset_view();
+    static const GLubyte white[4] = {255, 255, 255, 255}, normal_x[4] = {255, 128, 128, 255};
+    GLuint t[2] = {0, 0};
+    glGenTextures(2, t);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE);
+    glBindTexture(GL_TEXTURE_2D, t[0]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
+    glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB, GL_SUBTRACT);
+    glColor3f(0.25f, 0.25f, 0.25f);
+    glRectf(-0.9f, -0.5f, -0.1f, 0.5f);
+    glBindTexture(GL_TEXTURE_2D, t[1]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, normal_x);
+    glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB, GL_DOT3_RGB);
+    glColor3f(1.0f, 0.5f, 0.5f);
+    glRectf(0.1f, -0.5f, 0.9f, 0.5f);
+    glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB, GL_MODULATE);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(2, t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W / 4, PROBE_H / 2), 191, 191, 191, 16) &&
+           near_rgb(px(PROBE_W * 3 / 4, PROBE_H / 2), 255, 255, 255, 16);
+}
+
+/* GL_BLEND and GL_DECAL of an RGBA texture - GL 1.0's two texture functions the console's four
+ * combine words could not hold, and which modulated there until 2026-09-19.
+ *
+ * Left, GL_BLEND: texel (0, 0.5, 1) over a green fragment towards a blue environment colour,
+ * c (1 - t) + k t = (0, 0.5, 1); modulate would be (0, 0.5, 0). Right, GL_DECAL: a red texel of
+ * alpha 0.5 over a blue fragment, c (1 - a) + t a = (0.5, 0, 0.5); modulate would be black. */
+static int check_tex_env_blend_decal(void) {
+    reset_view();
+    static const GLubyte cyanish[4] = {0, 128, 255, 255}, half_red[4] = {255, 0, 0, 128};
+    static const GLfloat blue[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+    GLuint t[2] = {0, 0};
+    glGenTextures(2, t);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, blue);
+    glBindTexture(GL_TEXTURE_2D, t[0]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, cyanish);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_BLEND);
+    glColor3f(0.0f, 1.0f, 0.0f);
+    glRectf(-0.9f, -0.5f, -0.1f, 0.5f);
+    glBindTexture(GL_TEXTURE_2D, t[1]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, half_red);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL);
+    glColor3f(0.0f, 0.0f, 1.0f);
+    glRectf(0.1f, -0.5f, 0.9f, 0.5f);
+    static const GLfloat black[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    glTexEnvfv(GL_TEXTURE_ENV, GL_TEXTURE_ENV_COLOR, black);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(2, t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W / 4, PROBE_H / 2), 0, 127, 255, 16) &&
+           near_rgb(px(PROBE_W * 3 / 4, PROBE_H / 2), 128, 0, 127, 16);
+}
+
+/* Two texture units (GL 1.3's minimum; oops-gl had one until 2026-09-19): unit 0 replaces with a
+ * red texel, unit 1 adds a blue one, so the quad is magenta. **Expected to fail on the console**,
+ * which applies unit 0 alone until its pixel shader takes a second coordinate - red there, with
+ * one log line. */
+static int check_multitexture(void) {
+    reset_view();
+    static const GLubyte red[4] = {255, 0, 0, 255}, blue[4] = {0, 0, 255, 255};
+    GLuint t[2] = {0, 0};
+    glGenTextures(2, t);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, t[0]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, red);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glEnable(GL_TEXTURE_2D);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, t[1]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, blue);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_ADD);
+    glEnable(GL_TEXTURE_2D);
+    glRectf(-0.5f, -0.5f, 0.5f, 0.5f);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(2, t);
+    GLint units = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_UNITS, &units);
+    if (glGetError() != GL_NO_ERROR || units < 2) return 0;
+    return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 255, 0, 255, 16);
+}
+
+/* A cube map (GL 1.3): six 1x1 faces, looked up along -z by a texture coordinate and along the
+ * eye-space normal by GL_NORMAL_MAP generation - cyan both times. **Expected to pass on both
+ * paths since 2026-09-20**, when the console gained the hardware half: the six faces uploaded as
+ * one array, `TYPE 0xb` in the descriptor, and the lookup by direction done in the pixel shader
+ * with RDNA2's own cube instructions. It drew white there before that, untextured. This check
+ * looks along -z and by the normal, so a face-order mistake shows as the wrong colour rather
+ * than as no colour. */
+static int check_cube_map(void) {
+    reset_view();
+    static const GLubyte faces[6][4] = {
+        {255, 0, 0, 255}, {0, 255, 0, 255}, {0, 0, 255, 255},
+        {255, 255, 0, 255}, {255, 0, 255, 255}, {0, 255, 255, 255},
+    };
+    GLuint t = 0;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, t);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    for (int f = 0; f < 6; f++) {
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + (GLenum)f, 0, GL_RGBA, 1, 1, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, faces[f]);
+    }
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glEnable(GL_TEXTURE_CUBE_MAP);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glTexCoord3f(0.1f, -0.2f, -1.0f);
+    glRectf(-0.9f, -0.5f, -0.1f, 0.5f);
+    glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_NORMAL_MAP);
+    glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_NORMAL_MAP);
+    glTexGeni(GL_R, GL_TEXTURE_GEN_MODE, GL_NORMAL_MAP);
+    glEnable(GL_TEXTURE_GEN_S); glEnable(GL_TEXTURE_GEN_T); glEnable(GL_TEXTURE_GEN_R);
+    glNormal3f(0.0f, 0.0f, -1.0f);
+    glRectf(0.1f, -0.5f, 0.9f, 0.5f);
+    glDisable(GL_TEXTURE_GEN_S); glDisable(GL_TEXTURE_GEN_T); glDisable(GL_TEXTURE_GEN_R);
+    glNormal3f(0.0f, 0.0f, 1.0f);
+    glTexCoord4f(0.0f, 0.0f, 0.0f, 1.0f);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_CUBE_MAP);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+    glDeleteTextures(1, &t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W / 4, PROBE_H / 2), 0, 255, 255, 16) &&
+           near_rgb(px(PROBE_W * 3 / 4, PROBE_H / 2), 0, 255, 255, 16);
+}
+
+/* A red 4x4, green 2x2, blue 1x1 chain - or only its red base - in a column of the probe area. */
+static void lod_column(GLuint t, int levels, GLenum min_filter, GLenum pname, GLint ival,
+                       GLfloat fval, float x0) {
+    static GLubyte red[4 * 4 * 4], green[2 * 2 * 4], blue[4];
+    for (int i = 0; i < 16; i++) { red[i * 4] = 255; red[i * 4 + 3] = 255; }
+    for (int i = 0; i < 4; i++) { green[i * 4 + 1] = 255; green[i * 4 + 3] = 255; }
+    blue[2] = 255; blue[3] = 255;
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, red);
+    if (levels > 1) {
+        glTexImage2D(GL_TEXTURE_2D, 1, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, green);
+        glTexImage2D(GL_TEXTURE_2D, 2, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, blue);
+    }
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (GLint)min_filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    if (pname == GL_TEXTURE_MIN_LOD) glTexParameterf(GL_TEXTURE_2D, pname, fval);
+    else glTexParameteri(GL_TEXTURE_2D, pname, ival);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex2f(x0, -0.8f);
+    glTexCoord2f(1.0f, 0.0f); glVertex2f(x0 + 0.6f, -0.8f);
+    glTexCoord2f(1.0f, 1.0f); glVertex2f(x0 + 0.6f, 0.8f);
+    glTexCoord2f(0.0f, 1.0f); glVertex2f(x0, 0.8f);
+    glEnd();
+}
+
+/* GL 1.2's level-of-detail parameters, refused until 2026-09-19, each on a magnified texture:
+ * - left, **GL_TEXTURE_BASE_LEVEL 1** under GL_NEAREST: green. The hardware samples a chain of
+ *   one level built from level 1, where it sampled level 0's own storage.
+ * - middle, **GL_TEXTURE_MAX_LEVEL 0** on a single-level texture under a mipmap filter: red. It
+ *   was incomplete, and drew in the vertex colour, white.
+ * - right, **GL_TEXTURE_MIN_LOD 2** under GL_NEAREST_MIPMAP_NEAREST: blue - the sampler's MIN_LOD
+ *   field, in 4.8 fixed point, holding a magnified draw at level 2. */
+static int check_lod_params(void) {
+    reset_view();
+    GLuint t[3] = {0, 0, 0};
+    glGenTextures(3, t);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    lod_column(t[0], 3, GL_NEAREST, GL_TEXTURE_BASE_LEVEL, 1, 0.0f, -0.95f);
+    lod_column(t[1], 1, GL_NEAREST_MIPMAP_NEAREST, GL_TEXTURE_MAX_LEVEL, 0, 0.0f, -0.3f);
+    lod_column(t[2], 3, GL_NEAREST_MIPMAP_NEAREST, GL_TEXTURE_MIN_LOD, 0, 2.0f, 0.35f);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(3, t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    /* Column centres at NDC x -0.65, 0 and 0.65. */
+    const int y = PROBE_H / 2;
+    return near_rgb(px(PROBE_W * 35 / 200, y), 0, 255, 0, 16) &&
+           near_rgb(px(PROBE_W / 2, y), 255, 0, 0, 16) &&
+           near_rgb(px(PROBE_W * 165 / 200, y), 0, 0, 255, 16);
+}
+
+/* A lit quad over the middle of the area, facing the light. */
+static void lit_rect(float nz) {
+    glNormal3f(0.0f, 0.0f, nz);
+    glBegin(GL_QUADS);
+    glVertex2f(-0.5f, -0.5f); glVertex2f(0.5f, -0.5f);
+    glVertex2f(0.5f, 0.5f);   glVertex2f(-0.5f, 0.5f);
+    glEnd();
+}
+
+/* One white directional light along +z, diffuse `d` and specular `s`, nothing ambient. */
+static void one_light(float d, float s) {
+    const GLfloat dir[4] = {0.0f, 0.0f, 1.0f, 0.0f}, none[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    const GLfloat dif[4] = {d, d, d, 1.0f}, spec[4] = {s, s, s, 1.0f};
+    glLightfv(GL_LIGHT0, GL_POSITION, dir);
+    glLightfv(GL_LIGHT0, GL_AMBIENT, none);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, dif);
+    glLightfv(GL_LIGHT0, GL_SPECULAR, spec);
+    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, none);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, none);
+    glEnable(GL_LIGHT0);
+    glEnable(GL_LIGHTING);
+}
+
+static void lighting_off(void) {
+    static const GLfloat amb[4] = {0.2f, 0.2f, 0.2f, 1.0f}, dif[4] = {0.8f, 0.8f, 0.8f, 1.0f};
+    static const GLfloat spec[4] = {0.0f, 0.0f, 0.0f, 1.0f}, lm[4] = {0.2f, 0.2f, 0.2f, 1.0f};
+    glDisable(GL_LIGHTING);
+    glDisable(GL_LIGHT0);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, amb);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, dif);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, spec);
+    glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 0.0f);
+    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, lm);
+    glLightModeli(GL_LIGHT_MODEL_COLOR_CONTROL, GL_SINGLE_COLOR);
+}
+
+/* GL 1.2's GL_RESCALE_NORMAL and the normal lengths under it, which lighting ignored until
+ * 2026-09-19 by normalising every normal. Lighting is CPU work on both paths, so this should pass
+ * on the console: what it measures there is that the lit colours reach the vertices.
+ * - glScalef(2) halves a unit normal: diffuse 1 lights it at 0.5, grey 128;
+ * - GL_RESCALE_NORMAL undoes the scale: white;
+ * - and a shininess of 0, full specular where it was none: a black-diffuse quad lit white. */
+static int check_rescale_normal(void) {
+    reset_view();
+    static const GLfloat white[4] = {1.0f, 1.0f, 1.0f, 1.0f}, black[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    one_light(1.0f, 0.0f);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, white);
+    glScalef(2.0f, 2.0f, 2.0f);
+    lit_rect(1.0f);
+    const int halved = near_rgb(px(PROBE_W / 2, PROBE_H / 2), 128, 128, 128, 16);
+    glEnable(GL_RESCALE_NORMAL);
+    lit_rect(1.0f);
+    glDisable(GL_RESCALE_NORMAL);
+    const int rescaled = near_rgb(px(PROBE_W / 2, PROBE_H / 2), 255, 255, 255, 16);
+    glLoadIdentity();
+    one_light(0.0f, 1.0f);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, black);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, white);
+    glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 0.0f);
+    lit_rect(1.0f);
+    const int specular = near_rgb(px(PROBE_W / 2, PROBE_H / 2), 255, 255, 255, 16);
+    lighting_off();
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return halved && rescaled && specular;
+}
+
+/* GL_SEPARATE_SPECULAR_COLOR: a white highlight on a black-textured quad, the texture
+ * GL_MODULATE. Kept apart, the highlight is added after texturing and the quad is white; summed
+ * first, the texture blacks it out. On the console the highlight rides in the third interpolant
+ * since 2026-09-19. The textured pixel shader adds it after the combine, through the interface
+ * obSCEne measured (REQ-20260919T1745Z-9c3e). This should pass there now, and it is the
+ * measurement of that sum. Until then the specular joined the colour per vertex, and the texture
+ * blacked it out. */
+static int check_separate_specular(void) {
+    reset_view();
+    static const GLfloat white[4] = {1.0f, 1.0f, 1.0f, 1.0f}, black[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    static const GLubyte texel[4] = {0, 0, 0, 255};
+    GLuint t = 0;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, texel);
+    glEnable(GL_TEXTURE_2D);
+    one_light(0.0f, 1.0f);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, black);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, white);
+    glLightModeli(GL_LIGHT_MODEL_COLOR_CONTROL, GL_SEPARATE_SPECULAR_COLOR);
+    glTexCoord2f(0.5f, 0.5f);
+    lit_rect(1.0f);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(1, &t);
+    lighting_off();
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 255, 255, 255, 16);
+}
+
+/* glClear through a scissor box and a colour mask, which it ignored until 2026-09-19. Such a clear
+ * is now drawn - a quad at the clear colour, through the scissor registers and CB_TARGET_MASK -
+ * where an unscissored, unmasked one is still the DMA fill; this measures the drawn kind on a
+ * console. Green into the lower-left quarter only, then blue through a mask keeping red: the
+ * upper right stays red and gains blue, magenta. */
+static int check_scissored_clear(void) {
+    reset_view();
+    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(0, 0, PROBE_W / 2, PROBE_H / 2);
+    glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_FALSE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glClearColor(0.125f, 0.125f, 0.125f, 1.0f);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    /* px counts rows down from the top: row PROBE_H - 8 is near the bottom, row 8 near the top. */
+    const int lower_left = near_rgb(px(8, PROBE_H - 8), 0, 0, 255, 16);  /* green cleared by the blue */
+    const int upper_right = near_rgb(px(PROBE_W - 8, 8), 255, 0, 255, 16);
+    return lower_left && upper_right;
+}
+
+/* The accumulation buffer, as motion blur uses it: a red frame and a blue frame added in at half
+ * each and returned - half red, half blue. Every read goes through the flush and readback that
+ * glReadPixels uses and the return is a CPU write like glDrawPixels', so on a console this
+ * measures that the GPU's frames reach the buffer and the result reaches the screen. */
+static int check_accumulation(void) {
+    reset_view();
+    glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_ACCUM_BUFFER_BIT);
+    draw_rect(-1.0f, -1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f);
+    glAccum(GL_ACCUM, 0.5f);
+    glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    draw_rect(-1.0f, -1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f);
+    glAccum(GL_ACCUM, 0.5f);
+    glAccum(GL_RETURN, 1.0f);
+    glClearColor(0.125f, 0.125f, 0.125f, 1.0f);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 128, 0, 128, 8);
+}
+
+/* Line stipple: a line across the area's 128 columns under 0x00ff at factor 4 - 32 columns on,
+ * 32 off. The dashes are cut on the CPU and drawn as ordinary quads, so this should pass on the
+ * console as it does here. Window row 48, the line's, is px row 47. */
+static int check_line_stipple(void) {
+    reset_view();
+    glLineWidth(3.0f);
+    glEnable(GL_LINE_STIPPLE);
+    glLineStipple(4, 0x00ff);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glBegin(GL_LINES);
+    glVertex2f(-1.0f, 0.0f);
+    glVertex2f(1.0f, 0.0f);
+    glEnd();
+    glDisable(GL_LINE_STIPPLE);
+    glLineStipple(1, 0xffff);
+    glLineWidth(1.0f);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    const int y = PROBE_H - 1 - PROBE_H / 2;
+    return near_rgb(px(10, y), 255, 255, 255, 16) && near_rgb(px(40, y), 0x20, 0x20, 0x20, 8) &&
+           near_rgb(px(70, y), 255, 255, 255, 16) && near_rgb(px(100, y), 0x20, 0x20, 0x20, 8);
+}
+
+/* Polygon stipple: a checkerboard mask over a white rectangle filling the area. **Expected to
+ * pass on both paths since 2026-09-20**, when the pixel shaders got the discard: the draw asks
+ * for the fragment's window position (`SPI_PS_INPUT_ENA` 0x302, obSCEne's
+ * `REQ-20260919T2258Z-c7d4`) and looks the mask up in a 32-row table the CPU writes beside the
+ * shaders. It failed on the console before that, the software rasteriser applying the mask and
+ * the hardware path ignoring it. Window (0, 0) keeps its fragment, (1, 0) loses it; px row 95 is
+ * window 0 - so this also catches the rotation being dropped, which would stipple the polygon
+ * with the mask upside down. */
+static int check_polygon_stipple(void) {
+    reset_view();
+    static GLubyte mask[128];
+    for (int r = 0; r < 32; r++) {
+        for (int c = 0; c < 4; c++) mask[r * 4 + c] = (GLubyte)((r & 1) ? 0x55 : 0xaa);
+    }
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glPolygonStipple(mask);
+    glEnable(GL_POLYGON_STIPPLE);
+    draw_rect(-1.0f, -1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f);
+    glDisable(GL_POLYGON_STIPPLE);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(0, PROBE_H - 1), 255, 255, 255, 16) &&
+           near_rgb(px(1, PROBE_H - 1), 0x20, 0x20, 0x20, 8);
+}
+
+/* The texture matrix, which reached nothing until 2026-09-19. A red | green texture on a quad
+ * whose s runs 0..0.49 - red - drawn again with the texture matrix moving s on by a half, which
+ * must turn it green. The coordinates are computed on the CPU and sampled by the console, so
+ * this is the hardware's view of the fix. */
+static int check_texture_matrix(void) {
+    reset_view();
+    static const GLubyte texels[8] = {255, 0, 0, 255, 0, 255, 0, 255};
+    GLuint t = 0;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, texels);
+    glEnable(GL_TEXTURE_2D);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glMatrixMode(GL_TEXTURE);
+    glLoadIdentity();
+    glTranslatef(0.5f, 0.0f, 0.0f);
+    glMatrixMode(GL_MODELVIEW);
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f);  glVertex2f(-0.5f, -0.5f);
+    glTexCoord2f(0.49f, 0.0f); glVertex2f(0.5f, -0.5f);
+    glTexCoord2f(0.49f, 1.0f); glVertex2f(0.5f, 0.5f);
+    glTexCoord2f(0.0f, 1.0f);  glVertex2f(-0.5f, 0.5f);
+    glEnd();
+    glMatrixMode(GL_TEXTURE);
+    glLoadIdentity();
+    glMatrixMode(GL_MODELVIEW);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(1, &t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 0, 255, 0, 16);
+}
+
+/* A depth range changed between two draws of one frame.
+ *
+ * `depth-range` cannot see this: it samples between its two halves, and a sample submits the
+ * frame, so each half starts a fresh one whose register table already carries the new range.
+ * Here nothing samples until both quads are down. Red is drawn with the range 0.5..1, green on
+ * top of it with 0..0.5, both at z = 0 - so green lands at window depth 0.25 against red's 0.75
+ * and GL_LESS keeps green. If the second range never reached the hardware, both are at 0.75 and
+ * GL_LESS keeps red.
+ */
+static int check_depth_range_in_frame(void) {
+    reset_view();
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glDepthRange(0.5, 1.0);
+    draw_rect(-0.5f, -0.5f, 0.5f, 0.5f, 1.0f, 0.0f, 0.0f);
+    glDepthRange(0.0, 0.5);
+    draw_rect(-0.5f, -0.5f, 0.5f, 0.5f, 0.0f, 1.0f, 0.0f);
+    glDepthRange(0.0, 1.0);
+    glDisable(GL_DEPTH_TEST);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 0, 255, 0, 8);
+}
+
+/* More triangles in one frame than the vertex ring holds (450).
+ *
+ * A 20x15 grid of small rectangles, two triangles each - 600 triangles, all in one frame. The
+ * first is green, the last red, the rest blue. Every triangle's vertices sit in a ring slot until
+ * the frame runs, so if the ring wrapped without submitting, triangles 450 and 451 overwrote the
+ * first rectangle's slots and the first rectangle is simply not there: no green pixel anywhere.
+ * Counted rather than point-sampled, so the answer does not depend on which way up the rows are.
+ */
+static int check_many_triangles(void) {
+    reset_view();
+    const int cols = 20, rows = 15;
+    const float cw = 2.0f / (float)cols, ch = 2.0f / (float)rows;
+    for (int k = 0; k < cols * rows; k++) {
+        const float x0 = -1.0f + (float)(k % cols) * cw + cw * 0.2f;
+        const float y0 = -1.0f + (float)(k / cols) * ch + ch * 0.2f;
+        const float g = (k == 0) ? 1.0f : 0.0f;
+        const float r = (k == cols * rows - 1) ? 1.0f : 0.0f;
+        const float b = (k != 0 && k != cols * rows - 1) ? 1.0f : 0.0f;
+        draw_rect(x0, y0, x0 + cw * 0.6f, y0 + ch * 0.6f, r, g, b);
+    }
+    if (glGetError() != GL_NO_ERROR) return 0;
+
+    int green = 0, red = 0, blue = 0;
+    const uint32_t *s = scan_frame();
+    for (int y = 0; y < PROBE_H; y++) {
+        for (int x = 0; x < PROBE_W; x++) {
+            const uint32_t c = SCAN_PX(s, x, y);
+            if (near_rgb(c, 0, 255, 0, 16)) green++;
+            else if (near_rgb(c, 255, 0, 0, 16)) red++;
+            else if (near_rgb(c, 0, 0, 255, 16)) blue++;
+        }
+    }
+    /* A cell is 6.4 px square and the rectangle 60% of it: about 3x3 pixels each. */
+    return green >= 4 && red >= 4 && blue >= 298 * 4;
 }
 
 static int check_refusals(void) {
@@ -812,13 +2462,15 @@ static int check_refusals(void) {
 
     /* A capability this subset does not have is refused rather than dropped. Written as its
      * specification value because oops-gl deliberately does not declare it - D009: an absent
-     * feature is an absent symbol, so `GL_DITHER` is not in <GL/gl.h> at all. */
-    glEnable(0x0BD0u /* GL_DITHER */);
+     * feature is an absent symbol. GL_CONVOLUTION_1D belongs to the imaging subset, which is
+     * optional and not advertised, so it stays refused; GL_DITHER, the example here until
+     * 2026-09-19, is accepted as state now. */
+    glEnable(0x8010u /* GL_CONVOLUTION_1D */);
     if (glGetError() != GL_INVALID_ENUM) return 0;
 
     /* And a query it cannot answer refuses rather than leaving the caller's buffer as it was. */
     GLint v = 0x5eed;
-    glGetIntegerv(0x8000u /* GL_FOG_HINT */, &v);
+    glGetIntegerv(0x8000u /* no GL 1.x query; labelled GL_FOG_HINT here until 2026-09-19, which is 0x0C54 */, &v);
     if (glGetError() != GL_INVALID_ENUM) return 0;
     if (v != 0x5eed) return 0;
     return 1;
@@ -1202,28 +2854,32 @@ static int check_blend_equation(void) {
     return 1;
 }
 
-/* **Two-sided lighting is refused, and that is the behaviour being checked.**
- *
- * It needs a primitive's facing, which is not known when this computes lighting per vertex. It
- * used to set a field nothing read, so the call returned clean and nothing happened. A probe
- * that only tested features would not notice a refusal going missing, which is why the
- * refusals are checked as carefully as the features. */
-static int check_two_side_refused(void) {
+/* **Two-sided lighting**, which was refused here - this check used to confirm the refusal - and
+ * before that set a field nothing read. A clockwise (back-facing) quad on the left and a
+ * counter-clockwise one on the right, green emission in front and red behind: with
+ * GL_LIGHT_MODEL_TWO_SIDE the left is red and the right green. Lighting is CPU work on both
+ * paths, choosing the side by the triangle's winding before any vertex is lit, so this should
+ * pass on the console. */
+static int check_two_side(void) {
     reset_view();
-    (void)glGetError();
-    static const GLfloat on[4] = {1.0f, 0.0f, 0.0f, 0.0f};
-    glLightModelfv(GL_LIGHT_MODEL_TWO_SIDE, on);
-    if (glGetError() != GL_INVALID_ENUM) return 0;
-
-    /* The light model's other parameters still work, so this is a refusal of one thing rather
-     * than of the call. */
-    static const GLfloat amb[4] = {0.25f, 0.25f, 0.25f, 1.0f};
-    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, amb);
+    static const GLfloat green[4] = {0.0f, 1.0f, 0.0f, 1.0f}, red[4] = {1.0f, 0.0f, 0.0f, 1.0f};
+    static const GLfloat none[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    one_light(0.0f, 0.0f);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, none);
+    glMaterialfv(GL_FRONT, GL_EMISSION, green);
+    glMaterialfv(GL_BACK, GL_EMISSION, red);
+    glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
+    glNormal3f(0.0f, 0.0f, 1.0f);
+    glBegin(GL_QUADS);
+    glVertex2f(-0.9f, -0.5f); glVertex2f(-0.9f, 0.5f); glVertex2f(-0.1f, 0.5f); glVertex2f(-0.1f, -0.5f);
+    glVertex2f(0.1f, -0.5f);  glVertex2f(0.9f, -0.5f); glVertex2f(0.9f, 0.5f);  glVertex2f(0.1f, 0.5f);
+    glEnd();
+    glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_FALSE);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, none);
+    lighting_off();
     if (glGetError() != GL_NO_ERROR) return 0;
-    GLfloat back[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    glGetFloatv(GL_LIGHT_MODEL_AMBIENT, back);
-    if (back[0] != 0.25f) return 0;
-    return glGetError() == GL_NO_ERROR;
+    return near_rgb(px(PROBE_W / 4, PROBE_H / 2), 255, 0, 0, 16) &&
+           near_rgb(px(PROBE_W * 3 / 4, PROBE_H / 2), 0, 255, 0, 16);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -1627,6 +3283,47 @@ static const gl1_probe_case_t g_cases[] = {
     {"raster-ops",       check_raster_ops},
     {"points-and-lines", check_points_and_lines},
     {"fog",              check_fog},
+    {"fog-coord",        check_fog_coord},
+    {"logic-op",         check_logic_op},
+    {"blend-constant",   check_blend_constant},
+    {"depth-range-in-frame", check_depth_range_in_frame},
+    {"polygon-mode",     check_polygon_mode},
+    {"mipmap-levels",    check_mipmap_levels},
+    {"evaluators",       check_evaluators},
+    {"selection",        check_selection},
+    {"texture-matrix",   check_texture_matrix},
+    {"pixel-transfer",   check_pixel_transfer},
+    {"pixel-fragments",  check_pixel_fragments},
+    {"point-params",     check_point_params},
+    {"lod-bias",         check_lod_bias},
+    {"projective-texture", check_projective_texture},
+    {"stencil-pixels",   check_stencil_pixels},
+    {"depth-readback",   check_depth_readback},
+    {"stencil-readback", check_stencil_readback},
+    {"front-buffer",     check_front_buffer},
+    {"front-and-back",   check_front_and_back},
+    {"index-pixels",     check_index_pixels},
+    {"buffer-map",       check_buffer_map},
+    {"occlusion-query",  check_occlusion_query},
+    {"shadow-compare",   check_shadow_compare},
+    {"line-stipple",     check_line_stipple},
+    {"polygon-stipple",  check_polygon_stipple},
+    {"accumulation",     check_accumulation},
+    {"scissored-clear",  check_scissored_clear},
+    {"texture-3d",       check_texture_3d},
+    {"pixel-types",      check_pixel_types},
+    {"internal-formats", check_internal_formats},
+    {"border-and-mirror", check_border_and_mirror},
+    {"lod-params",       check_lod_params},
+    {"cube-map",         check_cube_map},
+    {"combine",          check_combine},
+    {"tex-env-blend-decal", check_tex_env_blend_decal},
+    {"smooth",           check_smooth},
+    {"array-types",      check_array_types},
+    {"colour-sum",       check_color_sum},
+    {"rescale-normal",   check_rescale_normal},
+    {"separate-specular", check_separate_specular},
+    {"many-triangles",   check_many_triangles},
     {"colour-mask",      check_colour_mask},
     {"blend",            check_blend},
     {"depth-test",       check_depth},
@@ -1649,7 +3346,7 @@ static const gl1_probe_case_t g_cases[] = {
     {"object-queries",   check_object_queries},
     {"polygon-offset",   check_polygon_offset},
     {"blend-equation",   check_blend_equation},
-    {"two-side-refused", check_two_side_refused},
+    {"two-side",         check_two_side},
     {"cull-face",        check_cull_face},
     {"viewport",         check_viewport},
     {"depth-mask",       check_depth_mask},
@@ -1658,10 +3355,30 @@ static const gl1_probe_case_t g_cases[] = {
     {"two-lights",       check_two_lights},
     {"refusals",         check_refusals},
     {"limits",           check_limits_reported},
-    /* **Last on purpose.** It is the one check that has taken the GPU down, so a regression in
-     * it costs this row and nothing after it. See check_tex_delete_in_frame. */
+    /* **Last on purpose**, both of them: a check that can take the GPU down costs its own row
+     * and every row after it, because the fault kills the process and the suite stops there.
+     *
+     * - `tex-delete-in-frame` has done it before - see the check itself.
+     * - `multitexture` did it on 2026-09-20, on the first console run that got past the
+     *   `raster-ops` stall: `ILLEGAL_INST` on two waves at one PC, then
+     *   `GPU_FAULT_WAVEFRONT_ERROR_ASYNC` and a GPU reset. It sat between
+     *   `tex-env-blend-decal` and `smooth` and took thirty-nine unrun checks with it, which is
+     *   the whole reason for this ordering. Moving it is not a fix and does not pretend to be
+     *   one; the fault is real and the run that resolves it wants the other rows as well.
+     */
+    {"multitexture",     check_multitexture},
     {"tex-delete-in-frame", check_tex_delete_in_frame},
 };
+
+_Static_assert(sizeof(g_cases) / sizeof(g_cases[0]) <= GL1_PROBE_MAX_CASES,
+               "more checks than GL1_PROBE_MAX_CASES: the callers' result arrays would drop some");
+
+/* NULL unless a caller wants a running commentary - the payload does, the host self-test does
+ * not. See the header for why a hang made this necessary. */
+void (*gl1_probe_trace)(const char *name, int verdict) = (void (*)(const char *, int))0;
+
+/* NULL unless a caller wants the pixel behind a failure - see the header. */
+void (*gl1_probe_saw)(const char *name, uint32_t centre) = (void (*)(const char *, uint32_t))0;
 
 int gl1_probe_case_count(void) {
     return (int)(sizeof(g_cases) / sizeof(g_cases[0]));
@@ -1709,7 +3426,16 @@ int gl1_probe_run(gl1_probe_result_t *out, int max) {
          * make a single bug look like a dozen. */
         (void)glGetError();
         out[i].name = g_cases[i].name;
+        /* Named on the way in, so a check that never returns is still named - see
+         * `gl1_probe_trace` in the header for the run that made this necessary. */
+        if (gl1_probe_trace) gl1_probe_trace(g_cases[i].name, -1);
         out[i].passed = g_cases[i].fn();
+        if (gl1_probe_trace) gl1_probe_trace(g_cases[i].name, out[i].passed);
+        /* After the verdict, so the row reads name, verdict, value - and only on a failure, one
+         * pixel, because reading one costs a full synchronisation. See the header. */
+        if (!out[i].passed && gl1_probe_saw) {
+            gl1_probe_saw(g_cases[i].name, px(PROBE_W / 2, PROBE_H / 2));
+        }
     }
 
     glContextDestroy(ctx);

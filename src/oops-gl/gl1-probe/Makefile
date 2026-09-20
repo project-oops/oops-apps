@@ -17,7 +17,10 @@ GL_SRCS = $(OOPS_SDK_DIR)/src/gl/gl_context.c \
           $(OOPS_SDK_DIR)/src/gl/gl_draw.c \
           $(OOPS_SDK_DIR)/src/gl/gl_list.c \
           $(OOPS_SDK_DIR)/src/gl/gl_attrib.c \
-          $(OOPS_SDK_DIR)/src/gl/gl_raster.c
+          $(OOPS_SDK_DIR)/src/gl/gl_raster.c \
+          $(OOPS_SDK_DIR)/src/gl/gl_eval.c \
+          $(OOPS_SDK_DIR)/src/gl/gl_select.c \
+          $(OOPS_SDK_DIR)/src/gl/gl_pixel.c
 
 HOST_TEST_SRCS = gl1_probe_selftest.c \
                  gl1_probe.c \

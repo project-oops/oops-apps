@@ -826,12 +826,33 @@ static uint32_t pad_buttons(const oops_pad_state_t *pad) {
     return b;
 }
 
+__attribute__((weak)) int _sigaction(int sig, const void *act, void *oact);
+
+static volatile int s_exit_signal = 0;
+
+static void exit_signal_handler(int sig) {
+    (void)sig;
+    s_exit_signal = 1;
+}
+
+static void install_exit_signal_handlers(void) {
+    if (oops_symbol_is_resolved((const void *)&_sigaction)) {
+        unsigned char act[32];
+        for (size_t i = 0; i < sizeof(act); i++) act[i] = 0;
+        *(void **)(void *)(act + 0) = (void *)(uintptr_t)&exit_signal_handler;
+        (void)_sigaction(15 /* SIGTERM */, act, 0);
+        (void)_sigaction(2  /* SIGINT */, act, 0);
+        (void)_sigaction(1  /* SIGHUP */, act, 0);
+    }
+}
+
 int seashell_start(const payload_args_t *args);
 
 int seashell_start(const payload_args_t *args) {
     if (args != 0) {
         sys_call_init(args);
     }
+    install_exit_signal_handlers();
 
     oops_log_set_level(OOPS_LOG_DEBUG);
     oops_log_info("HOME", "seashell starting (verbose input logging active)");
@@ -930,10 +951,15 @@ int seashell_start(const payload_args_t *args) {
             s_last_logged_buttons = buttons;
         }
 
-        if (exit_combo(buttons) != 0) {
+        if (s_exit_signal != 0 || exit_combo(buttons) != 0) {
             running = 0;
         } else {
             (void)home_input_apply(&input, &model, buttons);
+        }
+
+        /* Periodically tick system power/watchdog every 60 frames (~1 sec) */
+        if ((s_input_tick % 60) == 0) {
+            (void)oops_system_power_tick();
         }
 
         home_tick(&model);

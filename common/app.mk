@@ -132,11 +132,25 @@ CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion
           $(OOPS_SDK_INCLUDE) $(EXTRA_CFLAGS)
 
 TARGET_CC = clang
+# **The target gets oops-sdk's `include/libc` as well** (2026-09-20): <math.h>, <string.h> and
+# <stdlib.h> under the names a port's own code calls. It is on the *target* path only - the host
+# build above must keep the real C library, or a host test that includes <string.h> gets a
+# freestanding one instead.
+#
+# **Freestanding titles only.** A hosted title (USE_MESA) takes its target C library from the Mesa
+# sysroot, whose <time.h> and the rest are the real ones; oops-sdk's freestanding libc headers on
+# top of them collide - the sysroot's `__clock_t` is `int`, this libc's `clock_t` is `int64_t`, and
+# the redefinition breaks every target compile. So a hosted title does not get this path.
+ifeq ($(USE_MESA),1)
+OOPS_SDK_LIBC_INCLUDE ?=
+else
+OOPS_SDK_LIBC_INCLUDE ?= -I$(OOPS_SDK_DIR)/include/libc
+endif
 TARGET_CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion \
                  -Wstrict-prototypes -Wmissing-prototypes -Wvla \
                  -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -fPIC \
                  -fno-stack-protector -fvisibility=hidden \
-                 $(OOPS_SDK_INCLUDE) $(EXTRA_TARGET_CFLAGS)
+                 $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) $(EXTRA_TARGET_CFLAGS)
 
 # Standardized application telemetry & log identity macros
 ifeq ($(strip $(BUILD_VERSION)),)
@@ -247,16 +261,91 @@ else
 	@echo "$(APP_NAME) skeleton: no target payload defined"
 endif
 
+# Every payload gets these whether it lists them or not. `libc.c` joined them on 2026-09-20: it
+# is the C a port's own code calls - `sqrtf`, `malloc`, `strcpy` - and leaving it to each app to
+# remember would be the wrong way round, because a payload link passes
+# `--unresolved-symbols=ignore-all` and an app that forgot it would link clean and fault on the
+# console. `math.c` comes with it, since that is what its float functions stand on.
 CORE_SDK_SRCS := $(OOPS_SDK_DIR)/src/system/procparam.c \
                  $(OOPS_SDK_DIR)/src/system/fs.c \
                  $(OOPS_SDK_DIR)/src/memory/heap.c \
                  $(OOPS_SDK_DIR)/src/time/time.c
+# `libc.c`, `math.c` and `scanf.c` are the freestanding C library a non-Mesa port's own code
+# stands on. A hosted title (USE_MESA) gets that C library from the Mesa sysroot and links
+# FreeBSD's own libm, so adding oops-sdk's would duplicate and collide - they are for
+# freestanding titles only.
+#
+# `scanf.c` is listed here rather than left to each app for the reason `libc.c` is: `libc.c`
+# names `obs_vsscanf` whether or not the app calls `sscanf`, so an app that omitted it would
+# **link cleanly** with an undefined symbol and fault on the console. That is exactly the trap
+# `docs/PORTING.md` describes, and `nm -u` on a fresh link is what caught it here.
+ifneq ($(USE_MESA),1)
+CORE_SDK_SRCS += $(OOPS_SDK_DIR)/src/system/libc.c \
+                 $(OOPS_SDK_DIR)/src/system/scanf.c \
+                 $(OOPS_SDK_DIR)/src/math/math.c
+endif
 TARGET_SYS_SRCS ?= $(filter-out $(PAYLOAD_SRCS), $(wildcard $(CORE_SDK_SRCS)))
 
-# Full freestanding target payload ELF
+# ---------------------------------------------------------------------------
+# The undefined-symbol check, run on every payload link
+#
+# **A payload link ignores unresolved symbols and has to.** The console's own modules resolve
+# `sce*` imports when the payload loads, so `--unresolved-symbols=ignore-all` is not optional -
+# and the consequence is that a call to a function nobody defines **links cleanly** and faults on
+# the console, which is the most expensive place to find out.
+#
+# `docs/PORTING.md` has told a porter to run `nm -u` by hand since that guide existed. Three
+# times in one day it caught something here that nothing else would have: `libc.c` missing from a
+# source list, then `glut_font.c`, then `scanf.c`. A check that has to be remembered is a check
+# that is not run, so it runs here, and a symbol that nothing defines now fails the build.
+#
+# The ELF is deleted when it fails. A payload that faults on the console should not be sitting in
+# `build/` looking finished.
+#
+# `UNDEF_ALLOW` is the imports the loader really does resolve; an app with a module of its own
+# adds to `EXTRA_UNDEF_ALLOW` rather than editing this.
+UNDEF_ALLOW ?= ^sce[A-Z]|^sysctlbyname$$
+NM ?= nm
+
+# **A hosted title is the case this cannot judge.** `USE_MESA` links against the Mesa sysroot and
+# the console's FreeBSD C library resolves `strtoul`, `vsnprintf`, `syslog` and a hundred others
+# at load, exactly as it resolves `sce*` - so for those titles an undefined libc name is correct
+# and the check has nothing to tell them apart by. It is off there, and says so on every link
+# rather than passing quietly: a check that looks like it ran and did not is worse than none.
+# A hosted title that wants it back sets `UNDEF_CHECK=1` and lists its sysroot's exports in
+# `EXTRA_UNDEF_ALLOW`.
+UNDEF_CHECK ?= $(if $(filter 1,$(USE_MESA)),0,1)
+
+# Full freestanding target payload ELF.
+#
+# **The makefiles are prerequisites**, which they were not until 2026-09-20. A payload's ELF
+# depends on its sources, so adding a file to `CORE_SDK_SRCS` did not relink what was already
+# built - and the undefined-symbol check then answered about the previous build, which is exactly
+# how it looked like a fix had not worked.
 ifneq ($(strip $(PAYLOAD_SRCS)),)
-$(BUILD)/$(APP_NAME).elf: $(PAYLOAD_SRCS) $(TARGET_SYS_SRCS) $(PAYLOAD_EXTRA_DEPS) | $(BUILD)
+$(BUILD)/$(APP_NAME).elf: $(PAYLOAD_SRCS) $(TARGET_SYS_SRCS) $(PAYLOAD_EXTRA_DEPS) \
+                          $(MAKEFILE_LIST) | $(BUILD)
 	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) -o $@ $(PAYLOAD_SRCS) $(TARGET_SYS_SRCS)
+	@nm_tool=$$(command -v $(NM) 2>/dev/null || command -v llvm-nm 2>/dev/null || true); \
+	if [ "$(UNDEF_CHECK)" != "1" ]; then \
+	  echo "$(APP_NAME): the undefined-symbol check is off - a hosted title's C library is"; \
+	  echo "  resolved at load, so an undefined libc name there is correct (see common/app.mk)"; \
+	elif [ -z "$$nm_tool" ]; then \
+	  echo "$(APP_NAME): WARNING - no nm, so the undefined-symbol check did not run"; \
+	else \
+	  undef=$$("$$nm_tool" -u $@ 2>/dev/null \
+	    | sed 's/^[[:space:]]*//;s/^w //;s/^U //' \
+	    | grep -vE '$(UNDEF_ALLOW)$(if $(EXTRA_UNDEF_ALLOW),|$(EXTRA_UNDEF_ALLOW))' || true); \
+	  if [ -n "$$undef" ]; then \
+	    echo "$(APP_NAME): these functions are called and nothing defines them:"; \
+	    echo "$$undef" | sed 's/^/    /'; \
+	    echo "  A payload link ignores unresolved symbols, so this would have faulted on the"; \
+	    echo "  console instead of failing here. Add the file that defines them to PAYLOAD_SRCS,"; \
+	    echo "  or to CORE_SDK_SRCS in common/app.mk when every payload needs it."; \
+	    rm -f $@; \
+	    exit 1; \
+	  fi; \
+	fi
 
 elf: $(BUILD)/$(APP_NAME).elf
 endif

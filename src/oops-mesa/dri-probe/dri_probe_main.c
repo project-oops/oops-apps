@@ -42,7 +42,9 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wconversion"
 #pragma clang diagnostic ignored "-Wsign-conversion"
+#define GL_GLEXT_PROTOTYPES
 #include <GL/gl.h>
+#include <GL/glext.h>
 #pragma clang diagnostic pop
 
 #include <stdint.h>
@@ -174,6 +176,91 @@ static void probe_first_render(struct oops_gl *gl)
 }
 
 /*
+ * The programmable pipeline: a GLSL vertex + fragment shader drawing a colour-interpolated triangle
+ * from a vertex buffer. This is what fixed-function does not exercise - the GLSL compiler (whose
+ * builtin tables the .init_array fix initialises), program linking, a VBO with two vertex
+ * attributes, and per-vertex colour interpolation in a real fragment shader. The three vertices are
+ * red, green and blue, so the centre pixel is a blend of all three - a value neither a clear nor a
+ * flat draw could produce, which is the check that the interpolation actually ran. It overwrites
+ * the fixed-function frame, so this is what reaches the screen.
+ */
+static void probe_glsl_render(struct oops_gl *gl)
+{
+    static const char *const vs_src =
+        "#version 330\n"
+        "layout(location=0) in vec2 a_pos;\n"
+        "layout(location=1) in vec3 a_col;\n"
+        "out vec3 v_col;\n"
+        "void main(){ v_col = a_col; gl_Position = vec4(a_pos, 0.0, 1.0); }\n";
+    static const char *const fs_src =
+        "#version 330\n"
+        "in vec3 v_col;\n"
+        "out vec4 o_col;\n"
+        "void main(){ o_col = vec4(v_col, 1.0); }\n";
+
+    GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vs, 1, &vs_src, NULL);
+    glCompileShader(vs);
+    GLint vs_ok = 0;
+    glGetShaderiv(vs, GL_COMPILE_STATUS, &vs_ok);
+
+    GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fs, 1, &fs_src, NULL);
+    glCompileShader(fs);
+    GLint fs_ok = 0;
+    glGetShaderiv(fs, GL_COMPILE_STATUS, &fs_ok);
+
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vs);
+    glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    GLint link_ok = 0;
+    glGetProgramiv(prog, GL_LINK_STATUS, &link_ok);
+    glUseProgram(prog);
+
+    static const GLfloat verts[] = {
+        /* x      y      r     g     b */
+        -0.6f, -0.6f, 1.0f, 0.0f, 0.0f,
+        0.6f, -0.6f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.6f, 0.0f, 0.0f, 1.0f,
+    };
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)sizeof(verts), verts, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, (GLsizei)(5u * sizeof(GLfloat)),
+                          (const void *)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, (GLsizei)(5u * sizeof(GLfloat)),
+                          (const void *)(2u * sizeof(GLfloat)));
+    glEnableVertexAttribArray(1);
+
+    uint32_t w = 0;
+    uint32_t h = 0;
+    oops_gl_extent(gl, &w, &h);
+    glViewport(0, 0, (GLsizei)w, (GLsizei)h);
+    glClearColor(0.05f, 0.05f, 0.08f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glFinish();
+    GLenum err = glGetError();
+
+    unsigned char px[4] = { 0, 0, 0, 0 };
+    glReadPixels((GLint)(w / 2u), (GLint)(h / 2u), 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
+
+    char buf[200];
+    snprintf(buf, sizeof buf,
+             "glsl render: compile vs=%d fs=%d link=%d draw err=0x%x | centre R=%u G=%u B=%u "
+             "(a blend of the three vertex colours)",
+             (int)vs_ok, (int)fs_ok, (int)link_ok, (unsigned)err,
+             (unsigned)px[0], (unsigned)px[1], (unsigned)px[2]);
+    say(buf);
+}
+
+/*
  * Run the C++ dynamic initialisers. This module has no crt start-up object to walk `.init_array`,
  * and Mesa has globals that stay zeroed until it does - ACO's opcode table `instr_info` among
  * them, which left every emitted instruction with opcode 0 and faulted the GPU (oops-mesa
@@ -219,6 +306,10 @@ void dri_probe_start(void)
 
     /* The first render: a clear to a known colour, verified by reading it back. */
     probe_first_render(gl);
+
+    /* The programmable pipeline: a GLSL colour-interpolated triangle, which overwrites the frame
+     * above and is what gets presented. */
+    probe_glsl_render(gl);
 
     /*
      * Presentation, which is expected to refuse.

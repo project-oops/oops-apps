@@ -18,11 +18,6 @@
 
 #include "net-tool.h"
 
-/* draw.c's oops_display_get_surface reaches the display backend this test never opens. */
-uint32_t *oops_display_get_framebuffer(oops_display_t *disp) { (void)disp; return 0; }
-unsigned int oops_display_get_width(const oops_display_t *disp) { (void)disp; return 0; }
-unsigned int oops_display_get_height(const oops_display_t *disp) { (void)disp; return 0; }
-
 #define W 1280
 #define H 720
 
