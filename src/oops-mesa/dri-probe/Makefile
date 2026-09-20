@@ -16,9 +16,9 @@
 # `glGetString`. See the note in `dri_probe_main.c` - a context that is current but cannot
 # dispatch a GL call is a distinct failure worth separating from one that never became current.
 #
-# It does not render and it does not present. `oops_gl_present` is expected to return false today
-# and says why (oops-mesa D009 and the open `sceVideoOutRegisterBuffers2` question on unit 6); it
-# is called anyway, because the flush half of it does run and reaching it is information.
+# It renders and it presents. Both were open questions when this file was written and both have
+# since been answered on hardware: the frame reaches the panel (oops-mesa worklog 065), so
+# `oops_gl_present` returning false is now the surprise rather than the expectation.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
