@@ -20,10 +20,12 @@
  * back, whether GL then answers, and whether presentation is refused for the reason it is
  * expected to be refused for.
  *
- * Nothing here renders. A frame that did not retire is a failure and never a fallback to software
- * (CLAUDE.md, principle 4), and the flip half of presentation is behind an unanswered hardware
- * question - so this title deliberately stops at the first GL call rather than drawing something
- * and reporting a colour nobody can verify.
+ * It renders only what it can verify: a clear to a known colour and a triangle over the centre,
+ * read back with glReadPixels (which detiles through Mesa and reads the drawable's own colour
+ * buffer, not the display scanout) - one pixel inside the triangle, one in the corner outside it.
+ * That proves the render path without the flip half, which is still behind an unanswered hardware
+ * question. A frame that did not retire is a failure and never a fallback to software (CLAUDE.md,
+ * principle 4), so nothing here fakes a result - the readback is the check.
  */
 
 #include "oops/system.h"
@@ -88,8 +90,11 @@ _Noreturn static void park(void)
  * failing is easier to read than a 33 MB one, and nothing about the path under test changes with
  * the size.
  */
-#define PROBE_WIDTH  1280u
-#define PROBE_HEIGHT 720u
+/* 1920x1080 so the drawable matches the display's own scanout size: the flip half reads the whole
+ * drawable back and hands it to the display, which wants an image the framebuffer's size, and the
+ * AGC display promotes 1280x720 to 1080p internally - so a 720p drawable would not fill it. */
+#define PROBE_WIDTH  1920u
+#define PROBE_HEIGHT 1080u
 
 /*
  * Report one GL string.
@@ -118,6 +123,55 @@ static void report_string(const char *label, GLenum name)
 }
 
 void dri_probe_start(void);
+
+/*
+ * The first render on this platform: clear to a known colour, draw a triangle over the centre, and
+ * read two pixels back - one inside the triangle, one in the corner outside it.
+ *
+ * The clear already reads back pixel-exact (worklog 064). The triangle is the next step up: it
+ * drives the fixed-function vertex path (which radeonsi lowers to an ACO-compiled shader),
+ * rasterisation and the fragment path - the rest of the 3D pipeline. It is drawn in normalised
+ * device coordinates, so the default identity projection maps it to the viewport with no matrix
+ * setup. glReadPixels detiles through Mesa and reads the drawable's own colour buffer, not the
+ * display scanout, so the check holds without the flip half. Two pixels make it a real test: the
+ * centre must be the triangle's colour and the corner must still be the clear colour, so neither a
+ * missing draw nor a whole-surface fill can pass. No result is faked - the readback is the check
+ * (CLAUDE.md principle 4).
+ */
+static void probe_first_render(struct oops_gl *gl)
+{
+    uint32_t w = 0;
+    uint32_t h = 0;
+    oops_gl_extent(gl, &w, &h);
+    glViewport(0, 0, (GLsizei)w, (GLsizei)h);
+
+    glClearColor(0.25f, 0.50f, 0.75f, 1.0f); /* clear -> about 64,128,191 */
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glColor4f(1.0f, 0.0f, 0.0f, 1.0f);       /* triangle -> 255,0,0 */
+    glBegin(GL_TRIANGLES);
+    glVertex2f(-0.5f, -0.5f);
+    glVertex2f(0.5f, -0.5f);
+    glVertex2f(0.0f, 0.5f);
+    glEnd();
+    glFinish();
+    GLenum draw_err = glGetError();
+
+    unsigned char centre[4] = { 0, 0, 0, 0 };
+    unsigned char corner[4] = { 0, 0, 0, 0 };
+    glReadPixels((GLint)(w / 2u), (GLint)(h / 2u), 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, centre);
+    glReadPixels(2, 2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, corner);
+    GLenum read_err = glGetError();
+
+    char buf[220];
+    snprintf(buf, sizeof buf,
+             "first render: draw err=0x%x read err=0x%x | centre R=%u G=%u B=%u (expect ~255 0 0) "
+             "| corner R=%u G=%u B=%u (expect ~64 128 191)",
+             (unsigned)draw_err, (unsigned)read_err,
+             (unsigned)centre[0], (unsigned)centre[1], (unsigned)centre[2],
+             (unsigned)corner[0], (unsigned)corner[1], (unsigned)corner[2]);
+    say(buf);
+}
 
 /*
  * Run the C++ dynamic initialisers. This module has no crt start-up object to walk `.init_array`,
@@ -163,6 +217,9 @@ void dri_probe_start(void)
     report_string("GL_RENDERER:", GL_RENDERER);
     report_string("GL_VENDOR:", GL_VENDOR);
 
+    /* The first render: a clear to a known colour, verified by reading it back. */
+    probe_first_render(gl);
+
     /*
      * Presentation, which is expected to refuse.
      *
@@ -177,11 +234,20 @@ void dri_probe_start(void)
      * shim's own line distinguishes the two. `true` would be the surprise.
      */
     if (oops_gl_present(gl)) {
-        say("presentation reported success, which is not expected yet - read the shim's lines");
-    } else {
-        say("presentation refused, as expected: the flip half waits on a hardware question");
+        say("presentation succeeded: the frame is on the display");
+        say("holding it on screen - close this title from the host");
+        /*
+         * Do not tear down on success. Closing the display releases the scanout buffers and blanks
+         * the screen, so a single flip followed by teardown shows the frame for one frame and then
+         * black - which is what the first run looked like. The video-out holds the last flipped
+         * buffer while the title idles, so parking with the display still open keeps the frame
+         * visible. The context and display leak, which is fine for a title that idles until the
+         * host closes it.
+         */
+        park();
     }
 
+    say("presentation refused: the flip half did not run - read the shim's lines above");
     oops_gl_destroy(gl);
     say("torn down");
 
