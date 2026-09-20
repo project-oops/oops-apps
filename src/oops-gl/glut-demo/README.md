@@ -33,12 +33,20 @@ because the platform's own modules resolve `sce*` imports at load - so a missing
 would link silently and fail on the console. The check that means something is the symbol table:
 
 ```
+make elf                                  # not `make dist` - see below
 nm -u build/glut-demo.elf | grep -v sce   # only sysctlbyname, a platform import
-nm build/glut-demo.elf | grep -c ' [TtWw] \(glut\|glu\)[A-Z]'   # 68 defined
+nm build/glut-demo.elf | grep -c ' [TtWw] \(glut\|glu\)[A-Z]'   # 74 defined
 ```
 
 Every `glut*` and `glu*` name this program calls is **defined in the payload**; nothing is
 missing and waiting to fail later.
+
+**Run those on a freshly linked ELF.** `mkmodule` rewrites `build/glut-demo.elf` **in place**
+during `make dist`, setting the `e_type` the loader wants - and `nm` then answers `file format
+not recognized`, which reads like a broken payload and is not one. `make elf` leaves an ordinary
+`ET_DYN` behind. `app.mk` runs this same check automatically as part of the link, before the tag
+step, and fails the build and deletes the ELF if anything is undefined; the by-hand form is for
+looking at what it found.
 
 What it does not prove is what the frame looks like. Nothing here has run on a console: this app
 has never been deployed or launched, and the GL it drives is the same GL the other apps drive, on
