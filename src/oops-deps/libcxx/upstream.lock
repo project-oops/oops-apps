@@ -15,8 +15,23 @@
 # upstream-fetch.sh` learned sparse checkout for it. `runtimes` and `cmake` are not built here -
 # they are present because libc++'s own CMake references them, and a tree that cannot explain
 # itself to a reader is worse than a few megabytes.
+#
+# **`libunwind` and `libc` were added on 2026-09-21** (oops-mesa#D013), and each for a measured
+# reason rather than in case it is wanted:
+#
+#   * `libunwind` - obSCEne swept all 19 Itanium unwind and C++ ABI symbols across `libkernel`,
+#     `libSceLibcInternal` and `self` and found every one absent at `0x0`
+#     (REQ-20260921T0953Z-e3f7, sweep 20260921-run17). The platform runs an MSVC-lineage SEH
+#     unwinder, so a title that throws brings its own or does not throw. This is the source of
+#     the one it brings.
+#   * `libc` - **not** for LLVM's libc, none of which is built here. `libcxx/src/charconv.cpp`
+#     includes `shared/fp_bits.h`, which lives under `libc/shared/` and is shared between the
+#     two projects. Without that path `charconv.cpp` is the one libc++ source that fails to
+#     compile for a reason that is nothing to do with this target: the header is in this very
+#     commit and was merely not checked out. Measured, not guessed - it was 1 of the 6 failures
+#     in the clang 21 sweep and the only one with a fixable cause.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/llvm/llvm-project
 UPSTREAM_REV=2078da43e25a4623cab2d0d60decddf709aaea28
 UPSTREAM_REF=llvmorg-21.1.8
-UPSTREAM_SPARSE=libcxx libcxxabi runtimes cmake
+UPSTREAM_SPARSE=libcxx libcxxabi libunwind libc runtimes cmake

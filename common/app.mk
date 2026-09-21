@@ -215,6 +215,11 @@ BUILD ?= build
 DIST  ?= dist
 
 # Toolchains and compiler flags
+#
+# **Bare `clang` is not the pin, and used to be mistaken for one.** Which compiler this
+# resolves to depends on the runner - it was clang 21 under WSL `oops-builder` and clang 18
+# under Docker `silkeh/clang:18` on the same day. `toolchain.mk`, included below once
+# `TARGET_CC` is also set, turns the pin from a spelling into a check. (oops-mesa#D013)
 CC = clang
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion \
           -Wstrict-prototypes -Wmissing-prototypes -O1 -DOOPS_HOST_BUILD \
@@ -222,6 +227,10 @@ CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion
           $(OOPS_SDK_INCLUDE) $(EXTRA_CFLAGS)
 
 TARGET_CC = clang
+
+# Both compilers are now set, so the pin can be checked. See oops-mesa#D013.
+include $(OOPS_APPS_ROOT)/toolchain.mk
+
 # **The target gets oops-sdk's `include/libc` as well** (2026-09-20): <math.h>, <string.h> and
 # <stdlib.h> under the names a port's own code calls. It is on the *target* path only - the host
 # build above must keep the real C library, or a host test that includes <string.h> gets a

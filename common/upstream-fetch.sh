@@ -28,8 +28,29 @@ PATCH_DIR="${5:-}"
 
 STAMP="$DIR/.oops-upstream-stamp"
 
-# Already at this revision with these patches: nothing to do. The stamp records the revision and
-# the patches' own checksum, so changing either fetches again and changing neither does not.
+# **A sparse origin takes only the directories it names.** `UPSTREAM_SPARSE` in the lock is a
+# space-separated list of top-level paths, and a lock without one fetches the whole tree as
+# before. It exists because llvm-project is the first origin here where the whole tree is not a
+# reasonable thing to ask for: libc++ is a few directories inside a monorepo of many gigabytes,
+# and `git sparse-checkout` turns that into about 130 MB.
+#
+# The pin is unaffected. A sparse checkout is the same commit with fewer paths present, and the
+# `rev-parse HEAD` check below still compares against the hash the lock names - so this changes
+# what lands, never which revision it is.
+#
+# It is read here, above the stamp, because the stamp has to include it. See below.
+SPARSE="${UPSTREAM_SPARSE:-}"
+
+# Already at this revision with these patches and these paths: nothing to do. The stamp records
+# all three, so changing any of them fetches again and changing none does not.
+#
+# **`$SPARSE` is in the stamp because leaving it out made this script lie.** It recorded only the
+# revision and the patch sum, so widening `UPSTREAM_SPARSE` - adding `libunwind` and `libc` to
+# libc++'s lock on 2026-09-21 - matched the stamp, exited 0, printed nothing, and left the tree
+# exactly as it was. The caller then failed on a missing header with no indication that the fetch
+# it had just run had declined to do anything. A no-op that reports success is the failure
+# CONVENTIONS section 3 is about, and it is worse in a fetch than almost anywhere else, because
+# every later step is reasoning about a tree it believes is current.
 patch_sum() {
     if [ -n "$PATCH_DIR" ] && [ -d "$PATCH_DIR" ]; then
         # Sorted, so the sum is the set of patches rather than the order a glob happened to
@@ -39,7 +60,16 @@ patch_sum() {
         printf '0'
     fi
 }
-WANT="$REV $(patch_sum)"
+# Sorted for the same reason the patches are: the set is what matters, not the order somebody
+# happened to type it in, and a reordered lock should not cost a re-fetch.
+sparse_key() {
+    if [ -n "$SPARSE" ]; then
+        printf '%s\n' $SPARSE | sort | tr '\n' ','
+    else
+        printf 'all'
+    fi
+}
+WANT="$REV $(patch_sum) $(sparse_key)"
 
 if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$WANT" ]; then
     exit 0
@@ -70,16 +100,7 @@ echo "upstream: $URL @ $REV"
 rm -rf "$DIR"
 mkdir -p "$DIR"
 
-# **A sparse origin takes only the directories it names.** `UPSTREAM_SPARSE` in the lock is a
-# space-separated list of top-level paths, and a lock without one fetches the whole tree as
-# before. It exists because llvm-project is the first origin here where the whole tree is not a
-# reasonable thing to ask for: libc++ is a few directories inside a monorepo of many gigabytes,
-# and `git sparse-checkout` turns that into about 130 MB.
-#
-# The pin is unaffected. A sparse checkout is the same commit with fewer paths present, and the
-# `rev-parse HEAD` check below still compares against the hash the lock names - so this changes
-# what lands, never which revision it is.
-SPARSE="${UPSTREAM_SPARSE:-}"
+# `SPARSE` is set above the stamp, which is the only thing that reads it before this point.
 
 # **Shallow first, blobless second.** Asking for one commit is the cheapest thing that can work
 # and most servers allow it; a server that does not (`uploadpack.allowReachableSHA1InWant` off)
