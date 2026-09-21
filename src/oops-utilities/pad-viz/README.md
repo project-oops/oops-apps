@@ -1,20 +1,29 @@
 # pad-viz
 
-A live controller diagram. Buttons light when pressed, the stick thumbs move, the analog
-triggers fill, the touch-pad shows its contacts, and a tilt box follows the accelerometer.
-Every ordinary button is free to press and watch; **L1+R1+Options** together exits.
+<p align="center">
+  <img src="../../../common/assets/no-logo.svg" alt="No logo yet" width="200">
+</p>
 
-It reads the pad with the SDK's **batched low-latency path** (`oops_input_poll_batch`) - one
-driver request a frame returning up to a full batch of samples - and draws the newest, showing
-the sample count so the low-latency read is visibly delivering more than one record per frame.
-That is the path that preserves a press-and-release falling between two ordinary polls.
+A live controller diagram — press a button and watch it light up.
 
-**Built, host-tested.** The drawing (`pad-viz.c`) has a host self-test (`make check` renders
-neutral, all-pressed, deflected, and disconnected states into a buffer and checks bounds) and
-compiles freestanding (`make skeleton`). The on-console payload - `pad-viz_main.c`, the display
-and the batched read loop - compiles freestanding; `make elf` links it for the console.
+## About
 
-**On the probe line** (see [D001](../../docs/decisions/D001-a-repository-for-apps-built-on-the-sdk.md)):
-it shows the controller, a person judges whether it matches what they are pressing, and there is
-no verdict. Confirming the input record's field layout is obSCEne's job (the input census); this
-just draws whatever the SDK maps.
+pad-viz draws the whole controller: buttons light when pressed, the stick thumbs move, the analog
+triggers fill, the touch-pad shows its contacts, and a tilt box follows the accelerometer. Press
+**L1+R1+Options** together to exit.
+
+- **Reads the SDK's batched low-latency path**, drawing the newest of up to a full batch of samples
+  a frame — the path that catches a press-and-release that would fall between two ordinary polls.
+- **Host-tested drawing.** `make check` renders neutral, all-pressed, deflected and disconnected
+  states into a buffer and checks bounds.
+
+## Screenshot
+
+<p align="center">
+  <img src="../../../common/assets/no-screenshot.svg" alt="No screenshot yet" width="600">
+</p>
+
+## Docs
+
+- **[Reference](docs/REFERENCE.md)** — the batched read path and where pad-viz sits on the probe line.
+- [oops-apps catalog & guide](../../../docs/USER_GUIDE.md)

@@ -16,19 +16,10 @@ EXTRA_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 # reads, time for its timers and elapsed clock, and the heap the mipmap builder allocates from.
 PAYLOAD_SRCS = glut_demo_main.c \
                $(OOPS_SDK_DIR)/src/display.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_context.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_state.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_matrix.c \
+               $(OOPS_GL_SRCS) \
                $(OOPS_SDK_DIR)/src/gl/gl_glu.c \
                $(OOPS_SDK_DIR)/src/gl/glut.c \
                $(OOPS_SDK_DIR)/src/gl/glut_font.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_draw.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_list.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_attrib.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_raster.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_eval.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_select.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_pixel.c \
                $(OOPS_SDK_DIR)/src/agc/agc_display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
                $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
@@ -45,7 +36,6 @@ PAYLOAD_SRCS = glut_demo_main.c \
                $(OOPS_SDK_DIR)/src/system/sysmodule.c \
                $(OOPS_SDK_DIR)/src/system/krw.c \
                $(OOPS_SDK_DIR)/src/system/fs.c \
-               $(OOPS_SDK_DIR)/src/math/math.c \
                $(OOPS_SDK_DIR)/src/draw/draw.c
 
 ENTRY_POINT := glut_demo_start

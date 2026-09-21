@@ -1,0 +1,181 @@
+diff --git a/include/SDL_config.h b/include/SDL_config.h
+index 49605b1..092745a 100644
+--- a/include/SDL_config.h
++++ b/include/SDL_config.h
+@@ -49,6 +49,8 @@
+ #include "SDL_config_emscripten.h"
+ #elif defined(__NGAGE__)
+ #include "SDL_config_ngage.h"
++#elif defined(__PROSPERO__)
++#include "SDL_config_prospero.h"
+ #else
+ /* This is a minimal configuration just to get SDL running on new platforms. */
+ #include "SDL_config_minimal.h"
+diff --git a/src/audio/SDL_audio.c b/src/audio/SDL_audio.c
+index 96586fe..def000c 100644
+--- a/src/audio/SDL_audio.c
++++ b/src/audio/SDL_audio.c
+@@ -42,6 +42,9 @@ static SDL_AudioDevice *open_devices[16];
+ 
+ /* Available audio drivers */
+ static const AudioBootStrap *const bootstrap[] = {
++#ifdef SDL_AUDIO_DRIVER_PROSPERO
++    &PROSPEROAUDIO_bootstrap,
++#endif
+ #ifdef SDL_AUDIO_DRIVER_PULSEAUDIO
+     &PULSEAUDIO_bootstrap,
+ #endif
+diff --git a/src/audio/SDL_sysaudio.h b/src/audio/SDL_sysaudio.h
+index d569ba7..7d93ff5 100644
+--- a/src/audio/SDL_sysaudio.h
++++ b/src/audio/SDL_sysaudio.h
+@@ -178,6 +178,7 @@ typedef struct AudioBootStrap
+ } AudioBootStrap;
+ 
+ /* Not all of these are available in a given build. Use #ifdefs, etc. */
++extern AudioBootStrap PROSPEROAUDIO_bootstrap;
+ extern AudioBootStrap PIPEWIRE_bootstrap;
+ extern AudioBootStrap PULSEAUDIO_bootstrap;
+ extern AudioBootStrap ALSA_bootstrap;
+diff --git a/src/dynapi/SDL_dynapi.h b/src/dynapi/SDL_dynapi.h
+index 95b20aa..7c9e99f 100644
+--- a/src/dynapi/SDL_dynapi.h
++++ b/src/dynapi/SDL_dynapi.h
+@@ -67,6 +67,8 @@
+ #define SDL_DYNAMIC_API 0 /* The N-Gage doesn't support dynamic linking either */
+ #elif defined(__3DS__)
+ #define SDL_DYNAMIC_API 0 /* devkitARM doesn't support dynamic linking */
++#elif defined(__PROSPERO__)
++#define SDL_DYNAMIC_API 0 /* statically linked payload, and no dlopen to update through */
+ #elif defined(DYNAPI_NEEDS_DLOPEN) && !defined(HAVE_DLOPEN)
+ #define SDL_DYNAMIC_API 0 /* we need dlopen(), but don't have it.... */
+ #endif
+diff --git a/src/file/SDL_rwops.c b/src/file/SDL_rwops.c
+index 444bf4a..a5c9080 100644
+--- a/src/file/SDL_rwops.c
++++ b/src/file/SDL_rwops.c
+@@ -36,9 +36,11 @@
+ 
+ #ifdef HAVE_STDIO_H
+ #include <stdio.h>
++#ifndef __PROSPERO__
+ #include <errno.h>
+ #include <sys/stat.h>
+ #endif
++#endif
+ #ifdef HAVE_LIMITS_H
+ #include <limits.h>
+ #endif
+@@ -533,6 +535,10 @@ static SDL_bool IsRegularFileOrPipe(FILE *f)
+         !((st.st_mode & _S_IFMT) == _S_IFREG || (st.st_mode & _S_IFMT) == _S_IFIFO)) {
+         return SDL_FALSE;
+     }
++    #elif defined(__PROSPERO__)
++    /* No fstat and no pipes. This SDK's fopen opens a file or fails, so a handle in hand is
++       already the answer this check exists to get. */
++    (void)f;
+     #else
+     struct stat st;
+     if (fstat(fileno(f), &st) < 0 || !(S_ISREG(st.st_mode) || S_ISFIFO(st.st_mode))) {
+@@ -633,7 +639,12 @@ SDL_RWops *SDL_RWFromFile(const char *file, const char *mode)
+         FILE *fp = fopen(file, mode);
+ #endif
+         if (!fp) {
++#ifdef __PROSPERO__
++            /* No errno here, and "Couldn't open x: Success" is worse than saying less. */
++            SDL_SetError("Couldn't open %s", file);
++#else
+             SDL_SetError("Couldn't open %s: %s", file, strerror(errno));
++#endif
+         } else if (!IsRegularFileOrPipe(fp)) {
+             fclose(fp);
+             fp = NULL;
+diff --git a/src/joystick/SDL_joystick.c b/src/joystick/SDL_joystick.c
+index 4fe0b6a..19648a6 100644
+--- a/src/joystick/SDL_joystick.c
++++ b/src/joystick/SDL_joystick.c
+@@ -52,6 +52,9 @@
+ #endif
+ 
+ static SDL_JoystickDriver *SDL_joystick_drivers[] = {
++#ifdef SDL_JOYSTICK_PROSPERO
++    &SDL_PROSPERO_JoystickDriver,
++#endif
+ #ifdef SDL_JOYSTICK_HIDAPI /* Before WINDOWS_ driver, as WINDOWS wants to check if this driver is handling things */
+     &SDL_HIDAPI_JoystickDriver,
+ #endif
+diff --git a/src/joystick/SDL_steam_virtual_gamepad.c b/src/joystick/SDL_steam_virtual_gamepad.c
+index 4e5255d..9576a25 100644
+--- a/src/joystick/SDL_steam_virtual_gamepad.c
++++ b/src/joystick/SDL_steam_virtual_gamepad.c
+@@ -27,7 +27,7 @@
+ 
+ #ifdef __WIN32__
+ #include "../core/windows/SDL_windows.h"
+-#else
++#elif !defined(__PROSPERO__)
+ #include <sys/types.h>
+ #include <sys/stat.h>
+ #endif
+@@ -60,6 +60,10 @@ static Uint64 GetFileModificationTime(const char *file)
+         }
+         SDL_free(wFile);
+     }
++#elif defined(__PROSPERO__)
++    /* No stat(), and no Steam client to write the file this watches. Zero is what the branch
++       below returns when the file is absent, which it always is here. */
++    (void)file;
+ #else
+     struct stat sb;
+ 
+diff --git a/src/joystick/SDL_sysjoystick.h b/src/joystick/SDL_sysjoystick.h
+index 173650e..9e9dd41 100644
+--- a/src/joystick/SDL_sysjoystick.h
++++ b/src/joystick/SDL_sysjoystick.h
+@@ -234,6 +234,7 @@ typedef struct _SDL_JoystickDriver
+ #define SDL_LED_MIN_REPEAT_MS 5000
+ 
+ /* The available joystick drivers */
++extern SDL_JoystickDriver SDL_PROSPERO_JoystickDriver;
+ extern SDL_JoystickDriver SDL_ANDROID_JoystickDriver;
+ extern SDL_JoystickDriver SDL_BSD_JoystickDriver;
+ extern SDL_JoystickDriver SDL_DARWIN_JoystickDriver;
+diff --git a/src/thread/SDL_thread_c.h b/src/thread/SDL_thread_c.h
+index 619edd9..f6ce44f 100644
+--- a/src/thread/SDL_thread_c.h
++++ b/src/thread/SDL_thread_c.h
+@@ -28,6 +28,8 @@
+ /* Need the definitions of SYS_ThreadHandle */
+ #ifdef SDL_THREADS_DISABLED
+ #include "generic/SDL_systhread_c.h"
++#elif defined(SDL_THREAD_PROSPERO)
++#include "SDL_prosperothread_c.h" /* outside this tree, reached through -Ibackend */
+ #elif defined(SDL_THREAD_PTHREAD)
+ #include "pthread/SDL_systhread_c.h"
+ #elif defined(SDL_THREAD_WINDOWS)
+diff --git a/src/video/SDL_sysvideo.h b/src/video/SDL_sysvideo.h
+index 344efec..3cbe19f 100644
+--- a/src/video/SDL_sysvideo.h
++++ b/src/video/SDL_sysvideo.h
+@@ -456,6 +456,7 @@ typedef struct VideoBootStrap
+ } VideoBootStrap;
+ 
+ /* Not all of these are available in a given build. Use #ifdefs, etc. */
++extern VideoBootStrap PROSPERO_bootstrap;
+ extern VideoBootStrap COCOA_bootstrap;
+ extern VideoBootStrap X11_bootstrap;
+ extern VideoBootStrap DirectFB_bootstrap;
+diff --git a/src/video/SDL_video.c b/src/video/SDL_video.c
+index a593e21..bee6b02 100644
+--- a/src/video/SDL_video.c
++++ b/src/video/SDL_video.c
+@@ -115,6 +115,9 @@ static VideoBootStrap *bootstrap[] = {
+ #ifdef SDL_VIDEO_DRIVER_N3DS
+     &N3DS_bootstrap,
+ #endif
++#ifdef SDL_VIDEO_DRIVER_PROSPERO
++    &PROSPERO_bootstrap,
++#endif
+ #ifdef SDL_VIDEO_DRIVER_KMSDRM
+     &KMSDRM_bootstrap,
+ #endif

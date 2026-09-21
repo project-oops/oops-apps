@@ -875,9 +875,95 @@ static int check_logic_op(void) {
     return chan_r(a) == 0xc0 && chan_g(a) == 0x03 && chan_b(a) == 0xaa;
 }
 
+/*
+ * **Which of CB_BLEND_RED..ALPHA did each channel read?** Three draws whose only job is to make
+ * the answer a value rather than an argument.
+ *
+ * `blend-constant` fails on hardware and the check's own colours cannot say why: it sets the
+ * constant to (0.5, 1, 0, 0.25), so its green of 1.0 and its alpha of 0.25 are the only two
+ * channels that differ, and there is no third value to tell "green read alpha" from "green read
+ * something that happens to be 0.25". These three give every channel a value no other channel
+ * has, and then move one of them.
+ *
+ *   colour   constant (0.25, 0.5, 0.75, 1.0), GL_CONSTANT_COLOR - the pixel IS the constant
+ *            correct          0xff4080c0
+ *            green reads A    0xff40ffc0
+ *            green reads B    0xff40c0c0
+ *            green reads R    0xff4040c0
+ *   no-a     the same, with alpha moved to 0.0 and nothing else touched
+ *            correct          0x004080c0
+ *            green reads A    0x004000c0    - green follows alpha, so it is the register
+ *   c-alpha  constant (0.25, 1.0, 0.75, 0.5), GL_CONSTANT_ALPHA - every channel 0.5
+ *            correct          0x80808080
+ *            green reads G    0x8080ff80    - the factor selection, not the register
+ *   rewrite  `colour` again, after another constant has already been written in that frame
+ *            correct          0xff4080c0
+ *            same as colour                 - the packet lands, wherever it sits
+ *            right where colour is wrong    - the frame's first write is being lost
+ *
+ * Run only on the payload, where `gl1_probe_saw` is set: the host self-test prints its own table
+ * and these would be three synchronisations for nothing. Run **before** the check's own stages
+ * so the failure row after the verdict still means what it has always meant.
+ *
+ * This lives here rather than on the obSCEne bus because oops-gl is the better fixture. A
+ * blended write is a read-modify-write of the render target, and `REQ-20260920T2320Z-4b8d`'s
+ * standalone Onion buffer could not take one - all three of its arms returned `0xffffffff` with
+ * BLEND_BYPASS set, which measures the bypass and not the question. This probe draws into the
+ * display's own scanout buffer and blends there every frame already.
+ */
+static void blend_constant_diagnose(void) {
+    if (!gl1_probe_saw) return;
+
+    reset_view();
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_BLEND);
+    glBlendColor(0.25f, 0.5f, 0.75f, 1.0f);
+    glBlendFunc(GL_CONSTANT_COLOR, GL_ZERO);
+    draw_rect(-0.5f, -0.5f, 0.5f, 0.5f, 1.0f, 1.0f, 1.0f);
+    glDisable(GL_BLEND);
+    gl1_probe_saw("blend-constant/colour", px(PROBE_W / 2, PROBE_H / 2));
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_BLEND);
+    glBlendColor(0.25f, 0.5f, 0.75f, 0.0f);
+    glBlendFunc(GL_CONSTANT_COLOR, GL_ZERO);
+    draw_rect(-0.5f, -0.5f, 0.5f, 0.5f, 1.0f, 1.0f, 1.0f);
+    glDisable(GL_BLEND);
+    gl1_probe_saw("blend-constant/no-a", px(PROBE_W / 2, PROBE_H / 2));
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_BLEND);
+    glBlendColor(0.25f, 1.0f, 0.75f, 0.5f);
+    glBlendFunc(GL_CONSTANT_ALPHA, GL_ZERO);
+    draw_rect(-0.5f, -0.5f, 0.5f, 0.5f, 1.0f, 1.0f, 1.0f);
+    glDisable(GL_BLEND);
+    gl1_probe_saw("blend-constant/c-alpha", px(PROBE_W / 2, PROBE_H / 2));
+
+    /* `colour` again, but with a constant already written **in the same frame** - a throwaway
+     * draw under a different one, and no pixel read between them, so both writes are in one
+     * submission. Each of the three above is the first CB_BLEND_RED..ALPHA write of its own
+     * frame, because reading a pixel submits one. If this row is right where `colour` is wrong,
+     * the first write after a frame opens is the thing being lost, not the register. */
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_BLEND);
+    glBlendColor(1.0f, 0.0f, 1.0f, 1.0f);
+    glBlendFunc(GL_CONSTANT_COLOR, GL_ZERO);
+    draw_rect(-0.9f, -0.9f, -0.8f, -0.8f, 1.0f, 1.0f, 1.0f);
+    glBlendColor(0.25f, 0.5f, 0.75f, 1.0f);
+    draw_rect(-0.5f, -0.5f, 0.5f, 0.5f, 1.0f, 1.0f, 1.0f);
+    glDisable(GL_BLEND);
+    gl1_probe_saw("blend-constant/rewrite", px(PROBE_W / 2, PROBE_H / 2));
+
+    glBlendColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glBlendFunc(GL_ONE, GL_ZERO);
+    (void)glGetError();
+}
+
 /* glBlendColor and the constant factors, through CB_BLEND_RED..ALPHA. White scaled per channel
  * by the constant (0.5, 1, 0), then by the constant's alpha 0.25 alone. */
 static int check_blend_constant(void) {
+    blend_constant_diagnose();
     reset_view();
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -1479,6 +1565,13 @@ static int check_front_and_back(void) {
     draw_rect(-1.0f, -1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f);
     glDrawBuffer(GL_FRONT);
     draw_rect(-1.0f, -1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f);
+    /* **What the two buffers hold before the blended draw**, through the same `read_centre` the
+     * verdict uses. `front-buffer` does exactly these two reads and passes on hardware, so these
+     * rows should be red and blue; if they are, the read path is sound and whatever goes wrong
+     * below belongs to the draw, and if they are not, the verdict was never measuring blending. */
+    GLubyte was_front[4], was_back[4];
+    if (!read_centre(GL_FRONT, was_front) || !read_centre(GL_BACK, was_back)) return 0;
+
     glDrawBuffer(GL_FRONT_AND_BACK);
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE);
@@ -1487,6 +1580,44 @@ static int check_front_and_back(void) {
     glDrawBuffer(GL_BACK);
     GLubyte front[4], back[4];
     if (!read_centre(GL_FRONT, front) || !read_centre(GL_BACK, back)) return 0;
+    /* **The same two pixels again, straight away, nothing drawn between.** Two runs of the rows
+     * below disagreed about the blue channel and about nothing else - the front's blue came back
+     * `0x14` on the 10:46 build and `0x56` on the 11:32 one, the back's `0x00` then `0x46` - and
+     * the only difference between those builds is that the second reads each buffer once more
+     * beforehand. A value that moves when the number of preceding reads changes is not a wrong
+     * blend; it is a read of something still settling. If these two rows differ from the two
+     * above, that is what it is, and no amount of staring at `CB_BLEND1_CONTROL` will show it. */
+    GLubyte front2[4], back2[4];
+    if (!read_centre(GL_FRONT, front2) || !read_centre(GL_BACK, back2)) return 0;
+    /*
+     * **Four rows, because the verdict row cannot carry any of this.** `gl1_probe_saw` reads the
+     * centre of the probe region through `frame()`, which is the *back*; on 2026-09-20 and on
+     * every run of 2026-09-21 it printed `0xff00ffff`, the cyan GL asks for, while the check
+     * went on failing. Three runs reported the half that was already right.
+     *
+     * What the first build to print these measured, on 2026-09-21:
+     *
+     *   front  0xffffff14   red plus green - **blended**, which it had never been before
+     *                       `CB_BLEND1_CONTROL` was emitted. Fails on blue 20 against a
+     *                       tolerance of 8.
+     *   back   0xff00ff00   pure green, where `frame()` reads the same pixel as cyan.
+     *
+     * So the draw reaches both targets and the two read paths disagree about the back. The
+     * `was_*` rows above bracket the blended draw with the same reads, because `front-buffer`
+     * makes exactly those two and passes: if they come back red and blue, `read_centre` is
+     * sound and the blended draw is what breaks it.
+     */
+    if (gl1_probe_saw) {
+        #define SAW_BYTES(n, c) gl1_probe_saw((n), ((uint32_t)(c)[3] << 24) | \
+            ((uint32_t)(c)[0] << 16) | ((uint32_t)(c)[1] << 8) | (uint32_t)(c)[2])
+        SAW_BYTES("front-and-back/was-f", was_front);
+        SAW_BYTES("front-and-back/was-b", was_back);
+        SAW_BYTES("front-and-back/front", front);
+        SAW_BYTES("front-and-back/back", back);
+        SAW_BYTES("front-and-back/front2", front2);
+        SAW_BYTES("front-and-back/back2", back2);
+        #undef SAW_BYTES
+    }
     return near_bytes(front, 255, 255, 0) && near_bytes(back, 0, 255, 255);
 }
 
@@ -1684,6 +1815,71 @@ static int check_texture_3d(void) {
     glDeleteTextures(1, &t);
     glTexCoord4f(0.0f, 0.0f, 0.0f, 1.0f);
     if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 0, 255, 0, 16);
+}
+
+/* **A volume's mip chain** (the console since 2026-09-21): a 4x4x4 texture whose level 0 is red
+ * and whose level 1 is green, minified hard enough that the sampler must read level 1.
+ *
+ * The console built no chain for a volume until then - `gl_tex_chain_levels` refused one,
+ * because the layout was two-dimensional and a volume's levels halve depth as well - so
+ * `LAST_LEVEL` stayed 0, minification read the base level, and this would have come back red
+ * while the software rasteriser answered green. Both halves of the three-dimensional layout are
+ * measured rather than reasoned: the slice stride by `texture-3d`, which reads slice 1 at
+ * `pitch * height` and passes, and the smallest-first level placement by `mipmap-levels`.
+ *
+ * **The minification is forced by the texture matrix**, not by geometry: the quad is half the
+ * probe's width, 64 pixels, and scaling the coordinate by 64 puts 256 texels of a 4-texel
+ * texture across them - four texels a pixel, a level of detail of 2, which
+ * `GL_TEXTURE_MAX_LEVEL` at 1 clamps to level 1. Overshooting is deliberate: the clamp makes any
+ * scale past level 1 give the same answer, so the check does not depend on the exact level the
+ * derivative works out to. A first attempt scaled by 8, which is half a texel a pixel and
+ * magnifies - the host reference caught it. Geometry small enough to minify by itself would be a
+ * few pixels wide and hard to sample. */
+static int check_volume_mipmap(void) {
+    reset_view();
+    static GLubyte lvl0[4 * 4 * 4 * 4];
+    static GLubyte lvl1[2 * 2 * 2 * 4];
+    for (int i = 0; i < 4 * 4 * 4; i++) {
+        lvl0[i * 4 + 0] = 255; lvl0[i * 4 + 1] = 0; lvl0[i * 4 + 2] = 0; lvl0[i * 4 + 3] = 255;
+    }
+    for (int i = 0; i < 2 * 2 * 2; i++) {
+        lvl1[i * 4 + 0] = 0; lvl1[i * 4 + 1] = 255; lvl1[i * 4 + 2] = 0; lvl1[i * 4 + 3] = 255;
+    }
+    GLuint t = 0;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_3D, t);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA, 4, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, lvl0);
+    glTexImage3D(GL_TEXTURE_3D, 1, GL_RGBA, 2, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, lvl1);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAX_LEVEL, 1);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST_MIPMAP_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glEnable(GL_TEXTURE_3D);
+
+    glMatrixMode(GL_TEXTURE);
+    glPushMatrix();
+    glLoadIdentity();
+    glScalef(64.0f, 64.0f, 1.0f);
+    glMatrixMode(GL_MODELVIEW);
+
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glBegin(GL_QUADS);
+    glTexCoord3f(0.0f, 0.0f, 0.5f); glVertex2f(-0.5f, -0.5f);
+    glTexCoord3f(1.0f, 0.0f, 0.5f); glVertex2f(0.5f, -0.5f);
+    glTexCoord3f(1.0f, 1.0f, 0.5f); glVertex2f(0.5f, 0.5f);
+    glTexCoord3f(0.0f, 1.0f, 0.5f); glVertex2f(-0.5f, 0.5f);
+    glEnd();
+
+    glMatrixMode(GL_TEXTURE);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+    glDisable(GL_TEXTURE_3D);
+    glBindTexture(GL_TEXTURE_3D, 0);
+    glDeleteTextures(1, &t);
+    glTexCoord4f(0.0f, 0.0f, 0.0f, 1.0f);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    /* Green is level 1. Red is the base level, which is what a path with no chain samples. */
     return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 0, 255, 0, 16);
 }
 
@@ -1936,6 +2132,119 @@ static int check_smooth(void) {
     glDisable(GL_POINT_SMOOTH);
     glPointSize(1.0f);
     glDisable(GL_BLEND);
+    glClearColor(0.125f, 0.125f, 0.125f, 1.0f);
+    if (glGetError() != GL_NO_ERROR) return 0;
+    return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 255, 255, 255, 16) &&
+           near_rgb(px(PROBE_W / 2 + 2, PROBE_H / 2 + 2), 0, 0, 0, 16);
+}
+
+/* **GL_POLYGON_SMOOTH** (the console since 2026-09-21): a white triangle blended over black,
+ * sampled where its slanted edge crosses a pixel.
+ *
+ * The console drew this aliased until then - the roadmap gave two reasons and both were true
+ * when written. Its coverage is the product of three edge fades where a point or a line has one
+ * distance, and the outer half of every fade falls on pixels the hardware rasteriser never
+ * raises, because a fragment exists only where the pixel centre is inside the triangle. The slot
+ * takes either form now, and the CPU widens the triangle by a pixel about its incenter - the
+ * same widening that already turns a point and a line into a quad - so the fragments exist and
+ * the shader's kill removes whatever the widening added beyond the fade.
+ *
+ * **The sample is a row average across the slanted edge, not one pixel.** A single pixel's
+ * coverage depends on exactly where the edge falls inside it, which is a rounding argument this
+ * check should not be making; the average over a span that the edge crosses is a number both
+ * paths agree on, and an aliased edge cannot produce it - aliased, every pixel in the span is
+ * either white or black, and the mean lands at one end or the other. A partly-covered span
+ * averages in between.
+ *
+ * The triangle is a right one with its slant across the middle of the probe, so the span sampled
+ * sits well away from the two axis-aligned edges and from all three corners, where a product of
+ * three fades is doing something more complicated than one. */
+static int check_polygon_smooth(void) {
+    reset_view();
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_POLYGON_SMOOTH);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glBegin(GL_TRIANGLES);
+    glVertex2f(-0.8f, -0.8f);
+    glVertex2f(0.8f, -0.8f);
+    glVertex2f(-0.8f, 0.8f);
+    glEnd();
+    glDisable(GL_POLYGON_SMOOTH);
+    glDisable(GL_BLEND);
+    glClearColor(0.125f, 0.125f, 0.125f, 1.0f);
+    if (glGetError() != GL_NO_ERROR) return 0;
+
+    /* The slant runs from lower right to upper left through the middle. Walking a row across it
+     * and averaging the red channel gives the ramp's mean; an aliased edge steps from 255 to 0
+     * in one pixel and averages to one end of the range. */
+    const uint32_t *s = scan_frame();
+    if (!s) return 0;
+    const int y = PROBE_H / 2;
+    int lo = -1, hi = -1;
+    for (int x = 0; x < PROBE_W; x++) {
+        const int r = (int)chan_r(SCAN_PX(s, x, y));
+        if (r > 250 && lo < 0) lo = x;
+        if (r > 250) hi = x;
+    }
+    if (lo < 0 || hi <= lo) return 0;
+    /* Six pixels either side of where the solid run ends - the edge and its fade are in there. */
+    int sum = 0, n = 0;
+    for (int x = hi - 2; x <= hi + 4 && x < PROBE_W; x++) {
+        if (x < 0) continue;
+        sum += (int)chan_r(SCAN_PX(s, x, y));
+        n++;
+    }
+    if (n < 5) return 0;
+    const int mean = sum / n;
+    /* Aliased, that span is white up to the edge and black after it, and with the edge at a
+     * half-diagonal the mean sits near one extreme. Smoothed, the ramp pulls it to the middle. */
+    return mean > 40 && mean < 215;
+}
+
+/* **The same point, textured** - `GL_POINT_SMOOTH` with a white 1x1 texture modulating it, which
+ * changes nothing about the colour and everything about where the coverage can ride.
+ *
+ * The console drew this aliased until 2026-09-21: the offset from the centre rode in the texture
+ * coordinate, and a textured draw reads all four of its components, so such a primitive got the
+ * square and not the disc. It now rides in the *second* texture unit's parameter - spare here,
+ * because only one unit is bound - and the textured pixel shader reads it from `attr3`
+ * (`oops-sdk/tools/shader/coverage-tex.s`). The draw escalates to four parameters for it.
+ *
+ * The corner is the whole check, exactly as in `smooth`: a coverage that came out as one
+ * everywhere, or an offset read from an interpolant nothing wrote, passes at the centre and
+ * fails 2 pixels out. Both are sampled against the same tolerances the untextured check uses, so
+ * a difference between the two rows is a difference in the path and not in the measurement. */
+static int check_smooth_textured(void) {
+    reset_view();
+    static const GLubyte white[4] = {255, 255, 255, 255};
+    GLuint t = 0;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_POINT_SMOOTH);
+    glPointSize(6.0f);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glTexCoord2f(0.5f, 0.5f);
+    glBegin(GL_POINTS);
+    glVertex2f(0.0f, 0.0f);
+    glEnd();
+    glDisable(GL_POINT_SMOOTH);
+    glPointSize(1.0f);
+    glDisable(GL_BLEND);
+    glDisable(GL_TEXTURE_2D);
+    glDeleteTextures(1, &t);
     glClearColor(0.125f, 0.125f, 0.125f, 1.0f);
     if (glGetError() != GL_NO_ERROR) return 0;
     return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 255, 255, 255, 16) &&
@@ -3366,6 +3675,9 @@ static const gl1_probe_case_t g_cases[] = {
      *   the whole reason for this ordering. Moving it is not a fix and does not pretend to be
      *   one; the fault is real and the run that resolves it wants the other rows as well.
      */
+    {"smooth-textured",  check_smooth_textured},
+    {"polygon-smooth",   check_polygon_smooth},
+    {"volume-mipmap",    check_volume_mipmap},
     {"multitexture",     check_multitexture},
     {"tex-delete-in-frame", check_tex_delete_in_frame},
 };

@@ -1,0 +1,19 @@
+# FreeType's origin. Read by `common/upstream-fetch.sh`, shared with every dependency here.
+#
+# **Annotated tag, so the hash is the peeled commit.** `refs/tags/VER-2-13-3` is `534ad345...`
+# (the tag object) and `^{}` is the commit below. Checked, because getting this wrong is a trap
+# this collection has already fallen into once.
+#
+# Extreme Tux Racer is what wants it: 24 of its 45 sources include `ft2build.h`, and its data
+# directory ships six TrueType fonts. FreeType is also what SDL2_ttf stands on, so Neverball
+# reaches the same dependency by a different road - which is the argument for it living in
+# `oops-deps` rather than in either title.
+#
+# 2.13.3 is the newest of the 2.13 line at the time of writing. FreeType is plain C with no
+# dependency of its own once PNG, zlib, brotli and HarfBuzz are switched off - and they are, in
+# `include/ftoption-oops.h`, because a bitmap-font-embedded-in-PNG path and a text shaper are
+# nothing either title asks for.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/freetype/freetype
+UPSTREAM_REV=42608f77f20749dd6ddc9e0536788eaad70ea4b5
+UPSTREAM_REF=VER-2-13-3

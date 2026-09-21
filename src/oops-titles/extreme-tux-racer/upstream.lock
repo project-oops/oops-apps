@@ -1,0 +1,34 @@
+# Extreme Tux Racer's origin. Read by `common/upstream-fetch.sh`, shared with every title.
+#
+# UPSTREAM_REV must be a full commit hash: a tag can be moved and a branch always is. There is no
+# UPSTREAM_REF here because **this origin has no tags at all** - none of the three mirrors does -
+# so there is no release name to record. The hash is the whole pin.
+#
+# # Which mirror, and why this one
+#
+# Upstream proper is Subversion on SourceForge. Three git mirrors were compared by cloning and
+# reading, not by reputation:
+#
+#   meveric   SDL 1.2, 45 .cpp at the tree root, last commit 2014-11-19
+#   RKSimon   SDL 2,   45 .cpp at the tree root, last commit 2014-05-29   <- this one
+#   lutris    SFML,    48 .cpp under src/,       last commit 2016-11-19
+#
+# **RKSimon is the same codebase as meveric with the SDL2 port already done**, and that is the
+# whole reason to prefer it: `SDL_SetVideoMode`, `SDL_Flip` and `SDL_WM_SetCaption` are gone,
+# `SDL_CreateWindow`, `SDL_GL_CreateContext` and `SDL_GL_SwapWindow` are there, and the single
+# remaining `SDL_EnableKeyRepeat` is commented out. Checked, line by line.
+#
+# So this title does **not** need `oops-deps/sdl12-compat`, which was built for it. That shim
+# keeps its place as the general answer for an SDL 1.2 title; it is simply not on this one's
+# path, and pinning the newer-looking mirror would have put it back on.
+#
+# lutris is the newest and is the wrong tree: it tracks modern ETR, which moved to **SFML** - a
+# C++ framework with its own window, audio, graphics and system layers. That is a larger
+# dependency than SDL2 and one nothing else here would share.
+#
+# Being three years stale is a real cost and is accepted knowingly: a fork nobody maintains takes
+# no upstream security fixes, and a bump means picking a different mirror rather than moving a
+# revision. Recorded here so the next reader does not rediscover it as a surprise.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/RKSimon/extremetuxracer
+UPSTREAM_REV=ff576bc46ea92093b35d708ad657aa994a6789d2

@@ -1,0 +1,83 @@
+/*
+ * libc++'s site configuration. CMake normally generates this from `__config_site.in`; we do not
+ * run libc++'s CMake, so it is written out here - which also means every switch is a decision
+ * somebody made rather than whatever the build machine happened to have.
+ *
+ * The shape is upstream's: `#cmakedefine01` entries become `#define X 0` or `#define X 1`, and
+ * `#cmakedefine` entries are either defined or absent.
+ */
+#ifndef _LIBCPP___CONFIG_SITE
+#define _LIBCPP___CONFIG_SITE
+
+#define _LIBCPP_ABI_VERSION 1
+#define _LIBCPP_ABI_NAMESPACE __1
+#define _LIBCPP_ABI_FORCE_ITANIUM 0
+#define _LIBCPP_ABI_FORCE_MICROSOFT 0
+
+/*
+ * **No threads inside the standard library.** A payload does have threads - `oops/thread.h` has
+ * them and SDL's backend is built on them - but libc++'s threading is a different question: with
+ * it on, libc++ wants a `<__thread/support/*>` backend, `pthread_*` symbols, and thread-safe
+ * `std::shared_ptr` refcounts and `std::call_once` that nothing in the queued titles uses.
+ *
+ * The cost of this being wrong later is visible rather than silent: a title using `std::thread`
+ * or `std::mutex` fails to compile, at the line that wrote it.
+ */
+#define _LIBCPP_HAS_THREADS 0
+#define _LIBCPP_HAS_THREAD_API_PTHREAD 0
+#define _LIBCPP_HAS_THREAD_API_EXTERNAL 0
+#define _LIBCPP_HAS_THREAD_API_WIN32 0
+#define _LIBCPP_HAS_THREAD_API_C11 0
+
+#define _LIBCPP_HAS_MONOTONIC_CLOCK 0
+#define _LIBCPP_HAS_TERMINAL 0
+#define _LIBCPP_HAS_MUSL_LIBC 0
+#define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 0
+#define _LIBCPP_HAS_FILESYSTEM 0
+#define _LIBCPP_HAS_RANDOM_DEVICE 0
+#define _LIBCPP_HAS_TIME_ZONE_DATABASE 0
+#define _LIBCPP_INSTRUMENTED_WITH_ASAN 0
+#define _LIBCPP_HAS_NO_STD_MODULES
+
+/*
+ * **No wide characters.** This is what collapses the locale surface from unmanageable to
+ * absent: `__locale_dir/support/bsd_like.h` guards every `isw*_l`, `wcs*_l` and `mb*_l` wrapper
+ * behind this switch, so turning it off removes about thirty of the forty-five platform
+ * functions libc++ would otherwise want. Nothing in the queued titles uses `wchar_t`.
+ */
+#define _LIBCPP_HAS_WIDE_CHARACTERS 0
+#define _LIBCPP_HAS_UNICODE 0
+
+/*
+ * **No localization, and this is the consequential one.**
+ *
+ * With it off, libc++ gives `std::string`, the containers, the algorithms and `<charconv>`, and
+ * does *not* give `<iostream>`, `<sstream>`, `<fstream>` or `<iomanip>` - formatted stream I/O
+ * goes through locale facets, so the two stand or fall together.
+ *
+ * With it on, `__FreeBSD__` selects `__locale_dir/support/freebsd.h`, which wants `<xlocale.h>`,
+ * `newlocale`, a rune table and the `_CTYPE_*` masks, and then `src/locale.cpp` - 5643 lines -
+ * has to build on top of all of it. That is a locale implementation we would own, and the whole
+ * of what the first C++ title asks of streams is **29 uses across 4 files**: five
+ * `ostringstream`, fourteen `istringstream`, one `ofstream`, four `cout` and five `endl`.
+ *
+ * Measured rather than guessed, and the ratio is what decides it. It is left overridable so the
+ * question can be reopened by a title that genuinely needs streams, rather than being settled
+ * here for everybody for ever.
+ */
+#ifndef _LIBCPP_HAS_LOCALIZATION
+#  define _LIBCPP_HAS_LOCALIZATION 0
+#endif
+
+/*
+ * The parallel algorithms need a backend named even when nothing is parallel: without one,
+ * `__pstl/backend_fwd.h` stops with "Invalid PSTL backend configuration". Serial is the only
+ * honest choice with `_LIBCPP_HAS_THREADS 0` - the other two are std::thread and libdispatch.
+ */
+#define _LIBCPP_PSTL_BACKEND_SERIAL
+
+/* Hardening off: the bounds and precondition checks cost a branch each and their handler is a
+   trap. A title wanting them sets `_LIBCPP_HARDENING_MODE` on its own command line. */
+#define _LIBCPP_HARDENING_MODE_DEFAULT _LIBCPP_HARDENING_MODE_NONE
+
+#endif /* _LIBCPP___CONFIG_SITE */

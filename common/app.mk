@@ -10,8 +10,98 @@ SELFISH ?= $(abspath $(OOPS_APPS_ROOT)/../selfish)
 include $(OOPS_SDK)/oops-sdk.mk
 OOPS_SDK_DIR := $(abspath $(OOPS_SDK))
 
+# **oops-gl's sources, listed once.**
+#
+# Apps that use OpenGL compile the library out of the SDK tree rather than linking its archive,
+# because a host self-test needs the same code the payload runs and the archive is a
+# freestanding cross-build. Each of them used to carry its own copy of this list.
+#
+# That went wrong the first time the library gained a file. On 2026-09-21 the GL 2.0 shader
+# objects arrived as five new sources, and every app's link broke - **one at a time**, as each
+# was next built, with an undefined-symbol error naming a function nobody had heard of rather
+# than a missing file. One list is one place to add a source, and it is the same reasoning as
+# `an app is a directory with a Makefile`: nothing to keep in step by hand.
+#
+# GLU, GLUT and the font are *not* here. They are separate libraries a program chooses, and an
+# app that does not call them should not link them - `glut-demo` adds them itself.
+#
+# `math.c` **is** here, because the GL layer needs it: the GLSL interpreter's `sin`, `pow` and
+# `floor` are the SDK's own, since a freestanding target has no libm. An app that also lists it
+# would compile it twice and fail the link on duplicate symbols, so the apps that used to list
+# it no longer do.
+OOPS_GL_SRCS := \
+    $(OOPS_SDK_DIR)/src/math/math.c \
+    $(OOPS_SDK_DIR)/src/gl/gl_context.c \
+    $(OOPS_SDK_DIR)/src/gl/gl_state.c \
+    $(OOPS_SDK_DIR)/src/gl/gl_matrix.c \
+    $(OOPS_SDK_DIR)/src/gl/gl_draw.c \
+    $(OOPS_SDK_DIR)/src/gl/gl_list.c \
+    $(OOPS_SDK_DIR)/src/gl/gl_attrib.c \
+    $(OOPS_SDK_DIR)/src/gl/gl_raster.c \
+    $(OOPS_SDK_DIR)/src/gl/gl_eval.c \
+    $(OOPS_SDK_DIR)/src/gl/gl_select.c \
+    $(OOPS_SDK_DIR)/src/gl/gl_pixel.c \
+    $(OOPS_SDK_DIR)/src/gl/gl_shader.c \
+    $(OOPS_SDK_DIR)/src/gl/glsl_lex.c \
+    $(OOPS_SDK_DIR)/src/gl/glsl_pp.c \
+    $(OOPS_SDK_DIR)/src/gl/glsl_parse.c \
+    $(OOPS_SDK_DIR)/src/gl/glsl_sema.c \
+    $(OOPS_SDK_DIR)/src/gl/glsl_builtin.c \
+    $(OOPS_SDK_DIR)/src/gl/glsl_link.c \
+    $(OOPS_SDK_DIR)/src/gl/glsl_exec.c \
+    $(OOPS_SDK_DIR)/src/gl/glsl_ps.c \
+    $(OOPS_SDK_DIR)/src/gl/glsl_emit.c \
+    $(OOPS_SDK_DIR)/src/gl/glsl_gen.c
+
 # Load project-level configuration (app.env) if present
 -include app.env
+
+# **A title whose source is somebody else's** (`src/oops-titles/`), fetched rather than committed.
+#
+# The opt-in is the presence of `upstream.lock` - no switch to remember, because the file *is*
+# the switch, and an app without one is untouched. The lock is `KEY=value` like `app.env` above,
+# so make reads it with no parser:
+#
+#     UPSTREAM_KIND=git
+#     UPSTREAM_URL=https://github.com/...
+#     UPSTREAM_REV=<full commit hash>
+#     UPSTREAM_REF=<the tag that hash is, for a reader>
+#
+# **Why this is here and not a verb on `bin/oops-apps`.** That script says of itself that an app
+# is a directory with a Makefile and that it never learns an app's format - it runs `make` and
+# takes what appears. A `fetch` verb would put title-specific knowledge in the shared CLI and
+# would have to be remembered before `build`; a file that depends on the lock is what make is
+# for, so `./bin/oops-apps build <title>` and CI both work with no change to either.
+#
+# **Why the fetch runs while this file is being read.** A title lists sources under `upstream/`,
+# and make resolves prerequisites before it runs any recipe - so a normal rule would be too late
+# for the very build that needs it. The stamp guards it: once the tree matches the lock and the
+# patches, this costs one `test -f`. It is deliberately skipped for the targets that exist to
+# *remove* things, so `make clean` in a fresh checkout does not download 150 MB in order to
+# delete nothing.
+ifneq ($(wildcard upstream.lock),)
+-include upstream.lock
+UPSTREAM_DIR ?= upstream
+UPSTREAM_STAMP := $(UPSTREAM_DIR)/.oops-upstream-stamp
+ifeq ($(filter clean upstream-clean distclean,$(MAKECMDGOALS)),)
+ifneq ($(wildcard $(UPSTREAM_STAMP)),$(UPSTREAM_STAMP))
+$(info $(APP_NAME): fetching upstream at $(UPSTREAM_REF))
+$(shell UPSTREAM_SPARSE="$(UPSTREAM_SPARSE)" $(OOPS_APPS_ROOT)/common/upstream-fetch.sh \
+        "$(UPSTREAM_KIND)" "$(UPSTREAM_URL)" \
+        "$(UPSTREAM_REV)" "$(UPSTREAM_DIR)" "$(CURDIR)/patches" >&2)
+ifneq ($(wildcard $(UPSTREAM_STAMP)),$(UPSTREAM_STAMP))
+$(error $(APP_NAME): upstream fetch failed - see above)
+endif
+endif
+endif
+
+# `clean` leaves the fetch alone: it is a download, not build output, and re-fetching 150 MB is
+# not what anybody means by cleaning a build. This is the target for when they do mean it.
+.PHONY: upstream-clean
+upstream-clean:
+	@rm -rf $(UPSTREAM_DIR)
+	@echo "$(APP_NAME): removed $(UPSTREAM_DIR)"
+endif
 
 # OpenGL through Mesa, for a title that asks for it.
 #
@@ -304,7 +394,13 @@ TARGET_SYS_SRCS ?= $(filter-out $(PAYLOAD_SRCS), $(wildcard $(CORE_SDK_SRCS)))
 #
 # `UNDEF_ALLOW` is the imports the loader really does resolve; an app with a module of its own
 # adds to `EXTRA_UNDEF_ALLOW` rather than editing this.
-UNDEF_ALLOW ?= ^sce[A-Z]|^sysctlbyname$$
+# `__error` joined the list on 2026-09-21. It is the POSIX errno accessor, not a `sce*` name, and
+# the platform exports it from the same FreeBSD-derived set as the socket calls `oops-sdk`'s
+# `net.c` already binds weakly - obSCEne measured it callable on firmware 12.40 (sweep
+# 20260909-083918). It became visible when `<libc/errno.h>` arrived and the first payload read
+# `errno`; before that nothing referenced it, which is why a correct import looked like a new
+# failure.
+UNDEF_ALLOW ?= ^sce[A-Z]|^sysctlbyname$$|^__error$$
 NM ?= nm
 
 # **A hosted title is the case this cannot judge.** `USE_MESA` links against the Mesa sysroot and

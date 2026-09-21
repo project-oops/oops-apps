@@ -1,0 +1,79 @@
+diff --git a/src/SDL12_compat.c b/src/SDL12_compat.c
+index abc9e01..a29a374 100644
+--- a/src/SDL12_compat.c
++++ b/src/SDL12_compat.c
+@@ -1190,6 +1190,12 @@ static char *SDL12COMPAT_getenv_unsafe(const char *name)
+     static char buf[256];  /* overflows will just report as environment variable being unset. But most of our environment vars don't come through here. */
+     const DWORD rc = GetEnvironmentVariableA(name, buf, (DWORD) sizeof (buf));
+     return ((rc != 0) && (rc < sizeof (buf))) ? buf : NULL;
++    #elif defined(__PROSPERO__)
++    /* The `return NULL;` the comment below offers: a payload is launched, not spawned from a
++       shell, so there is no environment table to read. Every variable reads as unset, which is
++       the same answer a desktop gives for one nobody exported. */
++    (void) name;
++    return NULL;
+     #else  /* we might need other platforms, or a simple `return NULL;` for platforms without an environment table. */
+     return getenv(name);
+     #endif
+@@ -1201,6 +1207,11 @@ static void SDL12COMPAT_setenv_unsafe(const char *name, const char *value)
+     SetEnvironmentVariableA(name, value);
+     #elif defined (__WATCOMC__)
+     setenv(name, value, 1); /* OW19 has no unsetenv(). NULL newvalue passed to setenv() behaves as unsetenv(). */
++    #elif defined(__PROSPERO__)
++    /* The `return;` the comment below offers, and the other half of the getenv above: nothing to
++       write into, so a write is dropped rather than half-kept. */
++    (void) name;
++    (void) value;
+     #else  /* we might need other platforms, or a simple `return;` for platforms without an environment table. */
+     if (value) {
+         setenv(name, value, 1);
+@@ -1339,6 +1350,16 @@ static char loaderror[256];
+ 
+         return SDL_FALSE; /* didn't find it anywhere reasonable. :( */
+     }
++#elif defined(__PROSPERO__)
++    /* SDL2 is linked into the payload, so there is no library to open and no loader to open it
++       with. `Loaded_SDL20` is only ever tested against NULL, so it carries its own address as a
++       sentinel, and the symbols are bound directly in LoadSDL20() below rather than looked up
++       one at a time. `LookupSDL20Sym` is never reached and says so. */
++    #define SDL20_REQUIRED_VER SDL_VERSIONNUM(2,0,7)
++    static void *Loaded_SDL20 = NULL;
++    #define LoadSDL20Library() ((Loaded_SDL20 = (void *) &Loaded_SDL20) != NULL)
++    #define LookupSDL20Sym(sym) (NULL)
++    #define CloseSDL20Library() { Loaded_SDL20 = NULL; }
+ #elif defined(__unix__)
+     #include <dlfcn.h>
+     #define SDL20_LIBNAME "libSDL2-2.0.so.0"
+@@ -1505,6 +1526,15 @@ static void OS_GetExeName(char *buf, const unsigned maxpath) {
+     buf[0] = '\0';
+     DosQueryModuleName(pib->pib_hmte, maxpath, buf);
+ }
++#elif defined(__PROSPERO__)
++/* The `#warning` below, answered. This name exists to match a title against the quirks table,
++   and there is no `getprogname` here to ask - a payload is loaded, not exec'd under a name.
++   Empty means no quirk matches, which is the same result every title without an entry gets.
++   A title that needs one sets it through SDL's hints, which do not depend on this. */
++static void OS_GetExeName(char *buf, const unsigned maxpath) {
++    (void) maxpath;
++    buf[0] = '\0';
++}
+ #elif defined(__APPLE__) || defined(__FREEBSD__)
+ static void OS_GetExeName(char *buf, const unsigned maxpath) {
+     const char *progname = getprogname();
+@@ -1713,7 +1743,16 @@ LoadSDL20(void)
+         if (!okay) {
+             SDL12COMPAT_stpcpy(loaderror, "sdl12-compat: Failed loading SDL2 library.");
+         } else {
++            #ifdef __PROSPERO__
++            /* Bound at link time, not looked up by name. `SDL20_include_wrapper.h` renamed every
++               SDL2 declaration to `IGNORE_THIS_VERSION_OF_SDL_*` so it would not collide with the
++               SDL 1.2 functions this file defines - and token pasting happens before macro
++               expansion, so `SDL_##fn` pastes to `SDL_Init` and *then* expands to the renamed
++               SDL2 one. The cast is kept: it is what catches a signature that has drifted. */
++            #define SDL20_SYM(rc,fn,params,args,ret) SDL20_##fn = (SDL20_##fn##_t) IGNORE_THIS_VERSION_OF_SDL_##fn;
++            #else
+             #define SDL20_SYM(rc,fn,params,args,ret) SDL20_##fn = (SDL20_##fn##_t) LoadSDL20Symbol("SDL_" #fn, &okay);
++            #endif
+             #include "SDL20_syms.h"
+             if (okay) {
+                 char sdl2verstr[16];

@@ -3,17 +3,20 @@
  *
  * # What this is
  *
- * The three titles beside this one are probes: each asks a question, prints the answer and stops.
- * This one asks nothing. It is roadmap unit 7's "example title", and its job is to be the file a
- * title author reads before writing their own - so it is deliberately ordinary. Create a GL
- * context, upload some geometry and a texture, and draw a frame in a loop until the host closes
- * the title.
+ * The two probes beside this one each ask a question, print the answer and stop. This one asks
+ * nothing. It is roadmap unit 7's "example title", and its job is to be the file a title author
+ * reads before writing their own - so it is deliberately ordinary. Create a GL context, upload
+ * some geometry and a texture, draw a frame in a loop, read the pad, and stop cleanly when asked.
  *
- * Everything here is plain OpenGL 3.3 core-profile practice. Nothing in it is specific to this
- * platform except three lines: `oops_gl_create` instead of a windowing library,
- * `oops_mesa_run_init_array` at the top, and parking instead of returning at the bottom. Each is
- * commented where it appears, because those three are the whole difference between this and the
- * same program on a desktop.
+ * Everything here is plain OpenGL 3.3 core-profile practice, and everything a real title needs on
+ * day one - a texture, a depth test, a matrix pipeline, a controller, a way to stop - it reaches
+ * for through the SDK the same way any oops title would: `oops/math.h` for the matrices,
+ * `oops/input.h` for the pad, `oops/fs.h` for the stop file. Only three lines are specific to
+ * *this* platform in a way a desktop program would not have: `oops_gl_create` instead of a
+ * windowing library, `oops_mesa_run_init_array` at the top, and parking instead of returning at
+ * the bottom. Each is commented where it appears, because those three are the whole difference
+ * between this and the same program on a desktop - the pad and the stop file are not platform
+ * quirks, they are what the desktop version would do with GLFW and a window-close event.
  *
  * # What it exercises, and why that matters right now
  *
@@ -32,12 +35,16 @@
  *
  * Its second use is measurement. `oops_gl_present` reports its cost in four parts for the first
  * ten frames and every sixtieth after (oops-mesa D012), and a title that presents once produces a
- * single sample. This one produces a profile, which is what decides D012's open question: whether
- * the `glReadPixels` detile or the display's re-tile dominates the present.
+ * single sample. This one produces a profile over a continuous loop, which is what settled D012:
+ * the present now scans out Mesa's own tiled buffer directly, 59.94 fps vsync-locked with the CPU
+ * touching no pixel of the frame. A title that presents once could never have shown that.
  */
 
 #include "oops/system.h"
 #include "oops/time.h"
+#include "oops/math.h"   /* the SDK's matrix library, rather than a copy in this file */
+#include "oops/input.h"  /* the pad, so the cube answers a controller like a real title */
+#include "oops/fs.h"     /* a stop file, so a headless run ends without JetKVM keys */
 
 #include "oops_platform.h"
 
@@ -56,7 +63,6 @@
 #include <GL/glext.h>
 #pragma clang diagnostic pop
 
-#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -87,25 +93,25 @@ _Noreturn static void park(const char *why)
 
 /* --- matrices ------------------------------------------------------------------------------
  *
- * Column-major, `m[column * 4 + row]`, which is what `glUniformMatrix4fv` expects with `transpose`
- * false. Written out here rather than pulled from a library because the example should not send a
- * reader looking for one, and because there is no maths library on this target beyond FreeBSD's
- * msun (oops-mesa D011), which is where `sinf`, `cosf` and `tanf` come from.
+ * From `oops/math.h`, not hand-rolled here. An earlier draft of this file carried its own six
+ * matrix functions on the grounds that an example should not send a reader looking for a library.
+ * That was the wrong call for this collection: a title author writing an oops title *should* reach
+ * for `oops/math.h`, so the example that pretends the library does not exist teaches the wrong
+ * habit. `oops_mat4_t` is a bare `float m[16]`, column-major (`m[column * 4 + row]`), which is
+ * exactly what `glUniformMatrix4fv` wants with `transpose` false - so `mvp.m` is handed straight
+ * to the uniform.
  *
- * **Checked on the host before this ever ran on the console**, because every way of getting these
- * wrong produces the same symptom - a black screen - and finding that out on hardware costs a
- * deploy, a launch and a manual close. These functions were compiled unmodified into a host
- * program that reproduced the frame loop's exact composition and transformed all eight cube
- * corners over 400 frames. It confirmed: `A*I == I*A == A`; the translation lands in the last
- * column (column-major, not transposed); both rotations have unit-length basis vectors and
- * determinant +1, so they rotate rather than mirror or scale; `mat4_mul(out, a, b)` means "apply
- * b, then a", verified by +X rotating to -Z about Y, which is right-handed; every corner stays in
- * front of the camera with `w > 0` and inside the frustum in all three axes for every frame
- * sampled; and the MVP actually differs between frames, so "animated" is not a claim about code
- * that produces a still image.
+ * The SDK's rotate and translate multiply *into* their target (`out = out * op`), which is the
+ * chaining form; to get a single fresh transform this file starts each from identity. The one
+ * behavioural difference from the old code is the trig: `oops/math.h` uses its own freestanding
+ * polynomial `sinf`/`cosf`/`tanf` rather than FreeBSD's msun. It is not a maths library dependency
+ * this title has to think about, and it was checked to matter nowhere it can be seen.
  *
- * At frame 0 the corner `(1, 1, 1)` comes out at clip `w = 5.0000`, NDC
- * `(0.2329, 0.4140, 0.9639)`. Those are the numbers to reproduce if any of this is ever edited.
+ * **The frame-0 regression numbers are unchanged and were re-verified against the SDK maths before
+ * the swap:** corner `(1, 1, 1)` at frame 0 lands at clip `w = 5.0000`, NDC
+ * `(0.2329, 0.4140, 0.9639)`. The largest NDC deviation from the old msun path over the whole
+ * `a = 0 .. 10*pi` animation, across all eight corners, is `1.2e-06` - six ten-thousandths of one
+ * 1080p pixel. Those are the numbers to reproduce if any of this is ever edited.
  *
  * One consequence worth knowing rather than fixing: with `znear` at 0.1 and the cube five to seven
  * units away, the whole cube occupies NDC depth 0.96 to 0.98 - under 2% of the range, because a
@@ -114,78 +120,6 @@ _Noreturn static void park(const char *why)
  * it is why `znear` is not tuned. A scene that needed the precision would raise `znear`, not the
  * bit depth.
  */
-
-static void mat4_identity(float m[16])
-{
-    for (int i = 0; i < 16; i++) {
-        m[i] = 0.0f;
-    }
-    m[0] = 1.0f;
-    m[5] = 1.0f;
-    m[10] = 1.0f;
-    m[15] = 1.0f;
-}
-
-static void mat4_mul(float out[16], const float a[16], const float b[16])
-{
-    float r[16];
-
-    for (int c = 0; c < 4; c++) {
-        for (int i = 0; i < 4; i++) {
-            r[c * 4 + i] = a[0 * 4 + i] * b[c * 4 + 0] + a[1 * 4 + i] * b[c * 4 + 1] +
-                           a[2 * 4 + i] * b[c * 4 + 2] + a[3 * 4 + i] * b[c * 4 + 3];
-        }
-    }
-    for (int i = 0; i < 16; i++) {
-        out[i] = r[i];
-    }
-}
-
-static void mat4_perspective(float m[16], float fovy_rad, float aspect, float znear, float zfar)
-{
-    const float f = 1.0f / tanf(fovy_rad * 0.5f);
-
-    for (int i = 0; i < 16; i++) {
-        m[i] = 0.0f;
-    }
-    m[0] = f / aspect;
-    m[5] = f;
-    m[10] = (zfar + znear) / (znear - zfar);
-    m[11] = -1.0f;
-    m[14] = (2.0f * zfar * znear) / (znear - zfar);
-}
-
-static void mat4_rotate_x(float m[16], float a)
-{
-    const float s = sinf(a);
-    const float c = cosf(a);
-
-    mat4_identity(m);
-    m[5] = c;
-    m[6] = s;
-    m[9] = -s;
-    m[10] = c;
-}
-
-static void mat4_rotate_y(float m[16], float a)
-{
-    const float s = sinf(a);
-    const float c = cosf(a);
-
-    mat4_identity(m);
-    m[0] = c;
-    m[2] = -s;
-    m[8] = s;
-    m[10] = c;
-}
-
-static void mat4_translate(float m[16], float x, float y, float z)
-{
-    mat4_identity(m);
-    m[12] = x;
-    m[13] = y;
-    m[14] = z;
-}
 
 /* --- geometry and texture ------------------------------------------------------------------- */
 
@@ -395,6 +329,12 @@ void mesa_cube_start(void)
     glViewport(0, 0, (GLsizei)w, (GLsizei)h);
     glClearColor(0.06f, 0.07f, 0.10f, 1.0f);
 
+    /* The pad. A real title reads input, so the example does too - and its absence is not an
+     * error, because a run left going on its own has no controller. `oops_input_init` reports its
+     * own pad setup to the log; the loop below asks it for state each frame and does not care
+     * whether one is connected. */
+    oops_input_init();
+
     {
         char msg[128];
         (void)snprintf(msg, sizeof msg, "set up: %ux%u, depth test on, %u indices - drawing",
@@ -422,22 +362,57 @@ void mesa_cube_start(void)
     const float a_wrap = 31.41592653589793f; /* 10*pi */
     float a = 0.0f;
 
-    for (uint32_t frame = 0;; frame++) {
-        float proj[16];
-        float rx[16];
-        float ry[16];
-        float tr[16];
-        float mv[16];
-        float mvp[16];
+    /* Loop-persistent input state. `prev_buttons` is what makes CROSS a toggle rather than a
+     * per-frame flip: a press is a bit set now that was clear last frame, not a bit that is
+     * merely held. */
+    uint32_t prev_buttons = 0u;
+    bool paused = false;
+    bool stopped = false;
 
-        mat4_perspective(proj, 0.9f, aspect, 0.1f, 50.0f);
-        mat4_rotate_x(rx, a * 0.6f);
-        mat4_rotate_y(ry, a);
-        mat4_translate(tr, 0.0f, 0.0f, -6.0f);
-        mat4_mul(mv, rx, ry);   /* spin about Y, then tilt about X */
-        mat4_mul(mv, tr, mv);   /* push it away from the eye */
-        mat4_mul(mvp, proj, mv);
-        glUniformMatrix4fv(mvp_loc, 1, GL_FALSE, mvp);
+    for (uint32_t frame = 0; !stopped; frame++) {
+        oops_mat4_t proj;
+        oops_mat4_t rx;
+        oops_mat4_t ry;
+        oops_mat4_t tr;
+        oops_mat4_t mv;
+        oops_mat4_t mvp;
+
+        /* Input, once a frame. Options or Circle stops the title the polite way - the loop ends
+         * and the code below parks - and CROSS pauses the spin so a still frame can be looked at.
+         * A disconnected or absent pad simply reports nothing and the cube keeps turning. */
+        oops_pad_state_t pad;
+        if (oops_input_poll(0, &pad) == 0 && pad.connected) {
+            const uint32_t pressed = pad.buttons & ~prev_buttons;
+            prev_buttons = pad.buttons;
+
+            if (pad.buttons & (OOPS_BUTTON_OPTIONS | OOPS_BUTTON_CIRCLE)) {
+                stopped = true;
+            }
+            if (pressed & OOPS_BUTTON_CROSS) {
+                paused = !paused;
+            }
+        }
+
+        /* A stop file, checked each frame. It is how a run with nobody at the console ends:
+         * `pros sh touch /app0/stop` before or during the run, and the loop leaves cleanly rather
+         * than needing the app closed from the host. The gl-cube demo uses the same path. */
+        if (oops_fs_exists("/app0/stop")) {
+            stopped = true;
+        }
+
+        oops_mat4_perspective(&proj, 0.9f, aspect, 0.1f, 50.0f);
+        /* Each transform starts from identity because the SDK's rotate/translate multiply into
+         * their target; from identity, `out = I * op` is just `op`. */
+        oops_mat4_identity(&rx);
+        oops_mat4_rotate(&rx, a * 0.6f, 1.0f, 0.0f, 0.0f);
+        oops_mat4_identity(&ry);
+        oops_mat4_rotate(&ry, a, 0.0f, 1.0f, 0.0f);
+        oops_mat4_identity(&tr);
+        oops_mat4_translate(&tr, 0.0f, 0.0f, -6.0f);
+        oops_mat4_mul(&mv, &rx, &ry);   /* spin about Y, then tilt about X */
+        oops_mat4_mul(&mv, &tr, &mv);   /* push it away from the eye */
+        oops_mat4_mul(&mvp, &proj, &mv);
+        glUniformMatrix4fv(mvp_loc, 1, GL_FALSE, mvp.m);
 
         glClear((GLbitfield)(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
         glDrawElements(GL_TRIANGLES, (GLsizei)(sizeof idx / sizeof idx[0]), GL_UNSIGNED_SHORT,
@@ -462,9 +437,18 @@ void mesa_cube_start(void)
             say(msg);
         }
 
-        a += 0.0125f;
-        if (a >= a_wrap) {
-            a -= a_wrap;
+        /* Held still while paused. `frame` still advances, so the rate line keeps reporting. */
+        if (!paused) {
+            a += 0.0125f;
+            if (a >= a_wrap) {
+                a -= a_wrap;
+            }
         }
     }
+
+    /* Parked, not returned: this is a `big-app`, and there is no caller frame to return into
+     * (obSCEne `REQ-20260917T1450Z-2e71`, and the comment on `park` above). The GL objects are
+     * torn down by the process ending, so a title that stops does not need to free them by hand -
+     * but it must stop by parking. */
+    park("stopped by the pad or the stop file");
 }

@@ -20,6 +20,9 @@
  * - `gluBuild2DMipmaps`, the way every texture loader written before GL 1.4 built its chain;
  * - `glutSolidSphere`, `glutSolidTorus` and `glutSolidCube`, the shapes that code draws, and
  *   `glutSolidDodecahedron`, whose flat faces show a winding mistake as a hole;
+ * - `glutSolidTeapot`, which is none of the above: it is the only GLUT solid that is measured
+ *   data rather than arithmetic, and it is drawn through the **evaluator** - so it is the one
+ *   shape here that exercises `glMap2f`/`glEvalMesh2` instead of the quadric path;
  * - `glutSetWindowTitle`, `glutFullScreen` and `glutSetCursor`, which change nothing here and
  *   which a port calls anyway;
  * - `glutBitmapCharacter` through `glutBitmapString`, drawing a HUD the way every GLUT program
@@ -149,6 +152,28 @@ static void display(void) {
     glScalef(0.42f, 0.42f, 0.42f);
     glColor3f(0.45f, 0.55f, 0.95f);
     glutSolidDodecahedron();
+    glPopMatrix();
+
+    /* And the teapot, a quarter turn round from the cube.
+     *
+     * It is here because it is the one solid in GLUT that is not arithmetic. Everything above
+     * comes out of a formula - a quadric, or the vertices of a platonic solid - while the teapot
+     * is 129 control points Martin Newell measured off his own in 1975, drawn as ten Bezier
+     * patches mirrored into thirty-two and evaluated through `glMap2f`/`glEvalMesh2`. So it is
+     * the only shape on screen that exercises the evaluator, and the only one whose silhouette
+     * would be wrong if the patch maths were.
+     *
+     * `glutSolidTeapot(0.5)` is about 1.6 units across, not 0.5: GLUT's size argument is a scale
+     * factor rather than an extent, and matching that is the point - a ported program expects
+     * GLUT's proportions, not tidier ones. It spins about its own axis only, so the handle and
+     * spout stay readable as they come round.
+     */
+    glPushMatrix();
+    glRotatef(-g_angle * 0.8f + 90.0f, 0.0f, 1.0f, 0.0f);
+    glTranslatef(3.4f, 0.0f, 0.0f);
+    glRotatef(g_angle * 0.9f, 0.0f, 1.0f, 0.0f);
+    glColor3f(0.95f, 0.72f, 0.25f);
+    glutSolidTeapot(0.5);
     glPopMatrix();
 
     /* **A frame counter drawn with glutBitmapCharacter**, which is what most GLUT code uses the

@@ -1,73 +1,32 @@
-# tracer - API and GPU Shader Telemetry Tracer
+# tracer
 
-An in-process diagnostic and telemetry tracer designed to run inside target processes (via `injector`) or as a standalone diagnostic payload.
+<p align="center">
+  <img src="../../../common/assets/no-logo.svg" alt="No logo yet" width="200">
+</p>
 
-## Capabilities
+An in-process API and GPU-shader telemetry tracer for target processes.
 
-1. **API Call Interception**:
-   - Records function NID, thread ID, sequence counter, and up to 6 SysV register arguments.
-   - Records function return codes.
-2. **Out-Parameter Struct Layouts**:
-   - Inlines small structures (<= 32 bytes) for precise layout diffing.
-   - Automatically hashes larger buffers via FNV-1a to record change state without redistributing copyrighted game assets.
-3. **Rate Limiting & Safety**:
-   - Per-NID call capping (`OBS_TRACE_CAP = 64`) via an open-addressed linear probing sampler, preventing hot loops from degrading frame pacing.
-   - Emits cumulative `COUNT` records at drain to preserve true execution totals.
-4. **GPU Command & Shader Telemetry**:
-   - Records raw RDNA2 ISA shader registrations (`OBS_TRACE_SHADER`).
-   - Records PM4 command buffer submissions (`OBS_TRACE_DCB`).
+## About
 
-## Role in THE LOOP
+tracer runs inside a title (or as a standalone diagnostic payload) and records what really
+happens: API calls with their arguments and returns, the layouts of out-parameters, and the GPU
+command and shader streams the title submits.
 
-Within the [OOPS ecosystem](../../../docs/THE_LOOP.md), `tracer` is the **Passive Observation Engine**:
+- **The passive observation engine of THE LOOP.** It captures real call sequences, PM4 packets and
+  RDNA2 shader bytecode from commercial titles on hardware — the ground truth that Orbistoun's
+  decoders and recompiler are checked against.
+- **Safe under load.** Per-NID call capping keeps a hot loop from disturbing frame pacing, and
+  large buffers are hashed rather than copied, so no copyrighted asset leaves the console.
+- **Offline decode.** The trace is a binary file pulled off the console and decoded host-side into
+  standard `OBS|` records.
 
-```
-Commercial Title Executing on Physical PS5 Hardware
-                     │
-                     ▼
-┌────────────────────────────────────────────────────────┐
-│ tracer (In-Process Hook Engine)                        │
-│ - Hooks API calls, sceAgcSubmitDcb, sceVideoOutSubmit  │
-│ - Captures real call sequences, arguments, & returns   │
-│ - Dumps submitted PM4 DCB packets & RDNA2 shader code  │
-└────────────────────┬───────────────────────────────────┘
-                     │ Flushes binary trace
-                     ▼
-          /data/trace-<TITLE_ID>.bin
-                     │
-                     ▼ (pulled via pros pull)
-┌────────────────────────────────────────────────────────┐
-│ Offline host-side decode                               │
-│ - Emits standard OBS| records                          │
-└────────────────────┬───────────────────────────────────┘
-                     │
-                     ▼
-┌────────────────────────────────────────────────────────┐
-│ Orbistoun Emulator (orbistoun-corpus & orbistoun-gpu)  │
-│ - Grounds PM4 packet decoders with real draw streams   │
-│ - Grounds RDNA2 shader recompiler with real bytecode   │
-└────────────────────────────────────────────────────────┘
-```
+## Screenshot
 
-## Building & Verification
+<p align="center">
+  <img src="../../../common/assets/no-screenshot.svg" alt="No screenshot yet" width="600">
+</p>
 
-```bash
-# Host selftest
-make check
+## Docs
 
-# Target payload compilation
-make elf
-
-# Stage artifact for distribution
-make dist
-```
-
-## Offline Decoding & Ingestion
-```bash
-# Pull binary trace from target console
-pros.exe pull /data/trace-CUSA12345.bin .
-```
-Decoding is host-side: the on-disk trace format and its reader live in this app's own
-`trace_decode.c` / `trace_format.h` (exercised by `make check`). The decoded OBS records -
-PM4 draw streams and RDNA2 shader bytecode - are what ground Orbistoun's packet decoders
-and shader recompiler.
+- **[Reference](docs/REFERENCE.md)** — capabilities, role in THE LOOP, and the offline decode path.
+- [oops-apps catalog & guide](../../../docs/USER_GUIDE.md)

@@ -9,6 +9,12 @@ build/
 # dist/; it is output, never tracked.
 dist/
 
+# A title's origin, fetched at the revision its `upstream.lock` names (src/oops-titles). Fetched
+# output, like build/ and dist/ above - ours is the lock, the patches and the shim beside it, and
+# committing somebody else's tree would be both a fork and a licence question we do not need to
+# have. It also keeps the identity scan's surface to the files we actually wrote.
+upstream/
+
 # No `__pycache__/` or `*.pyc` rule, deliberately. There is no Python in this repository and
 # there is not meant to be - the build is make and the scripts are shell. An ignore rule for
 # bytecode is a quiet accommodation for a language that is not allowed here: it would hide the

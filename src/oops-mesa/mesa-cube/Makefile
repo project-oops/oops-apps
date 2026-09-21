@@ -31,6 +31,11 @@ OOPS_APPS_ROOT ?= $(abspath ../../..)
 # The switch that brings Mesa in. A title that sets it is hosted (oops-mesa D002).
 USE_MESA = 1
 
+# The example reaches for the SDK the way a real title does: `math.c` for the matrix pipeline
+# (this file no longer hand-rolls one) and `input.c` for the pad. `fs.c` was already here for the
+# stop file. A hosted title takes the freestanding libc these need from the Mesa sysroot, so no
+# `-Iinclude/libc` is added (`common/app.mk` withholds it under USE_MESA) - `math.c` and `input.c`
+# include only `<string.h>`/`<sys/types.h>`-level headers, which the sysroot provides.
 PAYLOAD_SRCS = mesa_cube_main.c \
                $(OOPS_SDK_DIR)/src/display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_display.c \
@@ -42,6 +47,8 @@ PAYLOAD_SRCS = mesa_cube_main.c \
                $(OOPS_SDK_DIR)/src/system/freestd.c \
                $(OOPS_SDK_DIR)/src/system/syscall.c \
                $(OOPS_SDK_DIR)/src/system/fs.c \
+               $(OOPS_SDK_DIR)/src/math/math.c \
+               $(OOPS_SDK_DIR)/src/input/input.c \
                $(OOPS_SDK_DIR)/src/agc/agc_compute.c
 
 ENTRY_POINT := mesa_cube_start

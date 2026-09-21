@@ -28,8 +28,11 @@ Apps are filed by **category**, named after the part of the collection each one 
 ### `oops-mesa` - what oops-mesa can do
 
 - **[mesa-probe](../src/oops-mesa/mesa-probe/)** - OpenGL-through-Mesa bring-up app (hosted;
-  `USE_MESA`).
-- **[tls-probe](../src/oops-mesa/tls-probe/)** - thread-local storage bring-up, which Mesa needs.
+  `USE_MESA`). The winsys path, and the control for `dri-probe`.
+- **[dri-probe](../src/oops-mesa/dri-probe/)** - the same stack through the Gallium DRI frontend,
+  ending in a full-frame hash.
+- **[mesa-cube](../src/oops-mesa/mesa-cube/)** - the example title: a textured, depth-tested cube
+  presenting every frame.
 
 ### `oops-payloads` - things that run inside another process
 

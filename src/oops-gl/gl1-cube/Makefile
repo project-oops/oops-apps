@@ -21,17 +21,7 @@ EXTRA_TARGET_CFLAGS += -I$(OOPS_MESA)/tools/preamble-dump
 # allocator is direct memory and has nothing to talk to on a build machine.
 HOST_TEST_SRCS = gl1_cube_selftest.c \
                  $(OOPS_APPS_ROOT)/common/obj_loader.c \
-                 $(OOPS_SDK_DIR)/src/math/math.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_context.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_state.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_matrix.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_draw.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_list.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_attrib.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_raster.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_eval.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_select.c \
-                 $(OOPS_SDK_DIR)/src/gl/gl_pixel.c \
+                 $(OOPS_GL_SRCS) \
                  $(OOPS_SDK_DIR)/src/system/system.c \
                  $(OOPS_SDK_DIR)/src/system/freestd.c
 HOST_TEST_LIBS = -lm
@@ -40,16 +30,7 @@ HOST_TEST_LIBS = -lm
 PAYLOAD_SRCS = gl1_cube_main.c \
                $(OOPS_APPS_ROOT)/common/obj_loader.c \
                $(OOPS_SDK_DIR)/src/display.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_context.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_state.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_matrix.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_draw.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_list.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_attrib.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_raster.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_eval.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_select.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_pixel.c \
+               $(OOPS_GL_SRCS) \
                $(OOPS_SDK_DIR)/src/agc/agc_display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
                $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
@@ -69,7 +50,6 @@ PAYLOAD_SRCS = gl1_cube_main.c \
                $(OOPS_SDK_DIR)/src/system/sysmodule.c \
                $(OOPS_SDK_DIR)/src/system/krw.c \
                $(OOPS_SDK_DIR)/src/system/fs.c \
-               $(OOPS_SDK_DIR)/src/math/math.c \
                $(OOPS_SDK_DIR)/src/draw/draw.c
 
 ENTRY_POINT := gl1_cube_start

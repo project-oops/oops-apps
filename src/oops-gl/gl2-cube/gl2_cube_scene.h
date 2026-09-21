@@ -1,0 +1,71 @@
+/*
+ * gl2-cube: the geometry, in the form a programmable pipeline takes it.
+ *
+ * **Two flat arrays and a count, not a display list and not immediate mode.** GL 2.0 draws from
+ * generic vertex attribute arrays - `glVertexAttribPointer` and `glDrawArrays` - which is the
+ * shape every GL 2.0 port uses and the shape the shaders in `gl2_cube_shaders.h` are written
+ * against. gl1-cube's scene is the same cube expressed the other way round, and the difference
+ * between the two files is exactly the difference between the two versions of OpenGL.
+ *
+ * **Included by both the payload and the self-test**, never copied. gl1-cube learned that on
+ * 2026-09-17: its scene had been copied into its test and the two had drifted by one vertex
+ * colour in 288, so every run of that test had been rasterising a cube the console never drew.
+ *
+ * Six faces, each a distinct primary or secondary colour, so a face that is drawn in the wrong
+ * place or with the wrong winding is visible as a colour rather than as a shape. Each face is
+ * two triangles wound counter-clockwise seen from outside, which is GL's front face by default.
+ */
+
+#ifndef GL2_CUBE_SCENE_H
+#define GL2_CUBE_SCENE_H
+
+#define GL2_CUBE_VERTEX_COUNT 36
+
+/* Positions, three floats each: a unit cube centred on the origin. */
+static const float GL2_CUBE_POSITIONS[GL2_CUBE_VERTEX_COUNT * 3] = {
+    /* +Z, red */
+    -0.5f, -0.5f,  0.5f,   0.5f, -0.5f,  0.5f,   0.5f,  0.5f,  0.5f,
+    -0.5f, -0.5f,  0.5f,   0.5f,  0.5f,  0.5f,  -0.5f,  0.5f,  0.5f,
+    /* -Z, green. Wound the other way round in x, so it faces out of the far side. */
+     0.5f, -0.5f, -0.5f,  -0.5f, -0.5f, -0.5f,  -0.5f,  0.5f, -0.5f,
+     0.5f, -0.5f, -0.5f,  -0.5f,  0.5f, -0.5f,   0.5f,  0.5f, -0.5f,
+    /* +X, blue */
+     0.5f, -0.5f,  0.5f,   0.5f, -0.5f, -0.5f,   0.5f,  0.5f, -0.5f,
+     0.5f, -0.5f,  0.5f,   0.5f,  0.5f, -0.5f,   0.5f,  0.5f,  0.5f,
+    /* -X, yellow */
+    -0.5f, -0.5f, -0.5f,  -0.5f, -0.5f,  0.5f,  -0.5f,  0.5f,  0.5f,
+    -0.5f, -0.5f, -0.5f,  -0.5f,  0.5f,  0.5f,  -0.5f,  0.5f, -0.5f,
+    /* +Y, cyan */
+    -0.5f,  0.5f,  0.5f,   0.5f,  0.5f,  0.5f,   0.5f,  0.5f, -0.5f,
+    -0.5f,  0.5f,  0.5f,   0.5f,  0.5f, -0.5f,  -0.5f,  0.5f, -0.5f,
+    /* -Y, magenta */
+    -0.5f, -0.5f, -0.5f,   0.5f, -0.5f, -0.5f,   0.5f, -0.5f,  0.5f,
+    -0.5f, -0.5f, -0.5f,   0.5f, -0.5f,  0.5f,  -0.5f, -0.5f,  0.5f,
+};
+
+/* Colours, three floats each - one per vertex, six per face. **Not normalised bytes**: the
+ * shader's `attribute vec3 colour` is a float attribute, and passing bytes with
+ * `normalized = GL_FALSE` would give 255.0 rather than 1.0, which is the mistake the attribute
+ * array API most invites. */
+static const float GL2_CUBE_COLOURS[GL2_CUBE_VERTEX_COUNT * 3] = {
+    /* +Z red */
+    1.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,
+    1.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,  1.0f, 0.0f, 0.0f,
+    /* -Z green */
+    0.0f, 1.0f, 0.0f,  0.0f, 1.0f, 0.0f,  0.0f, 1.0f, 0.0f,
+    0.0f, 1.0f, 0.0f,  0.0f, 1.0f, 0.0f,  0.0f, 1.0f, 0.0f,
+    /* +X blue */
+    0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,
+    0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,  0.0f, 0.0f, 1.0f,
+    /* -X yellow */
+    1.0f, 1.0f, 0.0f,  1.0f, 1.0f, 0.0f,  1.0f, 1.0f, 0.0f,
+    1.0f, 1.0f, 0.0f,  1.0f, 1.0f, 0.0f,  1.0f, 1.0f, 0.0f,
+    /* +Y cyan */
+    0.0f, 1.0f, 1.0f,  0.0f, 1.0f, 1.0f,  0.0f, 1.0f, 1.0f,
+    0.0f, 1.0f, 1.0f,  0.0f, 1.0f, 1.0f,  0.0f, 1.0f, 1.0f,
+    /* -Y magenta */
+    1.0f, 0.0f, 1.0f,  1.0f, 0.0f, 1.0f,  1.0f, 0.0f, 1.0f,
+    1.0f, 0.0f, 1.0f,  1.0f, 0.0f, 1.0f,  1.0f, 0.0f, 1.0f,
+};
+
+#endif /* GL2_CUBE_SCENE_H */

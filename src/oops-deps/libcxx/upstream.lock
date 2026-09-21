@@ -1,0 +1,22 @@
+# libc++'s origin: LLVM's C++ standard library, which lives inside the llvm-project monorepo.
+#
+# **This is an annotated tag, and the hash below is the commit it points at.** `git ls-remote`
+# gives `42befb84...` for `refs/tags/llvmorg-21.1.8` and `2078da43...` for the peeled `^{}` form;
+# the first is the tag object and the second is what gets checked out. That distinction put the
+# wrong hash in Neverball's lock the first time, so it is checked here: a fetched tree reports
+# `rev-parse HEAD` as the value below.
+#
+# **21.1.8 because that is the clang in the builder.** libc++'s headers use `__has_builtin` and
+# compiler-internal attributes that track the compiler they ship with, so matching the two
+# removes a whole class of problem that has nothing to do with this port.
+#
+# **UPSTREAM_SPARSE is why this is 130 MB rather than gigabytes.** llvm-project is the first
+# origin here where fetching the whole tree is not a reasonable thing to ask; `common/
+# upstream-fetch.sh` learned sparse checkout for it. `runtimes` and `cmake` are not built here -
+# they are present because libc++'s own CMake references them, and a tree that cannot explain
+# itself to a reader is worse than a few megabytes.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/llvm/llvm-project
+UPSTREAM_REV=2078da43e25a4623cab2d0d60decddf709aaea28
+UPSTREAM_REF=llvmorg-21.1.8
+UPSTREAM_SPARSE=libcxx libcxxabi runtimes cmake
