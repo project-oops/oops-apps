@@ -48,8 +48,45 @@ OOPS_CXX_RT_SRC := $(OOPS_CXX_MK_DIR)/cxxrt.cpp
 OOPS_CXX_STD ?= c++11
 OOPS_CXX_INCLUDE :=
 
+# # Exceptions and RTTI: off by default, and opted into per title
+#
+#   OOPS_CXX_EXCEPTIONS = 1
+#
+# **Off is still the right default** and the paragraph above is unchanged: the titles in the
+# queue were counted, Extreme Tux Racer throws nothing, and a title that does not need this
+# should not carry an unwinder. What has changed is that "on" is now reachable at all.
+#
+# Turning it on is not just two compiler flags. The platform exports **none** of the 19 Itanium
+# unwind and C++ ABI symbols - obSCEne swept `libkernel`, `libSceLibcInternal` and `self` and
+# found every one absent at `0x0` (REQ-20260921T0953Z-e3f7). So a throwing title must also link
+# libunwind and libc++abi, built from the same pinned llvm-project checkout as libc++, and a
+# linker script that tells the unwinder where its frame table is:
+#
+#   OOPS_CXX_EXCEPTIONS  = 1
+#   include $(OOPS_LIBCXX)/oops-libunwind.mk
+#   include $(OOPS_LIBCXX)/oops-libcxxabi.mk
+#   EXTRA_TARGET_LDFLAGS += $(OOPS_LIBUNWIND_LDFLAGS) $(OOPS_LIBCXXABI_LDFLAGS)
+#   PAYLOAD_EXTRA_DEPS   += $(OOPS_LIBUNWIND_LIB) $(OOPS_LIBCXXABI_LIB)
+#
+# `oops-apps#D005` is why those three pieces and not a different three.
+#
+# **This file cannot check that you did the rest**, and that is worth stating where the flag is:
+# `app.mk` links with `--unresolved-symbols=ignore-all`, so a title that sets
+# `OOPS_CXX_EXCEPTIONS` and forgets the archives links perfectly cleanly and faults on its first
+# `throw`. Verify the built ELF rather than the exit code:
+#
+#   nm <title>.elf | grep -E '__cxa_throw|_Unwind_RaiseException|__eh_frame_start'
+ifeq ($(OOPS_CXX_EXCEPTIONS),1)
+# `-DOOPS_CXX_EXCEPTIONS` is not decoration: `cxxrt.cpp` uses it to *stop* defining the four
+# symbols libc++abi defines properly (`__cxa_pure_virtual`, `__cxa_guard_*`). Without it the two
+# archives collide at the link. See the block comment in `cxxrt.cpp`.
+OOPS_CXX_EH_FLAGS := -fexceptions -frtti -DOOPS_CXX_EXCEPTIONS=1
+else
+OOPS_CXX_EH_FLAGS := -fno-exceptions -fno-rtti
+endif
+
 OOPS_CXX_FLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
-                 -nostdinc++ -fno-exceptions -fno-rtti -fPIC -fno-stack-protector \
+                 -nostdinc++ $(OOPS_CXX_EH_FLAGS) -fPIC -fno-stack-protector \
                  -std=$(OOPS_CXX_STD) -O2 -w \
                  $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) \
                  $(OOPS_CXX_INCLUDE) $(EXTRA_TARGET_CFLAGS)

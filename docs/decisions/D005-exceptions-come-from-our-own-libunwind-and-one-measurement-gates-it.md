@@ -1,7 +1,8 @@
 # D005 - Exceptions come from our own libunwind, and one measurement gates the build shape
 
-**assumed** · 2026-09-21 (the route is settled by measurement; the *configuration* of it waits
-on a hardware answer that is filed and not yet returned)
+**decided** · 2026-09-21 (built and linked the same day; the entry was drafted `assumed` waiting
+on a bus answer, and then the baremetal route removed the dependency on it - see "How the open
+question stopped being a blocker")
 
 `common/cxx.mk` is `-fno-exceptions -fno-rtti`, and its own header says why: the C++ titles in
 the queue were counted and Extreme Tux Racer has 0 `throw` and 0 `dynamic_cast`. That remains
@@ -58,25 +59,61 @@ Two more findings worth keeping, because both cost time:
   beside the other gap-fillers it already has, in the same way it carries `__config_site` -
   rather than a change to oops-sdk, which is a different repository's call.
 
-## Why this is `assumed` and what settles it
+## How the open question stopped being a blocker
 
 `REQ-20260921T1830Z-b4d1` is filed on the obSCEne bus: are `dl_iterate_phdr`, `_dl_find_object`
-or the `__register_frame*` family callable in **any** library, on the legs `unwind-abi` used?
-`dl_iterate_phdr` is already measured absent in `libSceLibcInternal` - but only there, and
-`libkernel` and `self` were never asked.
+or the `__register_frame*` family callable in **any** library? It is still open, and this no
+longer waits on it.
 
-The answer chooses between two different builds:
+`_LIBUNWIND_IS_BAREMETAL=1` replaces the dynamic-linker lookup entirely. Instead of asking the
+platform where the frame table is, libunwind reads four symbols the *link* provides -
+`__eh_frame_start`, `__eh_frame_end`, `__eh_frame_hdr_start`, `__eh_frame_hdr_end` - which
+`link/eh-frame.ld` defines by bracketing the sections the compiler already emits. A run-time
+question about the platform becomes a link-time fact about the title.
 
-- **Some route answers** - `AddressSpace.hpp` configures stock and the unwinder is ordinary.
-- **None answers** - the title must register its own `.eh_frame` at start-up through
-  `__register_frame`, and libunwind is built with the frame APIs compiled in instead.
+That is the better answer regardless of how the bus replies, and it is worth saying why: the
+stock route's failure mode is silent. An unwinder that cannot find its tables computes an empty
+range, treats the first frame as the end of the stack, and calls `std::terminate` - a long way
+from the `throw`, and indistinguishable from a title bug. The linker-script route cannot do
+that: the symbols are either in the ELF or they are not, and `make check` looks.
 
-Choosing between those by guessing is how a runtime that half-supports exceptions gets shipped,
-which is the one outcome `common/cxx.mk` was written to avoid. So the variant is not added to
-`cxx.mk` until the answer is in: an `-fexceptions` mode that links an unwinder which cannot find
-its tables would fail on the first `throw`, a long way from its cause, and would look like a
-title bug.
+The bus answer is still worth having. If `dl_iterate_phdr` turns out to be available it becomes
+an option for a title that loads code at run time, which this route cannot serve.
 
-**Nothing here is claimed to work on hardware.** No console has run any of it. The proof owed is
-a title that throws across a shared-object boundary and catches, on the hardware, and that run
-has not happened.
+## What was built and verified
+
+All of it is in the tree and in the gate:
+
+- `oops-libunwind.mk` builds all 10 libunwind sources. The two with content define **all 14 of
+  the `_Unwind_*` symbols** REQ-e3f7 found at `0x0`.
+- `oops-libcxxabi.mk` builds 16 of 19 libc++abi sources, excluding three with stated reasons,
+  and defines the other **5**: `__cxa_throw`, `__cxa_begin_catch`, `__cxa_end_catch`,
+  `__cxa_allocate_exception`, `__gxx_personality_v0`. 14 + 5 is the whole set.
+- `common/cxx.mk` gained `OOPS_CXX_EXCEPTIONS = 1`, which turns on `-fexceptions -frtti` and
+  defines `OOPS_CXX_EXCEPTIONS` so `cxxrt.cpp` stops shadowing the four symbols libc++abi
+  provides properly.
+- `src/oops-utilities/cxx-throw` is the probe: five checks - basic round trip, derived caught as
+  base, destructors run while unwinding, rethrow, and a multi-frame walk. It **passes 5/5
+  against the build machine's own C++ runtime**, which is what says the checks themselves are
+  sound rather than unpassable.
+- Its target ELF builds and carries `__cxa_throw`, `__cxa_begin_catch`,
+  `__cxa_allocate_exception`, `__gxx_personality_v0`, `_Unwind_RaiseException`, `_Unwind_Resume`,
+  `__eh_frame_start` and `__eh_frame_end`, all confirmed by `nm`.
+
+**`nm` and not the exit code, deliberately.** `app.mk` links with
+`--unresolved-symbols=ignore-all`, so a payload that failed to link an unwinder still links and
+every one of those symbols resolves to zero. The build succeeding is no evidence; the symbol
+table is. `make check` fails on a missing one.
+
+## What is still owed
+
+**No console has run this.** The proof owed is the probe reporting `passed=5 total=5` over klog
+on the hardware, and that run has not happened - so what is established is that a title *can
+carry* a working unwinder, not that the platform lets one run. Those are different claims and
+this entry does not blur them.
+
+One known limit is already visible without hardware: `oops_malloc` returns 8-byte-aligned
+memory (its 24-byte header sits on a 16-aligned block), and `__cxa_allocate_exception` wants 16.
+So `aligned_alloc` refuses and libc++abi takes its small static fallback buffer on every throw.
+That works and does not scale; the fix is a `max_align_t`-aligned heap, which is oops-sdk's and
+is on the bus. `cxxrt.cpp` says so where the constant lives.

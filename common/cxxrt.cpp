@@ -57,6 +57,61 @@ void operator delete(void *p) noexcept
     oops_free(p);
 }
 
+/* `aligned_alloc`, which this platform can only half provide, and says so.
+ *
+ * libc++abi's `__cxa_allocate_exception` reaches `fallback_malloc.cpp`, which reaches libc++'s
+ * `__libcpp_aligned_alloc`, which calls `::aligned_alloc`. It is on the road to every `throw`.
+ * oops-sdk's freestanding libc has no aligned form, so the C++ runtime supplies one; the
+ * declaration is in `src/oops-deps/libcxx/include/stdlib.h`.
+ *
+ * # Why this is a passthrough and not the usual over-allocation trick
+ *
+ * The obvious implementation over-allocates, returns the first aligned address inside the block,
+ * and stashes the original pointer just below it. **That is wrong here**, and quietly: libc++
+ * releases this memory with `__libcpp_aligned_free`, which on every non-MSVC target is a plain
+ * `::free(ptr)` on the pointer it was handed. Handing `oops_free` an address `oops_malloc` never
+ * returned corrupts the heap at some *other* allocation's expense, and faults somewhere
+ * unrelated. So whatever this returns must be free-able directly, which means it must be
+ * something `oops_malloc` itself returned.
+ *
+ * # What the heap actually guarantees, measured rather than assumed
+ *
+ * `oops_malloc` returns `block + sizeof(heap_block_header_t)`, and that header is
+ * `uint32_t, uint32_t, size_t, size_t` - 24 bytes. The blocks underneath are 16 KB page-aligned
+ * or 16-byte-rounded slab chunks, so every pointer it hands out is `something 16-aligned + 24`:
+ * **8-byte aligned, never 16.**
+ *
+ * So requests up to 8 are served exactly, and larger ones cannot be served at all without
+ * breaking the free contract above. Returning null for those is not a stub: it is the C11
+ * answer for a request the allocator cannot meet, and libc++abi handles it by falling back to
+ * its own static buffer rather than by crashing.
+ *
+ * # This is a real limit on exceptions, and it is filed
+ *
+ * `__cxa_allocate_exception` wants `alignof(__cxa_exception)`, which is 16 on x86-64 - so on
+ * this heap it takes the fallback path every time, and that path is a small fixed buffer. The
+ * fix is a heap that returns `max_align_t`-aligned pointers, which is oops-sdk's to make and is
+ * on the bus. A malloc returning 8-byte-aligned memory is non-conforming for `long double` and
+ * for anything SSE-aligned, so this is not a C++-only problem; exceptions are just the first
+ * thing to stand on it.
+ */
+extern "C" void *aligned_alloc(size_t alignment, size_t size)
+{
+    /* C11 7.22.3.1: the alignment must be a power of two. */
+    if (alignment == 0u || (alignment & (alignment - 1u)) != 0u) {
+        return nullptr;
+    }
+
+    /* What `oops_malloc` guarantees today. See the comment above for how it is derived; if the
+       heap's header or block alignment changes, this is the constant that moves with it. */
+    const size_t heap_guarantee = 8u;
+    if (alignment > heap_guarantee) {
+        return nullptr;
+    }
+
+    return oops_malloc(size ? size : 1u);
+}
+
 void operator delete[](void *p) noexcept
 {
     operator delete(p);
@@ -74,6 +129,30 @@ void operator delete[](void *p, size_t) noexcept
 {
     operator delete(p);
 }
+
+/* ==========================================================================================
+ * Everything from here to the `__dso_handle` block is **libc++abi's job when libc++abi is
+ * linked**, and this file's job when it is not.
+ *
+ * `OOPS_CXX_EXCEPTIONS` is defined by `common/cxx.mk` when a title opts into exceptions, which
+ * is also when it links `libc++abi.a` (oops-apps#D005). libc++abi's `cxa_virtual.cpp` and
+ * `cxa_guard.cpp` define these same four symbols, properly, so defining them here as well is a
+ * duplicate-symbol link error - which is how this was found, not reasoned about:
+ *
+ *     ld.lld: error: duplicate symbol: __cxa_guard_acquire
+ *     >>> defined at cxxrt.cpp ... and at cxa_guard.cpp
+ *
+ * **The real one wins.** These are the minimal stand-ins for a library that was not available;
+ * once it is, keeping them would mean a title silently using a single-threaded guard
+ * implementation while linking a standard library that assumes its own. Stepping aside is the
+ * whole reason this file describes itself as small on purpose.
+ *
+ * What is *not* conditional, deliberately: `operator new`/`delete` above and `__cxa_atexit`
+ * below. `oops-libcxxabi.mk` excludes libc++abi's `stdlib_new_delete.cpp` precisely so that
+ * allocation keeps going through the SDK heap in both builds, and `__cxa_atexit` is the C
+ * library's rather than the ABI library's.
+ * ========================================================================================== */
+#ifndef OOPS_CXX_EXCEPTIONS
 
 /* ------------------------------------------------------------ pure virtual */
 
@@ -151,6 +230,8 @@ extern "C" void __cxa_guard_abort(uint64_t *guard)
     uint8_t *lock = reinterpret_cast<uint8_t *>(guard) + 1;
     __atomic_store_n(lock, (uint8_t)0, __ATOMIC_RELEASE);
 }
+
+#endif /* !OOPS_CXX_EXCEPTIONS - libc++abi provides the four symbols above */
 
 /* --------------------------------------------------------------- destructors */
 

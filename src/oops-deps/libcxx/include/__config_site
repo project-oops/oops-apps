@@ -17,7 +17,7 @@
 /*
  * **No threads inside the standard library.** A payload does have threads - `oops/thread.h` has
  * them and SDL's backend is built on them - but libc++'s threading is a different question: with
- * it on, libc++ wants a `<__thread/support/*>` backend, `pthread_*` symbols, and thread-safe
+ * it on, libc++ wants a `<__thread/support/...>` backend, `pthread_*` symbols, and thread-safe
  * `std::shared_ptr` refcounts and `std::call_once` that nothing in the queued titles uses.
  *
  * The cost of this being wrong later is visible rather than silent: a title using `std::thread`
