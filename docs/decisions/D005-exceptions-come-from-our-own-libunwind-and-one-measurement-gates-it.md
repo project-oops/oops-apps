@@ -59,11 +59,21 @@ Two more findings worth keeping, because both cost time:
   beside the other gap-fillers it already has, in the same way it carries `__config_site` -
   rather than a change to oops-sdk, which is a different repository's call.
 
-## How the open question stopped being a blocker
+## The route, and the measurement that came back and confirmed it
 
-`REQ-20260921T1830Z-b4d1` is filed on the obSCEne bus: are `dl_iterate_phdr`, `_dl_find_object`
-or the `__register_frame*` family callable in **any** library? It is still open, and this no
-longer waits on it.
+`REQ-20260921T1830Z-b4d1` asked the obSCEne bus whether `dl_iterate_phdr`, `_dl_find_object` or
+the `__register_frame*` family are callable in **any** library. The route below was chosen
+before the answer, because it does not depend on one.
+
+**The answer arrived the same day and there was no other route.** Target Run 26
+(`obscene/reports/hardware/20260921-run26-eboot.obs.log`, FW 12.40) swept all eight symbols
+across `libkernel`, `libSceLibcInternal` and `self`: **every one absent at `0x0`**. Not the
+program-header iteration (`dl_iterate_phdr`, `_dl_find_object`) and not the explicit
+registration API (`__register_frame`, `__register_frame_info` and their deregister forms)
+either. obSCEne's own conclusion is the same as this entry's: a title throwing C++ exceptions
+has to carry its frame information itself.
+
+So what follows was the only option, not the cautious one of two.
 
 `_LIBUNWIND_IS_BAREMETAL=1` replaces the dynamic-linker lookup entirely. Instead of asking the
 platform where the frame table is, libunwind reads four symbols the *link* provides -
@@ -77,8 +87,11 @@ range, treats the first frame as the end of the stack, and calls `std::terminate
 from the `throw`, and indistinguishable from a title bug. The linker-script route cannot do
 that: the symbols are either in the ELF or they are not, and `make check` looks.
 
-The bus answer is still worth having. If `dl_iterate_phdr` turns out to be available it becomes
-an option for a title that loads code at run time, which this route cannot serve.
+What the bus answer changes, now that it is in: **it removes the alternative rather than the
+route.** There is no `__register_frame` to fall back to, so a title that loads code at run time
+and wants to throw through it has no mechanism at all here - the frame table is fixed at link
+time or it does not exist. Nothing queued needs that, and this is the sentence to come back to
+if something does.
 
 ## What was built and verified
 
