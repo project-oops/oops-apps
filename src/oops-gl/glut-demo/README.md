@@ -24,7 +24,7 @@ target.
 ## Screenshot
 
 <p align="center">
-  <img src="../../../common/assets/no-screenshot.svg" alt="No screenshot yet" width="600">
+  <img src="assets/demo.gif" alt="glut-demo running on a PS5, captured over JetKVM" width="600">
 </p>
 
 ## Docs

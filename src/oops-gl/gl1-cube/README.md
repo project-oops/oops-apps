@@ -22,7 +22,7 @@ GL command stream drifts, this is the app that catches it.
 ## Screenshot
 
 <p align="center">
-  <img src="../../../common/assets/no-screenshot.svg" alt="No screenshot yet" width="600">
+  <img src="assets/demo.gif" alt="gl1-cube running on a PS5, captured over JetKVM" width="600">
 </p>
 
 ## Docs

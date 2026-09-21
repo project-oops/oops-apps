@@ -20,7 +20,7 @@ them and judge for themselves.
 ## Screenshot
 
 <p align="center">
-  <img src="../../../common/assets/no-screenshot.svg" alt="No screenshot yet" width="600">
+  <img src="assets/screenshot.png" alt="gallery running on a PS5, captured over JetKVM" width="600">
 </p>
 
 ## Docs
