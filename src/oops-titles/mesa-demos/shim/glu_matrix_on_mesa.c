@@ -237,3 +237,85 @@ GLint gluBuild2DMipmaps(GLenum target, GLint internalFormat, GLsizei width, GLsi
     free(owned_src);
     return 0;
 }
+
+/*
+ * `gluGetString`. The version this shim implements is 1.3's subset, and it says so rather than
+ * claiming a full 1.3 - a demo printing it is the only consumer here, and an honest string in a
+ * log is worth more than a matching one.
+ */
+const GLubyte *gluGetString(GLenum name)
+{
+    switch (name) {
+        case GLU_VERSION:    return (const GLubyte *)"1.3 (oops-mesa title shim: matrices, "
+                                                     "mipmaps, error strings)";
+        case GLU_EXTENSIONS: return (const GLubyte *)"";
+        default:             break;
+    }
+    return NULL;
+}
+
+/*
+ * `gluScaleImage`, as a box filter over the source rectangle covering each destination texel.
+ *
+ * Real GLU reads through the `GL_UNPACK_*` pixel-store state; this reads the buffer tightly
+ * packed, which is what every caller in this demo set hands it. A caller that had set a row
+ * length would get a wrong picture silently, so the restriction is stated here and the only
+ * formats accepted are the ones that cannot carry that surprise.
+ */
+GLint gluScaleImage(GLenum format, GLsizei wIn, GLsizei hIn, GLenum typeIn, const void *dataIn,
+                    GLsizei wOut, GLsizei hOut, GLenum typeOut, void *dataOut)
+{
+    if (typeIn != GL_UNSIGNED_BYTE || typeOut != GL_UNSIGNED_BYTE ||
+        wIn <= 0 || hIn <= 0 || wOut <= 0 || hOut <= 0 ||
+        dataIn == NULL || dataOut == NULL) {
+        return GLU_INVALID_ENUM;
+    }
+
+    int components;
+    switch (format) {
+        case GL_RGBA:            components = 4; break;
+        case GL_RGB:             components = 3; break;
+        case GL_LUMINANCE_ALPHA: components = 2; break;
+        case GL_LUMINANCE:
+        case GL_ALPHA:           components = 1; break;
+        default:                 return GLU_INVALID_ENUM;
+    }
+
+    const unsigned char *src = (const unsigned char *)dataIn;
+    unsigned char *dst = (unsigned char *)dataOut;
+
+    for (GLsizei y = 0; y < hOut; y++) {
+        /* The source rows this destination row covers. Computed as a half-open range so that
+         * scaling up (where the range is one row) and scaling down (where it is many) are the
+         * same loop rather than two cases. */
+        GLsizei sy0 = (GLsizei)(((long long)y * hIn) / hOut);
+        GLsizei sy1 = (GLsizei)(((long long)(y + 1) * hIn) / hOut);
+        if (sy1 <= sy0) sy1 = sy0 + 1;
+        if (sy1 > hIn) sy1 = hIn;
+
+        for (GLsizei x = 0; x < wOut; x++) {
+            GLsizei sx0 = (GLsizei)(((long long)x * wIn) / wOut);
+            GLsizei sx1 = (GLsizei)(((long long)(x + 1) * wIn) / wOut);
+            if (sx1 <= sx0) sx1 = sx0 + 1;
+            if (sx1 > wIn) sx1 = wIn;
+
+            for (int c = 0; c < components; c++) {
+                unsigned long total = 0;
+                unsigned long n = 0;
+
+                for (GLsizei sy = sy0; sy < sy1; sy++) {
+                    for (GLsizei sx = sx0; sx < sx1; sx++) {
+                        total += src[((size_t)sy * (size_t)wIn + (size_t)sx) * (size_t)components
+                                     + (size_t)c];
+                        n++;
+                    }
+                }
+
+                dst[((size_t)y * (size_t)wOut + (size_t)x) * (size_t)components + (size_t)c] =
+                    (unsigned char)(n ? ((total + n / 2) / n) : 0);
+            }
+        }
+    }
+
+    return 0;
+}

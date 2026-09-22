@@ -95,6 +95,7 @@ PAYLOAD_SRCS = shim/mesa_demos_entry.c shim/glu_maths_from_libm.c shim/glu_absen
                 shim/glad_from_driver.c shim/glu_matrix_on_mesa.c \
                 $(DEMO_SRC) \
                 upstream/src/util/readtex.c \
+                upstream/src/util/showbuffer.c \
                 $(OOPS_SDK_DIR)/src/gl/glut.c \
                 $(OOPS_SDK_DIR)/src/gl/glut_font.c \
                 $(OOPS_SDK_DIR)/src/display.c \

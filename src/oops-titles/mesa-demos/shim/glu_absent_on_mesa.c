@@ -113,3 +113,31 @@ void gluCylinder(GLUquadric *q, GLdouble base, GLdouble top, GLdouble height, GL
     (void)stacks;
     say_once("gluCylinder", &said);
 }
+
+/*
+ * The rest of the quadric surface the demo set reaches for. Same contract as above: the setters
+ * are genuinely stateless no-ops here because nothing reads the state, and the one that draws
+ * says so once and draws nothing.
+ */
+void gluQuadricOrientation(GLUquadric *q, GLenum orientation)
+{
+    (void)q;
+    (void)orientation;
+}
+
+void gluQuadricTexture(GLUquadric *q, GLboolean texture)
+{
+    (void)q;
+    (void)texture;
+}
+
+void gluDisk(GLUquadric *q, GLdouble inner, GLdouble outer, GLint slices, GLint loops)
+{
+    static int said;
+    (void)q;
+    (void)inner;
+    (void)outer;
+    (void)slices;
+    (void)loops;
+    say_once("gluDisk", &said);
+}
