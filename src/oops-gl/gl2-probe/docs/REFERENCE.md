@@ -8,10 +8,11 @@ Run the checks with `make check`, or `./bin/oops-apps check gl2-probe` from the 
 ## What it measures
 
 A probe exists to compare two implementations of the same specification. `gl1-probe`'s pair is
-the software rasteriser and the console; this one has the software reference and, when there is
-one, the console's GL 2.0 back end. The suite in `gl2_probe.c` is written as a shared suite with
-a thin runner for exactly that reason — the day there is a hardware path, a `gl2_probe_main.c`
-goes beside `gl1_probe_main.c` and these checks run on it unchanged.
+the software rasteriser and the console's fixed-function pipeline; this one's is the software
+reference and the console's GL 2.0 back end — the compiler in `glsl_ps.c` and the draw path that
+binds what it emits. The suite in `gl2_probe.c` is a shared suite with a thin runner at each end
+for exactly that reason: `gl2_probe_selftest.c` on a build machine, `gl2_probe_main.c` on a
+console, and one table of checks that neither of them owns.
 
 The checks fall into groups, and the split is deliberate:
 
@@ -76,12 +77,19 @@ Two things, both on its first run and both real:
   case, so every `texture2D` returned opaque black. Caught by `gl2-cube` before this suite
   existed, and `texture-sampler` is the check that keeps it caught.
 
-## Why there is no payload
+## The two runners
 
-There is no GL 2.0 back end for the console. The draw path refuses a draw with a program bound
-and logs once, rather than running the fixed-function instruments in its place and putting a
-picture on screen that no part of the program asked for — so a payload built today would report
-every drawing check as failed, which measures nothing that is not already written down.
+`FORMATS` is `eboot title` — the artifacts this collection installs. There is no `elf` among
+them: that format stages a bare ELF for a homebrew loader, and these are native titles. The
+`.elf` is still built, as the intermediate both of the others are made from.
 
-`FORMATS` is `check-only` until that changes. The day it does, this directory gains
-`gl2_probe_main.c` and an `elf` target, and the table in `gl2_probe.c` is untouched.
+The payload's reporting is deliberately unlike the host's. A host run prints a table when it
+returns; a console run cannot assume it will return, because a compiled shader is words this
+repository generated and a wave that does not retire takes the frame with it. So
+`gl2_probe_main.c` names each check as it starts and again with its verdict, and a hang leaves
+behind the name of the check that hung. gl1-probe learned that the expensive way: its first
+console run produced nine frames and then nothing, with every result sitting in an array that
+was never printed.
+
+The last line, `gl2-probe: NNN/NNN passed on hardware`, is the machine-readable verdict — the
+process cannot exit to hand back a status code, so the log is where the result lives.

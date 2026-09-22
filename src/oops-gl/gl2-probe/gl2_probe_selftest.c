@@ -3,14 +3,17 @@
  *
  * Runs the check suite against oops-gl's software reference and prints a row per check.
  *
- * **This is one half of a pair that does not have its other half yet.** gl1-probe's value is
+ * **This is one half of a pair, and the other half is `gl2_probe_main.c`.** gl1-probe's value is
  * that the same suite runs here and on a console, so a check that passes in one place and fails
- * in the other is a hardware-path bug. **The console path for a GL 2.0 program exists as of
- * 2026-09-21 and has never run**: the fragment stage compiles to gfx1030, the draw path copies
- * it into the payload and points the pixel stage at it, and no console has executed one.
- * obSCEne's `REQ-20260921T1615Z-4e77` is the measurement that says whether a generated shader
- * retires at all, and until it answers this is a conformance suite against the specification -
- * which is worth having on its own, and is what that path will be measured against.
+ * in the other is a hardware-path bug - and that is what this suite is for too. The console path
+ * for a GL 2.0 program was measured through 2026-09-21: obSCEne's `REQ-...-4e77` ran shaders
+ * this compiler generated and they retired with their interpolated parameters intact,
+ * `REQ-...-6c0d` did the same for a uniform block, and `REQ-...-2a45` for a sample under
+ * whole-quad mode. gl2-cube then put one on hardware through oops-gl's own draw path rather
+ * than a fixture.
+ *
+ * This runner prints a table and returns; the payload's cannot assume it will get to return,
+ * which is why the two report differently and why the suite itself owns neither.
  *
  * It prints every row rather than only the failures, because a suite that prints nothing when
  * it passes gives no way to tell "all green" from "did not run".
@@ -75,8 +78,8 @@ int main(void) {
         printf("  %-24s %s\n", results[i].name, results[i].passed ? "pass" : "FAIL");
         if (results[i].passed) passed++;
     }
-    printf("gl2-probe selftest: %d/%d passed (host software reference; the console path is "
-           "built and has never run - obSCEne REQ-...-4e77)\n",
+    printf("gl2-probe selftest: %d/%d passed (host software reference; the console path runs - "
+           "obSCEne REQ-...-4e77 - and samples since REQ-...-2a45)\n",
            passed, n);
     free(s_host_fb);
     s_host_fb = (uint32_t *)0;

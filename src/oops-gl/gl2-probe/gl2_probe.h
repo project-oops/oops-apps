@@ -5,13 +5,14 @@
  * reference and against the console, so a check that passes on one and fails on the other is a
  * hardware-path bug and nothing else in this repository can see one.
  *
- * **Only the reference half exists today.** oops-gl runs GLSL on the CPU - the entry points,
- * the linker and the interpreter are all there - and the console draw path refuses a draw with
- * a program bound rather than running the fixed-function instruments in its place. So this
- * suite has one runner and no payload, and the day there is a console back end it gains a
- * `gl2_probe_main.c` beside gl1-probe's and the same checks run on hardware unchanged. The
- * hooks below are declared now for that reason: the payload's reporting is the part gl1-probe
- * had to learn the hard way, and there is no sense learning it twice.
+ * **Both halves run.** oops-gl runs GLSL on the CPU - the entry points, the linker and the
+ * interpreter - and compiles the fragment stage to gfx1030 for the console, so the same checks
+ * measure a software rasteriser and a real pipeline. `gl2_probe_selftest.c` is the host's
+ * runner and `gl2_probe_main.c` the console's; neither owns a check.
+ *
+ * The hooks below were declared before there was a payload to use them, because the payload's
+ * reporting is the part gl1-probe had to learn the hard way - a hang leaves behind only what
+ * was printed before it - and there was no sense learning it twice.
  */
 
 #ifndef GL2_PROBE_H

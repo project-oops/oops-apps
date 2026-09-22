@@ -19,12 +19,12 @@
  * implementation. The object-model checks here are the minimum that proves the API is wired at
  * all, and everything after them draws.
  *
- * # The one thing this cannot yet do
+ * # The two places these run
  *
- * Run on a console. There is no GL 2.0 back end, and the draw path refuses a program rather than
- * drawing something the program did not ask for. These checks are written so that when there is
- * one, they run against it unchanged - which is why they avoid anything host-specific and go
- * through `frame()` for every sample, exactly as gl1-probe does.
+ * The host software reference and a console, from one table of checks. That is why nothing here
+ * is host-specific and why every sample goes through `frame()`, exactly as gl1-probe does: a
+ * check that reached the framebuffer its own way would measure the two paths differently and
+ * the comparison - which is the whole value of running twice - would mean nothing.
  */
 
 #include "gl2_probe.h"

@@ -9,8 +9,10 @@ The conformance probe for **OpenGL 2.0** on oops-gl, as `gl1-probe` is for 1.0 t
 ## About
 
 gl2-probe is a shared conformance suite that pins down the programmable pipeline — shaders,
-GLSL 1.20, varyings, and the per-fragment operations they run alongside. It compares the software
-reference against a hardware GL 2.0 back end the day one exists, running the same checks unchanged.
+GLSL 1.20, varyings, and the per-fragment operations they run alongside. One table of checks
+runs twice: against the software reference on a build machine, and against the console's own
+GL 2.0 back end. A check that passes on one and fails on the other is a hardware-path bug, and
+nothing else in this repository can see one.
 
 - **46 checks, all passing** against the software reference.
 - **Written to find the subtle failures** — perspective-correct varyings, floored `mod`,
@@ -26,5 +28,5 @@ reference against a hardware GL 2.0 back end the day one exists, running the sam
 
 ## Docs
 
-- **[Reference](docs/REFERENCE.md)** — the full check taxonomy, the checks worth naming, and why there is no console payload yet.
+- **[Reference](docs/REFERENCE.md)** — the full check taxonomy, the checks worth naming, and what the two runners each measure.
 - [oops-apps catalog & guide](../../../docs/USER_GUIDE.md)
