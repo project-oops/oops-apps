@@ -1366,6 +1366,106 @@ static int check_short_circuit(void) {
         128, 0, 0, 3);
 }
 
+/* **A loop whose trip count differs from one fragment to the next.**
+ *
+ * This is the check the host cannot write. Every other loop in this suite runs the same number
+ * of times for every fragment, so a wave executes it in lockstep and the per-lane masks are
+ * never asked a question; the compiler's own tests simulate one lane, so they cannot ask one
+ * either. Here the `break` fires at a different trip for every column of the quad, which is
+ * where the masks either work or do not.
+ *
+ * **The failure this is shaped to catch is a `break` that leaves the wave rather than the
+ * lane.** The masks are scalar registers shared by all 32 lanes: take a lane out with the wrong
+ * instruction and the first fragment in a wave to break stops its neighbours too, so everything
+ * right of it is clamped to its value and the gradient goes flat partway. Left, middle and
+ * right therefore have to be strictly increasing - a flat or reversed reading is the bug, and a
+ * single sample in the middle would have read as a plausible colour either way.
+ */
+static int check_loop_divergence(void) {
+    reset_view();
+    const GLuint p = use_program("attribute vec3 pos;\n"
+                                 "attribute vec4 tint;\n"
+                                 "varying vec4 v;\n"
+                                 "void main() { v = tint; gl_Position = vec4(pos, 1.0); }\n",
+                                 "varying vec4 v;\n"
+                                 "void main() {\n"
+                                 "  float total = 0.0;\n"
+                                 "  for (int i = 0; i < 40; i++) {\n"
+                                 "    if (float(i) > v.x * 32.0) break;\n"
+                                 "    total += 1.0;\n"
+                                 "  }\n"
+                                 "  gl_FragColor = vec4(total * 0.03, 0.0, 0.0, 1.0);\n"
+                                 "}\n");
+    if (!p) return 0;
+    const GLint pos = glGetAttribLocation(p, "pos");
+    const GLint tint = glGetAttribLocation(p, "tint");
+    /* 0 on the left edge, 1 on the right: the trip count runs 1 to 33 across the quad. */
+    static const float corners[4][4] = {
+        {0.0f, 0.0f, 0.0f, 1.0f},
+        {1.0f, 0.0f, 0.0f, 1.0f},
+        {1.0f, 0.0f, 0.0f, 1.0f},
+        {0.0f, 0.0f, 0.0f, 1.0f}};
+    attrib_rect2(pos, tint, -1.0f, -0.8f, 1.0f, 0.8f, corners);
+
+    const uint32_t *s = scan_frame();
+    const int left = chan_r(SCAN_PX(s, 16, MID_Y));
+    const int mid = chan_r(SCAN_PX(s, MID_X, MID_Y));
+    const int right = chan_r(SCAN_PX(s, PROBE_W - 17, MID_Y));
+    /* One trip on the left edge, seventeen in the middle, thirty-three on the right - times
+     * 0.03, so about 0.03, 0.51 and 0.99. The bands are wide because the exact column decides
+     * which trip the break lands on; what is not wide is the ordering. */
+    int ok = left < mid && mid < right;
+    ok = ok && left < 48 && mid > 96 && mid < 160 && right > 208;
+    /* Nothing leaked into the other channels, which is what a resurrected lane writing its own
+     * answer over a neighbour's would look like. */
+    ok = ok && chan_g(SCAN_PX(s, MID_X, MID_Y)) < 4;
+    return ok && glGetError() == GL_NO_ERROR;
+}
+
+/* **A `discard` inside a loop, taken by some fragments and not others.**
+ *
+ * A loop reloads `exec` from its active mask at the top of every trip, so a discarded lane left
+ * in that mask is handed straight back on the next trip and reaches the export alive. With
+ * every fragment discarding, or none, that mistake is invisible: the whole quad goes one way.
+ * Here the right half discards and the left half does not, so a lane that came back writes
+ * green over a fragment that was thrown away, and the background does not survive on that side.
+ *
+ * **The trip count is past the unroller on purpose.** A loop that unrolls has no reload to get
+ * wrong - each copy simply runs with `exec` at zero - so at twenty-four trips this check would
+ * pass without touching the path it is named after. It has to branch to mean anything.
+ */
+static int check_discard_inside_a_loop(void) {
+    reset_view();
+    const GLuint p = use_program("attribute vec3 pos;\n"
+                                 "attribute vec4 tint;\n"
+                                 "varying vec4 v;\n"
+                                 "void main() { v = tint; gl_Position = vec4(pos, 1.0); }\n",
+                                 "varying vec4 v;\n"
+                                 "void main() {\n"
+                                 "  float total = 0.0;\n"
+                                 "  for (int i = 0; i < 100; i++) {\n"
+                                 "    total += 1.0;\n"
+                                 "    if (v.x > 0.5 && total > 4.0) discard;\n"
+                                 "  }\n"
+                                 "  gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);\n"
+                                 "}\n");
+    if (!p) return 0;
+    const GLint pos = glGetAttribLocation(p, "pos");
+    const GLint tint = glGetAttribLocation(p, "tint");
+    static const float corners[4][4] = {
+        {0.0f, 0.0f, 0.0f, 1.0f},
+        {1.0f, 0.0f, 0.0f, 1.0f},
+        {1.0f, 0.0f, 0.0f, 1.0f},
+        {0.0f, 0.0f, 0.0f, 1.0f}};
+    attrib_rect2(pos, tint, -1.0f, -0.8f, 1.0f, 0.8f, corners);
+
+    const uint32_t *s = scan_frame();
+    /* Green where the loop ran to its end, and the clear value where it discarded. */
+    int ok = near_rgb(SCAN_PX(s, 16, MID_Y), 0, 255, 0, 2);
+    ok = ok && SCAN_PX(s, PROBE_W - 17, MID_Y) == PROBE_BG;
+    return ok && glGetError() == GL_NO_ERROR;
+}
+
 static int check_constructors(void) {
     /* **`mat4(1.0)` is the identity and not a matrix of ones** - the constructor people get
      * wrong - and `vec4(v.xy, 1.0, 0.0)` gathers four values from three arguments. */
@@ -1722,6 +1822,8 @@ static const gl2_probe_case_t g_cases[] = {
     {"matrix-arithmetic", check_matrix_arithmetic},
     {"swizzles", check_swizzles},
     {"control-flow", check_control_flow},
+    {"loop-divergence", check_loop_divergence},
+    {"discard-in-loop", check_discard_inside_a_loop},
     {"user-functions", check_user_functions},
     {"builtin-math", check_builtin_math},
     {"mod-and-int-divide", check_mod_is_floored},
