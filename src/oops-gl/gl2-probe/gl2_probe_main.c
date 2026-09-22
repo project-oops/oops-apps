@@ -91,9 +91,10 @@ static void trace(const char *name, int verdict) {
  * centre reads the same whether a draw was refused before it started or ran and put nothing
  * there, and those are different bugs with different fixes. `err 0x0000` and the reset colour
  * means the draw happened. */
-static void saw(const char *name, uint32_t centre, unsigned int err) {
+static void saw(const char *name, uint32_t centre, unsigned int err, int drawn, uint32_t left,
+                uint32_t right) {
     static const char hex[] = "0123456789abcdef";
-    char line[80];
+    char line[128];
     int at = 0;
     line[at++] = ' '; line[at++] = ' '; line[at++] = ' ';
     for (int i = 0; name[i] && at < 38; i++) line[at++] = name[i];
@@ -104,6 +105,23 @@ static void saw(const char *name, uint32_t centre, unsigned int err) {
     const char *mid = " err 0x";
     for (int i = 0; mid[i]; i++) line[at++] = mid[i];
     for (int s = 12; s >= 0; s -= 4) line[at++] = hex[(err >> s) & 0xfu];
+    /* " drawn NNNNN" - five digits covers the region's 12,288 pixels. */
+    const char *tail = " drawn ";
+    for (int i = 0; tail[i]; i++) line[at++] = tail[i];
+    {
+        int d = drawn < 0 ? 0 : drawn;
+        int div = 10000;
+        while (div > 1 && d < div) div /= 10;
+        while (div >= 1) { line[at++] = (char)('0' + (d / div) % 10); div /= 10; }
+    }
+    /* The two pixels flanking the centre on its row, which say whether the gap is the quad's
+     * diagonal seam or some other shape. */
+    const char *lh = " L 0x";
+    for (int i = 0; lh[i]; i++) line[at++] = lh[i];
+    for (int s = 28; s >= 0; s -= 4) line[at++] = hex[(left >> s) & 0xfu];
+    const char *rh = " R 0x";
+    for (int i = 0; rh[i]; i++) line[at++] = rh[i];
+    for (int s = 28; s >= 0; s -= 4) line[at++] = hex[(right >> s) & 0xfu];
     line[at] = '\0';
     probe_klog(line);
 }

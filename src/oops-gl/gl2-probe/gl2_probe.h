@@ -71,7 +71,20 @@ extern void (*gl2_probe_trace)(const char *name, int verdict);
  * between checks, so the first one this check raised was there to be reported and was not.
  * `GL_NO_ERROR` with the reset colour means the draw happened; `GL_INVALID_OPERATION` means it
  * never did.
+ *
+ * **And `drawn` is how many of the region's pixels are not the reset colour**, which separates
+ * the two ways a centre pixel can read as background. Zero means nothing reached the
+ * framebuffer. A large number means the draw landed and the *sample point* is what missed it -
+ * which is a live possibility here, because `attrib_rect` builds its quad as two triangles
+ * sharing the diagonal from one corner to the other, and a centred rect puts that seam straight
+ * through the pixel at the middle of the region.
+ *
+ * **`left` and `right` flank the centre on the same row**, which says what shape the missing
+ * part is. The quad's seam runs corner to corner, so those two pixels fall on opposite sides of
+ * it: one drawn and one not means a triangle is missing, and both the same means the gap is
+ * something else and the diagonal was a red herring.
  */
-extern void (*gl2_probe_saw)(const char *name, uint32_t centre, unsigned int err);
+extern void (*gl2_probe_saw)(const char *name, uint32_t centre, unsigned int err, int drawn,
+                             uint32_t left, uint32_t right);
 
 #endif /* GL2_PROBE_H */

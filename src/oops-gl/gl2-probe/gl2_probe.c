@@ -62,7 +62,8 @@ static unsigned int g_row0;
 static GLuint g_prog;
 
 void (*gl2_probe_trace)(const char *name, int verdict);
-void (*gl2_probe_saw)(const char *name, uint32_t centre, unsigned int err);
+void (*gl2_probe_saw)(const char *name, uint32_t centre, unsigned int err, int drawn,
+                      uint32_t left, uint32_t right);
 
 /*
  * Where a check's pixels come from. On the host the software rasteriser writes the target
@@ -1817,7 +1818,16 @@ int gl2_probe_run(gl2_probe_result_t *out, int max) {
              *
              * `g_scan` is the last `scan_frame()` - the pixels the check compared - so this
              * costs no GL call and cannot disturb what it reports. */
-            gl2_probe_saw(g_cases[i].name, SCAN_PX(g_scan, MID_X, MID_Y), (unsigned int)err);
+            /* **How much of the region is not the reset colour**, counted from the same
+             * snapshot. One pixel cannot tell "nothing drew" from "the draw missed this
+             * pixel", and those are different bugs. */
+            int drawn = 0;
+            for (int q = 0; q < PROBE_W * PROBE_H; q++) {
+                if (g_scan[q] != PROBE_BG) drawn++;
+            }
+            gl2_probe_saw(g_cases[i].name, SCAN_PX(g_scan, MID_X, MID_Y), (unsigned int)err,
+                          drawn, SCAN_PX(g_scan, MID_X - 24, MID_Y),
+                          SCAN_PX(g_scan, MID_X + 24, MID_Y));
         }
     }
 
