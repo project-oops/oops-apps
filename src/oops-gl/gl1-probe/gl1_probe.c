@@ -824,6 +824,61 @@ static int check_alpha_test(void) {
     return 1;
 }
 
+/* **A fragment the alpha test rejected must not have written depth either.**
+ *
+ * `check_alpha_test` above draws with no depth test, so it only ever asks whether the colour
+ * was written - and the colour is masked by the shader's own `exec`, which is the half of this
+ * that was always right. The depth block is the other half, and it only hears about a kill
+ * through `DB_SHADER_CONTROL.KILL_ENABLE`. Told nothing, it runs early Z: it tests, writes and
+ * retires the pixel before the shader has run, because it has been told the shader cannot
+ * change the answer. The rejected fragment leaves a depth behind it and the surface further
+ * away never appears.
+ *
+ * The same bit, and the same mistake, as `gl2-probe`'s `discard` - found there on 2026-09-22
+ * because GL 2.0 has a check that puts a kill and a depth test in one draw and GL 1.x did not.
+ */
+static int check_alpha_test_frees_depth(void) {
+    reset_view();
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_ALPHA_TEST);
+    glAlphaFunc(GL_GREATER, 0.5f);
+
+    /* **Nearer is eye z = +0.5, not -0.5.** `reset_view`'s `glOrtho(..., -1, 1)` negates z on
+     * the way to NDC, so the quad drawn at +0.5 lands at window depth 0.25 and the one at -0.5
+     * at 0.75. Getting that backwards puts the second quad in front of the first and it covers
+     * both halves - which is a failure that looks like the bug this is chasing.
+     *
+     * Near, at z = +0.5: the left half fails the test, the right half passes and is blue. */
+    glColor4f(1.0f, 0.0f, 0.0f, 0.25f);
+    glBegin(GL_QUADS);
+    glVertex3f(-0.5f, -0.5f, 0.5f); glVertex3f(0.0f, -0.5f, 0.5f);
+    glVertex3f(0.0f, 0.5f, 0.5f);   glVertex3f(-0.5f, 0.5f, 0.5f);
+    glEnd();
+    glColor4f(0.0f, 0.0f, 1.0f, 0.75f);
+    glBegin(GL_QUADS);
+    glVertex3f(0.0f, -0.5f, 0.5f);  glVertex3f(0.5f, -0.5f, 0.5f);
+    glVertex3f(0.5f, 0.5f, 0.5f);   glVertex3f(0.0f, 0.5f, 0.5f);
+    glEnd();
+    glDisable(GL_ALPHA_TEST);
+
+    /* Far, at z = -0.5, across both halves. It can only appear where no depth was written. */
+    glColor4f(1.0f, 1.0f, 0.0f, 1.0f);
+    glBegin(GL_QUADS);
+    glVertex3f(-0.5f, -0.5f, -0.5f);  glVertex3f(0.5f, -0.5f, -0.5f);
+    glVertex3f(0.5f, 0.5f, -0.5f);    glVertex3f(-0.5f, 0.5f, -0.5f);
+    glEnd();
+    glDisable(GL_DEPTH_TEST);
+    if (glGetError() != GL_NO_ERROR) return 0;
+
+    const uint32_t freed = px(PROBE_W * 3 / 8, PROBE_H / 2);
+    const uint32_t held = px(PROBE_W * 5 / 8, PROBE_H / 2);
+    /* Where the test rejected, the depth stayed free and the far quad came through. */
+    if (!near_rgb(freed, 255, 255, 0, 8)) return 0;
+    /* Where it kept, the near quad's depth is in the way and it is still blue. */
+    if (!near_rgb(held, 0, 0, 255, 8)) return 0;
+    return 1;
+}
+
 /* Points and lines, which reach the hardware as triangles.
  *
  * **This is the check that tests the claim.** obSCEne measured that a one- or two-vertex
@@ -3876,6 +3931,7 @@ static const gl1_probe_case_t g_cases[] = {
     {"matrix-stack",     check_matrix_stack},
     {"attrib-stack",     check_attrib_stack},
     {"alpha-test",       check_alpha_test},
+    {"alpha-test-depth", check_alpha_test_frees_depth},
     {"lighting",         check_lighting},
     {"tex-env-modes",    check_tex_env_modes},
     {"copy-tex",         check_copy_tex},
