@@ -13,6 +13,8 @@
 #include "oops/syscall.h"
 #include "oops/system.h"
 
+#include "nb_diag.h"
+
 int main(int argc, char **argv);
 
 /* Declared before it is defined because this file is held to the repository's own warning set -
@@ -27,5 +29,13 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
     (void)args;
 
     oops_log_info("NVRB", "entry");
-    return main(1, argv);
+
+    /* **The summary belongs here and not in a patch.** The shim already wraps `main`, so the
+       point after it returns is ours to use - and `ball/main.c` stays untouched, which is one
+       fewer hunk to rebase onto the next upstream revision. */
+    {
+        const int rc = main(1, argv);
+        nb_diag_report();
+        return rc;
+    }
 }

@@ -126,7 +126,11 @@ $(OOPS_NB_LIB): $(NB_SRCS) $(MAKEFILE_LIST)
 	@a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $(OOPS_NB_BUILD)/nb*.o
 	@echo "neverball: $@"
 
+# `shim/nb_diag.c` is here rather than in `NB_SHARE` deliberately: it holds the format strings
+# behind the one patch this title carries, and the archive above compiles with `-w`. In
+# `PAYLOAD_SRCS` it gets `-Werror -Wformat` like the rest of our code. See `shim/include/nb_diag.h`.
 PAYLOAD_SRCS = shim/nb_start.c \
+               shim/nb_diag.c \
                $(OOPS_POSIX_SRCS) \
                $(OOPS_SDK_DIR)/src/display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_display.c \

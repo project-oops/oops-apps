@@ -1,0 +1,87 @@
+Report the text path's three silent failures.
+
+Upstream's text path fails and returns quietly in three places. On a desktop that is a
+fair trade - the font is installed, so a message nobody will read is noise. In a port it
+is the wrong one, because whether the font arrived is the open question:
+
+  - `font_load` never checks `TTF_OpenFontRW`. A size that fails to open leaves a null
+    `ttf[i]`, `font_load` still returns 1, and every later string at that size renders as
+    nothing.
+  - `font_load` returns 0 for a missing file and for a failed open alike.
+  - `make_image_from_font` drops a failed `TTF_RenderUTF8_Blended` on the floor, under a
+    comment reading "Pretend everything's just fine". A glyph that was never rendered then
+    looks exactly like one rendered and sampled wrong - opposite problems, same symptom.
+
+**Only the calls are here.** The reporting - the format strings, the counters, the throttle
+on the render failure, the summary - is `shim/nb_diag.c`, and `shim/include/nb_diag.h` says
+why. Two reasons, the second decisive: a patch is rebased onto every upstream revision and
+shim code is not, and this archive compiles with `-w`, so a format string written into it is
+checked by nobody and a bad one faults rather than warns on this target. Every entry point
+takes strings and an int, so this patch cannot get an argument list wrong - it never writes
+one.
+
+`nb_diag_report()` is not here either. The shim already wraps `main`, so the summary goes
+after that call returns and `ball/main.c` stays untouched.
+
+Nothing here counts textures, draws or GL errors. oops-gl sees every one of those without a
+call site and reports them itself - `tex-created`, `tex-failed`, `gl-errors`, `draws-*` -
+which is why this is twelve added lines and not two hundred.
+
+diff --git a/share/font.c b/share/font.c
+index d6807a7..ea70741 100644
+--- a/share/font.c
++++ b/share/font.c
+@@ -22,6 +22,8 @@
+ #include "common.h"
+ #include "fs.h"
+ 
++#include "nb_diag.h"
++
+ /*---------------------------------------------------------------------------*/
+ 
+ int font_load(struct font *ft, const char *path, int sizes[3])
+@@ -42,9 +44,14 @@ int font_load(struct font *ft, const char *path, int sizes[3])
+             {
+                 SDL_RWseek(ft->rwops, 0, SEEK_SET);
+                 ft->ttf[i] = TTF_OpenFontRW(ft->rwops, 0, sizes[i]);
++
++                if (!ft->ttf[i])
++                    nb_diag_font_open_failed(path, sizes[i], TTF_GetError());
+             }
+             return 1;
+         }
++
++        nb_diag_font_missing(path);
+     }
+     return 0;
+ }
+diff --git a/share/image.c b/share/image.c
+index 797b5cf..5d60b31 100644
+--- a/share/image.c
++++ b/share/image.c
+@@ -28,6 +28,8 @@
+ #include "fs.h"
+ #include "fs_png.h"
+ 
++#include "nb_diag.h"
++
+ /*---------------------------------------------------------------------------*/
+ 
+ void image_snap(const char *filename)
+@@ -229,6 +231,8 @@ GLuint make_image_from_font(int *W, int *H,
+             {
+                 /* Pretend everything's just fine. */
+ 
++                nb_diag_font_convert_failed(text, SDL_GetError());
++
+                 src = orig;
+             }
+             else
+@@ -254,6 +258,7 @@ GLuint make_image_from_font(int *W, int *H,
+             free(p);
+             SDL_FreeSurface(src);
+         }
++        else nb_diag_font_render_failed(text, TTF_GetError());
+     }
+     else
+     {
