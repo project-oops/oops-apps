@@ -31,6 +31,7 @@ PAYLOAD_SRCS = gl1_probe_main.c \
                $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
                $(OOPS_SDK_DIR)/src/gnm/gnm_display.c \
                $(OOPS_SDK_DIR)/src/input/input.c \
+               $(OOPS_SDK_DIR)/src/input/keyboard.c \
                $(OOPS_SDK_DIR)/src/memory/memory.c \
                $(OOPS_SDK_DIR)/src/memory/heap.c \
                $(OOPS_SDK_DIR)/src/time/time.c \

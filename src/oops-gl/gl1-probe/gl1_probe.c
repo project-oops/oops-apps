@@ -2583,6 +2583,74 @@ static int check_texture_unit1_alone(void) {
  * the texel at the origin is what a zeroed coordinate reads. Both the primary colour is unit 1
  * dropped.
  */
+/* **The point sprite** (GL_ARB_point_sprite, GL 2.0): a point rasterised with s and t generated
+ * across its own square rather than interpolated from its single vertex.
+ *
+ * The distinction is invisible to a one-texel texture, which is how this went unnoticed: without
+ * GL_COORD_REPLACE every fragment of the point samples the one texel the vertex named, and a
+ * uniform texture looks identical either way. So the texture here is 2x2 with four different
+ * colours, drawn as one large point, and the four quadrants are read separately - a sprite that
+ * ignored the generated coordinates comes out a single flat colour and fails on three of them.
+ *
+ * **t runs downward.** GL_POINT_SPRITE_COORD_ORIGIN defaults to GL_UPPER_LEFT, which is the
+ * opposite of every other y in GL, so the texel at t=0 lands at the *top* of the point. The
+ * expectations below are written that way round on purpose; reading the image with the other
+ * convention is what would make a correct implementation look broken.
+ *
+ * Neverball is why this exists: `solid_draw.c` and `part.c` enable point sprites for every frame
+ * that draws particles, and this library refused all of it until 2026-09-22. */
+static int check_point_sprite(void) {
+    reset_view();
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(-(double)PROBE_W / 2.0, (double)PROBE_W / 2.0, -(double)PROBE_H / 2.0,
+            (double)PROBE_H / 2.0, -10.0, 10.0);
+    glMatrixMode(GL_MODELVIEW);
+    /* Row-major from the bottom left, as glTexImage2D takes it: (0,0) red, (1,0) green,
+       (0,1) blue, (1,1) white. */
+    static const GLubyte texels[4][4] = {
+        {255, 0, 0, 255}, {0, 255, 0, 255}, {0, 0, 255, 255}, {255, 255, 255, 255},
+    };
+    GLuint t = 0;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, texels);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glEnable(GL_TEXTURE_2D);
+
+    glEnable(GL_POINT_SPRITE);
+    glTexEnvi(GL_POINT_SPRITE, GL_COORD_REPLACE, GL_TRUE);
+    glPointSize(64.0f);
+    /* The vertex names the bottom-left texel. A sprite must ignore it for all but one quadrant;
+       a non-sprite point would paint the whole square red. */
+    glTexCoord2f(0.25f, 0.25f);
+    glBegin(GL_POINTS);
+    glVertex3f(0.0f, 0.0f, -4.0f);
+    glEnd();
+    glPointSize(1.0f);
+    glTexEnvi(GL_POINT_SPRITE, GL_COORD_REPLACE, GL_FALSE);
+    glDisable(GL_POINT_SPRITE);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(1, &t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+
+    /* A quarter of the way into each quadrant of the 64-pixel square. `px` reads with y downward,
+       and so does the generated t, so the two agree: the top half is t<0.5, which is texel row 0
+       - red and green - and the bottom half is row 1, blue and white. */
+    const int cx = PROBE_W / 2, cy = PROBE_H / 2;
+    return near_rgb(px(cx - 16, cy - 16), 255, 0, 0, 16) &&
+           near_rgb(px(cx + 16, cy - 16), 0, 255, 0, 16) &&
+           near_rgb(px(cx - 16, cy + 16), 0, 0, 255, 16) &&
+           near_rgb(px(cx + 16, cy + 16), 255, 255, 255, 16);
+}
+
 static int check_texture_unit1_coords(void) {
     reset_view();
     /* Row-major from the bottom left: (0,0) red, (1,0) green, and two the draw must not pick. */
@@ -4046,6 +4114,7 @@ static const gl1_probe_case_t g_cases[] = {
     {"volume-mipmap",    check_volume_mipmap},
     {"multitexture",     check_multitexture},
     {"texture-unit1-alone", check_texture_unit1_alone},
+    {"point-sprite",     check_point_sprite},
     {"texture-unit1-coords", check_texture_unit1_coords},
     {"texture-env-shadow-stack", check_texture_env_shadow_stack},
     {"tex-delete-in-frame", check_tex_delete_in_frame},
