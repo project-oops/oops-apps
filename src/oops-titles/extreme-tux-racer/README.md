@@ -1,7 +1,7 @@
 # Extreme Tux Racer
 
 <p align="center">
-  <img src="../../../common/assets/no-logo.svg" alt="No logo yet" width="200">
+  <img src="assets/logo.png" alt="Extreme Tux Racer" width="200">
 </p>
 
 An open-source downhill racer — the collection's second ported title, and the first in C++.
@@ -32,3 +32,7 @@ GPL v2; 55 MB of upstream data, none of it committed here (fetched via `upstream
 - **[Porting notes](docs/PORTING.md)** — the mirror choice, what is done, and the one dependency left.
 - [oops-titles overview](../README.md)
 - [oops-apps catalog & guide](../../../docs/USER_GUIDE.md)
+
+---
+
+<sub>Logo: Tux, from the upstream project's own character art, keyed onto black. Extreme Tux Racer is GPL v2.</sub>

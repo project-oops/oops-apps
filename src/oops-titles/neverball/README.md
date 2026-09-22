@@ -1,7 +1,7 @@
 # Neverball
 
 <p align="center">
-  <img src="../../../common/assets/no-logo.svg" alt="No logo yet" width="200">
+  <img src="assets/logo.png" alt="Neverball" width="200">
 </p>
 
 Tilt the floor, not the ball — an open-source arcade balance game, ported to the console.
@@ -27,3 +27,7 @@ release.
 
 - [oops-titles overview](../README.md)
 - [oops-apps catalog & guide](../../../docs/USER_GUIDE.md)
+
+---
+
+<sub>Logo: the Neverball ball, from the upstream project's own icon, recomposited on black. Neverball is GPL v2.</sub>
