@@ -32,11 +32,34 @@ DEMO_SRC := upstream/src/demos/$(DEMO).c
 # Demos that need `readtex.c`, `shaderutil.c` or `matrix.c` will fail to link and name what is
 # missing, and this list grows from that rather than from `ls src/util` - the same discipline
 # `src/oops-deps/libcxx/oops-libcxx.mk` states for its four-of-forty-five source list.
-MESA_DEMOS_CFLAGS := -Iupstream/src/util -Iupstream/src
+#
+# `shim/include` comes first so `glad/glad.h` resolves to ours. mesa-demos 9.0.0 loads GL through
+# glad, which 27 of the 56 demos include; that header is a loader this static link does not need,
+# but its *reporting* half is real and is answered from the driver. See the header for why those
+# flags are queried rather than defined to 1.
+MESA_DEMOS_CFLAGS := -Ishim/include -Iupstream/src/util -Iupstream/src
 
 # The demo's name, for the two log lines the shim prints. Stringified here rather than in the
 # shim because the shim does not know which demo it was built with.
 MESA_DEMOS_CFLAGS += -DOOPS_DEMOS_NAME=\"$(DEMO)\"
+
+# Where the demos look for their textures and models. Upstream defaults this to `../data/`
+# relative to the build tree (`upstream/meson.build:30`) and the demos concatenate it directly -
+# `#define TEXTURE_FILE DEMOS_DATA_DIR "reflect.rgb"` - so the trailing slash is load-bearing.
+#
+# `/app0/` is the title's own directory on the console. **The files are not there yet**: they
+# live in `upstream/src/data` (14 files, 2.1 MB) and `make stage-data` copies them into the
+# packaged title. Defining this makes the eight data-using demos *compile*; it does not make
+# them find anything at run time until that step has run, and the README says so rather than
+# letting a build success imply an asset.
+MESA_DEMOS_DATA_DIR ?= /app0/data/
+MESA_DEMOS_CFLAGS += -DDEMOS_DATA_DIR=\"$(MESA_DEMOS_DATA_DIR)\"
+
+# The proportional GLUT font names, mapped to the face oops-sdk has. Force-included rather than
+# patched into `glut_wrap.h`, because `upstream/` is fetched output and is never edited - the
+# patch rule in `src/oops-titles/README.md` says a thing that can be answered from outside the
+# tree must be. The header explains why the mapping lives in this title and not in the SDK.
+MESA_DEMOS_CFLAGS += -include $(abspath shim/include/glut_proportional_fonts.h)
 
 # Upstream's warnings are upstream's. These are the same suppressions Craft's port carries, for
 # the same reason: this repository's `-Wall -Wextra -Werror` is a statement about code we write,
@@ -69,8 +92,11 @@ EXTRA_TARGET_CFLAGS += $(MESA_DEMOS_CFLAGS) $(MESA_DEMOS_WARNINGS)
 # included at the bottom of this file. An immediate assignment expands it to empty here and make
 # reports `No rule to make target '/src/gl/glut.c'` - a path with the root missing.
 PAYLOAD_SRCS = shim/mesa_demos_entry.c shim/glu_maths_from_libm.c shim/glu_absent_on_mesa.c \
+                shim/glad_from_driver.c shim/glu_matrix_on_mesa.c \
                 $(DEMO_SRC) \
+                upstream/src/util/readtex.c \
                 $(OOPS_SDK_DIR)/src/gl/glut.c \
+                $(OOPS_SDK_DIR)/src/gl/glut_font.c \
                 $(OOPS_SDK_DIR)/src/display.c \
                 $(OOPS_SDK_DIR)/src/agc/agc_display.c \
                 $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
@@ -119,3 +145,24 @@ imports: $(BUILD)/$(APP_NAME).elf
 	@mkdir -p $(BUILD)
 	@OOPS_APPS_SYMBOLS=$(OOPS_APPS_ROOT)/common/symbols.txt \
 	  bash $(OOPS_MESA)/tools/generate-imports.sh $< $(SYMBOLS_FILE)
+
+# Stage the demos' textures and models into the packaged title.
+#
+# Separate from `title` on purpose: `make title` is what the sweep and every other consumer runs,
+# and it must not depend on 2.1 MB of assets that only eight of the 56 demos read. Run this after
+# `make title` when packaging one of those eight for hardware.
+#
+# `/app0/` is the title directory on the console, so this lands at the path
+# `MESA_DEMOS_DATA_DIR` names.
+.PHONY: stage-data
+stage-data:
+	@test -d $(BUILD)/title/$(TITLE_ID) || { \
+	    echo "stage-data: no packaged title at $(BUILD)/title/$(TITLE_ID) - run 'make title' first"; \
+	    exit 1; \
+	}
+	@mkdir -p $(BUILD)/title/$(TITLE_ID)/data
+	@n=0; for f in upstream/src/data/*; do \
+	    case "$$f" in *meson.build) continue ;; esac; \
+	    cp "$$f" $(BUILD)/title/$(TITLE_ID)/data/ && n=$$((n+1)); \
+	done; \
+	echo "stage-data: $$n files -> $(BUILD)/title/$(TITLE_ID)/data (read as $(MESA_DEMOS_DATA_DIR))"
