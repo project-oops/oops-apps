@@ -102,11 +102,19 @@ All of them, but not all at once and not all equally.
 `fbo_firecube`, `fire`, `geartrain`, `ipers`, `lodbias`, `reflect`, `teapot`, `terrain`,
 `textures`, `tunnel`, `tunnel2`. Compiling is not finding.
 
-**The other twenty-five need nothing but a slot.** `gears` has already run. `clearspd`,
-`trispd` and `gltestperf` are throughput measurements rather than pictures and would say
-something about the present path rather than about GL. `cubemap`, `fbotexture`, `shadowtex` and
-`stex3d` each exercise a feature no probe here has touched - cube maps, framebuffer objects,
-shadow comparison, 3D textures - and are the most informative per run.
+**The other twenty-five need nothing but a slot.** `clearspd`, `trispd` and `gltestperf` are
+throughput measurements rather than pictures and would say something about the present path
+rather than about GL. `cubemap`, `fbotexture`, `shadowtex` and `stex3d` each exercise a feature
+no probe here had touched - cube maps, framebuffer objects, shadow comparison, 3D textures - and
+are the most informative per run.
+
+Three have now run on this console, all on 2026-09-22:
+
+| demo | what it settled |
+|---|---|
+| `gears` | the title arrangement works at all |
+| `glinfo` | [the advertised surface, 322 extensions](../../../../oops-mesa/docs/hardware/the-advertised-surface-measured-fw1240.md) — and three bugs in the log path, which is why a program that only prints was worth a slot |
+| `cubemap` | [cube mapping and reflection texgen draw](../../../../oops-mesa/docs/hardware/cube-mapping-draws-fw1240.md), on a sphere this title's own shim tessellates |
 
 The demo-by-demo *result* table goes in `oops-mesa/docs/hardware/` when those runs happen, named
 by build and firmware like every other hardware record in the collection. This section is the
