@@ -2509,6 +2509,85 @@ static int check_texture_unit1_alone(void) {
     return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 0, 255, 0, 16);
 }
 
+/*
+ * **Neverball's shadow arrangement as it actually runs, with both units textured.**
+ *
+ * `check_texture_unit1_alone` above was written from `tex_env_conf_shadow`, which opens the shadow
+ * stage with `glDisable(GL_TEXTURE_2D)`, and so posed the question as unit 0 *disabled*. That is
+ * only half of it: `shad_draw_set` runs afterwards and enables `GL_TEXTURE_2D` on that same unit
+ * with the ball's shadow image bound. So a surface whose material carries the `shadowed` flag is
+ * drawn with **two textured units** - unit 0 the shadow under `GL_COMBINE`, unit 1 the surface's
+ * own texture under `GL_MODULATE` - and a surface without that flag is drawn with one.
+ *
+ * That flag is exactly the split seen on the console: every material in `data/textures/mtrl` whose
+ * file says `flags shadowed` came out flat, and the coin (no flags) and the ball (`transparent`)
+ * came out textured. So this is the arrangement to measure, and nothing here measured it -
+ * `check_multitexture` enables both units but leaves both environments at `GL_MODULATE`, which
+ * never exercises a combine feeding a second stage.
+ *
+ * The combine is Neverball's own, copied from `tex_env_conf_shadow`: colour is
+ * `PREVIOUS * (1 - texture.alpha)`, alpha is `REPLACE` from `PREVIOUS`. The shadow texel here has
+ * **alpha 0** - the unshadowed case, which is almost all of a level's surface area - so unit 0's
+ * stage must pass the primary colour through unchanged, and unit 1 must then modulate it by the
+ * surface texture. Its RGB is red, a colour it must *not* contribute: `GL_ONE_MINUS_SRC_ALPHA`
+ * reads only the alpha, so red leaking into the result means the operand was ignored.
+ *
+ * White primary, green surface texture, so the three failures are distinguishable:
+ *   green - correct; red - unit 0's texel leaked through its combine;
+ *   white - unit 1 was dropped and only the pass-through survived.
+ */
+static int check_texture_env_shadow_stack(void) {
+    reset_view();
+    /* Alpha 0: unshadowed. Red so that a leak of the operand is visible rather than silent. */
+    static const GLubyte shadow[4] = {255, 0, 0, 0};
+    static const GLubyte green[4] = {0, 255, 0, 255};
+    GLuint t[2] = {0, 0};
+    glGenTextures(2, t);
+
+    /* Unit 0, the shadow stage: tex_env_conf_shadow(TEX_STAGE_SHADOW, 1) ... */
+    glActiveTexture(GL_TEXTURE0);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE);
+    glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB, GL_MODULATE);
+    glTexEnvi(GL_TEXTURE_ENV, GL_SRC0_RGB, GL_PREVIOUS);
+    glTexEnvi(GL_TEXTURE_ENV, GL_SRC1_RGB, GL_TEXTURE);
+    glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND0_RGB, GL_SRC_COLOR);
+    glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND1_RGB, GL_ONE_MINUS_SRC_ALPHA);
+    glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_ALPHA, GL_REPLACE);
+    glTexEnvi(GL_TEXTURE_ENV, GL_SRC0_ALPHA, GL_PREVIOUS);
+    glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND0_ALPHA, GL_SRC_ALPHA);
+    /* ... and then shad_draw_set(), which enables the unit and binds the shadow image. */
+    glBindTexture(GL_TEXTURE_2D, t[0]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, shadow);
+    glEnable(GL_TEXTURE_2D);
+
+    /* Unit 1, the surface texture: tex_env_conf_default(TEX_STAGE_TEXTURE, 1). */
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, t[1]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, green);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glEnable(GL_TEXTURE_2D);
+
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glMultiTexCoord2f(GL_TEXTURE0, 0.5f, 0.5f);
+    glMultiTexCoord2f(GL_TEXTURE1, 0.5f, 0.5f);
+    glRectf(-0.5f, -0.5f, 0.5f, 0.5f);
+
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDeleteTextures(2, t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+
+    return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 0, 255, 0, 16);
+}
+
 /* A cube map (GL 1.3): six 1x1 faces, looked up along -z by a texture coordinate and along the
  * eye-space normal by GL_NORMAL_MAP generation - cyan both times. **Expected to pass on both
  * paths since 2026-09-20**, when the console gained the hardware half: the six faces uploaded as
@@ -3833,6 +3912,7 @@ static const gl1_probe_case_t g_cases[] = {
     {"volume-mipmap",    check_volume_mipmap},
     {"multitexture",     check_multitexture},
     {"texture-unit1-alone", check_texture_unit1_alone},
+    {"texture-env-shadow-stack", check_texture_env_shadow_stack},
     {"tex-delete-in-frame", check_tex_delete_in_frame},
 };
 
