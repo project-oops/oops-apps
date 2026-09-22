@@ -12,6 +12,7 @@
  */
 #include "oops/syscall.h"
 #include "oops/system.h"
+#include "oops/fs.h"
 #include <GL/gl.h>
 
 #include "nb_diag.h"
@@ -38,8 +39,54 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
 
        Replay it on a build machine with `oops-gl/gl-replay`, where the rasteriser is the
        reference: the difference between that image and a screenshot of this frame is the bug
-       that ninety-three conformance checks are all passing through. */
-    oops_gl_capture_frame(3u, "/data/homebrew/NVRB00001/frame.oglcap");
+       that ninety-three conformance checks are all passing through.
+
+       **Where it can be written is found, not assumed.** The obvious choice - the title's own
+       directory under `/data/homebrew` - is where the package was installed and is *not*
+       writable from inside the sandbox: a first attempt captured 193,746 calls and 9.3 MB and
+       then failed to open the file, which cost a hardware run to learn. Nothing else in this
+       collection writes a file on the console, so there was no precedent to copy. Rather than
+       guess a second time, each candidate is tried and the first that works is used - and the
+       log says which, so the next thing that needs to write something already knows. */
+    {
+        static const char *const dirs[] = {
+            "/data",                        /* the user partition */
+            "/data/homebrew/NVRB00001",     /* the install directory - measured to refuse */
+            "/download0",
+            "/savedata0",
+            "/tmp",
+        };
+        static char chosen[96];
+        const char *picked = (const char *)0;
+        for (unsigned i = 0u; i < sizeof(dirs) / sizeof(dirs[0]) && !picked; i++) {
+            /* A real open, not a guess about permissions: the only reliable test of whether a
+               path can be written is writing to it. One byte, then removed. */
+            char probe[96];
+            size_t n = 0u;
+            while (dirs[i][n] && n < sizeof(probe) - 20u) { probe[n] = dirs[i][n]; n++; }
+            const char *leaf = "/.nvrb-probe";
+            size_t k = 0u;
+            while (leaf[k] && n < sizeof(probe) - 1u) { probe[n++] = leaf[k++]; }
+            probe[n] = '\0';
+            if (oops_fs_write_all(probe, "x", 1u) == 0) {
+                (void)oops_fs_unlink(probe);
+                size_t m = 0u;
+                while (dirs[i][m] && m < sizeof(chosen) - 20u) { chosen[m] = dirs[i][m]; m++; }
+                const char *name = "/frame.oglcap";
+                size_t j = 0u;
+                while (name[j] && m < sizeof(chosen) - 1u) { chosen[m++] = name[j++]; }
+                chosen[m] = '\0';
+                picked = chosen;
+            }
+            oops_log_info("NVRB", "capture path %s: %s", dirs[i], picked ? "writable" : "no");
+        }
+        if (picked) {
+            oops_log_info("NVRB", "capturing frame 3 to %s", picked);
+            oops_gl_capture_frame(3u, picked);
+        } else {
+            oops_log_error("NVRB", "no writable directory found - frame not captured");
+        }
+    }
 
     /* **The summary belongs here and not in a patch.** The shim already wraps `main`, so the
        point after it returns is ours to use - and `ball/main.c` stays untouched, which is one
