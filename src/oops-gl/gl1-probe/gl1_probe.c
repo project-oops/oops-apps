@@ -3343,6 +3343,82 @@ static int check_refusals(void) {
  * only in sign is the smallest arrangement where a normal that is ignored, normalised wrongly,
  * or transformed by the wrong matrix gives the same brightness for both.
  */
+/* **GL_COLOR_MATERIAL**: with it enabled, `glColor` feeds the material rather than the fragment,
+ * and the lit result changes colour without a single `glMaterialfv` call.
+ *
+ * Untested on hardware until now, and on the path of every lit surface Neverball draws.
+ * `r_color_mtrl` (`share/solid_draw.c:838`) toggles it per material and **never calls
+ * `glColorMaterial`**, so the port depends entirely on the defaults being right:
+ * GL_FRONT_AND_BACK and GL_AMBIENT_AND_DIFFUSE. A `glColor` that reached the fragment directly,
+ * or a tracking mode that defaulted elsewhere, gives wrong colours on lit geometry with no
+ * error anywhere - which is the symptom this is chasing.
+ *
+ * Three quads under one directional white light, all with the same normal and no material call
+ * between them:
+ *
+ *   left    tracking on,  glColor red    -> red      (glColor became the diffuse material)
+ *   middle  tracking on,  glColor blue   -> blue     (and it re-tracks when the colour moves)
+ *   right   tracking off, glColor blue,
+ *           material green                -> green    (glColor is ignored again)
+ *
+ * The right quad is what makes this fail against a path that simply routes `glColor` to the
+ * fragment: such a path renders it blue. Left against middle catches the opposite mistake, a
+ * material captured once and never updated. */
+static int check_color_material(void) {
+    reset_view();
+    static const GLfloat pos[4] = {0.0f, 0.0f, 1.0f, 0.0f}; /* w=0: directional */
+    static const GLfloat white[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const GLfloat dim[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    static const GLfloat green[4] = {0.0f, 1.0f, 0.0f, 1.0f};
+    glEnable(GL_LIGHTING);
+    glEnable(GL_LIGHT0);
+    glLightfv(GL_LIGHT0, GL_POSITION, pos);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, white);
+    glLightfv(GL_LIGHT0, GL_AMBIENT, dim);
+    glLightModelfv(GL_LIGHT_MODEL_AMBIENT, dim);
+    glNormal3f(0.0f, 0.0f, 1.0f);
+
+    /* Tracking on, and never told what to track - the defaults are the thing under test. */
+    glEnable(GL_COLOR_MATERIAL);
+    glColor4f(1.0f, 0.0f, 0.0f, 1.0f);
+    glBegin(GL_QUADS);
+    glVertex3f(-0.95f, -0.4f, 0.0f); glVertex3f(-0.70f, -0.4f, 0.0f);
+    glVertex3f(-0.70f,  0.4f, 0.0f); glVertex3f(-0.95f,  0.4f, 0.0f);
+    glEnd();
+
+    glColor4f(0.0f, 0.0f, 1.0f, 1.0f);
+    glBegin(GL_QUADS);
+    glVertex3f(-0.15f, -0.4f, 0.0f); glVertex3f(0.15f, -0.4f, 0.0f);
+    glVertex3f( 0.15f,  0.4f, 0.0f); glVertex3f(-0.15f, 0.4f, 0.0f);
+    glEnd();
+
+    /* Tracking off: the material speaks and the colour is ignored. `glColor` stays blue on
+       purpose, so a path that leaks it renders this quad blue instead of green. */
+    glDisable(GL_COLOR_MATERIAL);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, green);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, dim);
+    glBegin(GL_QUADS);
+    glVertex3f(0.70f, -0.4f, 0.0f); glVertex3f(0.95f, -0.4f, 0.0f);
+    glVertex3f(0.95f,  0.4f, 0.0f); glVertex3f(0.70f,  0.4f, 0.0f);
+    glEnd();
+
+    glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, white);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_LIGHT0);
+    if (glGetError() != GL_NO_ERROR) return 0;
+
+    const int cy = PROBE_H / 2;
+    const uint32_t a = px(PROBE_W / 16, cy);
+    const uint32_t b = px(PROBE_W / 2, cy);
+    const uint32_t c = px(PROBE_W * 15 / 16, cy);
+    /* Generous on the lit magnitude, strict on which channel carries it - the question here is
+       where the colour came from, not how the light is scaled. */
+    return chan_r(a) > 180 && chan_g(a) < 60 && chan_b(a) < 60 &&
+           chan_b(b) > 180 && chan_r(b) < 60 && chan_g(b) < 60 &&
+           chan_g(c) > 180 && chan_r(c) < 60 && chan_b(c) < 60;
+}
+
 static int check_lighting(void) {
     reset_view();
     static const GLfloat pos[4] = {0.0f, 0.0f, 1.0f, 0.0f}; /* w=0: directional */
@@ -4234,6 +4310,7 @@ static const gl1_probe_case_t g_cases[] = {
     {"multitexture",     check_multitexture},
     {"texture-unit1-alone", check_texture_unit1_alone},
     {"point-sprite",     check_point_sprite},
+    {"color-material",   check_color_material},
     {"texture-env-shadow-weight", check_texture_env_shadow_weight},
     {"texture-unit1-coords", check_texture_unit1_coords},
     {"texture-env-shadow-stack", check_texture_env_shadow_stack},
