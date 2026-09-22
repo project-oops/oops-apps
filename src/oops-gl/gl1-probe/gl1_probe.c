@@ -2461,6 +2461,54 @@ static int check_multitexture(void) {
     return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 255, 0, 255, 16);
 }
 
+/*
+ * **Unit 1 textured with unit 0 disabled - which is what Neverball does, and what nothing here
+ * asked.**
+ *
+ * `check_multitexture` above enables *both* units, so it never posed this question, and the
+ * console passed 86 checks while Neverball drew its whole world untextured. Neverball's
+ * `tex_env_shadow` maps `GL_TEXTURE0` to the shadow stage and `GL_TEXTURE1` to the surface
+ * texture, and the shadow stage begins with `glDisable(GL_TEXTURE_2D)`. `tex_env_select` picks
+ * that configuration whenever `GL_MAX_TEXTURE_UNITS` is at least 2, which is what oops-gl
+ * honestly reports.
+ *
+ * GL does not require unit 0 to be textured for unit 1 to apply: a disabled unit passes the
+ * fragment colour through, so unit 1's `GL_PREVIOUS` is simply the primary colour. The console's
+ * hardware path assumes otherwise - `unit1_applied` in `gl_draw.c` requires unit 0 to have a
+ * texture - and drops unit 1 from the draw, which it says in the log.
+ *
+ * `GL_REPLACE` on the only enabled unit means the fragment is the texel. A red primary colour is
+ * chosen so the failure is loud: red is what comes through when unit 1 is dropped.
+ */
+static int check_texture_unit1_alone(void) {
+    reset_view();
+    static const GLubyte green[4] = {0, 255, 0, 255};
+    GLuint t = 0;
+    glGenTextures(1, &t);
+
+    /* Unit 0 is deliberately untouched: nothing bound, GL_TEXTURE_2D off. */
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, green);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glEnable(GL_TEXTURE_2D);
+
+    glColor3f(1.0f, 0.0f, 0.0f);
+    glRectf(-0.5f, -0.5f, 0.5f, 0.5f);
+
+    glDisable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glDeleteTextures(1, &t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+
+    /* Green: unit 1 applied. Red: it was dropped and the primary colour came through. */
+    return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 0, 255, 0, 16);
+}
+
 /* A cube map (GL 1.3): six 1x1 faces, looked up along -z by a texture coordinate and along the
  * eye-space normal by GL_NORMAL_MAP generation - cyan both times. **Expected to pass on both
  * paths since 2026-09-20**, when the console gained the hardware half: the six faces uploaded as
@@ -3784,6 +3832,7 @@ static const gl1_probe_case_t g_cases[] = {
     {"polygon-smooth",   check_polygon_smooth},
     {"volume-mipmap",    check_volume_mipmap},
     {"multitexture",     check_multitexture},
+    {"texture-unit1-alone", check_texture_unit1_alone},
     {"tex-delete-in-frame", check_tex_delete_in_frame},
 };
 
