@@ -108,13 +108,18 @@ rather than about GL. `cubemap`, `fbotexture`, `shadowtex` and `stex3d` each exe
 no probe here had touched - cube maps, framebuffer objects, shadow comparison, 3D textures - and
 are the most informative per run.
 
-Three have now run on this console, all on 2026-09-22:
+Four have now run on this console, all on 2026-09-22:
 
 | demo | what it settled |
 |---|---|
 | `gears` | the title arrangement works at all |
 | `glinfo` | [the advertised surface, 322 extensions](../../../../oops-mesa/docs/hardware/the-advertised-surface-measured-fw1240.md) — and three bugs in the log path, which is why a program that only prints was worth a slot |
 | `cubemap` | [cube mapping and reflection texgen draw](../../../../oops-mesa/docs/hardware/cube-mapping-draws-fw1240.md), on a sphere this title's own shim tessellates |
+| `fbotexture` | [render to texture with depth and stencil](../../../../oops-mesa/docs/hardware/render-to-texture-with-depth-and-stencil-fw1240.md) — a full off-screen pass, sampled back, correct in every part |
+
+`fbotexture` is also the one to reach for when a demo's log looks stalled: its `Anim` defaults to
+false, so **one** `present us:` line is its specified behaviour. And `a` is the cheapest keyboard
+test in the set — one press turns that single line into a stream.
 
 The demo-by-demo *result* table goes in `oops-mesa/docs/hardware/` when those runs happen, named
 by build and firmware like every other hardware record in the collection. This section is the
