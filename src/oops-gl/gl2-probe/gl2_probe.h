@@ -58,13 +58,20 @@ extern void (*gl2_probe_trace)(const char *name, int verdict);
 
 /*
  * **Called only for a check that failed**, with the colour at the centre of the probe region as
- * that check left it.
+ * that check left it and the first GL error it raised.
  *
  * A bare `FAIL` says a check disagreed with the specification and nothing about how. One pixel,
  * and only on a failure, because reading one costs a synchronisation - which on console hardware
  * is about half a second. It is not the whole of any check's evidence; it is the one value cheap
  * enough to take from every check without being asked for.
+ *
+ * **The error is what tells a refused draw from a wrong one.** gl2-probe's first hardware run
+ * had thirteen checks leave the reset colour at the centre, which reads identically whether the
+ * draw was refused before it started or ran and missed - and the run loop already clears errors
+ * between checks, so the first one this check raised was there to be reported and was not.
+ * `GL_NO_ERROR` with the reset colour means the draw happened; `GL_INVALID_OPERATION` means it
+ * never did.
  */
-extern void (*gl2_probe_saw)(const char *name, uint32_t centre);
+extern void (*gl2_probe_saw)(const char *name, uint32_t centre, unsigned int err);
 
 #endif /* GL2_PROBE_H */

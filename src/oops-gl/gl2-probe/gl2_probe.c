@@ -42,7 +42,7 @@
  * The area a check works in - a corner of a full-size display, not a display of its own.
  * `libSceVideoOut` will not register a buffer of 128x96, and gl1-probe's first hardware run
  * died on the NULL framebuffer that produced. The viewport sits at GL's origin, the
- * bottom-left, so only `px()` has to know where the region starts.
+ * bottom-left, so only `scan_frame()` has to know where the region starts.
  */
 #define PROBE_W 128
 #define PROBE_H 96
@@ -62,7 +62,7 @@ static unsigned int g_row0;
 static GLuint g_prog;
 
 void (*gl2_probe_trace)(const char *name, int verdict);
-void (*gl2_probe_saw)(const char *name, uint32_t centre);
+void (*gl2_probe_saw)(const char *name, uint32_t centre, unsigned int err);
 
 /*
  * Where a check's pixels come from. On the host the software rasteriser writes the target
@@ -79,16 +79,16 @@ static const uint32_t *frame(void) {
     return (const uint32_t *)g_fb;
 }
 
-static uint32_t px(int x, int y) {
-    if (!g_fb || x < 0 || y < 0 || x >= PROBE_W || y >= PROBE_H) return 0u;
-    const uint32_t *f = frame();
-    if (!f) return 0u;
-    return f[(size_t)(g_row0 + (unsigned int)y) * (size_t)g_fb_w + (size_t)x];
-}
-
-/* **A scan takes one snapshot and reads that.** Going through `px()` per pixel would ask for
- * 12,288 synchronisations, which on console hardware is about two hours - gl1-probe measured
- * that, and from the outside it was indistinguishable from a hang. */
+/* **A scan takes one snapshot and reads that**, and it is the only way this file reads a pixel.
+ *
+ * There was a single-pixel `px()` beside it until 2026-09-22. Two things were wrong with it and
+ * the second is why it is gone rather than merely unused. A pixel at a time would ask for 12,288
+ * synchronisations, which on console hardware is about two hours - gl1-probe measured that, and
+ * from the outside it was indistinguishable from a hang. And each one calls `glFinish`: on a
+ * console oops-gl draws straight into the rotating scanout buffers, so a read taken *after* a
+ * check had already scanned landed on the next buffer round - cleared, never drawn into - and
+ * reported the reset colour whatever the check had produced. A helper that is wrong only on the
+ * target, only when called a second time, is worse than no helper. */
 static uint32_t g_scan[PROBE_W * PROBE_H];
 
 static const uint32_t *scan_frame(void) {
@@ -1802,9 +1802,22 @@ int gl2_probe_run(gl2_probe_result_t *out, int max) {
         out[i].name = g_cases[i].name;
         if (gl2_probe_trace) gl2_probe_trace(g_cases[i].name, -1);
         out[i].passed = g_cases[i].fn();
+        /* **Taken before the pixel**, so it is the check's own first error and not anything the
+         * read below might raise. The clear above is what makes it the check's own. */
+        const GLenum err = glGetError();
         if (gl2_probe_trace) gl2_probe_trace(g_cases[i].name, out[i].passed);
         if (!out[i].passed && gl2_probe_saw) {
-            gl2_probe_saw(g_cases[i].name, px(MID_X, MID_Y));
+            /* **From the snapshot the check itself took**, not a fresh read.
+             *
+             * `px()` goes through `frame()`, which calls `glFinish` - and on a console oops-gl
+             * draws straight into the rotating scanout buffers, so finishing again lands on the
+             * next one round: cleared, never drawn into, and reporting the reset colour for
+             * every check whatever it actually produced. Eleven of gl2-probe's thirteen
+             * drawing failures read that way on 2026-09-22 and the number meant nothing.
+             *
+             * `g_scan` is the last `scan_frame()` - the pixels the check compared - so this
+             * costs no GL call and cannot disturb what it reports. */
+            gl2_probe_saw(g_cases[i].name, SCAN_PX(g_scan, MID_X, MID_Y), (unsigned int)err);
         }
     }
 

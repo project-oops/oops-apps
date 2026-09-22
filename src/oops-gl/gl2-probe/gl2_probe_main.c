@@ -83,9 +83,15 @@ static void trace(const char *name, int verdict) {
     probe_klog(line);
 }
 
-/* "   name                saw 0xff204060" - the colour a failing check left at the centre of the
- * probe region, in the byte order px() returns. Only failures reach here. */
-static void saw(const char *name, uint32_t centre) {
+/* "   name                saw 0xff204060 err 0x0502" - the colour a failing check left at the
+ * centre of the probe region, in the byte order px() returns, and the first GL error it raised.
+ * Only failures reach here.
+ *
+ * **The error is the half that says which kind of failure this is.** The reset colour at the
+ * centre reads the same whether a draw was refused before it started or ran and put nothing
+ * there, and those are different bugs with different fixes. `err 0x0000` and the reset colour
+ * means the draw happened. */
+static void saw(const char *name, uint32_t centre, unsigned int err) {
     static const char hex[] = "0123456789abcdef";
     char line[80];
     int at = 0;
@@ -95,6 +101,9 @@ static void saw(const char *name, uint32_t centre) {
     const char *head = "saw 0x";
     for (int i = 0; head[i]; i++) line[at++] = head[i];
     for (int s = 28; s >= 0; s -= 4) line[at++] = hex[(centre >> s) & 0xfu];
+    const char *mid = " err 0x";
+    for (int i = 0; mid[i]; i++) line[at++] = mid[i];
+    for (int s = 12; s >= 0; s -= 4) line[at++] = hex[(err >> s) & 0xfu];
     line[at] = '\0';
     probe_klog(line);
 }
