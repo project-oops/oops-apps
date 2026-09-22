@@ -55,11 +55,59 @@ title's entire job is measuring what works.
 
 Filed as `REQ-20260922T0940Z-5c17` against oops-sdk. `gears`, the default, calls none of them.
 
-## Status
+## The census
 
-`gears` builds, links, passes the import check with **0 unknown symbols**, and packages as
-`MDEM00001`. It deployed and launched on hardware on 2026-09-22.
+**37 of 56 demos build, link and place every symbol.** Up from 7 when the set was first swept on
+2026-09-22. `tools/sweep.sh` produces this and `build/sweep.tsv` holds the rows; run it again
+after any change that could move one.
 
-The demo-by-demo table this title exists to produce does not exist yet. It goes in
-`oops-mesa/docs/hardware/` when the runs are done, named by build and firmware like every other
-hardware record in the collection.
+| | baseline | now |
+|---|---|---|
+| **OK** — compiles, links, every symbol placed | 7 | **37** |
+| **BUILD-FAIL** — does not compile | 46 | 15 |
+| **IMPORTS-FAIL** — compiles, but a symbol is undefined | 3 | 4 |
+
+**None of that means a demo draws anything.** It has not been on a console. The three outcomes
+are about the port surface, and the whole point of this title is the measurement that comes
+*after* they are all green. `gears` is the only one that has run, on 2026-09-22.
+
+### What got them there
+
+Nothing in the first sweep's 46 failures was about OpenGL. Every one was the port surface:
+
+- **glad** — 27 demos include it. mesa-demos 9.0.0 loads GL through it, and the loading half is a
+  no-op in a static link. `shim/include/glad/glad.h` answers the eleven flags they read, from the
+  driver rather than by assertion.
+- **The proportional GLUT font names** — 20 demos. Mapped in `shim/include/glut_proportional_fonts.h`
+  rather than in oops-sdk, for the reason that header gives.
+- **GLU** — `shim/glu_matrix_on_mesa.c` carries the half that is pure maths, written from the
+  specification. oops-sdk's own GLU cannot be linked beside Mesa (`REQ-20260922T0940Z-5c17`).
+- **Three upstream util sources** — `readtex.c`, `showbuffer.c`, and oops-sdk's `glut_font.c`,
+  each named by the import check rather than guessed at.
+
+### The 19 that do not, and why
+
+| blocked on | demos | disposition |
+|---|---|---|
+| `glutCreateMenu` | 10 — `engine`, `gloss`, `isosurf`, `multiarb`, `pointblast`, `projtex`, `renormal`, `spectex`, `spriteblast`, `texcyl` | **oops-sdk's call.** `PORTING.md` lists GLUT menus as deliberately absent. Filed with the argument that all of them attach to `GLUT_RIGHT_BUTTON` and this console has no mouse, so the menu is unreachable anyway and a recording no-op would cost nothing that works today. Not implemented here, because routing around a documented decision quietly is worse than losing ten demos |
+| `glutSetColor` | 4 — `bounce`, `copypix`, `drawpix`, `readpix` | **Out of scope, and correctly so.** These want colour-index visuals, and `PORTING.md` already answers that: `glutGet(GLUT_DISPLAY_MODE_POSSIBLE)` reports 0 for them |
+| `GLUtriangulatorObj` | 1 — `dinoshade` | The GLU tessellator, which `PORTING.md` also lists as absent. A real one is a large piece of work for one demo |
+| **extensions this Mesa build does not provide** | 4 — `fplight` (`glLoadProgramNV` and the NV program family), `paltex` (`glColorTableEXT`), `vao_demo` (`glBindVertexArrayAPPLE`), `winpos` (`glWindowPos2fMESA`) | **Out of scope for this configuration.** The symbols are in no archive in the build, and `generate-imports.sh` refuses to bind them to the *platform's own* GL — which is the check working. A stub would produce a demo that runs and demonstrates nothing, which is the one outcome this title must not produce |
+
+### Which of the 37 are worth a hardware run
+
+All of them, but not all at once and not all equally.
+
+**Twelve need `make stage-data` first** and will find nothing without it: `dissolve`,
+`fbo_firecube`, `fire`, `geartrain`, `ipers`, `lodbias`, `reflect`, `teapot`, `terrain`,
+`textures`, `tunnel`, `tunnel2`. Compiling is not finding.
+
+**The other twenty-five need nothing but a slot.** `gears` has already run. `clearspd`,
+`trispd` and `gltestperf` are throughput measurements rather than pictures and would say
+something about the present path rather than about GL. `cubemap`, `fbotexture`, `shadowtex` and
+`stex3d` each exercise a feature no probe here has touched - cube maps, framebuffer objects,
+shadow comparison, 3D textures - and are the most informative per run.
+
+The demo-by-demo *result* table goes in `oops-mesa/docs/hardware/` when those runs happen, named
+by build and firmware like every other hardware record in the collection. This section is the
+build census and is not that table.
