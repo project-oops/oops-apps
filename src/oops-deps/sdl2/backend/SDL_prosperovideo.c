@@ -46,12 +46,21 @@ static int PROSPERO_VideoInit(_THIS)
     PROSPERO_VideoData *data = (PROSPERO_VideoData *)_this->driverdata;
     SDL_DisplayMode mode;
 
-    data->display = oops_display_open(OOPS_DISPLAY_BACKEND_AUTO,
-                                      OOPS_DISPLAY_DEFAULT_WIDTH,
-                                      OOPS_DISPLAY_DEFAULT_HEIGHT);
-    if (!data->display) {
-        return SDL_SetError("prospero: the display did not open");
+    /*
+     * The renderer, brought up through oops/gfx.h rather than by opening the display alone. This
+     * is the fix for the one thing this backend used to get wrong: it opened a display but never
+     * created a GL context, so a title's GL calls had none. `oops_gfx_create` opens the display
+     * *and* creates the context and makes it current - and it dispatches to whichever renderer the
+     * title linked, so building SDL against Mesa gets Mesa's present path (its flip owns the
+     * scanout), not this backend flipping a buffer Mesa never drew into.
+     */
+    data->gfx = oops_gfx_create(&(oops_gfx_desc_t){ .width = OOPS_DISPLAY_DEFAULT_WIDTH,
+                                                    .height = OOPS_DISPLAY_DEFAULT_HEIGHT,
+                                                    .depth = true, .vsync = true });
+    if (!data->gfx) {
+        return SDL_SetError("prospero: the renderer did not come up");
     }
+    data->display = oops_gfx_display(data->gfx);
 
     oops_time_init();
 
@@ -71,7 +80,8 @@ static int PROSPERO_VideoInit(_THIS)
     mode.driverdata = NULL;
 
     if (SDL_AddBasicVideoDisplay(&mode) < 0) {
-        oops_display_close(data->display);
+        oops_gfx_destroy(data->gfx);
+        data->gfx = NULL;
         data->display = NULL;
         return -1;
     }
@@ -92,8 +102,9 @@ static void PROSPERO_VideoQuit(_THIS)
         oops_keyboard_close();
         data->keyboard_ready = 0;
     }
-    if (data->display) {
-        oops_display_close(data->display);
+    if (data->gfx) {
+        oops_gfx_destroy(data->gfx);
+        data->gfx = NULL;
         data->display = NULL;
     }
 }
@@ -180,18 +191,43 @@ static void PROSPERO_GL_UnloadLibrary(_THIS)
     _this->gl_config.driver_loaded = 0;
 }
 
+/*
+ * **The GL that answers this is oops-gl, and it is reached weakly.**
+ *
+ * This backend creates no GL of its own - the context is the display's - so nothing else here
+ * needs a GL to be linked, and a title that uses SDL for events and audio should not be made to
+ * carry one. A weak *definition* rather than a weak reference is what keeps that true both ways:
+ * oops-gl's own definition overrides it when there is one, and when there is not, the payload
+ * still links with no undefined symbol for `common/app.mk`'s check to trip over.
+ *
+ * It is declared here rather than by including <GL/gl.h>, which would put a whole GL API beside
+ * SDL's own and conflict with it.
+ */
+__attribute__((weak)) void *oops_gl_get_proc_address(const char *name)
+{
+    (void)name;
+    return NULL;
+}
+
 static void *PROSPERO_GL_GetProcAddress(_THIS, const char *proc)
 {
     (void)_this;
-    (void)proc;
     /*
-     * NULL for everything, and that is the true answer rather than a gap. The payload is
-     * statically linked, so every entry point a title can call is already bound at link time; a
-     * name that reaches here is one the linker did not resolve, which means it is absent. A
-     * caller asking for an extension gets the same NULL it would get from a driver that lacks
-     * it, which is what the call is for.
+     * **This returned NULL for everything until 2026-09-22**, reasoning that a statically linked
+     * payload has every entry point already bound, so a name reaching here must be one the
+     * linker could not resolve - that is, absent.
+     *
+     * The reasoning was wrong and the console showed it. A title written against desktop GL does
+     * not name the post-1.1 entry points as symbols at all: it holds function pointers and fills
+     * them from strings, because on a desktop the driver is behind a loader. The linker never saw
+     * `glGenBuffersARB` because nothing referenced it. Neverball took the NULL, stored it, and
+     * called it - `sol_load_full` jumped to address zero on the first mesh it loaded.
+     *
+     * So the name has to be looked up, and oops-gl looks it up in the payload's own dynamic
+     * symbol table. A name it does not have still answers NULL, which is what a caller probing
+     * for an extension is asking.
      */
-    return NULL;
+    return oops_gl_get_proc_address(proc);
 }
 
 static SDL_GLContext PROSPERO_GL_CreateContext(_THIS, SDL_Window *window)
@@ -295,8 +331,11 @@ static int PROSPERO_GL_SwapWindow(_THIS, SDL_Window *window)
     if (window != data->window) {
         return SDL_SetError("prospero: that window is not this display's");
     }
-    if (oops_display_flip(data->display) != 0) {
-        return SDL_SetError("prospero: the flip failed (%d)",
+    /* Present through the renderer, not a bare display flip: the flip belongs to whichever backend
+     * drew the frame (D012). oops_gfx_present returns true on success; false means the frame is not
+     * on screen. */
+    if (!oops_gfx_present(data->gfx)) {
+        return SDL_SetError("prospero: the present failed (%d)",
                             oops_display_get_last_error(data->display));
     }
     return 0;
