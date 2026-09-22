@@ -594,6 +594,110 @@ static int check_display_list(void) {
     return near_rgb(px(PROBE_W / 2, PROBE_H / 2), 255, 255, 0, 8);
 }
 
+/*
+ * **GL_LUMINANCE and GL_LUMINANCE_ALPHA, which nothing in this suite uploaded until now.**
+ *
+ * Eighty-odd texture checks and every one of them uploaded RGBA or RGB. The gap is not
+ * academic: of Neverball's 292 PNGs, 23 are greyscale and 58 are grey-plus-alpha, so 81 of its
+ * textures take a path this probe had never exercised - and it passed 83/85 while the title drew
+ * every surface untextured.
+ *
+ * The rule under test is the expansion (GL 1.1, table 3.11): a luminance texel samples as
+ * (L, L, L, 1), a luminance-alpha texel as (L, L, L, A). So the first half asserts the channels
+ * come back **equal** as well as distinct - an implementation that stored L in red and left
+ * green and blue at zero would pass a "four different colours" test and fail this one. The
+ * second half gives four texels one luminance and four different alphas and blends them over the
+ * background, so nothing but the alpha can tell them apart.
+ */
+static int check_texture_luminance(void) {
+    reset_view();
+
+    /* Four luminances, none at 0 or 255: both ends survive a channel being dropped. */
+    static const GLubyte lum[4] = { 40, 90, 160, 220 };
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    /* **Alignment 1 matters here and did not for RGBA.** A 2-wide luminance row is two bytes;
+     * the default unpack alignment of 4 would step the second row three bytes late. */
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 2, 2, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, lum);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glColor3f(1.0f, 1.0f, 1.0f);
+
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(-0.8f, -0.8f, 0.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f( 0.8f, -0.8f, 0.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f( 0.8f,  0.8f, 0.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(-0.8f,  0.8f, 0.0f);
+    glEnd();
+    glDisable(GL_TEXTURE_2D);
+    if (glGetError() != GL_NO_ERROR) { glDeleteTextures(1, &tex); return 0; }
+
+    uint32_t q[4];
+    q[0] = px(PROBE_W * 5 / 16,  PROBE_H * 5 / 16);
+    q[1] = px(PROBE_W * 11 / 16, PROBE_H * 5 / 16);
+    q[2] = px(PROBE_W * 5 / 16,  PROBE_H * 11 / 16);
+    q[3] = px(PROBE_W * 11 / 16, PROBE_H * 11 / 16);
+    glDeleteTextures(1, &tex);
+
+    for (int i = 0; i < 4; i++) {
+        if (q[i] == PROBE_BG) return 0;
+        /* The replication itself: grey in, grey out. */
+        if (chan_r(q[i]) != chan_g(q[i]) || chan_g(q[i]) != chan_b(q[i])) return 0;
+    }
+    if (q[0] == q[1] || q[0] == q[2] || q[0] == q[3] ||
+        q[1] == q[2] || q[1] == q[3] || q[2] == q[3]) return 0;
+
+    /* --- luminance-alpha: one luminance, four alphas, separable only by the blend ---------- */
+    reset_view();
+    static const GLubyte la[8] = { 200, 30,   200, 100,
+                                   200, 170,  200, 240 };
+    GLuint tex2 = 0;
+    glGenTextures(1, &tex2);
+    glBindTexture(GL_TEXTURE_2D, tex2);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA, 2, 2, 0,
+                 GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, la);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor3f(1.0f, 1.0f, 1.0f);
+
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(-0.8f, -0.8f, 0.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f( 0.8f, -0.8f, 0.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f( 0.8f,  0.8f, 0.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(-0.8f,  0.8f, 0.0f);
+    glEnd();
+    glDisable(GL_BLEND);
+    glDisable(GL_TEXTURE_2D);
+    if (glGetError() != GL_NO_ERROR) { glDeleteTextures(1, &tex2); return 0; }
+
+    uint32_t r[4];
+    r[0] = px(PROBE_W * 5 / 16,  PROBE_H * 5 / 16);
+    r[1] = px(PROBE_W * 11 / 16, PROBE_H * 5 / 16);
+    r[2] = px(PROBE_W * 5 / 16,  PROBE_H * 11 / 16);
+    r[3] = px(PROBE_W * 11 / 16, PROBE_H * 11 / 16);
+    glDeleteTextures(1, &tex2);
+
+    for (int i = 0; i < 4; i++) {
+        if (r[i] == PROBE_BG) return 0;              /* even alpha 30 moves it off the clear */
+        if (chan_r(r[i]) != chan_g(r[i]) || chan_g(r[i]) != chan_b(r[i])) return 0;
+    }
+    /* One luminance for all four, so anything that separates them came from the alpha. An
+     * implementation that expanded luminance-alpha as (L, L, L, 1) draws four identical
+     * quadrants and fails here. */
+    if (r[0] == r[1] || r[0] == r[2] || r[0] == r[3] ||
+        r[1] == r[2] || r[1] == r[3] || r[2] == r[3]) return 0;
+    return 1;
+}
+
 static int check_texture(void) {
     reset_view();
     /* A 2x2 texture with four *different* colours, so a transposed or flipped sample lands on
@@ -3640,6 +3744,7 @@ static const gl1_probe_case_t g_cases[] = {
     {"buffer-objects",   check_buffer_objects},
     {"display-list",     check_display_list},
     {"texture-2d",       check_texture},
+    {"texture-luminance", check_texture_luminance},
     {"read-pixels",      check_read_pixels},
     {"matrix-stack",     check_matrix_stack},
     {"attrib-stack",     check_attrib_stack},
