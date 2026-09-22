@@ -12,6 +12,7 @@
  */
 #include "oops/syscall.h"
 #include "oops/system.h"
+#include <GL/gl.h>
 
 #include "nb_diag.h"
 
@@ -29,6 +30,16 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
     (void)args;
 
     oops_log_info("NVRB", "entry");
+
+    /* **Capture one settled frame of the title screen.** Frame 3 rather than 0: the first
+       frames build the window and upload the level's textures, so they are a loader rather
+       than a frame of the game. The swap does the arming and the writing, so upstream's own
+       loop is untouched and what lands in the file is the program's real behaviour.
+
+       Replay it on a build machine with `oops-gl/gl-replay`, where the rasteriser is the
+       reference: the difference between that image and a screenshot of this frame is the bug
+       that ninety-three conformance checks are all passing through. */
+    oops_gl_capture_frame(3u, "/data/homebrew/NVRB00001/frame.oglcap");
 
     /* **The summary belongs here and not in a patch.** The shim already wraps `main`, so the
        point after it returns is ours to use - and `ball/main.c` stays untouched, which is one
