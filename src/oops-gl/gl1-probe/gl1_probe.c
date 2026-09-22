@@ -2565,6 +2565,84 @@ static int check_texture_unit1_alone(void) {
 }
 
 /*
+ * **Unit 1 as the base, with a texture that has more than one texel and coordinates from an
+ * array** - which is how Neverball draws a surface whenever the ball's shadow is off.
+ *
+ * `check_texture_unit1_alone` above passes on the console and proves less than it looks. Its
+ * texture is 1x1, so every coordinate samples the same texel: a draw that lost the coordinate
+ * entirely, or read the wrong unit's, would still come out green. A whole level came out flat
+ * while that check was passing.
+ *
+ * Two texels and a coordinate per vertex is the smallest thing that can tell those apart. Unit 0
+ * is left disabled so unit 1 is the base unit, and the coordinates arrive through
+ * `glClientActiveTexture(GL_TEXTURE1)` and `glTexCoordPointer` rather than `glMultiTexCoord`,
+ * because a vertex array is what `sol_draw` uses and the two reach the vertex by different code.
+ *
+ * Two quads, each with one coordinate at all four corners, sampling different texels of the same
+ * texture: left must be red, right must be green. Both red is a coordinate that never arrived -
+ * the texel at the origin is what a zeroed coordinate reads. Both the primary colour is unit 1
+ * dropped.
+ */
+static int check_texture_unit1_coords(void) {
+    reset_view();
+    /* Row-major from the bottom left: (0,0) red, (1,0) green, and two the draw must not pick. */
+    static const GLubyte texels[4][4] = {
+        {255, 0, 0, 255}, {0, 255, 0, 255}, {0, 0, 255, 255}, {255, 255, 255, 255},
+    };
+    static const GLfloat pos_left[8]  = {-0.8f, -0.5f, -0.2f, -0.5f, -0.8f, 0.5f, -0.2f, 0.5f};
+    static const GLfloat pos_right[8] = { 0.2f, -0.5f,  0.8f, -0.5f,  0.2f, 0.5f,  0.8f, 0.5f};
+    /* One coordinate repeated at all four corners, so the quad is a flat sample of one texel and
+     * the verdict is a colour rather than a gradient. */
+    static const GLfloat tc_left[8]  = {0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f};
+    static const GLfloat tc_right[8] = {0.75f, 0.25f, 0.75f, 0.25f, 0.75f, 0.25f, 0.75f, 0.25f};
+
+    GLuint t = 0;
+    glGenTextures(1, &t);
+
+    /* Unit 0 deliberately untouched: disabled, nothing bound, so unit 1 is the base unit. */
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, texels);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glEnable(GL_TEXTURE_2D);
+
+    /* Magenta: a colour neither texel carries, so "unit 1 dropped" is its own answer. */
+    glColor3f(1.0f, 0.0f, 1.0f);
+
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glClientActiveTexture(GL_TEXTURE1);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+
+    glVertexPointer(2, GL_FLOAT, 0, pos_left);
+    glTexCoordPointer(2, GL_FLOAT, 0, tc_left);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glVertexPointer(2, GL_FLOAT, 0, pos_right);
+    glTexCoordPointer(2, GL_FLOAT, 0, tc_right);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glClientActiveTexture(GL_TEXTURE0);
+    glDisableClientState(GL_VERTEX_ARRAY);
+
+    glDisable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glDeleteTextures(1, &t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+
+    return near_rgb(px(PROBE_W / 4, PROBE_H / 2), 255, 0, 0, 16) &&
+           near_rgb(px(3 * PROBE_W / 4, PROBE_H / 2), 0, 255, 0, 16);
+}
+
+/*
  * **Neverball's shadow arrangement as it actually runs, with both units textured.**
  *
  * `check_texture_unit1_alone` above was written from `tex_env_conf_shadow`, which opens the shadow
@@ -3968,6 +4046,7 @@ static const gl1_probe_case_t g_cases[] = {
     {"volume-mipmap",    check_volume_mipmap},
     {"multitexture",     check_multitexture},
     {"texture-unit1-alone", check_texture_unit1_alone},
+    {"texture-unit1-coords", check_texture_unit1_coords},
     {"texture-env-shadow-stack", check_texture_env_shadow_stack},
     {"tex-delete-in-frame", check_tex_delete_in_frame},
 };
