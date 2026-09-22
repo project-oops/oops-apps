@@ -13,6 +13,7 @@
 #include "oops/syscall.h"
 #include "oops/system.h"
 #include "oops/fs.h"
+#include "oops/savedata.h"
 #include <GL/gl.h>
 
 #include "nb_diag.h"
@@ -49,6 +50,31 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
        guess a second time, each candidate is tried and the first that works is used - and the
        log says which, so the next thing that needs to write something already knows. */
     {
+        /* **Savedata is mounted, not found.** The first attempt probed `/savedata0` as a path
+           and it refused, because that mount point does not exist until `oops_savedata_mount`
+           makes it - and neither does any other writable place, which is what all five
+           candidates refusing actually meant. This asks the SDK for a slot first and writes
+           into the path it hands back; the plain directories stay behind it as a fallback for
+           a console where the savedata service is not available. */
+        static char chosen[96];
+        const char *picked = (const char *)0;
+        static char mount[64];
+        if (oops_savedata_init() == 0 &&
+            oops_savedata_mount("NVRBCAP0", OOPS_SAVEDATA_MODE_CREATE |
+                                            OOPS_SAVEDATA_MODE_READ_WRITE,
+                                mount, sizeof(mount)) == 0) {
+            oops_log_info("NVRB", "savedata mounted at %s", mount);
+            size_t m = 0u;
+            while (mount[m] && m < sizeof(chosen) - 20u) { chosen[m] = mount[m]; m++; }
+            const char *name = "/frame.oglcap";
+            size_t j = 0u;
+            while (name[j] && m < sizeof(chosen) - 1u) { chosen[m++] = name[j++]; }
+            chosen[m] = '\0';
+            picked = chosen;
+        } else {
+            oops_log_info("NVRB", "savedata unavailable - trying plain directories");
+        }
+
         static const char *const dirs[] = {
             "/data",                        /* the user partition */
             "/data/homebrew/NVRB00001",     /* the install directory - measured to refuse */
@@ -56,8 +82,6 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
             "/savedata0",
             "/tmp",
         };
-        static char chosen[96];
-        const char *picked = (const char *)0;
         for (unsigned i = 0u; i < sizeof(dirs) / sizeof(dirs[0]) && !picked; i++) {
             /* A real open, not a guess about permissions: the only reliable test of whether a
                path can be written is writing to it. One byte, then removed. */

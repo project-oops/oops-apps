@@ -131,6 +131,7 @@ $(OOPS_NB_LIB): $(NB_SRCS) $(MAKEFILE_LIST)
 # `PAYLOAD_SRCS` it gets `-Werror -Wformat` like the rest of our code. See `shim/include/nb_diag.h`.
 PAYLOAD_SRCS = shim/nb_start.c \
                shim/nb_diag.c \
+               $(OOPS_SDK_DIR)/src/system/savedata.c \
                $(OOPS_POSIX_SRCS) \
                $(OOPS_SDK_DIR)/src/display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_display.c \
