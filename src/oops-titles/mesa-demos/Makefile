@@ -91,7 +91,7 @@ EXTRA_TARGET_CFLAGS += $(MESA_DEMOS_CFLAGS) $(MESA_DEMOS_WARNINGS)
 # Deferred `=`, not `:=`, and it matters: `OOPS_SDK_DIR` is set by `common/app.mk`, which is
 # included at the bottom of this file. An immediate assignment expands it to empty here and make
 # reports `No rule to make target '/src/gl/glut.c'` - a path with the root missing.
-PAYLOAD_SRCS = shim/mesa_demos_entry.c shim/glu_maths_from_libm.c shim/glu_absent_on_mesa.c \
+PAYLOAD_SRCS = shim/mesa_demos_entry.c shim/glu_maths_from_libm.c shim/glu_quadrics_on_mesa.c \
                 shim/glad_from_driver.c shim/glu_matrix_on_mesa.c \
                 $(DEMO_SRC) \
                 upstream/src/util/readtex.c \
