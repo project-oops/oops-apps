@@ -1,4 +1,4 @@
-# mesa-probe - the smallest title that links upstream Mesa and says how far it gets.
+# mesa-winsys-probe - the smallest title that links upstream Mesa and says how far it gets.
 #
 # It is not a demo. Its job is to be the thing that proves the link: oops-mesa's archives, its
 # winsys and runtime shims, the C++ support archive and oops-sdk all in one binary, built the way
@@ -12,10 +12,10 @@
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
-# The switch that brings Mesa in. A title that sets it is hosted (oops-mesa D002).
-USE_MESA = 1
+# The renderer this title links (common/app.mk): the hosted Mesa stack (oops-mesa D002).
+OOPS_RENDERER = mesa
 
-PAYLOAD_SRCS = mesa_probe_main.c \
+PAYLOAD_SRCS = mesa_winsys_probe_main.c \
                $(OOPS_SDK_DIR)/src/display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
@@ -28,7 +28,7 @@ PAYLOAD_SRCS = mesa_probe_main.c \
                $(OOPS_SDK_DIR)/src/system/fs.c \
                $(OOPS_SDK_DIR)/src/agc/agc_compute.c
 
-ENTRY_POINT := mesa_probe_start
+ENTRY_POINT := mesa_winsys_probe_start
 
 # A local link script, and it is temporary.
 #

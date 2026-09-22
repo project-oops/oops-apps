@@ -1,0 +1,27 @@
+# libogg build integration. Pulled in by `oops-libvorbis.mk`; rarely included directly.
+#
+# `include/ogg/config_types.h` is ours: autotools generates it with four integer widths
+# substituted, and those are not a choice on an LP64 target - the header says so.
+ifndef OOPS_OGG_DIR
+OOPS_OGG_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+endif
+OOPS_OGG_UPSTREAM ?= $(OOPS_OGG_DIR)/upstream
+OOPS_OGG_BUILD ?= $(OOPS_OGG_DIR)/build
+OOPS_OGG_INCLUDE := -I$(OOPS_OGG_UPSTREAM)/include -I$(OOPS_OGG_DIR)/include
+OOPS_OGG_LIB := $(OOPS_OGG_BUILD)/libogg.a
+OOPS_OGG_LDFLAGS := $(OOPS_OGG_LIB)
+OOPS_OGG_SRCS := $(OOPS_OGG_UPSTREAM)/src/framing.c $(OOPS_OGG_UPSTREAM)/src/bitwise.c
+OOPS_OGG_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
+                  -nostdlibinc -fPIC -O2 -w $(OOPS_OGG_INCLUDE) $(OOPS_POSIX_INCLUDE) \
+                  $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
+$(OOPS_OGG_LIB): $(OOPS_OGG_SRCS) $(lastword $(MAKEFILE_LIST))
+	@mkdir -p $(OOPS_OGG_BUILD)
+	@rm -f $@
+	@n=0; for s in $(OOPS_OGG_SRCS); do n=$$((n+1)); \
+	   $(TARGET_CC) $(OOPS_OGG_CFLAGS) -c -o $(OOPS_OGG_BUILD)/g$$n.o "$$s" || exit 1; done; \
+	 echo "libogg: compiled $$n sources"
+	@a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $(OOPS_OGG_BUILD)/g*.o
+	@echo "libogg: $@"
+.PHONY: libogg-clean
+libogg-clean:
+	@rm -rf $(OOPS_OGG_BUILD)

@@ -33,6 +33,7 @@
 
 #include "oops/keyboard.h"
 #include "oops/mouse.h"
+#include "oops/system.h"
 
 static void PROSPERO_PumpKeyboard(PROSPERO_VideoData *data)
 {
@@ -112,6 +113,15 @@ static void PROSPERO_PumpMouse(PROSPERO_VideoData *data)
 void PROSPERO_PumpEvents(_THIS)
 {
     PROSPERO_VideoData *data = (PROSPERO_VideoData *)_this->driverdata;
+
+    /* Turn the dashboard's Close into an SDL_QUIT (oops/system.h), so an SDL program that watches
+     * for SDL_QUIT - the ordinary way an SDL app is asked to exit - closes cleanly instead of
+     * being killed mid-frame. Sent once; the handler was installed in VideoInit. */
+    static int quit_sent = 0;
+    if (!quit_sent && oops_system_close_requested()) {
+        quit_sent = 1;
+        (void)SDL_SendQuit();
+    }
 
     if (data->keyboard_ready) {
         PROSPERO_PumpKeyboard(data);

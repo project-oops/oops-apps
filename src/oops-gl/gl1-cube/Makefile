@@ -9,6 +9,11 @@ OOPS_APPS_ROOT ?= $(abspath ../../..)
 EXTRA_TARGET_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 EXTRA_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 
+# The renderer this title links (common/app.mk): fixed-function oops-gl. This pulls in
+# $(OOPS_GL_SRCS) for the payload, so the list below no longer names it. The host self-test still
+# lists it in HOST_TEST_SRCS, which the flag does not touch.
+OOPS_RENDERER = gl1
+
 # oops-mesa's generated preamble (roadmap unit 2) is picked up from the sibling checkout when it
 # is there; gl1_cube_main.c tests for the header and builds without the control files otherwise.
 OOPS_MESA ?= $(abspath $(OOPS_APPS_ROOT)/../oops-mesa)
@@ -29,8 +34,9 @@ HOST_TEST_LIBS = -lm
 # Target payload sources
 PAYLOAD_SRCS = gl1_cube_main.c \
                $(OOPS_APPS_ROOT)/common/obj_loader.c \
+               $(OOPS_APPS_ROOT)/common/cube_hud.c \
+               $(OOPS_SDK_DIR)/src/hud/hud.c \
                $(OOPS_SDK_DIR)/src/display.c \
-               $(OOPS_GL_SRCS) \
                $(OOPS_SDK_DIR)/src/agc/agc_display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
                $(OOPS_SDK_DIR)/src/agc/agc_compute.c \

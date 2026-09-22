@@ -1,5 +1,5 @@
 /*
- * dri-probe - brings GL up through the Gallium DRI frontend and says how far it gets.
+ * mesa-dri-probe - brings GL up through the Gallium DRI frontend and says how far it gets.
  *
  * # What this is for
  *
@@ -8,9 +8,9 @@
  * has never run, so every statement about it is a statement about source code (oops-mesa worklog
  * 041 and 042 both say so in as many words). This is the title that changes that.
  *
- * It is the frontend's counterpart to `mesa-probe`, which walks the winsys path directly. The two
+ * It is the frontend's counterpart to `mesa-winsys-probe`, which walks the winsys path directly. The two
  * are separate titles on purpose: the frontend creates its own screen, so one title doing both
- * would have two screens and no clean attribution for a failure. `mesa-probe` stays the control.
+ * would have two screens and no clean attribution for a failure. `mesa-winsys-probe` stays the control.
  *
  * # What it reports, and the order is the point
  *
@@ -43,7 +43,7 @@
 /*
  * GL's own headers, from the same `mesa/include` a title already compiles against.
  *
- * They are included with the conversion warnings off for the reason mesa-probe's includes are:
+ * They are included with the conversion warnings off for the reason mesa-winsys-probe's includes are:
  * this title compiles at `-Wconversion -Wsign-conversion -Werror`, and upstream's headers are
  * not ours to make clean. The suppression covers the includes and nothing after them.
  */
@@ -132,7 +132,7 @@ static void report_string(const char *label, GLenum name)
     oops_klog("DRI-PROBE", (const char *)s);
 }
 
-void dri_probe_start(void);
+void mesa_dri_probe_start(void);
 
 /*
  * The first render on this platform: clear to a known colour, draw a triangle over the centre, and
@@ -371,7 +371,7 @@ static void probe_frame_hash(struct oops_gl *gl)
  */
 extern void oops_mesa_run_init_array(void);
 
-void dri_probe_start(void)
+void mesa_dri_probe_start(void)
 {
     oops_mesa_run_init_array();
 

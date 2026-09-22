@@ -1,0 +1,18 @@
+# SDL2_ttf's origin. Read by `common/upstream-fetch.sh`.
+#
+# **A lightweight tag**: `refs/tags/release-2.24.0` and its peeled `^{}` form give the same
+# answer, so the hash below is the commit directly - unlike FreeType's `VER-2-13-3`, which is
+# annotated and needed peeling.
+#
+# SDL_ttf's 2.x line is the SDL2 one; 3.x targets SDL3, which nothing here uses.
+#
+# Neverball is what wants it - 13 of its 86 sources fail without `SDL_ttf.h` - and it is cheap to
+# add because the expensive half was already paid: SDL_ttf is a thin layer over **FreeType**,
+# which is pinned next door and compiles. That is the shape a dependency graph is supposed to
+# have, and it is why this one arrived after FreeType rather than before it.
+#
+# Extreme Tux Racer does **not** use this: it calls FreeType directly.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/libsdl-org/SDL_ttf
+UPSTREAM_REV=2a891473eaf05ba1707a4b7913e6c4db7de7458a
+UPSTREAM_REF=release-2.24.0

@@ -4,12 +4,12 @@
 
 /*
  * Revolution skin - Clean-room channel grid dashboard featuring:
- * - 4x3 grid of 12 rounded TV channels (Disc, Avatar, Photo, Shop, Forecast, News, Games)
- * - Authentic optical disc rendering with metallic data ring and iridescent reflection
- * - TV static noise pattern with faint watermark on empty channels
+ * - 4x3 grid of 12 rounded title channels populated from installed titles
+ * - Channel card rendering with icon, title name, and status badges
+ * - Soft patterned channel background on empty channels
  * - Right-edge cyan page arrow ('>')
- * - Bottom console swoop with 3D spherical System button, SD Card slot,
- *   large digital clock/calendar, and Message Board (envelope) button
+ * - Bottom console swoop with 3D spherical System button, Storage slot,
+ *   large digital clock/calendar, and Message (envelope) button
  * - Full 2D grid D-pad navigation + bottom dock navigation
  */
 
@@ -65,44 +65,12 @@ static void draw_channel_card(oops_surface_t *surf, int x, int y, int w, int h,
     }
 }
 
-/* Draw authentic optical disc for Disc Channel (Channel 0) */
-static void draw_disc(oops_surface_t *surf, int cx, int cy, int radius) {
-    /* Disc outer edge & body */
-    oops_draw_circle(surf, cx, cy, radius, 0xFFBAC0CAu, 1);
-    oops_draw_circle(surf, cx, cy, radius - 2, 0xFFE2E6ECu, 1);
-
-    /* Concentric data surface sheen bands */
-    oops_draw_circle(surf, cx, cy, (radius * 85) / 100, 0xFFD0D5DEu, 0);
-    oops_draw_circle(surf, cx, cy, (radius * 75) / 100, 0xFFDCE1EAu, 0);
-    oops_draw_circle(surf, cx, cy, (radius * 65) / 100, 0xFFCCD1DAu, 0);
-    oops_draw_circle(surf, cx, cy, (radius * 55) / 100, 0xFFD8DDE6u, 0);
-
-    /* Angled iridescent reflection streaks across disc */
-    oops_draw_line_blend(surf, cx - radius + 8, cy - radius + 8,
-                         cx + radius - 8, cy + radius - 8, 0x48FFFFFFu);
-    oops_draw_line_blend(surf, cx - radius + 10, cy - radius + 8,
-                         cx + radius - 6, cy + radius - 8, 0x30A0D0FFu);
-
-    /* Mirror hub ring */
-    int hub_r = (radius * 36) / 100;
-    oops_draw_circle(surf, cx, cy, hub_r, 0xFFBEC4CEu, 1);
-    oops_draw_circle(surf, cx, cy, hub_r - 2, 0xFFF2F4F7u, 1);
-
-    /* Spindle center hole */
-    int hole_r = (radius * 16) / 100;
-    oops_draw_circle(surf, cx, cy, hole_r, 0xFFFFFFFFu, 1);
-    oops_draw_circle(surf, cx, cy, hole_r, 0xFF8A909Au, 0);
-
-    /* Drop reflection */
-    oops_draw_circle_blend(surf, cx, cy + radius + 4, radius / 2, 0x14000000u, 1);
-}
-
-/* Draw TV static noise texture with faint watermark on blank channels */
+/* Draw soft scanline texture on blank/unpopulated channels */
 static void draw_static_channel(oops_surface_t *surf, int x, int y, int w, int h) {
     /* Base soft gray card */
     oops_draw_rect(surf, x + 2, y + 2, w - 4, h - 4, 0xFFECEEF2u);
 
-    /* Subtle television scanlines using direct non-blended lines (fast memset) */
+    /* Subtle scanlines */
     for (int ly = y + 4; ly < y + h - 4; ly += 3) {
         oops_draw_line(surf, x + 4, ly, x + w - 5, ly, 0xFFE2E4EAu);
     }
@@ -113,9 +81,9 @@ static void draw_static_channel(oops_surface_t *surf, int x, int y, int w, int h
     }
 
     /* Faint embossed watermark */
-    int wx = x + (w / 2) - 16;
+    int wx = x + (w / 2) - 20;
     int wy = y + (h / 2) - 8;
-    (void)oops_draw_text(surf, wx, wy, "REV", 0xFFB8C0CCu, 2);
+    (void)oops_draw_text(surf, wx, wy, "OOPS", 0xFFB8C0CCu, 2);
 }
 
 /* Background renderer: soft platinum gradient */
@@ -140,13 +108,13 @@ static int revolution_render_main(oops_surface_t *surf, const struct home_model 
     int sw = (int)surf->width;
     int sh = (int)surf->height;
 
-    int cw = (sw >= 1920) ? 360 : 240;
-    int ch = (sw >= 1920) ? 165 : 110;
-    int gap_x = (sw >= 1920) ? 30 : 20;
-    int gap_y = (sw >= 1920) ? 24 : 16;
+    int cw = (sw >= 1920) ? 390 : 260;
+    int ch = (sw >= 1920) ? 230 : 152;
+    int gap_x = (sw >= 1920) ? 34 : 22;
+    int gap_y = (sw >= 1920) ? 30 : 20;
     int grid_w = (REV_GRID_COLS * cw) + ((REV_GRID_COLS - 1) * gap_x);
     int start_x = (sw - grid_w) / 2;
-    int start_y = (sw >= 1920) ? 50 : 36;
+    int start_y = (sw >= 1920) ? 65 : 44;
 
     int cur = m->category_cursor[m->category_idx];
     int top_foc = (m->top_nav != HOME_TOP_NAV_NONE);
@@ -163,125 +131,48 @@ static int revolution_render_main(oops_surface_t *surf, const struct home_model 
         draw_channel_card(surf, cx, cy, cw, ch, selected, border_col);
         drawn += 4;
 
-        if (i == 0) {
-            /* ---- Channel 0: Disc Channel ---- */
-            int disc_cx = cx + (cw / 2);
-            int disc_cy = cy + (ch / 2) - 4;
-            draw_disc(surf, disc_cx, disc_cy, (ch * 34) / 100);
+        if (i < m->title_count) {
+            const home_title_t *t = &m->titles[i];
+            int pad = 4;
+            int tx = cx + pad;
+            int ty = cy + pad;
+            int tw = cw - (pad * 2);
+            int th = ch - (pad * 2);
 
-            if (m->switcher.has_running_title && m->switcher.running_title_index >= 0 &&
-                m->switcher.running_title_index < m->title_count) {
-                const char *nm = m->titles[m->switcher.running_title_index].name;
-                (void)oops_draw_text(surf, cx + 12, cy + ch - 18, nm ? nm : "RUNNING DISC",
-                                     theme->accent, 1);
-            } else if (m->title_count > 0) {
-                (void)oops_draw_text(surf, cx + 12, cy + ch - 18, "Disc Channel",
-                                     theme->text, 1);
-            } else {
-                (void)oops_draw_text(surf, cx + 12, cy + ch - 18, "Disc Channel",
-                                     theme->text_dim, 1);
+            /* Stretch container to fill the full tile */
+            home_draw_title_icon(surf, t, tx, ty, tw, th, theme);
+
+            /* Subtle dark bottom gradient for crisp text legibility */
+            int label_h = (sw >= 1920) ? 28 : 24;
+            oops_draw_rect_gradient(surf, tx, ty + th - label_h, tw, label_h, 0x00000000u, 0xD0000000u, 1);
+
+            char disp[32];
+            const char *src = t->name ? t->name : t->id;
+            int d = 0;
+            while (src && src[d] != '\0' && d < 24) {
+                disp[d] = src[d];
+                d++;
+            }
+            disp[d] = '\0';
+            (void)oops_draw_text(surf, tx + 8, ty + th - ((sw >= 1920) ? 20 : 18), disp, 0xFFFFFFFFu, 1);
+
+            if (m->switcher.has_running_title && m->switcher.running_title_index == i) {
+                oops_draw_rect_blend(surf, tx + 4, ty + 4, 66, 16, 0xCC00A0E9u);
+                (void)oops_draw_text(surf, tx + 6, ty + 6, "RUNNING", 0xFFFFFFFFu, 1);
+            } else if (t->favorite) {
+                oops_draw_circle_blend(surf, tx + tw - 14, ty + 12, 10, 0xCC000000u, 1);
+                (void)oops_draw_text(surf, tx + tw - 20, ty + 6, "[*]", 0xFFFFD700u, 1);
             }
             drawn += 6;
-        } else if (i == 1) {
-            /* ---- Channel 1: Mii Channel ---- */
-            oops_draw_rect(surf, cx + 4, cy + 4, cw - 8, 22, 0xFFFFE8A3u);
-            (void)oops_draw_text(surf, cx + 12, cy + 9, "Mii Channel", 0xFF6B4A00u, 1);
-
-            /* Stylized avatar head circles */
-            int face_y = cy + (ch / 2) + 2;
-            oops_draw_circle(surf, cx + (cw / 2) - 28, face_y, 14, 0xFFFFCC80u, 1);
-            oops_draw_circle(surf, cx + (cw / 2), face_y - 4, 16, 0xFFFFB74Du, 1);
-            oops_draw_circle(surf, cx + (cw / 2) + 28, face_y, 14, 0xFFFFD54Fu, 1);
-            (void)oops_draw_text(surf, cx + (cw / 2) - 20, cy + ch - 18, "Profiles", theme->text_dim, 1);
-            drawn += 6;
-        } else if (i == 2) {
-            /* ---- Channel 2: Photo Channel ---- */
-            oops_draw_rect(surf, cx + 4, cy + 4, cw - 8, 22, 0xFFF57C00u);
-            (void)oops_draw_text(surf, cx + 12, cy + 9, "Photo Channel", 0xFFFFFFFFu, 1);
-
-            /* Two Polaroid prints */
-            int px1 = cx + (cw / 2) - 44;
-            int py1 = cy + 34;
-            oops_draw_rect(surf, px1, py1, 38, 46, 0xFFFFFFFFu);
-            oops_draw_rect(surf, px1 + 3, py1 + 3, 32, 32, 0xFF42A5F5u);
-            oops_draw_circle(surf, px1 + 24, py1 + 12, 5, 0xFFFFEB3Bu, 1);
-
-            int px2 = cx + (cw / 2) + 6;
-            int py2 = cy + 38;
-            oops_draw_rect(surf, px2, py2, 38, 46, 0xFFFFFFFFu);
-            oops_draw_rect(surf, px2 + 3, py2 + 3, 32, 32, 0xFF66BB6Au);
-            oops_draw_circle(surf, px2 + 16, py2 + 18, 6, 0xFFE91E63u, 1);
-
-            (void)oops_draw_text(surf, cx + 12, cy + ch - 18, "Captures", theme->text_dim, 1);
-            drawn += 7;
-        } else if (i == 3) {
-            /* ---- Channel 3: Shop Channel ---- */
-            int bag_x = cx + (cw / 2) - 18;
-            int bag_y = cy + 24;
-            oops_draw_rect(surf, bag_x, bag_y + 8, 36, 40, 0xFF00A0E9u);
-            oops_draw_line(surf, bag_x + 8, bag_y + 8, bag_x + 8, bag_y, 0xFF0078D7u);
-            oops_draw_line(surf, bag_x + 28, bag_y + 8, bag_x + 28, bag_y, 0xFF0078D7u);
-            oops_draw_line(surf, bag_x + 8, bag_y, bag_x + 28, bag_y, 0xFF0078D7u);
-            (void)oops_draw_text(surf, bag_x + 4, bag_y + 20, "SHOP", 0xFFFFFFFFu, 1);
-
-            (void)oops_draw_text(surf, cx + 24, cy + ch - 22, "Shop Channel", 0xFF0078D7u, 1);
-            drawn += 5;
-        } else if (i == 4) {
-            /* ---- Channel 4: Forecast Channel ---- */
-            oops_draw_rect_gradient(surf, cx + 4, cy + 4, cw - 8, ch - 8, 0xFF005BA1u, 0xFF002244u, 1);
-            int gx = cx + (cw / 2);
-            int gy = cy + (ch / 2) - 4;
-            oops_draw_circle(surf, gx, gy, 20, 0xFF1976D2u, 1);
-            oops_draw_circle(surf, gx + 6, gy - 6, 8, 0xFF4CAF50u, 1);
-            oops_draw_circle(surf, gx + 18, gy - 16, 6, 0xFFFFEE58u, 1);
-            (void)oops_draw_text(surf, cx + 12, cy + ch - 20, "Forecast Channel", 0xFFFFFFFFu, 1);
-            drawn += 5;
-        } else if (i == 5) {
-            /* ---- Channel 5: News Channel ---- */
-            oops_draw_rect_gradient(surf, cx + 4, cy + 4, cw - 8, ch - 8, 0xFF1B5E20u, 0xFF0D280Eu, 1);
-            int nx = cx + (cw / 2) - 30;
-            int ny = cy + (ch / 2) - 8;
-            oops_draw_line_blend(surf, nx, ny, nx + 20, ny - 6, 0x8081C784u);
-            oops_draw_line_blend(surf, nx + 20, ny - 6, nx + 40, ny + 4, 0x8081C784u);
-            oops_draw_line_blend(surf, nx + 40, ny + 4, nx + 60, ny - 2, 0x8081C784u);
-            (void)oops_draw_text(surf, cx + 12, cy + ch - 20, "News Channel", 0xFFFFFFFFu, 1);
-            drawn += 5;
         } else {
-            /* ---- Slots 6..11: Installed Games or Blank Static Channels ---- */
-            int title_idx = i - 6;
-            if (title_idx < m->title_count) {
-                const home_title_t *t = &m->titles[title_idx];
-                int icon_w = 48;
-                int icon_h = 48;
-                int ix = cx + (cw / 2) - (icon_w / 2);
-                int iy = cy + 12;
-
-                home_draw_title_icon(surf, t, ix, iy, icon_w, icon_h, theme);
-
-                char disp[32];
-                const char *src = t->name ? t->name : t->id;
-                int d = 0;
-                while (src[d] != '\0' && d < 20) {
-                    disp[d] = src[d];
-                    d++;
-                }
-                disp[d] = '\0';
-                (void)oops_draw_text(surf, cx + 10, cy + ch - 22, disp, theme->text, 1);
-
-                if (t->favorite) {
-                    (void)oops_draw_text(surf, cx + cw - 26, cy + 8, "[*]", 0xFFFFB300u, 1);
-                }
-                drawn += 4;
-            } else {
-                draw_static_channel(surf, cx, cy, cw, ch);
-                drawn += 4;
-            }
+            draw_static_channel(surf, cx, cy, cw, ch);
+            drawn += 4;
         }
     }
 
     /* ---- 2. Right Page Flip Arrow ('>') -------------------------------------------------- */
-    int arrow_x = start_x + grid_w + ((sw >= 1920) ? 20 : 12);
-    int arrow_y = start_y + ch + (gap_y / 2) + 10;
+    int arrow_x = start_x + grid_w + ((sw >= 1920) ? 24 : 16);
+    int arrow_y = start_y + ch + (gap_y / 2) + ((sw >= 1920) ? 14 : 10);
     if (arrow_x + 24 < sw) {
         /* Cyan triangular arrow */
         oops_draw_line(surf, arrow_x, arrow_y - 16, arrow_x + 16, arrow_y, 0xFF00A0E9u);
@@ -292,7 +183,7 @@ static int revolution_render_main(oops_surface_t *surf, const struct home_model 
     }
 
     /* ---- 3. Bottom Console Bar with Curved Bezel Swoop ----------------------------------- */
-    int bottom_y = sh - ((sw >= 1920) ? 140 : 100);
+    int bottom_y = sh - ((sw >= 1920) ? 145 : 100);
 
     /* Solid metallic lower plate */
     oops_draw_rect_gradient(surf, 0, bottom_y + 16, sw, sh - (bottom_y + 16),
@@ -308,9 +199,9 @@ static int revolution_render_main(oops_surface_t *surf, const struct home_model 
     drawn += 10;
 
     /* ---- 4. Bottom-Left: 3D Spherical System Button (Slot 12) ---------------------------- */
-    int sys_btn_x = (start_x >= 70) ? (start_x - 40) : 50;
-    int sys_btn_y = sh - ((sw >= 1920) ? 75 : 52);
-    int btn_r = (sw >= 1920) ? 42 : 30;
+    int sys_btn_x = (start_x >= 70) ? (start_x - ((sw >= 1920) ? 50 : 36)) : 50;
+    int sys_btn_y = sh - ((sw >= 1920) ? 72 : 52);
+    int btn_r = (sw >= 1920) ? 42 : 28;
     int sys_sel = (cur == REV_BTN_SYSTEM && !top_foc);
 
     oops_draw_circle(surf, sys_btn_x, sys_btn_y, btn_r + 2, 0xFFADB3BEu, 1);
@@ -321,12 +212,16 @@ static int revolution_render_main(oops_surface_t *surf, const struct home_model 
         oops_draw_circle(surf, sys_btn_x, sys_btn_y, btn_r + 3, 0xFF00A0E9u, 0);
         oops_draw_circle(surf, sys_btn_x, sys_btn_y, btn_r + 4, 0x8000A0E9u, 0);
     }
-    (void)oops_draw_text(surf, sys_btn_x - 14, sys_btn_y - 6, "SYS",
-                         sys_sel ? 0xFF0078D7u : 0xFF545C6Au, 2);
+    int sys_scale = 2;
+    int sys_tw = oops_draw_text_width("SYS", sys_scale);
+    int sys_tx = sys_btn_x - (sys_tw / 2);
+    int sys_ty = sys_btn_y - (sys_scale * 8 / 2);
+    (void)oops_draw_text(surf, sys_tx, sys_ty, "SYS",
+                         sys_sel ? 0xFF0078D7u : 0xFF545C6Au, sys_scale);
     drawn += 6;
 
     /* SD Card slot icon (Slot 13) */
-    int sd_x = sys_btn_x + btn_r + 24;
+    int sd_x = sys_btn_x + btn_r + ((sw >= 1920) ? 26 : 20);
     int sd_y = sys_btn_y - 14;
     int sd_sel = (cur == REV_BTN_SD && !top_foc);
 
@@ -355,18 +250,18 @@ static int revolution_render_main(oops_surface_t *surf, const struct home_model 
     int clk_scale = (sw >= 1920) ? 3 : 2;
     int clk_w = oops_draw_text_width(clk_buf, clk_scale);
     int clk_x = (sw - clk_w) / 2;
-    int clk_y = bottom_y + ((sw >= 1920) ? 30 : 20);
+    int clk_y = bottom_y + ((sw >= 1920) ? 50 : 34);
     (void)oops_draw_text(surf, clk_x, clk_y, clk_buf, 0xFF3E444Eu, clk_scale);
 
     /* Date display: "Fri 18/9" */
     char date_buf[32];
     oops_snprintf(date_buf, sizeof(date_buf), "Fri 18/9");
     int dt_w = oops_draw_text_width(date_buf, 1);
-    (void)oops_draw_text(surf, (sw - dt_w) / 2, clk_y + (clk_scale * 8) + 6, date_buf, 0xFF767F8Cu, 1);
+    (void)oops_draw_text(surf, (sw - dt_w) / 2, clk_y + (clk_scale * 8) + 4, date_buf, 0xFF767F8Cu, 1);
     drawn += 2;
 
     /* ---- 6. Bottom-Right: 3D Message Board (Envelope) Button (Slot 14) ------------------- */
-    int mail_btn_x = (start_x >= 70) ? (sw - (start_x - 40)) : (sw - 50);
+    int mail_btn_x = (start_x >= 70) ? (sw - (start_x - ((sw >= 1920) ? 50 : 36))) : (sw - 50);
     int mail_btn_y = sys_btn_y;
     int mail_sel = (cur == REV_BTN_MAIL && !top_foc);
 
@@ -462,12 +357,10 @@ static int revolution_move(struct home_model *m, const struct home_skin *skin, i
         }
     }
 
-    /* Keep title cursor in sync when on game channels */
+    /* Keep title cursor in sync when on title channels */
     cur = m->category_cursor[m->category_idx];
-    if (cur >= 6 && cur < REV_GRID_TOTAL && (cur - 6) < m->title_count) {
-        m->title_cursor = cur - 6;
-    } else if (cur == 0 && m->title_count > 0) {
-        m->title_cursor = 0;
+    if (cur >= 0 && cur < REV_GRID_TOTAL && cur < m->title_count) {
+        m->title_cursor = cur;
     }
     return 1;
 }
@@ -478,58 +371,23 @@ static int revolution_activate(struct home_model *m, const struct home_skin *ski
     int cur = m->category_cursor[m->category_idx];
 
     switch (cur) {
-        case 0: /* Disc Channel */
-            if (m->switcher.has_running_title) {
-                home_show_toast(m, "DISC CHANNEL", "RESUMING ACTIVE TITLE");
-                home_open(m, HOME_SCREEN_SWITCHER);
-                return 1;
-            }
-            if (m->title_count > 0) {
-                m->selected_title = 0;
-                home_open(m, HOME_SCREEN_TITLE_OPTIONS);
-                return 1;
-            }
-            home_show_toast(m, "DISC CHANNEL", "PLEASE INSERT A DISC");
-            return 1;
-
-        case 1: /* Mii Channel */
-            home_open(m, HOME_SCREEN_PROFILE);
-            return 1;
-
-        case 2: /* Photo Channel */
-            home_open(m, HOME_SCREEN_CAPTURES);
-            return 1;
-
-        case 3: /* Shop Channel */
-            home_open(m, HOME_SCREEN_LIBRARY);
-            return 1;
-
-        case 4: /* Forecast Channel */
-            home_open(m, HOME_SCREEN_SEARCH);
-            return 1;
-
-        case 5: /* News Channel */
-            home_open(m, HOME_SCREEN_SETTINGS_SYSTEM);
-            return 1;
-
         case REV_BTN_SYSTEM: /* System Settings */
             home_open(m, HOME_SCREEN_SETTINGS);
             return 1;
 
-        case REV_BTN_SD: /* SD Card Storage */
+        case REV_BTN_SD: /* Storage Manager */
             home_open(m, HOME_SCREEN_SETTINGS_STORAGE);
             return 1;
 
-        case REV_BTN_MAIL: /* Message Board */
+        case REV_BTN_MAIL: /* Notifications */
             home_open(m, HOME_SCREEN_NOTIFICATIONS);
             return 1;
 
-        default: /* Installed games (slots 6..11) */
-            if (cur >= 6 && cur < REV_GRID_TOTAL) {
-                int t_idx = cur - 6;
-                if (t_idx < m->title_count) {
-                    m->selected_title = t_idx;
-                    m->title_cursor = t_idx;
+        default: /* Installed titles (slots 0..11) */
+            if (cur >= 0 && cur < REV_GRID_TOTAL) {
+                if (cur < m->title_count) {
+                    m->selected_title = cur;
+                    m->title_cursor = cur;
                     home_open(m, HOME_SCREEN_TITLE_OPTIONS);
                     return 1;
                 }
@@ -545,13 +403,13 @@ static int revolution_cursor_rect(const struct home_model *m, const struct home_
     (void)skin;
     int sw = 1280;
     int sh = 720;
-    int cw = 240;
-    int ch = 110;
-    int gap_x = 20;
-    int gap_y = 16;
+    int cw = 260;
+    int ch = 152;
+    int gap_x = 22;
+    int gap_y = 20;
     int grid_w = (REV_GRID_COLS * cw) + ((REV_GRID_COLS - 1) * gap_x);
     int start_x = (sw - grid_w) / 2;
-    int start_y = 36;
+    int start_y = 44;
 
     int cur = m->category_cursor[m->category_idx];
 
@@ -563,24 +421,24 @@ static int revolution_cursor_rect(const struct home_model *m, const struct home_
         *w = cw;
         *h = ch;
     } else if (cur == REV_BTN_SYSTEM) {
-        int sys_btn_x = start_x - 40;
+        int sys_btn_x = start_x - 36;
         int sys_btn_y = sh - 52;
-        int btn_r = 30;
+        int btn_r = 28;
         *x = sys_btn_x - btn_r;
         *y = sys_btn_y - btn_r;
         *w = btn_r * 2;
         *h = btn_r * 2;
     } else if (cur == REV_BTN_SD) {
-        int sd_x = (start_x - 40) + 30 + 24;
+        int sd_x = (start_x - 36) + 28 + 20;
         int sd_y = sh - 52 - 14;
         *x = sd_x;
         *y = sd_y;
         *w = 22;
         *h = 28;
     } else {
-        int mail_btn_x = sw - (start_x - 40);
+        int mail_btn_x = sw - (start_x - 36);
         int mail_btn_y = sh - 52;
-        int btn_r = 30;
+        int btn_r = 28;
         *x = mail_btn_x - btn_r;
         *y = mail_btn_y - btn_r;
         *w = btn_r * 2;

@@ -12,7 +12,7 @@
  * day one - a texture, a depth test, a matrix pipeline, a controller, a way to stop - it reaches
  * for through the SDK the same way any oops title would: `oops/math.h` for the matrices,
  * `oops/input.h` for the pad, `oops/fs.h` for the stop file. Only three lines are specific to
- * *this* platform in a way a desktop program would not have: `oops_gl_create` instead of a
+ * *this* platform in a way a desktop program would not have: `oops_gfx_create` instead of a
  * windowing library, `oops_mesa_run_init_array` at the top, and parking instead of returning at
  * the bottom. Each is commented where it appears, because those three are the whole difference
  * between this and the same program on a desktop - the pad and the stop file are not platform
@@ -20,11 +20,13 @@
  *
  * # What it exercises, and why that matters right now
  *
- * `dri-probe` draws one untextured triangle with no depth buffer. That is the right shape for a
+ * `mesa-dri-probe` draws one untextured triangle with no depth buffer. That is the right shape for a
  * gate and the wrong shape for an example. This adds what a real title reaches for on day one and
  * nothing here had touched yet: a texture and a sampler, a depth buffer with the test enabled, an
- * element (index) buffer, a matrix pipeline feeding a uniform, and a frame loop that presents
- * continuously rather than once.
+ * element (index) buffer, a matrix pipeline feeding a uniform, a frame loop that presents
+ * continuously rather than once, and a 2D overlay drawn over the scene (`oops/hud.h`) - which on
+ * this stack is a second, fixed-function pass composited over the title's own shaders, the only
+ * way to put text on a frame whose buffer the CPU never touches.
  *
  * Unit 8's CTS subset is blocked on a C++ standard library this repository does not have (worklog
  * 067), so until that question is answered this title is the broadest exercise of the GL stack
@@ -33,7 +35,7 @@
  * that matters - the value of a CTS result is that the tests are Khronos's and a failure is an
  * upstream bug. Nothing in this directory should ever be described as conformance.
  *
- * Its second use is measurement. `oops_gl_present` reports its cost in four parts for the first
+ * Its second use is measurement. `oops_gfx_present` reports its cost in four parts for the first
  * ten frames and every sixtieth after (oops-mesa D012), and a title that presents once produces a
  * single sample. This one produces a profile over a continuous loop, which is what settled D012:
  * the present now scans out Mesa's own tiled buffer directly, 59.94 fps vsync-locked with the CPU
@@ -45,8 +47,10 @@
 #include "oops/math.h"   /* the SDK's matrix library, rather than a copy in this file */
 #include "oops/input.h"  /* the pad, so the cube answers a controller like a real title */
 #include "oops/fs.h"     /* a stop file, so a headless run ends without JetKVM keys */
+#include "oops/hud.h"    /* the GPU overlay - text on the frame the same way the scene is drawn */
+#include "cube_hud.h"    /* the shared dashboard both cubes draw */
 
-#include "oops_platform.h"
+#include "oops/gfx.h"
 
 /*
  * GL's own headers. Included with the conversion warnings off for the reason the probes' are:
@@ -213,11 +217,13 @@ static const char *const k_fs_src =
     "in vec2 v_uv;\n"
     "in vec3 v_dir;\n"
     "uniform sampler2D u_tex;\n"
+    "uniform int u_textured;\n"   /* pad toggle: sample the texture, or a flat colour */
+    "uniform int u_lit;\n"        /* pad toggle: face shading, or full brightness */
     "out vec4 o_col;\n"
     "void main(){\n"
-    "  vec3 t = texture(u_tex, v_uv).rgb;\n"
-    "  float shade = 0.55 + 0.45 * abs(normalize(v_dir).y);\n"
-    "  o_col = vec4(t * shade, 1.0);\n"
+    "  vec3 base = (u_textured != 0) ? texture(u_tex, v_uv).rgb : vec3(0.80, 0.80, 0.86);\n"
+    "  float shade = (u_lit != 0) ? (0.55 + 0.45 * abs(normalize(v_dir).y)) : 1.0;\n"
+    "  o_col = vec4(base * shade, 1.0);\n"
     "}\n";
 
 /*
@@ -237,17 +243,22 @@ void mesa_cube_start(void)
 
     say("mesa-cube: a textured cube through upstream Mesa (v" OOPS_APP_VERSION ")");
 
-    /* The third and last line that differs from a desktop: no windowing library, no EGL. The
-     * extent is the title's to choose and the compositor scales; 1920x1080 matches the display's
-     * own scanout size so the frame fills it without a promotion. */
-    struct oops_gl *gl = oops_gl_create(CUBE_WIDTH, CUBE_HEIGHT);
-    if (gl == NULL) {
+    /* The third and last line that differs from a desktop: no windowing library, no EGL, just the
+     * one renderer call (`oops/gfx.h`) that opens the display and brings up the context together.
+     * The extent is the title's to choose and the compositor scales; 1920x1080 matches the
+     * display's own scanout size so the frame fills it without a promotion. The same call, and the
+     * same source below it, builds against oops-gl instead by a switch - here it resolves to the
+     * Mesa backend because this title links oops-mesa. */
+    oops_gfx_t *gfx = oops_gfx_create(&(oops_gfx_desc_t){ .width = CUBE_WIDTH,
+                                                          .height = CUBE_HEIGHT,
+                                                          .depth = true, .vsync = true });
+    if (gfx == NULL) {
         park("GL did not come up; the shim's last line above names the step");
     }
 
     uint32_t w = 0;
     uint32_t h = 0;
-    oops_gl_extent(gl, &w, &h);
+    oops_gfx_extent(gfx, &w, &h);
 
     const GLuint vs = compile_shader(GL_VERTEX_SHADER, k_vs_src, "vertex");
     const GLuint fs = compile_shader(GL_FRAGMENT_SHADER, k_fs_src, "fragment");
@@ -314,12 +325,14 @@ void mesa_cube_start(void)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     const GLint tex_loc = glGetUniformLocation(prog, "u_tex");
     const GLint mvp_loc = glGetUniformLocation(prog, "u_mvp");
+    const GLint textured_loc = glGetUniformLocation(prog, "u_textured");
+    const GLint lit_loc = glGetUniformLocation(prog, "u_lit");
 
     /* A missing uniform is -1, and GL accepts -1 silently - `glUniform*` on it is a no-op by
      * specification. So a mistyped name here would compile, link, draw, and produce a cube with no
      * transform and no texture rather than an error. Checked because a silent no-op on a console
      * with no debugger is the worst kind of failure to chase. */
-    if (tex_loc < 0 || mvp_loc < 0) {
+    if (tex_loc < 0 || mvp_loc < 0 || textured_loc < 0 || lit_loc < 0) {
         park("a uniform location came back -1; the linked program is not the one this file expects");
     }
     glUniform1i(tex_loc, 0);
@@ -334,6 +347,20 @@ void mesa_cube_start(void)
      * own pad setup to the log; the loop below asks it for state each frame and does not care
      * whether one is connected. */
     oops_input_init();
+
+    /* Cooperate with the dashboard's Close (oops/system.h): the handler sets a flag the loop
+     * checks, so the title stops drawing and quiesces before the system kills it, rather than
+     * being killed mid-frame. A hosted title cannot exit, but a quiesced one is killed cleanly. */
+    oops_system_install_close_handler();
+
+    /* The overlay. It draws the frame counter and controls on top of the cube through the GPU,
+     * which is the only way that works here: the present scans out Mesa's tiled buffer directly
+     * (oops-mesa D012), so there is no CPU-addressable surface for `oops_draw_text` to write into.
+     * A NULL result is not fatal - the cube still runs, just without the readout. */
+    oops_hud_t *hud = oops_hud_create((int)w, (int)h);
+    if (hud == NULL) {
+        say("the overlay did not come up; drawing the cube without it");
+    }
 
     {
         char msg[128];
@@ -369,6 +396,17 @@ void mesa_cube_start(void)
     bool paused = false;
     bool stopped = false;
 
+    /* Live pipeline toggles, driven by the pad - the same set gl1-cube has, so the two demos
+     * behave the same. They start matching the enables set just above. */
+    bool opt_texture = true;
+    bool opt_depth = true;
+    bool opt_cull = true;
+    bool opt_lit = true;
+
+    /* The per-frame microseconds from the last 300-frame window, for the HUD. Zero until the first
+     * window closes, which the readout shows as "measuring" rather than a nonsense rate. */
+    unsigned last_us = 0u;
+
     for (uint32_t frame = 0; !stopped; frame++) {
         oops_mat4_t proj;
         oops_mat4_t rx;
@@ -388,15 +426,23 @@ void mesa_cube_start(void)
             if (pad.buttons & (OOPS_BUTTON_OPTIONS | OOPS_BUTTON_CIRCLE)) {
                 stopped = true;
             }
-            if (pressed & OOPS_BUTTON_CROSS) {
-                paused = !paused;
-            }
+            if (pressed & OOPS_BUTTON_CROSS)    { paused = !paused; }
+            if (pressed & OOPS_BUTTON_TRIANGLE) { opt_texture = !opt_texture; }
+            if (pressed & OOPS_BUTTON_SQUARE)   { opt_depth = !opt_depth; }
+            if (pressed & OOPS_BUTTON_R1)       { opt_cull = !opt_cull; }
+            if (pressed & OOPS_BUTTON_L1)       { opt_lit = !opt_lit; }
         }
 
         /* A stop file, checked each frame. It is how a run with nobody at the console ends:
          * `pros sh touch /app0/stop` before or during the run, and the loop leaves cleanly rather
          * than needing the app closed from the host. The gl-cube demo uses the same path. */
         if (oops_fs_exists("/app0/stop")) {
+            stopped = true;
+        }
+
+        /* The dashboard asked to close. Leave the loop; the teardown below stops GPU submission
+         * and closes the display, so the process is idle when the system kills it. */
+        if (oops_system_close_requested()) {
             stopped = true;
         }
 
@@ -414,11 +460,37 @@ void mesa_cube_start(void)
         oops_mat4_mul(&mvp, &proj, &mv);
         glUniformMatrix4fv(mvp_loc, 1, GL_FALSE, mvp.m);
 
+        /* Apply the pad toggles: two are pipeline state, two are shader uniforms. */
+        if (opt_depth) { glEnable(GL_DEPTH_TEST); } else { glDisable(GL_DEPTH_TEST); }
+        if (opt_cull)  { glEnable(GL_CULL_FACE); }  else { glDisable(GL_CULL_FACE); }
+        glUniform1i(textured_loc, opt_texture ? 1 : 0);
+        glUniform1i(lit_loc, opt_lit ? 1 : 0);
+
         glClear((GLbitfield)(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
         glDrawElements(GL_TRIANGLES, (GLsizei)(sizeof idx / sizeof idx[0]), GL_UNSIGNED_SHORT,
                        (const void *)0);
 
-        if (!oops_gl_present(gl)) {
+        /* The overlay - the same dashboard gl1-cube draws (common/cube_hud.c), fed this title's
+         * values. It draws after the scene and before the present, and saves/restores the GL state
+         * it touches (the bound shader program included), so the cube's pipeline is untouched next
+         * frame. */
+        oops_cube_hud_draw(hud, &(oops_cube_hud_t){
+            .title = "MESA CUBE",
+            .backend = oops_gfx_backend_name(),
+            .api = "OpenGL 3.3",
+            .build = OOPS_APP_VERSION,
+            .width = (unsigned)w, .height = (unsigned)h,
+            .frame = (unsigned)frame,
+            .us_per_frame = last_us,
+            .paused = paused,
+            .mesh = "cube", .tris = 12u, .verts = 24u,
+            .cull = opt_cull, .depth = opt_depth, .texture = opt_texture, .lighting = opt_lit,
+            .status = "direct scanout - vsync-locked - 0 CPU px",
+            .status_color = 0xFF44FF88u,
+            .controls = "X pause  /_\\ tex  [] depth  R1 cull  L1 light  (O) quit",
+        });
+
+        if (!oops_gfx_present(gfx)) {
             park("presentation refused; the shim's lines above name the step");
         }
 
@@ -431,9 +503,9 @@ void mesa_cube_start(void)
             char msg[128];
 
             t_window = now;
+            last_us = (unsigned)(span / 300u); /* also what the HUD reads */
             (void)snprintf(msg, sizeof msg, "frame %u: %u us a frame over the last 300",
-                           (unsigned)frame,
-                           (unsigned)(span / 300u));
+                           (unsigned)frame, last_us);
             say(msg);
         }
 
@@ -446,9 +518,14 @@ void mesa_cube_start(void)
         }
     }
 
+    /* Quiesce before parking: stop GPU submission and close the display so that when the system
+     * kills this process (a hosted big-app cannot exit itself - obSCEne `REQ-20260917T1450Z-2e71`)
+     * the kill lands on an idle process rather than one mid-frame, which is the difference between
+     * a clean dashboard Close and a crash. The overlay first, then the renderer. */
+    oops_hud_destroy(hud);
+    oops_gfx_destroy(gfx);
+
     /* Parked, not returned: this is a `big-app`, and there is no caller frame to return into
-     * (obSCEne `REQ-20260917T1450Z-2e71`, and the comment on `park` above). The GL objects are
-     * torn down by the process ending, so a title that stops does not need to free them by hand -
-     * but it must stop by parking. */
-    park("stopped by the pad or the stop file");
+     * (the comment on `park` above). Parking idles until the system kills it. */
+    park("stopped - torn down and idle, awaiting the system close");
 }

@@ -1,24 +1,34 @@
 /*
- * **This is not a directory enumerator, and it must not be mistaken for one.**
+ * Directory enumeration, the POSIX way.
  *
- * ETR calls `opendir` in exactly one place - `DirExists` in `common.cpp` - and never calls
- * `readdir` anywhere. It opens a directory only to find out whether it is there, then closes it.
- * So this answers that question through `oops_fs_exists` and offers nothing else.
+ * **This header used to refuse `readdir` on principle, and the principle was wrong.** Extreme
+ * Tux Racer only ever calls `opendir` to test whether a directory exists, so the first version
+ * declared that pair and nothing else, and argued that declaring `readdir` would let a future
+ * title link against nothing - true at the time, since `oops-sdk` had no enumeration.
  *
- * `readdir` and `struct dirent` are **deliberately not declared**. This SDK cannot enumerate a
- * directory, and a header that declared `readdir` would let a future title compile and then link
- * against nothing - which `oops-sdk#D009` is about and which a payload link would not catch,
- * because it ignores unresolved symbols. An absent declaration is a compile error at the call.
+ * Neverball is that future title and it genuinely walks directories, to list levels, sets and
+ * replays. The right answer was never to keep refusing: it was for the SDK to grow the call.
+ * `SYS_getdents` had been sitting in `<oops/syscall.h>` the whole time, beside the `SYS_mkdir`
+ * that `oops_fs_mkdir` already used. `oops_fs_opendir`/`readdir`/`closedir` now exist, and this
+ * is the POSIX spelling over them.
+ *
+ * `d_name` is the only field here. POSIX guarantees no others, `d_ino` and `d_type` are
+ * extensions, and a port reading them would be reading something this shim would have to invent.
  */
-#ifndef OOPS_ETR_DIRENT_H
-#define OOPS_ETR_DIRENT_H
+#ifndef OOPS_POSIX_DIRENT_H
+#define OOPS_POSIX_DIRENT_H
 
 typedef struct OOPS_DIR DIR;
+
+struct dirent {
+    char d_name[256];
+};
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 DIR *opendir(const char *path);
+struct dirent *readdir(DIR *dir);
 int closedir(DIR *dir);
 #ifdef __cplusplus
 }

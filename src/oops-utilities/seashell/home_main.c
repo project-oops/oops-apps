@@ -17,6 +17,7 @@
 #include "oops/syscall.h"
 #include "oops/system.h"
 #include "oops/fs.h"
+#include "oops/savedata.h"
 #include "oops/pkg.h"
 #include "oops/freestd.h"
 #include "oops/net.h"
@@ -539,54 +540,57 @@ static void home_scan_installed_titles(home_model_t *model) {
 }
 
 
-static const char *get_settings_path(void) {
-    if (oops_fs_exists("/data/homebrew/SCSH00001")) {
-        return "/data/homebrew/SCSH00001/settings.bin";
-    }
-    return "/data/seashell_settings.bin";
-}
-
 static void load_settings(home_model_t *m) {
     if (m == NULL) return;
-    const char *path = get_settings_path();
     void *data = NULL;
     size_t sz = 0;
-    if (oops_fs_read_all(path, &data, &sz) == 0 && data != NULL) {
-        if (sz >= sizeof(home_settings_persist_t)) {
-            const home_settings_persist_t *cfg = (const home_settings_persist_t *)data;
-            if (cfg->magic == HOME_SETTINGS_MAGIC && cfg->version == HOME_SETTINGS_VERSION) {
-                if (cfg->theme_index >= 0 && cfg->theme_index < home_theme_count()) {
-                    m->theme = cfg->theme_index;
-                }
-                if (cfg->mode == (int)HOME_MODE_GAMES || cfg->mode == (int)HOME_MODE_MEDIA) {
-                    home_switch_mode(m, (home_mode_t)cfg->mode);
-                }
-                for (int f = 0; f < cfg->favorite_count && f < HOME_MAX_PERSIST_FAVORITES; f++) {
-                    const char *fav_id = cfg->favorite_ids[f];
-                    if (fav_id[0] == '\0') continue;
-                    for (int t = 0; t < m->title_count; t++) {
-                        if (m->titles[t].id && obs_strcmp(m->titles[t].id, fav_id) == 0) {
-                            m->titles[t].favorite = 1;
-                            break;
-                        }
+    const char *source = "savedata slot 'SETTINGS'";
+
+    /* 1. Try standard oops-sdk savedata slot */
+    if (oops_savedata_load_file("SETTINGS", "settings.bin", &data, &sz) != 0 || data == NULL) {
+        /* 2. Migration fallback: check legacy filesystem paths */
+        if (oops_fs_read_all("/data/homebrew/SCSH00001/settings.bin", &data, &sz) == 0 && data != NULL) {
+            source = "/data/homebrew/SCSH00001/settings.bin";
+        } else if (oops_fs_read_all("/data/seashell_settings.bin", &data, &sz) == 0 && data != NULL) {
+            source = "/data/seashell_settings.bin";
+        } else {
+            return;
+        }
+    }
+
+    if (sz >= sizeof(home_settings_persist_t)) {
+        const home_settings_persist_t *cfg = (const home_settings_persist_t *)data;
+        if (cfg->magic == HOME_SETTINGS_MAGIC && cfg->version == HOME_SETTINGS_VERSION) {
+            if (cfg->theme_index >= 0 && cfg->theme_index < home_skin_count()) {
+                home_set_skin(m, cfg->theme_index);
+            }
+            if (cfg->mode == (int)HOME_MODE_GAMES || cfg->mode == (int)HOME_MODE_MEDIA) {
+                home_switch_mode(m, (home_mode_t)cfg->mode);
+            }
+            for (int f = 0; f < cfg->favorite_count && f < HOME_MAX_PERSIST_FAVORITES; f++) {
+                const char *fav_id = cfg->favorite_ids[f];
+                if (fav_id[0] == '\0') continue;
+                for (int t = 0; t < m->title_count; t++) {
+                    if (m->titles[t].id && obs_strcmp(m->titles[t].id, fav_id) == 0) {
+                        m->titles[t].favorite = 1;
+                        break;
                     }
                 }
-                oops_kprintf("HOME", "loaded persistent settings from %s (theme=%d, favs=%d)\n",
-                             path, m->theme, cfg->favorite_count);
             }
+            oops_kprintf("HOME", "loaded persistent settings from %s (skin=%d, mode=%d, favs=%d)\n",
+                         source, m->skin_idx, (int)m->mode, cfg->favorite_count);
         }
-        oops_fs_free_data(data);
     }
+    oops_fs_free_data(data);
 }
 
 static void save_settings(const home_model_t *m) {
     if (m == NULL) return;
-    const char *path = get_settings_path();
     home_settings_persist_t cfg;
     memset(&cfg, 0, sizeof(cfg));
     cfg.magic = HOME_SETTINGS_MAGIC;
     cfg.version = HOME_SETTINGS_VERSION;
-    cfg.theme_index = m->theme;
+    cfg.theme_index = m->skin_idx;
     cfg.mode = (int)m->mode;
 
     int fav_cnt = 0;
@@ -602,10 +606,18 @@ static void save_settings(const home_model_t *m) {
     }
     cfg.favorite_count = fav_cnt;
 
-    int rc = oops_fs_write_all(path, &cfg, sizeof(cfg));
+    /* 1. Save via standard oops-sdk savedata slot */
+    int rc = oops_savedata_save_file("SETTINGS", "settings.bin", &cfg, sizeof(cfg));
     if (rc == 0) {
-        oops_kprintf("HOME", "saved persistent settings to %s (theme=%d, favs=%d)\n",
-                     path, cfg.theme_index, cfg.favorite_count);
+        oops_kprintf("HOME", "saved persistent settings via oops_savedata (skin=%d, mode=%d, favs=%d)\n",
+                     cfg.theme_index, cfg.mode, cfg.favorite_count);
+    } else {
+        oops_kprintf("HOME", "oops_savedata_save_file failed (rc=%d), trying legacy fallback\n", rc);
+        if (oops_fs_exists("/data/homebrew/SCSH00001")) {
+            (void)oops_fs_write_all("/data/homebrew/SCSH00001/settings.bin", &cfg, sizeof(cfg));
+        } else {
+            (void)oops_fs_write_all("/data/seashell_settings.bin", &cfg, sizeof(cfg));
+        }
     }
 }
 
@@ -637,6 +649,8 @@ static int console_perform(void *ctx, home_action_t action, int arg) {
             return 1;
         }
         case HOME_ACTION_NEXT_THEME:
+        case HOME_ACTION_SET_THEME:
+        case HOME_ACTION_TOGGLE_MODE:
         case HOME_ACTION_TOGGLE_FAVORITE:
             save_settings(m);
             return 1;
@@ -904,8 +918,8 @@ int seashell_start(const payload_args_t *args) {
     home_input_t input;
     home_input_reset(&input);
 
-    klog("home: cross selects, circle backs, square library, triangle search, "
-         "options context menu, PS button control centre, L1/R1 games/media, L1+R1+options exits");
+    klog("home: select activates, back cancels, square library, triangle search, "
+         "options menu, control centre, L1/R1 navigation, L1+R1+options exits");
 
     int running = 1;
 

@@ -80,7 +80,7 @@ typedef enum home_mode {
 typedef enum home_top_nav {
     HOME_TOP_NAV_NONE = 0,     /* Focus on main carousel/content */
     HOME_TOP_NAV_TABS = 1,     /* Focus on GAMES / MEDIA tab selector */
-    HOME_TOP_NAV_SEARCH = 2,   /* Focus on Search [TRIANGLE] */
+    HOME_TOP_NAV_SEARCH = 2,   /* Focus on Search [SEARCH] */
     HOME_TOP_NAV_SETTINGS = 3, /* Focus on Settings [GEAR] */
     HOME_TOP_NAV_PROFILE = 4   /* Focus on Profile avatar */
 } home_top_nav_t;
@@ -93,7 +93,7 @@ typedef enum home_screen {
     HOME_SCREEN_LIBRARY,               /* Installed / Collection / Homebrew */
     HOME_SCREEN_TITLE_OPTIONS,         /* Options context menu on title */
     HOME_SCREEN_TITLE_INFO,            /* Metadata & file details */
-    HOME_SCREEN_CONTROL,               /* PS button quick menu: 13-dock + cards */
+    HOME_SCREEN_CONTROL,               /* Quick menu: 13-dock + cards */
     HOME_SCREEN_SWITCHER,              /* Active running title & recent switcher */
     HOME_SCREEN_NOTIFICATIONS,         /* Unread and history notifications */
     HOME_SCREEN_GAME_BASE,             /* Friends online & voice parties */
@@ -106,10 +106,11 @@ typedef enum home_screen {
     HOME_SCREEN_SETTINGS_STORAGE,      /* Storage visual meter & content manager */
     HOME_SCREEN_SETTINGS_SOUND,        /* Output device, 3D audio, volume, mic */
     HOME_SCREEN_SETTINGS_VIDEO,        /* Resolution, refresh rate, HDR, display */
-    HOME_SCREEN_SETTINGS_ACCESSORIES,  /* DualSense controllers, haptics, triggers */
+    HOME_SCREEN_SETTINGS_ACCESSORIES,  /* Controllers, input devices, haptics */
     HOME_SCREEN_SETTINGS_SAVES,        /* Save data management (backup, USB, delete) */
     HOME_SCREEN_SETTINGS_DEVELOPER,    /* Package installer, payload runner, klog */
     HOME_SCREEN_SETTINGS_EMULATOR,     /* Save states, FPS toggle, host sync */
+    HOME_SCREEN_SETTINGS_THEME,        /* Themes and skins selection */
     HOME_SCREEN_SEARCH,                /* Universal search with on-screen keyboard */
     HOME_SCREEN_COUNT
 } home_screen_t;
@@ -125,6 +126,7 @@ typedef enum home_action {
     HOME_ACTION_OPEN,             /* arg: home_screen_t */
     HOME_ACTION_BACK,
     HOME_ACTION_NEXT_THEME,
+    HOME_ACTION_SET_THEME,         /* arg: skin index */
     HOME_ACTION_TOGGLE_MODE,      /* Games <-> Media */
     HOME_ACTION_LAUNCH_TITLE,     /* arg: index into titles */
     HOME_ACTION_TITLE_INFO,       /* arg: index into titles */

@@ -27,9 +27,17 @@ practice that reaches for the SDK the way any oops title would.
 
 ## Controls
 
+The same set gl1-cube has, so the two demos behave alike:
+
 - **Cross** — pause / resume the spin
+- **Triangle** — texture on / off
+- **Square** — depth test on / off
+- **R1** — back-face culling on / off
+- **L1** — face shading (lighting) on / off
 - **Circle** or **Options** — stop the title
 - a `/app0/stop` file (`pros sh touch /app0/stop`) — stop a run with nobody at the pad
+
+The on-screen HUD is the shared dashboard from `common/cube_hud.c` — the same one gl1-cube draws.
 
 ## Screenshot
 

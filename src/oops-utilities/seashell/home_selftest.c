@@ -327,6 +327,19 @@ int main(void) {
                 failures++;
             }
         }
+
+        /* Verify theme changes reach host seam for persistence */
+        home_open(&m, HOME_SCREEN_SETTINGS_THEME);
+        if (select_label(&m, "REVOLUTION") == 0) {
+            printf("FAIL: theme settings must offer REVOLUTION\n");
+            failures++;
+        } else {
+            (void)home_activate(&m);
+            if (rec.last != HOME_ACTION_SET_THEME) {
+                printf("FAIL: SET_THEME did not reach the host for persistence (got %d)\n", rec.last);
+                failures++;
+            }
+        }
     }
 
     /* ---- 9. Pad Input Mapping (Real Prospero Controls) ---------------------------------- */
@@ -758,29 +771,15 @@ int main(void) {
         }
         (void)home_back(&m);
 
-        /* Channel 1 (Mii) opens Profile */
-        m.category_cursor[0] = 1;
-        if (home_activate(&m) == 0 || home_screen(&m) != HOME_SCREEN_PROFILE) {
-            printf("FAIL: Revolution activate Mii channel should open Profile\n");
-            failures++;
+        /* Channel 0 (real title) opens Title Options */
+        m.category_cursor[0] = 0;
+        if (m.title_count > 0) {
+            if (home_activate(&m) == 0 || home_screen(&m) != HOME_SCREEN_TITLE_OPTIONS) {
+                printf("FAIL: Revolution activate title channel should open Title Options\n");
+                failures++;
+            }
+            (void)home_back(&m);
         }
-        (void)home_back(&m);
-
-        /* Channel 2 (Photo) opens Captures */
-        m.category_cursor[0] = 2;
-        if (home_activate(&m) == 0 || home_screen(&m) != HOME_SCREEN_CAPTURES) {
-            printf("FAIL: Revolution activate Photo channel should open Captures\n");
-            failures++;
-        }
-        (void)home_back(&m);
-
-        /* Channel 3 (Shop) opens Library */
-        m.category_cursor[0] = 3;
-        if (home_activate(&m) == 0 || home_screen(&m) != HOME_SCREEN_LIBRARY) {
-            printf("FAIL: Revolution activate Shop channel should open Library\n");
-            failures++;
-        }
-        (void)home_back(&m);
 
         /* Verify rendering full frame in Revolution skin */
         oops_surface_t rsurf = test_surface();
@@ -803,6 +802,106 @@ int main(void) {
                 failures++;
             }
         }
+    }
+
+    /* ---- MEMCARD PS2 Seven Orbs & Browser Navigation ------------------------------------ */
+    {
+        home_model_init(&m);
+        /* Switch skin to MEMCARD ("list") */
+        while (strcmp(home_current_skin(&m)->id, "list") != 0) {
+            home_next_skin(&m);
+        }
+
+        /* 1. Verify initial state: Seven Orbs Main Menu */
+        int cx = 0, cy = 0, cw = 0, ch = 0;
+        if (home_cursor_rect(&m, &home_current_skin(&m)->theme, &cx, &cy, &cw, &ch) == 0) {
+            printf("FAIL: MEMCARD cursor rect failed in Main Menu\n");
+            failures++;
+        }
+
+        /* Test navigation: move down to System Configuration, then back up */
+        home_move(&m, HOME_DOWN);
+        home_move(&m, HOME_UP);
+
+        /* 2. Activating System Configuration */
+        home_move(&m, HOME_DOWN);
+        if (home_activate(&m) == 0 || home_screen(&m) != HOME_SCREEN_SETTINGS) {
+            printf("FAIL: MEMCARD activate System Configuration should open Settings\n");
+            failures++;
+        }
+        (void)home_back(&m);
+        if (home_screen(&m) != HOME_SCREEN_GAMES) {
+            printf("FAIL: home_back from Settings should return to root games screen\n");
+            failures++;
+        }
+
+        /* 3. Activating Browser (cursor 0) */
+        home_move(&m, HOME_UP); /* back to Browser */
+        if (home_activate(&m) == 0) {
+            printf("FAIL: MEMCARD activate Browser failed\n");
+            failures++;
+        }
+
+        /* 4. In Browser view: 5-column grid navigation */
+        m.title_cursor = 0;
+        home_move(&m, HOME_RIGHT);
+        if (m.title_cursor != 1) {
+            printf("FAIL: MEMCARD Browser RIGHT should move cursor to 1, got %d\n", m.title_cursor);
+            failures++;
+        }
+        home_move(&m, HOME_DOWN);
+        if (m.title_cursor != 6) {
+            printf("FAIL: MEMCARD Browser DOWN should move cursor to 6 (+5 cols), got %d\n", m.title_cursor);
+            failures++;
+        }
+        home_move(&m, HOME_UP);
+        if (m.title_cursor != 1) {
+            printf("FAIL: MEMCARD Browser UP should move cursor back to 1 (-5 cols), got %d\n", m.title_cursor);
+            failures++;
+        }
+        home_move(&m, HOME_LEFT);
+        if (m.title_cursor != 0) {
+            printf("FAIL: MEMCARD Browser LEFT should move cursor back to 0, got %d\n", m.title_cursor);
+            failures++;
+        }
+
+        /* 5. Activating a title in Browser view opens Title Options */
+        if (m.title_count > 0) {
+            if (home_activate(&m) == 0 || home_screen(&m) != HOME_SCREEN_TITLE_OPTIONS) {
+                printf("FAIL: MEMCARD Browser activate title should open Title Options\n");
+                failures++;
+            }
+            (void)home_back(&m);
+            if (home_screen(&m) != HOME_SCREEN_GAMES) {
+                printf("FAIL: home_back from Title Options should return to Browser\n");
+                failures++;
+            }
+        }
+
+        /* 6. Pressing Back in Browser view returns to Seven Orbs Main Menu */
+        if (home_back(&m) == 0) {
+            printf("FAIL: home_back in Browser should succeed and return to Main Menu\n");
+            failures++;
+        }
+
+        /* 7. Verify rendering and cursor rect bounds */
+        oops_surface_t msurf = test_surface();
+        int mdrawn = home_render(&msurf, &m, &home_current_skin(&m)->theme);
+        if (mdrawn <= 0) {
+            printf("FAIL: MEMCARD Main Menu render drew nothing\n");
+            failures++;
+        }
+
+        /* Enter browser and render */
+        (void)home_activate(&m);
+        int bdrawn = home_render(&msurf, &m, &home_current_skin(&m)->theme);
+        if (bdrawn <= 0) {
+            printf("FAIL: MEMCARD Browser render drew nothing\n");
+            failures++;
+        }
+
+        /* Return to main menu */
+        (void)home_back(&m);
     }
 
     /* The frame digest: the console loop skips rendering and flipping whenever
@@ -943,6 +1042,41 @@ int main(void) {
             printf("FAIL: developer settings menu did not populate pltauth status\n");
             failures++;
         }
+
+        /* Test Theme / Skin Settings Menu */
+        home_open(&m, HOME_SCREEN_SETTINGS_THEME);
+        home_menu_t *thm_menu = &m.menus[HOME_SCREEN_SETTINGS_THEME];
+        if (thm_menu->count < 6) {
+            printf("FAIL: theme menu should contain at least 6 skins, got %d\n", thm_menu->count);
+            failures++;
+        }
+        /* Test switching to skin 1 (XMB) */
+        thm_menu->cursor = 1;
+        (void)home_activate(&m);
+        if (m.skin_idx != 1) {
+            printf("FAIL: activating skin 1 in theme menu should switch skin_idx to 1, got %d\n", m.skin_idx);
+            failures++;
+        }
+        (void)home_back(&m);
+
+        /* Test unified HOME_CAT_SETTINGS has 11 items and opens themes/power/profile */
+        const home_skin_t *xmb_skin = home_skin_find("xmb");
+        int st_count = home_get_category_item_count(&m, xmb_skin, 1 /* SETTINGS in XMB */);
+        if (st_count != 11) {
+            printf("FAIL: HOME_CAT_SETTINGS count should be 11, got %d\n", st_count);
+            failures++;
+        }
+        const char *st_name = 0;
+        home_get_category_item_info(&m, xmb_skin, 1, 8, &st_name, 0, 0, 0);
+        if (!st_name || strcmp(st_name, "Themes & Skins") != 0) {
+            printf("FAIL: HOME_CAT_SETTINGS item 8 should be 'Themes & Skins', got '%s'\n", st_name ? st_name : "null");
+            failures++;
+        }
+        if (home_category_item_activate(&m, xmb_skin, 1, 8) == 0 || home_screen(&m) != HOME_SCREEN_SETTINGS_THEME) {
+            printf("FAIL: activating item 8 in HOME_CAT_SETTINGS should open Themes & Skins\n");
+            failures++;
+        }
+        (void)home_back(&m);
     }
 
     /* Test icon rendering and first-letter fallback */

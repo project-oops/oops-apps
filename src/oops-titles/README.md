@@ -83,16 +83,6 @@ GL versions asserted from recollection have already been wrong twice in this pro
 | `gl3/` | SuperTux 2 | the `#version 330` half of the same engine | C++ |
 | `multi/` | **RetroArch** | ships `gl1.c`, `gl2.c` **and** `gl3.c` as separate drivers - one app across all three | C |
 
-## Two things the checking changed
-
-**AssaultCube was dropped.** Its licence permits redistribution only of *unmodified* packages
-and states "You MAY NOT use AssaultCube for ANY commercial purposes". A console port is a
-modified redistribution, so it fails the rule at the top of this file outright.
-
-**Tesseract was demoted.** It mixes 39 `glBegin` calls with `glGenVertexArrays` and
-`#version 140` shaders, so it needs fixed-function and modern GL at once - it straddles oops-gl
-and oops-mesa rather than exercising either.
-
 ## The real sorting axis is C versus C++
 
 More than the GL version. Neverball and Craft are C; everything else is substantial C++, which

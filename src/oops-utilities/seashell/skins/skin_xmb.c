@@ -238,7 +238,7 @@ static int xmb_render_main(oops_surface_t *surf, const struct home_model *m,
     /* ---- 5. Bottom Controller Button Guide ---------------------------------------------- */
     int foot_y = sh - 46;
     (void)oops_draw_text(surf, 60, foot_y,
-                         "[X] ENTER / PLAY      [O] BACK      [/] OPTIONS      [[]] LIBRARY",
+                         "[SELECT] ENTER / PLAY      [BACK] BACK      [OPTIONS] OPTIONS      [NAV] LIBRARY",
                          theme->text_dim, 1);
     drawn++;
 

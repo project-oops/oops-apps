@@ -347,6 +347,18 @@ static void build_developer_menu(home_model_t *m) {
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 }
 
+static void build_theme_menu(home_model_t *m) {
+    home_menu_t *menu = &m->menus[HOME_SCREEN_SETTINGS_THEME];
+    menu_reset(menu, "THEMES & SKINS");
+    int count = home_skin_count();
+    for (int i = 0; i < count && i < HOME_MAX_ITEMS - 1; i++) {
+        const home_skin_t *s = home_skin_at(i);
+        const char *detail = (i == m->skin_idx) ? "[ACTIVE]" : (s ? s->description : 0);
+        menu_add(menu, s ? s->name : "SKIN", detail, HOME_ACTION_SET_THEME, i, 1);
+    }
+    menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
+}
+
 void home_refresh_telemetry(home_model_t *m) {
     if (m == 0) return;
 
@@ -513,7 +525,7 @@ void home_model_init(home_model_t *m) {
         { "NETWORK",       "CONNECTED (WI-FI)",    HOME_ACTION_NONE,         0 },
         { "SOUND",         "HEADPHONES (80%)",     HOME_ACTION_TOGGLE_SOUND, 0 },
         { "MIC",           "MUTED (ORANGE LED)",   HOME_ACTION_TOGGLE_MIC,   0 },
-        { "ACCESSORIES",   "DUALSENSE 1 (85%)",    HOME_ACTION_OPEN,         (int)HOME_SCREEN_SETTINGS_ACCESSORIES },
+        { "ACCESSORIES",   "CONTROLLER 1 (85%)",   HOME_ACTION_OPEN,         (int)HOME_SCREEN_SETTINGS_ACCESSORIES },
         { "PROFILE",       "PLAYER (ONLINE)",      HOME_ACTION_OPEN,         (int)HOME_SCREEN_PROFILE },
         { "POWER",         "REST / RESTART / OFF", HOME_ACTION_OPEN,         (int)HOME_SCREEN_POWER }
     };
@@ -603,7 +615,7 @@ void home_model_init(home_model_t *m) {
     menu_add(menu, "SAVED DATA AND GAME/APP SETTINGS", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_SETTINGS_SAVES, 1);
     menu_add(menu, "DEVELOPER & DEBUG SETTINGS", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_SETTINGS_DEVELOPER, 1);
     menu_add(menu, "EMULATOR SETTINGS (ORBISTOUN)", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_SETTINGS_EMULATOR, 1);
-    menu_add(menu, "APPEARANCE", "CYCLE SKIN", HOME_ACTION_NEXT_THEME, 0, 1);
+    menu_add(menu, "THEMES & SKINS", "SELECT ACTIVE SKIN", HOME_ACTION_OPEN, (int)HOME_SCREEN_SETTINGS_THEME, 1);
     menu_add(menu, "POWER", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_POWER, 1);
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 
@@ -628,7 +640,7 @@ void home_model_init(home_model_t *m) {
 
     menu = &m->menus[HOME_SCREEN_SETTINGS_ACCESSORIES];
     menu_reset(menu, "ACCESSORIES");
-    menu_add(menu, "CONTROLLER 1", "DUALSENSE (BATTERY 85%)", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "CONTROLLER 1", "WIRELESS CONTROLLER (85%)", HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "COMMUNICATION METHOD", "USB / BLUETOOTH DUAL", HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "VIBRATION INTENSITY", "STRONG (STANDARD)", HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "TRIGGER EFFECT INTENSITY", "STRONG (STANDARD)", HOME_ACTION_NONE, 0, 1);
@@ -636,6 +648,7 @@ void home_model_init(home_model_t *m) {
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 
     build_developer_menu(m);
+    build_theme_menu(m);
 
     menu = &m->menus[HOME_SCREEN_SETTINGS_EMULATOR];
     menu_reset(menu, "EMULATOR SETTINGS");
@@ -766,6 +779,8 @@ void home_open(home_model_t *m, home_screen_t screen) {
         build_library_menu(m);
     } else if (screen == HOME_SCREEN_SEARCH) {
         build_search_menu(m);
+    } else if (screen == HOME_SCREEN_SETTINGS_THEME) {
+        build_theme_menu(m);
     }
 
     if (m->depth >= HOME_NAV_DEPTH) {
@@ -785,6 +800,12 @@ int home_back(home_model_t *m) {
     if (m->dialog.type != HOME_DIALOG_NONE) {
         home_close_dialog(m);
         return 1;
+    }
+    const home_skin_t *skin = home_current_skin(m);
+    if (skin && skin->back) {
+        if (skin->back(m, skin)) {
+            return 1;
+        }
     }
     if (m->depth <= 1) {
         return 0;
@@ -997,7 +1018,7 @@ int home_get_category_item_count(const home_model_t *m, const home_skin_t *skin,
         case HOME_CAT_MEDIA:
             return (m->media_count > 0) ? m->media_count : 1;
         case HOME_CAT_SETTINGS:
-            return 8;
+            return 11;
         case HOME_CAT_USERS:
             return 3;
         case HOME_CAT_PHOTO:
@@ -1061,19 +1082,23 @@ void home_get_category_item_info(const home_model_t *m, const home_skin_t *skin,
         case HOME_CAT_SETTINGS: {
             static const char *s_st_names[] = {
                 "System Settings", "Storage Manager", "Audio & Sound", "Video & Display",
-                "Controllers & Input", "Save Data Management", "Developer & Debug", "Emulator Options"
+                "Controllers & Input", "Save Data Management", "Developer & Debug", "Emulator Options",
+                "Themes & Skins", "Power Options", "User Profiles"
             };
             static const char *s_st_subs[] = {
                 "Console information, firmware & HDMI",
                 "Visual storage breakdown & content manager",
                 "Audio output device, 3D audio & volume",
                 "Resolution, refresh rate & HDR",
-                "DualSense controllers, haptics & triggers",
+                "Controllers, input devices & haptics",
                 "Save data management, backup & delete",
                 "Package installer, payload runner & klog",
-                "Save states, FPS overlay & host sync"
+                "Save states, FPS overlay & host sync",
+                "Select active dashboard skin and visual theme",
+                "Enter rest mode, restart, or power off",
+                "Trophies, profile status & avatar"
             };
-            if (item_idx >= 0 && item_idx < 8) {
+            if (item_idx >= 0 && item_idx < 11) {
                 if (out_name) *out_name = s_st_names[item_idx];
                 if (out_sub) *out_sub = s_st_subs[item_idx];
             }
@@ -1288,9 +1313,23 @@ static int perform(home_model_t *m, home_action_t action, int arg) {
             return home_back(m);
         case HOME_ACTION_NEXT_THEME:
             home_next_theme(m);
+            build_theme_menu(m);
+            if (m->host.perform) {
+                (void)m->host.perform(m->host.ctx, action, m->skin_idx);
+            }
+            return 1;
+        case HOME_ACTION_SET_THEME:
+            home_set_skin(m, arg);
+            build_theme_menu(m);
+            if (m->host.perform) {
+                (void)m->host.perform(m->host.ctx, action, arg);
+            }
             return 1;
         case HOME_ACTION_TOGGLE_MODE:
             home_switch_mode(m, (m->mode == HOME_MODE_GAMES) ? HOME_MODE_MEDIA : HOME_MODE_GAMES);
+            if (m->host.perform) {
+                (void)m->host.perform(m->host.ctx, action, (int)m->mode);
+            }
             return 1;
         case HOME_ACTION_DISMISS_NOTICE:
             if (arg >= 0 && arg < m->notice_count) {
@@ -1445,9 +1484,10 @@ int home_category_item_activate(home_model_t *m, const home_skin_t *skin,
                 HOME_SCREEN_SETTINGS_SYSTEM, HOME_SCREEN_SETTINGS_STORAGE,
                 HOME_SCREEN_SETTINGS_SOUND, HOME_SCREEN_SETTINGS_VIDEO,
                 HOME_SCREEN_SETTINGS_ACCESSORIES, HOME_SCREEN_SETTINGS_SAVES,
-                HOME_SCREEN_SETTINGS_DEVELOPER, HOME_SCREEN_SETTINGS_EMULATOR
+                HOME_SCREEN_SETTINGS_DEVELOPER, HOME_SCREEN_SETTINGS_EMULATOR,
+                HOME_SCREEN_SETTINGS_THEME, HOME_SCREEN_POWER, HOME_SCREEN_PROFILE
             };
-            if (item_idx >= 0 && item_idx < 8) {
+            if (item_idx >= 0 && item_idx < 11) {
                 home_open(m, s_st_screens[item_idx]);
                 return 1;
             }
@@ -1621,18 +1661,16 @@ int home_cursor_rect(const home_model_t *m, const home_theme_t *theme,
 
 void home_draw_title_icon(oops_surface_t *surf, const home_title_t *title,
                           int ix, int iy, int iw, int ih, const home_theme_t *theme) {
-    if (surf == 0 || theme == 0) return;
+    if (surf == 0 || theme == 0 || iw <= 0 || ih <= 0) return;
     if (title != 0 && title->icon_pixels != 0 && title->icon_width > 0 && title->icon_height > 0) {
-        int bw = title->icon_width;
-        int bh = title->icon_height;
-        if (bw > iw) bw = iw;
-        if (bh > ih) bh = ih;
         oops_surface_t isurf;
         isurf.pixels = (uint32_t *)title->icon_pixels;
         isurf.width = (uint32_t)title->icon_width;
         isurf.height = (uint32_t)title->icon_height;
         isurf.pitch = (uint32_t)title->icon_width;
-        oops_draw_blit_blend(surf, ix, iy, &isurf, 0, 0, bw, bh);
+        isurf.layout = OOPS_SURFACE_LINEAR;
+        oops_draw_blit_scaled_blend(surf, ix, iy, iw, ih,
+                                    &isurf, 0, 0, title->icon_width, title->icon_height);
     } else {
         char letter[2];
         letter[0] = '?';

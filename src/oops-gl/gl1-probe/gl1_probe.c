@@ -2737,6 +2737,125 @@ static int check_texture_unit1_coords(void) {
  *   green - correct; red - unit 0's texel leaked through its combine;
  *   white - unit 1 was dropped and only the pass-through survived.
  */
+/* **The shadow stack, weighted** - what `texture-env-shadow-stack` below cannot see.
+ *
+ * That check uses a shadow texel of alpha 0, so `GL_ONE_MINUS_SRC_ALPHA` is 1 and unit 0
+ * multiplies by exactly one. A path that dropped unit 0 altogether produces the same green, so
+ * it passes either way: it proves the surface texture survives and proves nothing at all about
+ * the shadow. That is the same shape of hole `texture-unit1-alone` had against a 1x1 texture,
+ * found the same way - by asking what a *wrong* implementation would print.
+ *
+ * So this one varies the two things that check holds constant, and reads three quads:
+ *
+ *   left   shadow alpha 0,   surface green  -> green   (unshadowed)
+ *   middle shadow alpha 255, surface green  -> black   (fully shadowed)
+ *   right  shadow alpha 0,   surface blue   -> blue    (unit 1's own coordinate)
+ *
+ * Left against middle is the one that matters: identical everywhere except the shadow texel's
+ * alpha, so a draw that ignores unit 0 renders both green and fails. Left against right proves
+ * unit 1 samples where it was told rather than somewhere fixed. And the shadow texture is red
+ * throughout, a colour that appears in no correct output, so leaking its RGB is a visible
+ * failure rather than a plausible one.
+ *
+ * Neverball renders every surface through this arrangement (`tex_env_shadow`, `geom.c:50`). */
+static int check_texture_env_shadow_weight(void) {
+    reset_view();
+    /* Row-major from the bottom left. Red throughout; only the alpha is meant to be read. */
+    static const GLubyte shadow[4][4] = {
+        {255, 0, 0, 0}, {255, 0, 0, 255}, {255, 0, 0, 128}, {255, 0, 0, 0},
+    };
+    static const GLubyte surface[4][4] = {
+        {0, 255, 0, 255}, {0, 0, 255, 255}, {255, 255, 255, 255}, {255, 255, 255, 255},
+    };
+    /* Three columns, each a triangle strip of four corners. */
+    static const GLfloat pos[3][8] = {
+        {-0.90f, -0.5f, -0.60f, -0.5f, -0.90f, 0.5f, -0.60f, 0.5f},
+        {-0.15f, -0.5f,  0.15f, -0.5f, -0.15f, 0.5f,  0.15f, 0.5f},
+        { 0.60f, -0.5f,  0.90f, -0.5f,  0.60f, 0.5f,  0.90f, 0.5f},
+    };
+    /* s = 0.25 is texel 0, s = 0.75 is texel 1; t = 0.25 stays on the bottom row. */
+    static const GLfloat tc_shadow[3][8] = {
+        {0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f}, /* alpha 0   */
+        {0.75f, 0.25f, 0.75f, 0.25f, 0.75f, 0.25f, 0.75f, 0.25f}, /* alpha 255 */
+        {0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f}, /* alpha 0   */
+    };
+    static const GLfloat tc_surface[3][8] = {
+        {0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f}, /* green */
+        {0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f}, /* green */
+        {0.75f, 0.25f, 0.75f, 0.25f, 0.75f, 0.25f, 0.75f, 0.25f}, /* blue  */
+    };
+    GLuint t[2] = {0, 0};
+    glGenTextures(2, t);
+
+    /* Unit 0, the shadow stage - `tex_env_conf_shadow(TEX_STAGE_SHADOW, 1)` verbatim. */
+    glActiveTexture(GL_TEXTURE0);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE);
+    glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB, GL_MODULATE);
+    glTexEnvi(GL_TEXTURE_ENV, GL_SRC0_RGB, GL_PREVIOUS);
+    glTexEnvi(GL_TEXTURE_ENV, GL_SRC1_RGB, GL_TEXTURE);
+    glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND0_RGB, GL_SRC_COLOR);
+    glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND1_RGB, GL_ONE_MINUS_SRC_ALPHA);
+    glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_ALPHA, GL_REPLACE);
+    glTexEnvi(GL_TEXTURE_ENV, GL_SRC0_ALPHA, GL_PREVIOUS);
+    glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND0_ALPHA, GL_SRC_ALPHA);
+    glBindTexture(GL_TEXTURE_2D, t[0]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, shadow);
+    glEnable(GL_TEXTURE_2D);
+
+    /* Unit 1, the surface texture - `tex_env_conf_default(TEX_STAGE_TEXTURE, 1)`. */
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, t[1]);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, surface);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glEnable(GL_TEXTURE_2D);
+
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glClientActiveTexture(GL_TEXTURE0);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    glClientActiveTexture(GL_TEXTURE1);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    for (int q = 0; q < 3; q++) {
+        glVertexPointer(2, GL_FLOAT, 0, pos[q]);
+        glClientActiveTexture(GL_TEXTURE0);
+        glTexCoordPointer(2, GL_FLOAT, 0, tc_shadow[q]);
+        glClientActiveTexture(GL_TEXTURE1);
+        glTexCoordPointer(2, GL_FLOAT, 0, tc_surface[q]);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
+    glClientActiveTexture(GL_TEXTURE1);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glClientActiveTexture(GL_TEXTURE0);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glDisableClientState(GL_VERTEX_ARRAY);
+
+    glActiveTexture(GL_TEXTURE1);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glActiveTexture(GL_TEXTURE0);
+    glDisable(GL_TEXTURE_2D);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glDeleteTextures(2, t);
+    if (glGetError() != GL_NO_ERROR) return 0;
+
+    const int cy = PROBE_H / 2;
+    return near_rgb(px(PROBE_W / 8, cy), 0, 255, 0, 16) &&
+           near_rgb(px(PROBE_W / 2, cy), 0, 0, 0, 16) &&
+           near_rgb(px(7 * PROBE_W / 8, cy), 0, 0, 255, 16);
+}
+
 static int check_texture_env_shadow_stack(void) {
     reset_view();
     /* Alpha 0: unshadowed. Red so that a leak of the operand is visible rather than silent. */
@@ -4115,6 +4234,7 @@ static const gl1_probe_case_t g_cases[] = {
     {"multitexture",     check_multitexture},
     {"texture-unit1-alone", check_texture_unit1_alone},
     {"point-sprite",     check_point_sprite},
+    {"texture-env-shadow-weight", check_texture_env_shadow_weight},
     {"texture-unit1-coords", check_texture_unit1_coords},
     {"texture-env-shadow-stack", check_texture_env_shadow_stack},
     {"tex-delete-in-frame", check_tex_delete_in_frame},

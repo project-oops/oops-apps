@@ -95,6 +95,7 @@ typedef struct home_skin {
     /* Navigation / Action hooks (return 1 if handled, 0 to use generic engine fallback) */
     int (*move)(struct home_model *m, const struct home_skin *skin, int dir);
     int (*activate)(struct home_model *m, const struct home_skin *skin);
+    int (*back)(struct home_model *m, const struct home_skin *skin);
 
     /* Item count & query (optional, return -1 to use default category provider) */
     int (*item_count)(const struct home_model *m, const struct home_skin *skin, int cat_idx);

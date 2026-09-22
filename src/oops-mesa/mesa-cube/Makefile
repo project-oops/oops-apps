@@ -2,7 +2,7 @@
 #
 # # What it is for
 #
-# `mesa-probe` and `dri-probe` each answer a question and stop. This one answers
+# `mesa-winsys-probe` and `mesa-dri-probe` each answer a question and stop. This one answers
 # nothing: it is what roadmap unit 7 asks for - "an example title" - and its job is to be the thing
 # a title author reads before writing their own. So it is ordinary on purpose. It sets `USE_MESA`,
 # it calls `oops_gl_create`, it draws every frame and presents every frame, and it stops when the
@@ -10,7 +10,7 @@
 #
 # # Why a cube rather than another triangle
 #
-# `dri-probe` draws one triangle and hashes it, which is the right shape for a gate and the wrong
+# `mesa-dri-probe` draws one triangle and hashes it, which is the right shape for a gate and the wrong
 # shape for an example: it exercises a single draw of untextured, undepth-tested geometry. This
 # one adds the parts a real title uses immediately and nothing had touched here yet - a texture
 # and a sampler, a depth buffer with the test on, an index buffer, a matrix pipeline, and a frame
@@ -28,14 +28,20 @@
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
-# The switch that brings Mesa in. A title that sets it is hosted (oops-mesa D002).
-USE_MESA = 1
+# The shared cube dashboard (common/cube_hud.c) is included, so `common/` is on the header path.
+EXTRA_TARGET_CFLAGS += -I$(OOPS_APPS_ROOT)/common
+
+# The renderer this title links (common/app.mk). `mesa` is the hosted OpenGL-through-Mesa stack
+# (oops-mesa D002); the same source would build on oops-gl with `gl1`/`gl2` instead.
+OOPS_RENDERER = mesa
 
 # The example reaches for the SDK the way a real title does: `math.c` for the matrix pipeline
-# (this file no longer hand-rolls one) and `input.c` for the pad. `fs.c` was already here for the
-# stop file. A hosted title takes the freestanding libc these need from the Mesa sysroot, so no
-# `-Iinclude/libc` is added (`common/app.mk` withholds it under USE_MESA) - `math.c` and `input.c`
-# include only `<string.h>`/`<sys/types.h>`-level headers, which the sysroot provides.
+# (this file no longer hand-rolls one), `input.c` for the pad, and `hud.c` for the GPU overlay.
+# `fs.c` was already here for the stop file. A hosted title takes the freestanding libc these need
+# from the Mesa sysroot, so no `-Iinclude/libc` is added (`common/app.mk` withholds it under
+# USE_MESA) - they include only `<string.h>`/`<sys/types.h>`-level headers, which the sysroot
+# provides. `hud.c` draws through fixed-function GL, which Mesa's compatibility context runs
+# alongside this title's own 3.3 shaders.
 PAYLOAD_SRCS = mesa_cube_main.c \
                $(OOPS_SDK_DIR)/src/display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_display.c \
@@ -49,6 +55,8 @@ PAYLOAD_SRCS = mesa_cube_main.c \
                $(OOPS_SDK_DIR)/src/system/fs.c \
                $(OOPS_SDK_DIR)/src/math/math.c \
                $(OOPS_SDK_DIR)/src/input/input.c \
+               $(OOPS_SDK_DIR)/src/hud/hud.c \
+               $(OOPS_APPS_ROOT)/common/cube_hud.c \
                $(OOPS_SDK_DIR)/src/agc/agc_compute.c
 
 ENTRY_POINT := mesa_cube_start

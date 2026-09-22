@@ -84,7 +84,7 @@ the SDK itself declares.
 thread, mutex, semaphore and time, and 18 from the SDK's libc - `malloc`, `free`, `fopen`,
 `fread`, `memcpy`, `stderr` and the rest. Every one resolves. Nothing else is asked for.
 
-**And it builds into a payload.** `src/oops-gl/sdl-probe` includes `oops-sdl.mk` and goes through
+**And it builds into a payload.** `src/oops-frameworks/sdl-probe` includes `oops-sdl.mk` and goes through
 `common/app.mk` like every other app: `make elf` produces a 2.7 MB ELF whose only undefined
 symbols are the 110 `sce*` platform imports the console resolves at load, with all seven
 backends' entry points present in it.

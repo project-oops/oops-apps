@@ -21,18 +21,28 @@ Apps are filed by **category**, named after the part of the collection each one 
 - **[gl1-probe](../src/oops-gl/gl1-probe/)** - the breadth half: fifteen checks that each drive
   one GL 1.x feature and read the pixels back to decide. Runs the same suite on the host
   software rasteriser and on the console, so a difference between them is a hardware-path bug.
-- **[gl2-cube](../src/oops-gl/gl2-cube/)** - the GL 2.0 oracle, once there is a GL 2.0 back end
-  to record. Today it checks its own shaders through oops-gl's GLSL front end and builds no
-  payload, because one that drew nothing would be a silent lie.
+- **[gl2-cube](../src/oops-gl/gl2-cube/)** - the programmable-pipeline (OpenGL 2.0 / GLSL) cube,
+  the shader counterpart to `gl1-cube`.
+- **[gl2-probe](../src/oops-gl/gl2-probe/)** - the breadth half for the GL 2.0 shader path.
 
 ### `oops-mesa` - what oops-mesa can do
 
-- **[mesa-probe](../src/oops-mesa/mesa-probe/)** - OpenGL-through-Mesa bring-up app (hosted;
-  `USE_MESA`). The winsys path, and the control for `dri-probe`.
-- **[dri-probe](../src/oops-mesa/dri-probe/)** - the same stack through the Gallium DRI frontend,
+- **[mesa-winsys-probe](../src/oops-mesa/mesa-winsys-probe/)** - OpenGL-through-Mesa bring-up app
+  (hosted; `OOPS_RENDERER = mesa`). The winsys path, and the control for `mesa-dri-probe`.
+- **[mesa-dri-probe](../src/oops-mesa/mesa-dri-probe/)** - the same stack through the Gallium DRI frontend,
   ending in a full-frame hash.
 - **[mesa-cube](../src/oops-mesa/mesa-cube/)** - the example title: a textured, depth-tested cube
   presenting every frame.
+
+### `oops-frameworks` - middleware ported to the console
+
+Apps that demonstrate a framework running on this target, rather than a renderer directly. They
+link a renderer underneath (oops-gl today) but the framework is the point.
+
+- **[sdl-probe](../src/oops-frameworks/sdl-probe/)** - upstream SDL2 on the console through
+  `oops-sdl`: init, a window and GL context, the event pump, and the controller.
+- **[glut-demo](../src/oops-frameworks/glut-demo/)** - an ordinary GLUT program built for the
+  console by compiling it against the SDK's `<GL/glut.h>`.
 
 ### `oops-payloads` - things that run inside another process
 
@@ -57,6 +67,8 @@ Apps are filed by **category**, named after the part of the collection each one 
   telemetry visualizer.
 - **[net-tool](../src/oops-utilities/net-tool/README.md)** - network configuration and interface
   diagnostics.
+- **[cxx-throw](../src/oops-utilities/cxx-throw/)** - C++ exception-handling probe: throw and catch
+  across the runtime, to prove the unwinder works on the target.
 
 ### `oops-titles` - real programs, ported
 

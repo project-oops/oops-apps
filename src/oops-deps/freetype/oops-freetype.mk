@@ -46,13 +46,35 @@ OOPS_FT_SRCS := \
     $(OOPS_FT_UPSTREAM)/src/raster/raster.c \
     $(OOPS_FT_UPSTREAM)/src/autofit/autofit.c \
     $(OOPS_FT_UPSTREAM)/src/pshinter/pshinter.c \
-    $(OOPS_FT_UPSTREAM)/src/gzip/ftgzip.c
+    $(OOPS_FT_UPSTREAM)/src/base/ftstroke.c \
+    $(OOPS_FT_UPSTREAM)/src/base/ftmm.c
+
+# **Three of these were added after a link said so**, which is the intended way for this list to
+# grow:
+#
+#   * `base/ftstroke.c` - SDL2_ttf draws outlined text with `FT_Stroker_New` and its kin.
+#   * `base/ftmm.c` - `FT_Set_Named_Instance`, the variable-font entry point sfnt calls.
+#
+# **`gzip/ftgzip.c` is not here, and removing it from this list was not enough.** It is the only
+# thing in a font build that calls `setjmp`/`longjmp`, which the module packager refuses: the
+# mined corpus does not say which library exports them, so a module cannot declare where to
+# resolve them. Dropping the file only moved the undefined symbol, because `sfnt/sfwoff.c` and
+# `sfnt/ttsvg.c` call `FT_Gzip_Uncompress` directly.
+#
+# `include/ftoption-oops.h` turns off `FT_CONFIG_OPTION_USE_ZLIB`, which removes the callers as
+# well as the module. That costs WOFF fonts and gzip-compressed SVG glyphs, neither of which any
+# title here ships.
 
 # `-nostdlibinc` for the reason `oops-libcxx.mk` gives: without it the build machine's
 # `/usr/include` stays on the path and a FreeBSD freestanding target compiles against glibc.
 # `FT2_BUILD_LIBRARY` is FreeType's own switch for "this is the library, not a consumer".
+# `FT_CONFIG_MODULES_H` points at our own module list - see `include/ftmodule-oops.h` for why
+# the default one cannot be used with a trimmed source set.
 OOPS_FT_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                  -nostdlibinc -fPIC -O2 -w -DFT2_BUILD_LIBRARY \
+                 '-DFT_CONFIG_MODULES_H=<ftmodule-oops.h>' \
+                 '-DFT_CONFIG_OPTIONS_H=<ftoption-oops.h>' \
+                 -I$(OOPS_FT_DIR)/include \
                  $(OOPS_FT_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
 
 $(OOPS_FT_LIB): $(OOPS_FT_SRCS) $(lastword $(MAKEFILE_LIST))

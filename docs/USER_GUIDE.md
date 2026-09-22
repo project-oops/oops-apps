@@ -27,7 +27,10 @@ If you are an AI coding agent or graphics systems architect seeking the internal
 
 | Application | Title ID | Description | Notes / Subsystems |
 | :--- | :--- | :--- | :--- |
-| **`gl-cube`** | `GLCB00001` | 3D rotating cube demo (OpenGL via `oops-sdk` `gl/` on AGC). | Direct memory mapping, RDNA2 AGC universal queue, PM4 DCB submission, fence synchronisation. |
+| **`gl1-cube`** | `GLCB00001` | 3D rotating cube demo (OpenGL 1.x via `oops-sdk` `gl/` on AGC); the pinned hardware oracle. | `OOPS_RENDERER = gl1`. Direct memory mapping, RDNA2 AGC universal queue, PM4 DCB submission, fence synchronisation. Interactive pad toggles + shared GPU HUD. |
+| **`gl1-probe`** | `GLPB00001` | Breadth check: many small draws, each read back and decided, on host and console. | `OOPS_RENDERER = gl1`. A difference between the two runs is a hardware-path bug. |
+| **`gl2-cube`** | `GLTC00001` | Programmable-pipeline (OpenGL 2.0 / GLSL) cube. | `OOPS_RENDERER = gl2`. |
+| **`gl2-probe`** | `GLTP00001` | GL 2.0 shader-path checks. | `OOPS_RENDERER = gl2`. |
 | **`seashell`** | `SCSH00001` | SeaShell unified homebrew shell (title launcher, settings, save/media manager). | Ships as a native eboot Big App (category 0, root). Display + software canvas, multi-port pad, filesystem discovery, PNG icon decode. |
 | **`gallery`** | `GALR00001` | Capability showcase across SDK subsystems. | `oops_*_available()` reachability across display, draw, input, audio, net, and media decode. |
 | **`pad-viz`** | `PADV00001` | Live DualSense/DualShock controller telemetry visualizer. | Batched low-latency input (`oops_input_poll_batch`); sticks, triggers, 6-axis IMU, touchpad. |
@@ -36,7 +39,12 @@ If you are an AI coding agent or graphics systems architect seeking the internal
 | **`tracer`** | `TRAC00001` | In-process passive hooking & telemetry engine for real titles. | Plain-ELF payload. Intercepts `sceAgcSubmitDcb` / `sceVideoOutSubmitFlip`; captures PM4 DCB packets and RDNA2 shader bytecode. |
 | **`sandbox-daemon`** | `SNDA00001` | On-demand filesystem-namespace unsandboxing daemon. | Plain-ELF payload (root). Loopback IPC `127.0.0.1:9069`; FreeBSD `filedesc`/`ucred` kernel-memory updates. |
 | **`pltauth-patch`** | `PLTA00001` | Kernel patcher for SceShellCore / platform-authentication entitlement checks. | Plain-ELF payload (system tool). |
-| **`mesa-probe`** | `PPSA90010` | OpenGL-through-Mesa bring-up app. | Hosted (non-freestanding) link via `USE_MESA`; oops-mesa shim over upstream Mesa. |
+| **`mesa-winsys-probe`** | `MESA00001` | OpenGL-through-Mesa bring-up app (winsys path). | Hosted (non-freestanding) link via `OOPS_RENDERER = mesa`; oops-mesa shim over upstream Mesa. |
+| **`mesa-dri-probe`** | `DRIP00001` | The same stack through the Gallium DRI frontend; renders and hashes a frame. | Hosted; `OOPS_RENDERER = mesa`. |
+| **`mesa-cube`** | `MCUB00001` | The example title: a textured, depth-tested cube through upstream Mesa, presenting every frame at 59.94 fps. | Hosted; `OOPS_RENDERER = mesa`. Interactive pad toggles + shared GPU HUD, same as `gl1-cube`. |
+| **`sdl-probe`** | `SDLP00001` | Upstream SDL2 on the console through `oops-sdl`: init, window + GL context, event pump, controller. | `src/oops-frameworks/`. Links a renderer underneath; the framework is the point. |
+| **`glut-demo`** | `GLUT00001` | An ordinary GLUT program built for the console by compiling it against the SDK's `<GL/glut.h>`. | `src/oops-frameworks/`. |
+| **`cxx-throw`** | `CXTH00001` | C++ exception-handling probe (throw/catch across the runtime). | `src/oops-utilities/`. |
 | **`injector`** | — | Standalone process payload injector. | Source under `src/injector/` (internals not covered here). |
 
 ---
@@ -110,4 +118,54 @@ The on-disk trace format and its reader live in `tracer`'s own host-side decoder
    include $(OOPS_APPS_ROOT)/common/app.mk
    ```
 5. Run `make title` and deploy with `pros`!
+
+### 4a. Choosing a renderer (`OOPS_RENDERER`)
+
+An app that draws with OpenGL picks its renderer with **one line** in the `Makefile`, before the
+`include`:
+
+```makefile
+OOPS_RENDERER = gl1     # fixed-function OpenGL 1.x, freestanding
+# OOPS_RENDERER = gl2   # programmable OpenGL 2.0, freestanding
+# OOPS_RENDERER = mesa  # OpenGL through upstream Mesa (hosted: its own C runtime)
+```
+
+That is the whole choice. `gl1`/`gl2` link oops-gl's implementation; `mesa` brings up the hosted
+Mesa stack (a "hosted" title carries its own C library and is packaged slightly differently —
+oops-mesa D002). You do **not** list the GL sources or set `USE_MESA` by hand; the flag does it.
+
+Both renderers present the **same API** (`oops/gfx.h`), so your source does not change when you
+switch backends:
+
+```c
+#include "oops/gfx.h"
+
+oops_gfx_t *gfx = oops_gfx_create(&(oops_gfx_desc_t){ .width = 1920, .height = 1080,
+                                                      .depth = true, .vsync = true });
+/* ... draw with ordinary GL each frame ... */
+oops_gfx_present(gfx);         /* flip */
+/* ... at the end ... */
+oops_gfx_destroy(gfx);
+```
+
+`oops_gfx_create` opens the display and makes a GL context current for you — you never call
+`oops_display_open` yourself. `oops_gfx_display(gfx)` hands back the display if you need it (for
+input, or a 2D overlay).
+
+To draw text or panels over your 3D scene, use the GPU overlay (`oops/hud.h`) rather than writing
+pixels by hand — it works on both renderers, including Mesa, whose scanout buffer the CPU cannot
+touch:
+
+```c
+#include "oops/hud.h"
+
+oops_hud_t *hud = oops_hud_create(w, h);   /* once, after the context is current */
+/* ... each frame, after your scene and before present: */
+oops_hud_begin(hud);
+oops_hud_text(hud, 40, 40, 2, OOPS_COLOR_WHITE, "HELLO");
+oops_hud_end(hud);
+```
+
+A title that builds **only** a host self-test (no payload) lists oops-gl in `HOST_TEST_SRCS`
+itself and leaves `OOPS_RENDERER` unset.
 

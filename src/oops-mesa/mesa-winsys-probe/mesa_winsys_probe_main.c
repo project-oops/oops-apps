@@ -1,5 +1,5 @@
 /*
- * mesa-probe: the smallest title that links upstream Mesa, and a report of how far it gets.
+ * mesa-winsys-probe: the smallest title that links upstream Mesa, and a report of how far it gets.
  *
  * # What this is for
  *
@@ -126,7 +126,7 @@ extern struct pipe_screen *radeonsi_screen_create(int fd, const struct pipe_scre
  * `-Dxmlconfig=disabled`, so it reduces to initialising the cache from the info table. Nothing
  * here touches a filesystem.
  */
-static const driOptionDescription mesa_probe_options[] = {
+static const driOptionDescription mesa_winsys_probe_options[] = {
     DRI_CONF_SECTION_DEBUG
     DRI_CONF_OPT_B(radeonsi_zerovram, false, "Zero all VRAM allocations")
     DRI_CONF_SECTION_END
@@ -136,9 +136,9 @@ static const driOptionDescription mesa_probe_options[] = {
 #define OOPS_APP_VERSION "dev"
 #endif
 
-void mesa_probe_start(void);
+void mesa_winsys_probe_start(void);
 
-void mesa_probe_start(void)
+void mesa_winsys_probe_start(void)
 {
     say("linking upstream Mesa and walking its startup path (v" OOPS_APP_VERSION ")");
 
@@ -164,8 +164,8 @@ void mesa_probe_start(void)
      */
     static driOptionCache option_info;
     static driOptionCache option_cache;
-    driParseOptionInfo(&option_info, mesa_probe_options,
-                       (unsigned)(sizeof(mesa_probe_options) / sizeof(mesa_probe_options[0])));
+    driParseOptionInfo(&option_info, mesa_winsys_probe_options,
+                       (unsigned)(sizeof(mesa_winsys_probe_options) / sizeof(mesa_winsys_probe_options[0])));
 
     /*
      * Tell Mesa this process's name, using its own injection point, because the way it would

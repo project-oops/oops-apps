@@ -1,14 +1,14 @@
-# mesa-probe
+# mesa-winsys-probe
 
 <p align="center">
-  <img src="assets/logo.png" alt="mesa-probe" width="200">
+  <img src="assets/logo.png" alt="mesa-winsys-probe" width="200">
 </p>
 
 The smallest title that links upstream Mesa, and a report of how far radeonsi's startup gets.
 
 ## About
 
-Every other check in oops-mesa is a compile. mesa-probe is a *link*: Mesa's 45 archives, the
+Every other check in oops-mesa is a compile. mesa-winsys-probe is a *link*: Mesa's 45 archives, the
 winsys and runtime shims, the C++ support archive and oops-sdk in one binary, built the way a real
 title builds. If the shape of the SDK fragment is wrong, this is what says so.
 

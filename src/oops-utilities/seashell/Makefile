@@ -38,6 +38,7 @@ PAYLOAD_SRCS = home.c home_main.c $(SKIN_SRCS) \
                $(OOPS_SDK_DIR)/src/memory/heap.c \
                $(OOPS_SDK_DIR)/src/system/system.c \
                $(OOPS_SDK_DIR)/src/system/fs.c \
+               $(OOPS_SDK_DIR)/src/system/savedata.c \
                $(OOPS_SDK_DIR)/src/system/pkg.c \
                $(OOPS_SDK_DIR)/src/system/sysmodule.c \
                $(OOPS_SDK_DIR)/src/system/freestd.c \

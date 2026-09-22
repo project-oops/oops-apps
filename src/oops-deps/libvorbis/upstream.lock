@@ -1,0 +1,15 @@
+# libvorbis's origin, and with it `vorbisfile` - which is what Neverball actually calls.
+#
+# **Annotated tag**; the hash below is the peeled commit.
+#
+# **Why not stb_vorbis, which `sdl2-mixer` uses?** Because Neverball calls `vorbisfile`'s API
+# directly - `ov_open_callbacks`, `ov_read`, `ov_info` - not a decode-a-file helper. stb_vorbis
+# answers "decode this Ogg", which is the whole of what SDL_mixer needed and none of what a
+# program written against libvorbisfile needs.
+#
+# So the collection carries two Vorbis decoders, for the same reason it carries two PNG ones:
+# the cheap answer serves the caller that asks the cheap question.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/xiph/vorbis
+UPSTREAM_REV=0657aee69dec8508a0011f47f3b69d7538e9d262
+UPSTREAM_REF=v1.3.7

@@ -46,9 +46,9 @@ static int modern_render_main(oops_surface_t *surf, const struct home_model *m,
         oops_draw_rect(surf, theme->margin_x + 100, top_y + 24, 70, 3, theme->accent);
     }
 
-    /* Search [TRIANGLE] */
+    /* Search */
     oops_color_t s_col = (m->top_nav == HOME_TOP_NAV_SEARCH) ? theme->accent : theme->text_dim;
-    (void)oops_draw_text(surf, sw - 420, top_y + 2, "[^] SEARCH", s_col, 1);
+    (void)oops_draw_text(surf, sw - 420, top_y + 2, "[SEARCH] SEARCH", s_col, 1);
 
     /* Settings [GEAR] */
     oops_color_t set_col = (m->top_nav == HOME_TOP_NAV_SETTINGS) ? theme->accent : theme->text_dim;
@@ -145,9 +145,9 @@ static int modern_render_main(oops_surface_t *surf, const struct home_model *m,
         (void)oops_draw_text(surf, theme->margin_x, dy, meta_line, theme->accent, 1);
         dy += 30;
 
-        (void)oops_draw_text(surf, theme->margin_x, dy, "[X] PLAY", theme->text, 1);
-        (void)oops_draw_text(surf, theme->margin_x + 90, dy, "[OPTIONS] OPTIONS", theme->text_dim, 1);
-        (void)oops_draw_text(surf, theme->margin_x + 250, dy, "[SQUARE] LIBRARY", theme->text_dim, 1);
+        (void)oops_draw_text(surf, theme->margin_x, dy, "[SELECT] PLAY", theme->text, 1);
+        (void)oops_draw_text(surf, theme->margin_x + 120, dy, "[OPTIONS] OPTIONS", theme->text_dim, 1);
+        (void)oops_draw_text(surf, theme->margin_x + 280, dy, "[NAV] LIBRARY", theme->text_dim, 1);
         drawn += 5;
     }
 

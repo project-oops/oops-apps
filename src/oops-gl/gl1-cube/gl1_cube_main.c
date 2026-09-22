@@ -12,6 +12,9 @@
 
 #include "GL/gl.h"
 #include "GL/glu.h"
+#include "oops/gfx.h"
+#include "oops/hud.h"
+#include "cube_hud.h"
 #include "oops/display.h"
 #include "oops/draw.h"
 #include "oops/input.h"
@@ -138,12 +141,23 @@ __attribute__((visibility("default"))) int gl1_cube_start(const payload_args_t *
     }
 #endif
 
-    /* 1. Open display via AGC backend */
-    oops_display_t *disp = oops_display_open(OOPS_DISPLAY_BACKEND_AUTO, 1920, 1080);
+    /* 1. Bring up the renderer: the display and the GL context in one call (oops/gfx.h), made
+     * current for us. This is the one renderer API mesa-cube uses too; here it resolves to the
+     * oops-gl backend because this title links oops-gl. */
+    oops_gfx_t *gfx = oops_gfx_create(&(oops_gfx_desc_t){ .width = 1920, .height = 1080,
+                                                          .depth = true, .vsync = true });
+    if (!gfx) {
+#ifndef OOPS_HOST_BUILD
+        cube_klog("failed to bring up the renderer (display or context)");
+#endif
+        return -1;
+    }
+    oops_display_t *disp = oops_gfx_display(gfx);
     if (!disp || !oops_display_is_ready(disp)) {
 #ifndef OOPS_HOST_BUILD
-        cube_klog("failed to open display");
+        cube_klog("display not ready");
 #endif
+        oops_gfx_destroy(gfx);
         return -1;
     }
 
@@ -160,7 +174,11 @@ __attribute__((visibility("default"))) int gl1_cube_start(const payload_args_t *
      * `t-swap-us` for each path, and the difference is what the CPU tiler costs. The default
      * stays the path the oracle record was measured on until that number exists.
      *
-     * It must run before anything flips, so it goes here, ahead of the GL context.
+     * It must run before the first flip - the compute tiler refuses once the display has flipped -
+     * and the context is up by now, which does not flip. Bringing the context up first is
+     * pixel-neutral: `try_gpu_tiler` only changes how a *flip* tiles, not the render target the
+     * context caches, so the oracle frame is unchanged by the reorder that `oops_gfx_create`
+     * (which fuses the open and the context) forced here.
      */
     if (cube_stop_file_present("/app0/gputile")) {
         int tiler = oops_display_try_gpu_tiler(disp);
@@ -169,16 +187,15 @@ __attribute__((visibility("default"))) int gl1_cube_start(const payload_args_t *
     }
 #endif
 
-    /* 2. Create OpenGL context */
-    void *gl_ctx = glContextCreate(disp);
-    if (!gl_ctx) {
+    /* The overlay, created once. It draws on the GPU (common/cube_hud.c) - the same dashboard
+     * mesa-cube shows. NULL is not fatal: cube_hud_draw does nothing with a NULL hud, so the cube
+     * still runs. */
+    oops_hud_t *hud = oops_hud_create(1920, 1080);
 #ifndef OOPS_HOST_BUILD
-        cube_klog("failed to create oops-gl context");
-#endif
-        oops_display_close(disp);
-        return -2;
+    if (hud == NULL) {
+        cube_klog("overlay did not come up; drawing without it");
     }
-    glContextMakeCurrent(gl_ctx);
+#endif
 
     /* 3. Configure OpenGL state machine */
     /* Configure initial OpenGL state */
@@ -247,6 +264,10 @@ __attribute__((visibility("default"))) int gl1_cube_start(const payload_args_t *
 
     /* Initialize controller input */
     oops_input_init();
+
+    /* Cooperate with the dashboard's Close: the handler sets a flag the loop checks, so the title
+     * leaves its render loop and tears down instead of being killed mid-frame (oops/system.h). */
+    oops_system_install_close_handler();
 
     geom_mode_t geom_mode = GEOM_CUBE;
     float rot_x = 25.0f;
@@ -369,6 +390,14 @@ __attribute__((visibility("default"))) int gl1_cube_start(const payload_args_t *
 #ifndef OOPS_HOST_BUILD
         uint64_t t_top = oops_time_get_us(); /* frame phase timing, logged every 60 frames */
         uint64_t t_finish = 0, t_hash = 0, t_hud = 0;
+
+        /* The dashboard asked to close: leave the loop so the teardown below runs and the process
+         * is quiesced before the system kills it, rather than being killed mid-frame. */
+        if (oops_system_close_requested()) {
+            cube_klog("dashboard close received, terminating cleanly");
+            running = false;
+            break;
+        }
 #endif
         /* Poll DualSense controller */
         oops_pad_state_t pad;
@@ -648,134 +677,54 @@ __attribute__((visibility("default"))) int gl1_cube_start(const payload_args_t *
          * logs `oracle-mod-pixels` runs above this point, on the readback count alone. Only the
          * HUD ever saw the sum. */
 
-        /* 5. Render 2D Telemetry & Diagnostics HUD */
-        oops_surface_t surf = oops_display_get_surface(disp);
-
-        /* Outer high-contrast framing borders (12px) */
-        oops_draw_rect(&surf, 0, 0, 1920, 12, OOPS_COLOR_CYAN);
-        oops_draw_rect(&surf, 0, 1068, 1920, 12, OOPS_COLOR_CYAN);
-        oops_draw_rect(&surf, 0, 0, 12, 1080, OOPS_COLOR_CYAN);
-        oops_draw_rect(&surf, 1908, 0, 12, 1080, OOPS_COLOR_CYAN);
-
-        /* Header banner panel */
-        oops_draw_rect_blend(&surf, 40, 30, 820, 260, 0xd008101cu);
-        oops_draw_rect(&surf, 40, 30, 820, 3, OOPS_COLOR_CYAN);
-
+        /* 5. The dashboard, drawn on the GPU (common/cube_hud.c) - the same one mesa-cube shows.
+         * The frame hash above was read before this point (see the note there), so the overlay
+         * never enters the oracle measurement, exactly as the old CPU HUD did not. */
 #ifndef OOPS_APP_VERSION
 #define OOPS_APP_VERSION "dev"
 #endif
-
-        /* "1.x", not "2.0": this is the fixed-function demo. The banner said 2.0 from before the
-         * app was split into gl1-cube and gl2-cube, which made every screenshot of it claim a
-         * shader pipeline that nothing here uses. */
-        oops_draw_text(&surf, 60, 48, "OOPS-GL 1.x: 3D MULTI-MESH (RDNA2)", OOPS_COLOR_WHITE, 2);
-        oops_draw_text(&surf, 60, 75, "RDNA2 Freestanding Translation Layer", 0xff66ccffu, 1);
-        oops_draw_text(&surf, 60, 96, "Target: Prospero/Trinity (FW 12.40)", 0xffaaaaaau, 1);
-        oops_draw_text(&surf, 380, 96, "Build: " OOPS_APP_VERSION, 0xffaaaaaau, 1);
-        /* The badge is a measurement, asked of the context every frame: the GPU-only clear test
-         * at start-up plus the last submission's end-of-pipe fence and GPU clock. */
         gl_hw_status_t hw;
         memset(&hw, 0, sizeof(hw));
 #ifndef OOPS_HOST_BUILD
         glGetHardwareStatus(&hw);
 #endif
-        uint32_t badge_col = hw.verified ? 0xff44ff88u : (hw.failed ? 0xffff5544u : 0xffffcc44u);
-        oops_draw_text(&surf, 640, 48, hw.verified ? "GPU" : (hw.failed ? "GPU FAILED" : "GPU ?"), badge_col, 2);
-        {
-            char hwline[128];
-            char hx[16];
-            int hl = 0;
-            if (hw.verified) {
-                hl = cube_append(hwline, hl, "GPU verified: clear test ");
-                int_to_str((int)hw.clear_matched, hx); hl = cube_append(hwline, hl, hx);
-                hl = cube_append(hwline, hl, "/");
-                int_to_str((int)hw.clear_expected, hx); hl = cube_append(hwline, hl, hx);
-                hl = cube_append(hwline, hl, ", fence ");
-                hex_to_str(hw.fence, hx); hl = cube_append(hwline, hl, hx);
-                hl = cube_append(hwline, hl, ", clock ");
-                hex_to_str(hw.timestamp_hi, hx); hl = cube_append(hwline, hl, hx);
-                hex_to_str(hw.timestamp_lo, hx); hl = cube_append(hwline, hl, hx + 2);
-            } else if (hw.failed) {
-                hl = cube_append(hwline, hl, "GPU FAILED: ");
-                hl = cube_append(hwline, hl, hw.failure ? hw.failure : "unknown");
-                hl = cube_append(hwline, hl, ". Nothing is drawn.");
-            } else {
-                hl = cube_append(hwline, hl, "GPU unverified: no confirmed frame yet");
-            }
-            oops_draw_text(&surf, 60, 116, hwline, badge_col, 1);
-        }
+        const uint32_t badge_col = hw.verified ? 0xff44ff88u
+                                               : (hw.failed ? 0xffff5544u : 0xffffcc44u);
 
-        /* Canaries */
-        char h_vs[16], h_ps[16];
-        GLuint can_vs = 0, can_ps = 0, can_vs_s0 = 0, can_ps_s0 = 0;
-#ifndef OOPS_HOST_BUILD
-        glGetCanaryEx(&can_vs, &can_ps, &can_vs_s0, &can_ps_s0);
-#endif
-        hex_to_str(can_vs, h_vs);
-        hex_to_str(can_ps, h_ps);
+        /* The per-stack status line: this stack's GPU-verified badge, the frame hash (labelled
+         * 1:64 when sampled), and which scanout tiler is live. Built with the same string helpers
+         * the old dashboard used, since oops_snprintf here does not carry %x. The deeper
+         * diagnostics the old HUD printed - canaries, mod-pixel count, centre pixel - are still in
+         * the klog (the dump path above), just not on this shared overlay. */
+        char status[96];
+        char hx[16];
+        int sl = cube_append(status, 0, hw.verified ? "GPU verified  hash "
+                                                     : (hw.failed ? "GPU FAILED  hash " : "GPU ?  hash "));
+        if (!full_scan) sl = cube_append(status, sl, "(1:64) ");
+        hex_to_str(frame_hash, hx); sl = cube_append(status, sl, hx);
+        sl = cube_append(status, sl, "  tile ");
+        (void)cube_append(status, sl, oops_display_is_gpu_accelerated(disp) ? "GPU" : "CPU");
 
-        char stat_buf[128];
-        char num_buf[16];
-
-        /* VS & PS Canary row */
-        memcpy(stat_buf, "VS Can: ", 8);
-        int sl = 8;
-        for (int i = 0; h_vs[i]; i++) stat_buf[sl++] = h_vs[i];
-        memcpy(&stat_buf[sl], "  |  PS Can: ", 13);
-        sl += 13;
-        for (int i = 0; h_ps[i]; i++) stat_buf[sl++] = h_ps[i];
-        stat_buf[sl] = '\0';
-        oops_draw_text(&surf, 60, 138, stat_buf, (can_vs == 0xbeef0001u) ? OOPS_COLOR_GREEN : OOPS_COLOR_YELLOW, 1);
-
-        /* Frame hash, pixels outside the clear colour, centre pixel: the render target's own
-         * numbers, over every word in a run that reads the frame back and over one word in 64
-         * otherwise. The label says which. */
-        {
-            char hx[16];
-            sl = cube_append(stat_buf, 0, full_scan ? "Hash: " : "Hash(1:64): ");
-            hex_to_str(frame_hash, hx); sl = cube_append(stat_buf, sl, hx);
-            sl = cube_append(stat_buf, sl, full_scan ? "  |  Mod Pix: " : "  |  Mod Pix(1:64): ");
-            int_to_str((int)mod_pixels, num_buf); sl = cube_append(stat_buf, sl, num_buf);
-            sl = cube_append(stat_buf, sl, "  |  Center: ");
-            hex_to_str(center_pix, hx); sl = cube_append(stat_buf, sl, hx);
-            oops_draw_text(&surf, 60, 160, stat_buf, (mod_pixels > 0) ? OOPS_COLOR_GREEN : OOPS_COLOR_RED, 1);
-        }
-
-        /* Pipeline State switches */
-        /* "Tile" is which of the two scanout tilers this run is using. It is on the HUD because
-         * it is invisible otherwise and it dominates the frame time. */
-        oops_snprintf(stat_buf, sizeof(stat_buf), "Cull: %s | Light: %s | Tex: %s | Depth: %s | Tile: %s",
-                      opt_cull ? "ON(CCW)" : "OFF",
-                      opt_lighting ? "ON" : "OFF",
-                      opt_texture ? "ON" : "OFF",
-                      opt_depth ? "ON" : "OFF",
-                      oops_display_is_gpu_accelerated(disp) ? "GPU" : "CPU");
-        oops_draw_text(&surf, 60, 182, stat_buf, OOPS_COLOR_CYAN, 1);
-
-        /* Rotation & Frame telemetry */
-        oops_snprintf(stat_buf, sizeof(stat_buf), "RotX: %d deg  RotY: %d deg  |  Frame: %u (%u ms/frame)%s",
-                      (int)rot_x, (int)rot_y, (unsigned int)frame,
-                      (unsigned int)(last_frame_us / 1000u),
-                      !auto_rotate ? "  PAUSED" : "");
-        oops_draw_text(&surf, 60, 204, stat_buf, OOPS_COLOR_WHITE, 1);
-
-        /* Geometry & Complexity telemetry */
-        oops_snprintf(stat_buf, sizeof(stat_buf), "Mesh: %s  |  Tris: %u  |  Verts: %u",
-                      geom_name, (unsigned int)tri_count, (unsigned int)vcount);
-        oops_draw_text(&surf, 60, 226, stat_buf, 0xffffaa33u, 1);
-
-        /* Footer controls banner */
-        oops_draw_rect_blend(&surf, 40, 1000, 1100, 50, 0xd008101cu);
-        oops_draw_rect(&surf, 40, 1000, 1100, 2, 0xff335577u);
-        oops_draw_text(&surf, 60, 1018,
-                       "Controls: D-Pad=Orbit | [X]=Rotate | [R2]=Mesh | [/\\ ]=Tex | [][]=Depth | [L1]=Light | [R1]=Cull | (O)=Exit",
-                       0xffeeeeeeu, 1);
+        oops_cube_hud_draw(hud, &(oops_cube_hud_t){
+            .title = "GL1 CUBE",
+            .backend = oops_gfx_backend_name(),
+            .api = "OpenGL 1.x",
+            .build = OOPS_APP_VERSION,
+            .width = 1920u, .height = 1080u,
+            .frame = (unsigned)frame,
+            .us_per_frame = (unsigned)last_frame_us,
+            .paused = !auto_rotate,
+            .mesh = geom_name, .tris = (unsigned)tri_count, .verts = (unsigned)vcount,
+            .cull = opt_cull, .depth = opt_depth, .texture = opt_texture, .lighting = opt_lighting,
+            .status = status, .status_color = badge_col,
+            .controls = "D-Pad orbit  X rotate  R2 mesh  /_\\ tex  [] depth  L1 light  R1 cull  (O) quit",
+        });
 
 #ifndef OOPS_HOST_BUILD
         t_hud = oops_time_get_us();
 #endif
         /* 6. Present Frame */
-        glSwapBuffers();
+        (void)oops_gfx_present(gfx);
 #ifndef OOPS_HOST_BUILD
         {
             uint64_t t_end = oops_time_get_us();
@@ -812,8 +761,8 @@ __attribute__((visibility("default"))) int gl1_cube_start(const payload_args_t *
     oops_mesh_free(&torus_mesh);
     oops_mesh_free(&sphere_mesh);
     glDeleteTextures(1, &tex_id);
-    glContextDestroy(gl_ctx);
-    oops_display_close(disp);
+    oops_hud_destroy(hud);
+    oops_gfx_destroy(gfx);
 
 #ifndef OOPS_HOST_BUILD
     cube_klog("gl1-cube session closed cleanly");

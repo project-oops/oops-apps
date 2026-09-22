@@ -1,0 +1,10 @@
+# libogg's origin: the container format libvorbis packs its audio into.
+#
+# **Annotated tag**; the hash below is the peeled commit.
+#
+# Pinned separately from libvorbis because upstream ships them separately and libvorbis builds
+# against it as an external dependency. Two locks is what the origin's own shape asks for.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/xiph/ogg
+UPSTREAM_REV=e1774cd77f471443541596e09078e78fdc342e4f
+UPSTREAM_REF=v1.3.5

@@ -345,8 +345,8 @@ static void check_draws(void) {
 int main(void) {
     check_front_end();
     check_draws();
-    printf("gl2-cube selftest: %s (the software reference; the console path is built and has "
-           "never run - obSCEne REQ-...-4e77)\n",
+    printf("gl2-cube selftest: %s (the software reference; the console path runs - obSCEne "
+           "REQ-...-4e77)\n",
            failures == 0 ? "ok" : "FAILED");
     return failures == 0 ? 0 : 1;
 }

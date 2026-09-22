@@ -4,27 +4,50 @@ SeaShell decouples UI navigation from rendering through a generic, declarative s
 (`home_skin_t` in `skin.h`). The same model state drives every layout below.
 
 ## MODERN — modern carousel
+
 Horizontal sliding carousel with dynamic viewport scrolling tracking `title_cursor`. The selected
 title expands with an elevated frame, a glowing badge, and a lower game-hub detail strip
 (trophies, play button, contextual activity cards).
 
+![MODERN skin](screenshots/modern.png)
+
 ## XMB — cross media bar
+
 Horizontal category ribbon (`SETTINGS`, `PHOTO`, `MUSIC`, `VIDEO`, `GAMES`, `NETWORK`) with
 dynamic sine-wave ribbon meshes and an ambient floating-particle system. Horizontal category
 rotation crossed with vertical item-list scrolling.
 
+![XMB skin](screenshots/xmb.png)
+
 ## BLADES — curved blade dashboard
+
 Overlapping curved blade tabs (`NETWORK`, `GAMES`, `MEDIA`, `SYSTEM`), a left hero card with a
-large artwork box, a right companion blade preview, and a colour-coded action-button legend.
+large artwork box, a right companion blade preview, and an action-button legend.
+
+![BLADES skin](screenshots/blades.png)
 
 ## MEMCARD — framed column list browser
-Classic dual-column framed card grid with vintage inset borders and index numbering
-(`#01`, `#02`, …), plus a right-hand storage & title-info pane with full path metadata.
+
+PlayStation 2 console aesthetic featuring the iconic cosmic 7-sphere orbiting clock and monolith
+styling for top-level navigation (`Browser` / `System Configuration`), transitioning into a
+dual-column framed memory card browser for titles.
+
+![MEMCARD skin](screenshots/memcard.png)
 
 ## REVOLUTION — 4×3 channel grid
-A 4×3 grid of twelve rounded TV channels, a bottom console swoop with a 3D spherical System
-button, an SD-card slot, a digital clock/date, and a Message Board envelope button. Full 2D grid
-D-pad navigation.
+
+A 4×3 grid of twelve rounded TV channels, a bottom console swoop with a centered 3D spherical
+System button, an SD-card slot, a digital clock/date, and a Message Board envelope button. Full 2D
+grid D-pad navigation.
+
+![REVOLUTION skin](screenshots/revolution.png)
+
+## AMBER — warm ribbons cross media bar
+
+A warm amber aesthetic variant of the Cross Media Bar featuring shimmering golden ribbon meshes
+and glowing floating ambient particles.
+
+![AMBER skin](screenshots/amber.png)
 
 ## Capacity & responsiveness
 

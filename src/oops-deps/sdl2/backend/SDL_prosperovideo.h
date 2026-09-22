@@ -20,6 +20,7 @@
 
 #include "video/SDL_sysvideo.h"
 
+#include "oops/gfx.h"
 #include "oops/display.h"
 
 /*
@@ -29,7 +30,8 @@
  */
 typedef struct
 {
-    oops_display_t *display;
+    oops_gfx_t *gfx;         /* owns the display and the GL context (oops/gfx.h) */
+    oops_display_t *display; /* == oops_gfx_display(gfx), cached for the calls that need it */
     SDL_Window *window;
     int swap_interval;
     int keyboard_ready;

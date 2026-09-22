@@ -100,6 +100,7 @@ int net_tool_start(const payload_args_t *args) {
         return -1;
     }
     oops_input_init();
+    oops_system_install_close_handler(); /* cooperate with the dashboard Close (oops/system.h) */
 
     int udp_sock = oops_socket(OOPS_AF_INET, OOPS_SOCK_DGRAM, OOPS_IPPROTO_UDP);
     if (udp_sock >= 0) {
@@ -114,6 +115,10 @@ int net_tool_start(const payload_args_t *args) {
     unsigned int net_ticks = 0;
     int running = 1;
     while (running) {
+        if (oops_system_close_requested()) {
+            running = 0;
+            break;
+        }
         oops_pad_state_t pad;
         if (oops_input_poll(0, &pad) == 0) {
             if ((pad.buttons & OOPS_BUTTON_CIRCLE) && !(last & OOPS_BUTTON_CIRCLE)) {

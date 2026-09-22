@@ -10,7 +10,7 @@ The full screen hierarchy and launcher capabilities. The [README](../README.md) 
 | **Top Navigation Bar** | `GAMES` and `MEDIA` tabs with accent underline; `SEARCH`, `SETTINGS`, `PROFILE`, and clock in system tray |
 | **Interactive Universal Search** | Dynamic substring search matching title names and Title IDs; live results list with 1-click launch action |
 | **Games Carousel** | Horizontal title carousel, selection cards with Title ID, category badge (`NATIVE BIG APP 0`, `ELF`, `LEGACY`), favorite badge (`[*]`), version |
-| **Game Hub Detail Strip** | Primary action (`[X] PLAY`), `[OPTIONS]` prompt, trophies progress bar (`28 / 42`), contextual activity cards |
+| **Game Hub Detail Strip** | Primary action (`[SELECT] PLAY`), `[OPTIONS]` prompt, trophies progress bar (`28 / 42`), contextual activity cards |
 | **Media Carousel** | Dedicated `MEDIA` mode with Media Player, Media Gallery, and Web Browser |
 | **Title Options Menu** | `PLAY`, `ADD/REMOVE FAVORITE`, `CHECK FOR UPDATE`, `MANAGE GAME CONTENT`, `SAVED DATA`, `INFORMATION`, `DELETE`, `BACK` |
 | **Title Information Screen** | Complete metadata: Title ID, category, version, format, location, target SDK, audio format, parental rating |

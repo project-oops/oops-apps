@@ -32,6 +32,7 @@ OOPS_SDK_DIR := $(abspath $(OOPS_SDK))
 OOPS_GL_SRCS := \
     $(OOPS_SDK_DIR)/src/math/math.c \
     $(OOPS_SDK_DIR)/src/gl/gl_context.c \
+    $(OOPS_SDK_DIR)/src/gl/gfx.c \
     $(OOPS_SDK_DIR)/src/gl/gl_state.c \
     $(OOPS_SDK_DIR)/src/gl/gl_matrix.c \
     $(OOPS_SDK_DIR)/src/gl/gl_draw.c \
@@ -55,6 +56,34 @@ OOPS_GL_SRCS := \
 
 # Load project-level configuration (app.env) if present
 -include app.env
+
+# The renderer a title links, chosen by one line: `OOPS_RENDERER = gl1 | gl2 | mesa`.
+#
+# This is the front door end users are meant to use. It hides two different mechanisms behind one
+# name: a `gl1`/`gl2` title links oops-gl's sources (`OOPS_GL_SRCS`), while a `mesa` title brings up
+# the hosted Mesa stack (`USE_MESA`, below). Both provide the same `oops/gfx.h` API (oops-sdk D012),
+# so the title's own source is identical either way - only this line changes.
+#
+#   OOPS_RENDERER = gl1     fixed-function OpenGL 1.x, freestanding
+#   OOPS_RENDERER = gl2     programmable OpenGL 2.0, freestanding
+#   OOPS_RENDERER = mesa    OpenGL through upstream Mesa, hosted (own C runtime, oops-mesa D002)
+#
+# `mesa` implies a hosted title, which is a real difference in how it is built and packaged - the
+# `USE_MESA` block below spells it out. A title that builds *only* a host self-test (FORMATS
+# check-only, such as `gl2-cube`) does not build a payload, so it lists oops-gl in `HOST_TEST_SRCS`
+# itself and leaves this unset. `USE_MESA = 1` still works on its own for anything this does not
+# cover; `OOPS_RENDERER = mesa` is the documented spelling of it.
+ifdef OOPS_RENDERER
+    ifeq ($(OOPS_RENDERER),mesa)
+        USE_MESA := 1
+    else ifeq ($(OOPS_RENDERER),gl1)
+        PAYLOAD_SRCS += $(OOPS_GL_SRCS)
+    else ifeq ($(OOPS_RENDERER),gl2)
+        PAYLOAD_SRCS += $(OOPS_GL_SRCS)
+    else
+        $(error OOPS_RENDERER='$(OOPS_RENDERER)' is not one of: gl1, gl2, mesa)
+    endif
+endif
 
 # **A title whose source is somebody else's** (`src/oops-titles/`), fetched rather than committed.
 #
@@ -406,10 +435,17 @@ TARGET_SYS_SRCS ?= $(filter-out $(PAYLOAD_SRCS), $(wildcard $(CORE_SDK_SRCS)))
 # `__error` joined the list on 2026-09-21. It is the POSIX errno accessor, not a `sce*` name, and
 # the platform exports it from the same FreeBSD-derived set as the socket calls `oops-sdk`'s
 # `net.c` already binds weakly - obSCEne measured it callable on firmware 12.40 (sweep
-# 20260909-083918). It became visible when `<libc/errno.h>` arrived and the first payload read
-# `errno`; before that nothing referenced it, which is why a correct import looked like a new
-# failure.
-UNDEF_ALLOW ?= ^sce[A-Z]|^sysctlbyname$$|^__error$$
+# 20260909-083918). The socket and signal calls joined alongside it on 2026-09-22: `net.c` and
+# signal traps bind them weakly, and `common/symbols.txt` maps them to libkernel.
+#
+# `oops_keyboard_poll_buttons` is the one **first-party** name here, and it is deliberate. `input.c`
+# folds a keyboard's buttons into the pad poll (oops-sdk `REQ-...b4d7`) by a *weak* reference to it,
+# so keyboard.c satisfies it when a title links keyboard.c and it resolves to null (skipped) when a
+# title does not. Allow-listing the weak undef is what lets a pad-only title link input.c without
+# dragging keyboard.c in - the alternative was every such title carrying keyboard.c by hand, or a
+# hosted title (undef-check off) faulting on the first poll. A title that calls the symbol *itself*
+# still gets a strong reference through `<oops/keyboard.h>`, which this does not exempt.
+UNDEF_ALLOW ?= ^sce[A-Z]|^sysctlbyname$$|^__error$$|^__errno$$|^__sys_socketex$$|^oops_keyboard_poll_buttons$$|^_?(accept|bind|close|connect|listen|recv|sendto|setsockopt|sigaction|sigprocmask)$$
 NM ?= nm
 
 # **A hosted title is the case this cannot judge.** `USE_MESA` links against the Mesa sysroot and
@@ -460,7 +496,7 @@ endif
 # A missing symbols file is fatal, not a reason to skip. It used to be part of the same guard as
 # the tool itself, so a project that names a symbols file it has not generated yet built, packaged
 # and deployed an ELF that mkmodule never touched - no `PT_SCE_DYNLIBDATA`, so the loader refuses
-# it with "found illegal segment header" and nothing before the console says a word. mesa-probe
+# it with "found illegal segment header" and nothing before the console says a word. mesa-winsys-probe
 # generates its symbols file with `make imports`, and skipping that step cost a launch.
 #
 # An absent *tool* is still tolerated, because a checkout without obSCEne built is a real state and
@@ -470,7 +506,7 @@ $(BUILD)/.mkmodule-fixed.stamp: $(BUILD)/$(APP_NAME).elf $(SYMBOLS_FILE)
 	    if [ ! -f "$(SYMBOLS_FILE)" ]; then \
 	        echo "$(APP_NAME): $(SYMBOLS_FILE) does not exist, so mkmodule cannot say where this" >&2; \
 	        echo "  module's imports resolve. Without it the container loads nothing on hardware." >&2; \
-	        echo "  If this project generates it, generate it - mesa-probe uses 'make imports'." >&2; \
+	        echo "  If this project generates it, generate it - mesa-winsys-probe uses 'make imports'." >&2; \
 	        exit 1; \
 	    fi; \
 	    IN="$<"; SYM="$(SYMBOLS_FILE)"; \

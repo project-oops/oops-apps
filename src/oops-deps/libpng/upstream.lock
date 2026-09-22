@@ -1,0 +1,14 @@
+# libpng's origin. Neverball decodes its textures with it - three of its sources include
+# `<png.h>` - and SDL2_image would want it too when that is pinned.
+#
+# **Annotated tag**: the hash below is the peeled commit, not the `3061454d` tag object.
+#
+# **`oops-sdk` already has a PNG decoder**, `oops_png_decode` in `src/draw/png.c`, with its own
+# RFC 1951 inflate. That is not a reason to skip this one: Neverball calls libpng's API directly
+# - `png_create_read_struct`, row pointers, the lot - so the SDK's decoder cannot serve it
+# without rewriting the title. The two coexist: ours for a payload that wants a texture off
+# disk in one call, this for a program written against libpng.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/pnggroup/libpng
+UPSTREAM_REV=3061454d980de7d53608f594194cfac722721d2a
+UPSTREAM_REF=v1.6.58

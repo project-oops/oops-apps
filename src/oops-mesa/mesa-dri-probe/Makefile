@@ -1,19 +1,19 @@
-# dri-probe - the smallest title that brings GL up through the Gallium DRI frontend.
+# mesa-dri-probe - the smallest title that brings GL up through the Gallium DRI frontend.
 #
-# # How this differs from mesa-probe, and why they are two titles
+# # How this differs from mesa-winsys-probe, and why they are two titles
 #
-# `mesa-probe` calls `radeonsi_screen_create` directly. That is the winsys path, and it is what
+# `mesa-winsys-probe` calls `radeonsi_screen_create` directly. That is the winsys path, and it is what
 # proved unit 5: thirty-five ioctls answered and a non-null `pipe_screen` on hardware
 # (oops-mesa worklog 042, `docs/hardware/screen-created-fw1240.md`).
 #
 # This one calls `oops_gl_create`, which goes through the frontend instead - `driCreateNewScreen3`,
 # a drawable, a context, and `dri_make_current`. The frontend creates **its own** screen on the way
 # through, so a title that did both would have two, and a failure in either would be reported
-# against a stack it did not come from. Keeping them apart is what makes `mesa-probe` still usable
+# against a stack it did not come from. Keeping them apart is what makes `mesa-winsys-probe` still usable
 # as the control when this one stops somewhere.
 #
 # It also takes the one step past context creation that costs nothing to take: it calls
-# `glGetString`. See the note in `dri_probe_main.c` - a context that is current but cannot
+# `glGetString`. See the note in `mesa_dri_probe_main.c` - a context that is current but cannot
 # dispatch a GL call is a distinct failure worth separating from one that never became current.
 #
 # It renders and it presents. Both were open questions when this file was written and both have
@@ -22,10 +22,10 @@
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
-# The switch that brings Mesa in. A title that sets it is hosted (oops-mesa D002).
-USE_MESA = 1
+# The renderer this title links (common/app.mk): the hosted Mesa stack (oops-mesa D002).
+OOPS_RENDERER = mesa
 
-PAYLOAD_SRCS = dri_probe_main.c \
+PAYLOAD_SRCS = mesa_dri_probe_main.c \
                $(OOPS_SDK_DIR)/src/display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
@@ -38,9 +38,9 @@ PAYLOAD_SRCS = dri_probe_main.c \
                $(OOPS_SDK_DIR)/src/system/fs.c \
                $(OOPS_SDK_DIR)/src/agc/agc_compute.c
 
-ENTRY_POINT := dri_probe_start
+ENTRY_POINT := mesa_dri_probe_start
 
-# A local link script, and it is temporary, for the reason mesa-probe's copy of it is: SELFish's
+# A local link script, and it is temporary, for the reason mesa-winsys-probe's copy of it is: SELFish's
 # `native_eboot.ld` emits no `PT_TLS` segment and Mesa cannot link without one. Both titles carry
 # the same file and both lines go when `REQ-20260915T0001Z-8d72` on the SELFish bus resolves.
 #
@@ -49,7 +49,7 @@ ENTRY_POINT := dri_probe_start
 # TLS model worklog 040 settled rather than merely linking against it.
 TARGET_LD_SCRIPT := $(abspath local_tls.ld)
 
-# The import manifest, generated rather than written. Same arrangement as mesa-probe, and for the
+# The import manifest, generated rather than written. Same arrangement as mesa-winsys-probe, and for the
 # same reason: a Mesa-linked title imports far more than `common/symbols.txt` carries, and every
 # attribution comes from obSCEne's mined corpus rather than from anyone's judgement.
 #

@@ -30,10 +30,12 @@
  * `oops-sdk#D009` argues against from the other side.
  */
 #include "oops/fs.h"
+#include "oops/heap.h"
 #include "oops/time.h"
 
 #include <dirent.h>
 #include <errno.h>
+#include <locale.h>
 #include <pwd.h>
 #include <stddef.h>
 #include <string.h>
@@ -154,29 +156,120 @@ struct passwd *getpwuid(uid_t uid) {
 }
 
 /*
- * `opendir` and `closedir`, for the one use the titles have: does this directory exist. There is
- * no enumeration here and `dirent.h` deliberately does not declare `readdir` - see the comment
- * there for why declaring it would be worse than not having it.
+ * `opendir`, `readdir`, `closedir` over `oops/fs.h`.
  *
- * The handle is the address of a file-scope object rather than an allocation: there is nothing
- * to keep in it, and a `closedir` that frees nothing cannot leak or double-free.
+ * **This used to be an existence test and nothing more**, because Extreme Tux Racer only calls
+ * `opendir` to find out whether a directory is there. Neverball walks directories for real, so
+ * the SDK grew `oops_fs_readdir` and this became the POSIX spelling over it.
+ *
+ * `readdir` returns a pointer to storage owned by the `DIR`, which is what POSIX says and what
+ * lets a caller write the usual `while ((ent = readdir(d)))` loop. It is overwritten by the next
+ * call on the same handle, so two interleaved walks of one directory would collide - as they
+ * would on any system.
  */
-static int posix_dir_token;
+struct OOPS_DIR {
+    oops_dir_t *dir;
+    struct dirent ent;
+};
 
 DIR *opendir(const char *path) {
-    if (!path || !oops_fs_exists(path)) {
+    struct OOPS_DIR *d;
+
+    if (!path) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    d = (struct OOPS_DIR *)oops_malloc(sizeof(*d));
+    if (!d) {
+        errno = ENOMEM;
+        return NULL;
+    }
+
+    d->dir = oops_fs_opendir(path);
+    if (!d->dir) {
+        oops_free(d);
         errno = ENOENT;
         return NULL;
     }
-    return (DIR *)&posix_dir_token;
+    d->ent.d_name[0] = '\0';
+    return (DIR *)d;
+}
+
+struct dirent *readdir(DIR *dir) {
+    struct OOPS_DIR *d = (struct OOPS_DIR *)dir;
+    oops_dirent_t e;
+
+    if (!d) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    /*
+     * POSIX cannot tell "end of directory" from "error" by the return value alone - both are
+     * NULL - and distinguishes them by whether `errno` changed. `oops_fs_readdir` does not have
+     * that problem, returning 1, 0 and -1, so the two cases are separated here properly: the end
+     * leaves `errno` alone, a failure sets it.
+     */
+    int rc = oops_fs_readdir(d->dir, &e);
+    if (rc <= 0) {
+        if (rc < 0) errno = EINVAL;
+        return NULL;
+    }
+
+    {
+        size_t i = 0;
+        while (i + 1u < sizeof(d->ent.d_name) && e.name[i] != '\0') {
+            d->ent.d_name[i] = e.name[i];
+            i++;
+        }
+        d->ent.d_name[i] = '\0';
+    }
+    return &d->ent;
 }
 
 int closedir(DIR *dir) {
-    if (dir != (DIR *)&posix_dir_token) {
+    struct OOPS_DIR *d = (struct OOPS_DIR *)dir;
+    int rc;
+
+    if (!d) {
         errno = EINVAL;
         return -1;
     }
-    return 0;
+    rc = oops_fs_closedir(d->dir);
+    oops_free(d);
+    return rc;
+}
+
+/*
+ * The one locale. See `locale.h` for why `setlocale` reports success for any request rather than
+ * refusing one it cannot honour: a program that asks for a locale and is told no tends to stop,
+ * and a program told "C" carries on formatting the way it already assumed.
+ */
+char *setlocale(int category, const char *locale) {
+    static char c_locale[] = "C";
+
+    (void)category;
+    (void)locale;
+    return c_locale;
+}
+
+struct lconv *localeconv(void) {
+    static char point[] = ".";
+    static char empty[] = "";
+    static struct lconv lc;
+
+    lc.decimal_point = point;
+    lc.thousands_sep = empty;
+    lc.grouping = empty;
+    lc.int_curr_symbol = empty;
+    lc.currency_symbol = empty;
+    lc.mon_decimal_point = empty;
+    lc.mon_thousands_sep = empty;
+    lc.mon_grouping = empty;
+    lc.positive_sign = empty;
+    lc.negative_sign = empty;
+    return &lc;
 }
 
 int gettimeofday(struct timeval *tv, void *tz) {

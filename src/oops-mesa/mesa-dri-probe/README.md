@@ -1,14 +1,14 @@
-# dri-probe
+# mesa-dri-probe
 
 <p align="center">
-  <img src="assets/logo.png" alt="dri-probe" width="200">
+  <img src="assets/logo.png" alt="mesa-dri-probe" width="200">
 </p>
 
 Brings GL up through the Gallium DRI frontend and reports how far it gets.
 
 ## About
 
-dri-probe is the title that first *runs* oops-mesa's platform shim rather than only compiling it.
+mesa-dri-probe is the title that first *runs* oops-mesa's platform shim rather than only compiling it.
 It creates a GL context through the frontend and renders only what it can verify, adding one thing
 at each step.
 

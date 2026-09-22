@@ -45,6 +45,7 @@ int padviz_start(const payload_args_t *args) {
         return -1;
     }
     oops_input_init();
+    oops_system_install_close_handler(); /* cooperate with the dashboard Close (oops/system.h) */
 
     padviz_state_t state;
     for (size_t i = 0; i < sizeof(state); i++) {
@@ -53,6 +54,10 @@ int padviz_start(const payload_args_t *args) {
 
     int running = 1;
     while (running) {
+        if (oops_system_close_requested()) {
+            running = 0;
+            break;
+        }
         /* One batched read a frame: up to a full batch of samples in a single driver request.
          * The newest (last) sample is what the diagram draws; the count is shown so the
          * low-latency path is visibly delivering more than one record per frame. */

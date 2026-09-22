@@ -19,7 +19,7 @@ pick.
 - **A strict model/host split.** Everything that doesn't touch a machine — navigation, screens,
   drawing — lives in the model and is tested with no display at all; launching, installing and
   power are the host's, behind a recorded dispatch.
-- **Five layout engines** over the same state: MODERN, XMB, BLADES, MEMCARD and REVOLUTION.
+- **Six layout engines** over the same state: MODERN, XMB, BLADES, MEMCARD, REVOLUTION and AMBER.
 - **A real launcher** — universal search, favourites, a running/suspended switcher, and
   multi-mount USB scanning for titles, `.pkg` packages and `.elf` payloads.
 
@@ -33,6 +33,6 @@ pick.
 
 - **[Architecture](docs/ARCHITECTURE.md)** — the model/host split, persistence, and build outputs.
 - **[Screens & features](docs/FEATURES.md)** — the full screen map and launcher capabilities.
-- **[Skins](docs/SKINS.md)** — the five layout engines and the responsiveness tuning.
+- **[Skins](docs/SKINS.md)** — the six layout engines and the responsiveness tuning.
 - **[Controls](docs/CONTROLS.md)** — the console UI input map.
 - [oops-apps catalog & guide](../../../docs/USER_GUIDE.md)

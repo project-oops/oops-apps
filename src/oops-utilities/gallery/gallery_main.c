@@ -50,6 +50,7 @@ int gallery_start(const payload_args_t *args) {
         return -1;
     }
     oops_input_init();
+    oops_system_install_close_handler(); /* cooperate with the dashboard Close (oops/system.h) */
 
     gallery_state_t state;
     for (size_t i = 0; i < sizeof(state); i++) {
@@ -108,6 +109,10 @@ int gallery_start(const payload_args_t *args) {
     uint32_t last_buttons = 0;
     int running = 1;
     while (running) {
+        if (oops_system_close_requested()) {
+            running = 0;
+            break;
+        }
         oops_pad_state_t pad;
         if (oops_input_poll(0, &pad) == 0) {
             state.pad = pad;

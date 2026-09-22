@@ -32,6 +32,7 @@
 #include "oops/display.h"
 #include "oops/keyboard.h"
 #include "oops/mouse.h"
+#include "oops/system.h"
 #include "oops/time.h"
 
 #define PROSPEROVID_DRIVER_NAME "prospero"
@@ -63,6 +64,10 @@ static int PROSPERO_VideoInit(_THIS)
     data->display = oops_gfx_display(data->gfx);
 
     oops_time_init();
+
+    /* The dashboard's Close becomes an SDL_QUIT in the event pump; install the handler that flags
+     * it (oops/system.h). Every SDL program on this backend then closes cleanly. */
+    oops_system_install_close_handler();
 
     /*
      * The keyboard and mouse are optional hardware and their absence is not an error - a pad is
