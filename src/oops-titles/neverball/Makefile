@@ -125,18 +125,23 @@ PAYLOAD_EXTRA_DEPS   += $(OOPS_NB_LIB)
 # `oops-sdk` - 11 of them the SDK's - and a change to any of them has to rebuild the archive.
 # `common/deps.mk` has the whole reasoning and the measurement. It matters more here than
 # anywhere else: this archive carries `main`, so a stale one is the entire game.
-OOPS_NB_DEPFILE := $(OOPS_NB_BUILD)/libneverball.a.d
--include $(OOPS_NB_DEPFILE)
+#
+# **The objects are named, not numbered and globbed.** They used to be `nb1.o`..`nb74.o` in the
+# order the recipe visited `NB_SRCS`, collected with `nb*.o`. Adding or removing one file from
+# `NB_SHARE` or `NB_BALL` renumbered every object after it, so the whole archive recompiled; and
+# removing one left `nb74.o` behind for the glob to pick up, so the dropped file's code stayed
+# in the archive and the link stayed clean. Now each object is named after its source and `ar`
+# is handed the list.
+OOPS_NB_OBJS := $(call oops_objs,$(OOPS_NB_BUILD)/obj,$(NB_SRCS))
+$(call oops_ar_check,$(OOPS_NB_OBJS))
+-include $(OOPS_NB_OBJS:.o=.d)
+$(call oops_obj_rules,$(OOPS_NB_BUILD)/obj,TARGET_CC,OOPS_NB_CFLAGS,$(NB_SRCS))
 
-$(OOPS_NB_LIB): $(NB_SRCS) $(oops_makefiles)
+$(OOPS_NB_LIB): $(OOPS_NB_OBJS) $(oops_makefiles)
 	@mkdir -p $(OOPS_NB_BUILD)
-	$(call oops_depgen,$(TARGET_CC),$(OOPS_NB_CFLAGS),$@,$(NB_SRCS),$(OOPS_NB_DEPFILE))
 	@rm -f $@
-	@n=0; for s in $(NB_SRCS); do n=$$((n+1)); \
-	   $(TARGET_CC) $(OOPS_NB_CFLAGS) -c -o $(OOPS_NB_BUILD)/nb$$n.o "$$s" || exit 1; done; \
-	 echo "neverball: compiled $$n sources"
-	@a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $(OOPS_NB_BUILD)/nb*.o
-	@echo "neverball: $@"
+	@a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $(OOPS_NB_OBJS)
+	@echo "neverball: $@ ($(words $(OOPS_NB_OBJS)) objects)"
 
 # `shim/nb_diag.c` is here rather than in `NB_SHARE` deliberately: it holds the format strings
 # behind the one patch this title carries, and the archive above compiles with `-w`. In

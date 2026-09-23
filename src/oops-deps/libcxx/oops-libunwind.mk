@@ -91,22 +91,25 @@ OOPS_LIBUNWIND_CXXFLAGS = $(OOPS_LIBUNWIND_FLAGS) -nostdinc++ \
 TARGET_CC  ?= clang
 TARGET_CXX ?= clang++
 
+# `ar` is handed the list rather than the directory - `common/deps.mk` says what the glob cost.
+# The counter runs across both loops, so the C, assembly and C++ objects share one numbering and
+# the list is built in the same order they are archived.
 $(OOPS_LIBUNWIND_LIB): $(OOPS_LIBUNWIND_C_SRCS) $(OOPS_LIBUNWIND_CXX_SRCS) \
                        $(OOPS_LIBUNWIND_ASM_SRCS) $(lastword $(MAKEFILE_LIST))
 	@mkdir -p $(OOPS_LIBUNWIND_BUILD)
 	@rm -f $@
-	@n=0; \
+	@n=0; objs=""; \
 	 for src in $(OOPS_LIBUNWIND_C_SRCS) $(OOPS_LIBUNWIND_ASM_SRCS); do \
-	     n=$$((n+1)); \
-	     $(TARGET_CC) $(OOPS_LIBUNWIND_FLAGS) -c -o $(OOPS_LIBUNWIND_BUILD)/unw$$n.o "$$src" || exit 1; \
+	     n=$$((n+1)); o=$(OOPS_LIBUNWIND_BUILD)/unw$$n.o; \
+	     $(TARGET_CC) $(OOPS_LIBUNWIND_FLAGS) -c -o "$$o" "$$src" || exit 1; objs="$$objs $$o"; \
 	 done; \
 	 for src in $(OOPS_LIBUNWIND_CXX_SRCS); do \
-	     n=$$((n+1)); \
-	     $(TARGET_CXX) $(OOPS_LIBUNWIND_CXXFLAGS) -c -o $(OOPS_LIBUNWIND_BUILD)/unw$$n.o "$$src" || exit 1; \
+	     n=$$((n+1)); o=$(OOPS_LIBUNWIND_BUILD)/unw$$n.o; \
+	     $(TARGET_CXX) $(OOPS_LIBUNWIND_CXXFLAGS) -c -o "$$o" "$$src" || exit 1; objs="$$objs $$o"; \
 	 done; \
-	 echo "libunwind: compiled $$n sources"
-	@ar_tool=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
-	 "$$ar_tool" rcs $@ $(OOPS_LIBUNWIND_BUILD)/unw*.o
+	 echo "libunwind: compiled $$n sources"; \
+	 ar_tool=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
+	 "$$ar_tool" rcs $@ $$objs
 	@echo "libunwind: $@"
 
 .PHONY: libunwind-clean

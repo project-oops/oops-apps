@@ -52,6 +52,10 @@ OOPS_JPEG_WRAP_SRCS := \
 OOPS_JPEG_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                    -nostdlibinc -fPIC -O2 -w $(OOPS_JPEG_INCLUDE) $(OOPS_POSIX_INCLUDE) \
                    $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
+# `ar` is handed the list rather than the directory - `common/deps.mk` says what the glob cost.
+# It mattered most here of all the vendored archives, because half of what goes in is
+# *generated* below: change the precision wrapper sets and the old wrappers' objects were still
+# sitting in the directory for `j*.o` to collect.
 $(OOPS_JPEG_LIB): $(OOPS_JPEG_SRCS) $(lastword $(MAKEFILE_LIST))
 	@mkdir -p $(OOPS_JPEG_WRAPDIR)
 	@rm -f $@
@@ -62,10 +66,11 @@ $(OOPS_JPEG_LIB): $(OOPS_JPEG_SRCS) $(lastword $(MAKEFILE_LIST))
 	   printf '#define BITS_IN_JSAMPLE %s\n#include "%s/src/%s.c"\n' \
 	     "$$b" "$(OOPS_JPEG_UPSTREAM)" "$$f" > $(OOPS_JPEG_WRAPDIR)/$$f-$$b.c; done; done
 	@echo "libjpeg-turbo: generated $$(ls $(OOPS_JPEG_WRAPDIR)/*.c | wc -l) precision wrappers"
-	@n=0; for s in $(OOPS_JPEG_SRCS) $(OOPS_JPEG_WRAP_SRCS); do n=$$((n+1)); \
-	   $(TARGET_CC) $(OOPS_JPEG_CFLAGS) -c -o $(OOPS_JPEG_BUILD)/j$$n.o "$$s" || exit 1; done; \
-	 echo "libjpeg-turbo: compiled $$n sources"
-	@a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $(OOPS_JPEG_BUILD)/j*.o
+	@n=0; objs=""; for s in $(OOPS_JPEG_SRCS) $(OOPS_JPEG_WRAP_SRCS); do n=$$((n+1)); \
+	   o=$(OOPS_JPEG_BUILD)/j$$n.o; \
+	   $(TARGET_CC) $(OOPS_JPEG_CFLAGS) -c -o "$$o" "$$s" || exit 1; objs="$$objs $$o"; done; \
+	 echo "libjpeg-turbo: compiled $$n sources"; \
+	 a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $$objs
 	@echo "libjpeg-turbo: $@"
 .PHONY: libjpeg-clean
 libjpeg-clean:

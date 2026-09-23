@@ -58,17 +58,18 @@ OOPS_LIBCXX_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin 
 
 TARGET_CXX ?= clang++
 
+# `ar` is handed the list rather than the directory - `common/deps.mk` says what the glob cost.
 $(OOPS_LIBCXX_LIB): $(OOPS_LIBCXX_SRCS) $(lastword $(MAKEFILE_LIST)) \
                     $(OOPS_LIBCXX_DIR)/include/__config_site
 	@mkdir -p $(OOPS_LIBCXX_BUILD)
 	@rm -f $@
-	@n=0; for src in $(OOPS_LIBCXX_SRCS); do \
-	    n=$$((n+1)); \
-	    $(TARGET_CXX) $(OOPS_LIBCXX_CFLAGS) -c -o $(OOPS_LIBCXX_BUILD)/cxx$$n.o "$$src" || exit 1; \
+	@n=0; objs=""; for src in $(OOPS_LIBCXX_SRCS); do \
+	    n=$$((n+1)); o=$(OOPS_LIBCXX_BUILD)/cxx$$n.o; \
+	    $(TARGET_CXX) $(OOPS_LIBCXX_CFLAGS) -c -o "$$o" "$$src" || exit 1; objs="$$objs $$o"; \
 	done; \
-	echo "libc++: compiled $$n sources"
-	@ar_tool=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
-	 "$$ar_tool" rcs $@ $(OOPS_LIBCXX_BUILD)/cxx*.o
+	echo "libc++: compiled $$n sources"; \
+	ar_tool=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
+	"$$ar_tool" rcs $@ $$objs
 	@echo "libc++: $@"
 
 .PHONY: libcxx-clean libcxx-upstream libcxx-upstream-clean

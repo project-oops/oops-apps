@@ -77,16 +77,17 @@ OOPS_FT_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nos
                  -I$(OOPS_FT_DIR)/include \
                  $(OOPS_FT_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
 
+# `ar` is handed the list rather than the directory - `common/deps.mk` says what the glob cost.
 $(OOPS_FT_LIB): $(OOPS_FT_SRCS) $(lastword $(MAKEFILE_LIST))
 	@mkdir -p $(OOPS_FT_BUILD)
 	@rm -f $@
-	@n=0; for src in $(OOPS_FT_SRCS); do \
-	    n=$$((n+1)); \
-	    $(TARGET_CC) $(OOPS_FT_CFLAGS) -c -o $(OOPS_FT_BUILD)/ft$$n.o "$$src" || exit 1; \
+	@n=0; objs=""; for src in $(OOPS_FT_SRCS); do \
+	    n=$$((n+1)); o=$(OOPS_FT_BUILD)/ft$$n.o; \
+	    $(TARGET_CC) $(OOPS_FT_CFLAGS) -c -o "$$o" "$$src" || exit 1; objs="$$objs $$o"; \
 	done; \
-	echo "freetype: compiled $$n sources"
-	@ar_tool=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
-	 "$$ar_tool" rcs $@ $(OOPS_FT_BUILD)/ft*.o
+	echo "freetype: compiled $$n sources"; \
+	ar_tool=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
+	"$$ar_tool" rcs $@ $$objs
 	@echo "freetype: $@"
 
 .PHONY: freetype-clean freetype-upstream freetype-upstream-clean

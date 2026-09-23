@@ -23,13 +23,14 @@ OOPS_PNG_SRCS := $(addprefix $(OOPS_PNG_UPSTREAM)/,png.c pngerror.c pngget.c png
 OOPS_PNG_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                   -nostdlibinc -fPIC -O2 -w $(OOPS_PNG_INCLUDE) $(OOPS_POSIX_INCLUDE) \
                   $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
+# `ar` is handed the list rather than the directory - `common/deps.mk` says what the glob cost.
 $(OOPS_PNG_LIB): $(OOPS_PNG_SRCS) $(lastword $(MAKEFILE_LIST))
 	@mkdir -p $(OOPS_PNG_BUILD)
 	@rm -f $@
-	@n=0; for s in $(OOPS_PNG_SRCS); do n=$$((n+1)); \
-	   $(TARGET_CC) $(OOPS_PNG_CFLAGS) -c -o $(OOPS_PNG_BUILD)/p$$n.o "$$s" || exit 1; done; \
-	 echo "libpng: compiled $$n sources"
-	@a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $(OOPS_PNG_BUILD)/p*.o
+	@n=0; objs=""; for s in $(OOPS_PNG_SRCS); do n=$$((n+1)); o=$(OOPS_PNG_BUILD)/p$$n.o; \
+	   $(TARGET_CC) $(OOPS_PNG_CFLAGS) -c -o "$$o" "$$s" || exit 1; objs="$$objs $$o"; done; \
+	 echo "libpng: compiled $$n sources"; \
+	 a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $$objs
 	@echo "libpng: $@"
 .PHONY: libpng-clean
 libpng-clean:

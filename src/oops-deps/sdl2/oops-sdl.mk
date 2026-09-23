@@ -144,18 +144,28 @@ OOPS_SDL_LDFLAGS := -Wl,--whole-archive $(OOPS_SDL_LIB) -Wl,--no-whole-archive
 # One rule per source would need one pattern rule per directory, so the archive is built by a
 # single recipe that walks the list. It reruns when any source or this file changes, which for a
 # dependency that moves only on a bump is the right granularity - and it keeps the object names
-# flat, so two `SDL_sysjoystick.c` in different directories cannot collide.
+# flat, so two `SDL_sysjoystick.c` in different directories cannot collide. That is the reason
+# the payload's per-source objects in `common/deps.mk` are *not* used here: `ar` stores a member
+# under its basename alone, and SDL2 is the one tree in the collection where the same file name
+# really does appear in several backends.
+#
+# **`ar` is handed the list rather than the directory**, which it was not until 2026-09-23. It
+# collected `sdl*.o`, so shortening `OOPS_SDL_C_SRCS` left the highest-numbered objects behind
+# for the glob to pick up and the removed file's code stayed in the archive, with the link
+# staying clean. Numbering by position makes that worse than it sounds: dropping one source
+# renumbers every object after it, so the leftovers are the *last* run's, not obviously stale
+# ones. `common/deps.mk` has the whole reasoning.
 $(OOPS_SDL_LIB): $(OOPS_SDL_C_SRCS) $(OOPS_SDL_DIR)/include/SDL_config_prospero.h \
                  $(lastword $(MAKEFILE_LIST))
 	@mkdir -p $(OOPS_SDL_BUILD)
 	@rm -f $@
-	@n=0; for src in $(OOPS_SDL_C_SRCS); do \
-	    n=$$((n+1)); \
-	    $(TARGET_CC) $(OOPS_SDL_CFLAGS) -c -o $(OOPS_SDL_BUILD)/sdl$$n.o "$$src" || exit 1; \
+	@n=0; objs=""; for src in $(OOPS_SDL_C_SRCS); do \
+	    n=$$((n+1)); o=$(OOPS_SDL_BUILD)/sdl$$n.o; \
+	    $(TARGET_CC) $(OOPS_SDL_CFLAGS) -c -o "$$o" "$$src" || exit 1; objs="$$objs $$o"; \
 	done; \
-	echo "oops-sdl: compiled $$n sources"
-	@ar_tool=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
-	 "$$ar_tool" rcs $@ $(OOPS_SDL_BUILD)/sdl*.o
+	echo "oops-sdl: compiled $$n sources"; \
+	ar_tool=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
+	"$$ar_tool" rcs $@ $$objs
 	@echo "oops-sdl: $@"
 
 .PHONY: sdl2-clean

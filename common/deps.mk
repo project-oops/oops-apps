@@ -172,6 +172,28 @@ $(call oops_obj,$(1),$(4)): $(4) $$(oops_makefiles)
 endef
 oops_obj_rules = $(foreach s,$(sort $(4)),$(eval $(call oops_obj_rule_one,$(1),$(2),$(3),$(s))))
 
+# $(call oops_ar_check,<objects>)
+#
+# **`ar` stores a member under its basename alone.** The directory structure that keeps
+# `oops-sdk/src/gl/gl_draw.o` apart from an app's own `gl_draw.o` on disk is gone the moment
+# either goes into an archive, and `ar r` *replaces* an existing member of the same name - so
+# two objects that share a file name become one, silently, with the link staying clean and one
+# file's code simply absent.
+#
+# No archive in this repository collides today (neverball: 74 sources, 74 distinct names; the
+# C++ side: 47 and 47). It is a property of the file lists, though, not of anything that holds
+# it in place, and one `upstream/` bump can end it. So it is checked when the lists are read.
+#
+# `src/oops-deps/sdl2/oops-sdl.mk` is the case that made this worth writing down: it numbers its
+# objects `sdl1.o`..`sdl131.o` precisely because upstream SDL2 carries the same file name in
+# several backends, and its comment says so. Where the flat names are the guard, this is not
+# needed; where source-named objects are used, this is what stands in for it.
+oops_ar_dups  = $(strip $(foreach n,$(sort $(notdir $(1))),\
+                    $(if $(word 2,$(filter $(n),$(notdir $(1)))),$(n))))
+oops_ar_check = $(if $(call oops_ar_dups,$(1)),$(error two objects would be archived under one \
+                name, and `ar` keeps only the last: $(call oops_ar_dups,$(1)). Rename one of the \
+                sources, or number the objects the way src/oops-deps/sdl2/oops-sdl.mk does))
+
 # $(call oops_depgen,<compiler>,<compile flags>,<target>,<sources>,<depfile>)
 #
 # The whole-program form, for a rule whose sources are only known once its recipe runs. Writes

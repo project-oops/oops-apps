@@ -81,17 +81,18 @@ OOPS_LIBCXXABI_FLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builti
 
 TARGET_CXX ?= clang++
 
+# `ar` is handed the list rather than the directory - `common/deps.mk` says what the glob cost.
 $(OOPS_LIBCXXABI_LIB): $(OOPS_LIBCXXABI_SRCS) $(lastword $(MAKEFILE_LIST)) \
                        $(OOPS_LIBCXX_DIR)/include/stdlib.h
 	@mkdir -p $(OOPS_LIBCXXABI_BUILD)
 	@rm -f $@
-	@n=0; for src in $(OOPS_LIBCXXABI_SRCS); do \
-	    n=$$((n+1)); \
-	    $(TARGET_CXX) $(OOPS_LIBCXXABI_FLAGS) -c -o $(OOPS_LIBCXXABI_BUILD)/abi$$n.o "$$src" || exit 1; \
+	@n=0; objs=""; for src in $(OOPS_LIBCXXABI_SRCS); do \
+	    n=$$((n+1)); o=$(OOPS_LIBCXXABI_BUILD)/abi$$n.o; \
+	    $(TARGET_CXX) $(OOPS_LIBCXXABI_FLAGS) -c -o "$$o" "$$src" || exit 1; objs="$$objs $$o"; \
 	done; \
-	echo "libc++abi: compiled $$n sources"
-	@ar_tool=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
-	 "$$ar_tool" rcs $@ $(OOPS_LIBCXXABI_BUILD)/abi*.o
+	echo "libc++abi: compiled $$n sources"; \
+	ar_tool=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
+	"$$ar_tool" rcs $@ $$objs
 	@echo "libc++abi: $@"
 
 .PHONY: libcxxabi-clean

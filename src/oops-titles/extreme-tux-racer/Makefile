@@ -13,8 +13,24 @@
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
+# **First, because the next thing this file does is look inside `upstream/`.** The fetch is
+# normally done by `common/app.mk`, which is included at the bottom - too late for a wildcard
+# forty lines above it. On an already-fetched tree that read correctly and on a fresh checkout
+# it matched nothing, so the title built without its own 45 sources and the *second* `make` was
+# the right one. `common/upstream.mk` says the rest.
+include $(OOPS_APPS_ROOT)/common/upstream.mk
+
 # --- C++ -------------------------------------------------------------------
 #
+# ETR's own C++, plus our entry point. Everything upstream, compiled under upstream's flags by
+# `cxx.mk`; nothing of it is committed here.
+#
+# **Above the include, not below it**, which is where it used to be: `cxx.mk` names these as
+# prerequisites of the archive and make expands a rule's prerequisites as it reads the rule, so
+# setting them afterwards left the archive with none. Editing any of ETR's own C++ then rebuilt
+# nothing. `cxx.mk` now refuses an empty list rather than letting that happen quietly.
+OOPS_CXX_SRCS := $(wildcard upstream/*.cpp) $(wildcard shim/*.cpp)
+
 # `-fno-exceptions -fno-rtti` and the `new`/`delete`/guard runtime, shared with every C++ title.
 # ETR is the one that pays for it first: **0 `throw` and 0 `dynamic_cast`**, measured, which is
 # what makes those flags honest here and what rules Armagetron out of the same treatment.
@@ -64,10 +80,6 @@ EXTRA_TARGET_LDFLAGS += $(OOPS_CXX_LDFLAGS) $(OOPS_SDL_LDFLAGS) $(OOPS_MIX_LDFLA
                         $(OOPS_FT_LDFLAGS) $(OOPS_LIBCXX_LDFLAGS)
 PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_SDL_LIB) $(OOPS_MIX_LIB) \
                         $(OOPS_FT_LIB) $(OOPS_LIBCXX_LIB)
-
-# ETR's own C++, plus our entry point. Everything upstream, compiled under upstream's flags by
-# `cxx.mk`; nothing of it is committed here.
-OOPS_CXX_SRCS := $(wildcard upstream/*.cpp) $(wildcard shim/*.cpp)
 
 # The C half of the payload: the shared POSIX shim and the SDK. It is C rather than C++ because
 # it implements a C ABI that upstream's headers declare.

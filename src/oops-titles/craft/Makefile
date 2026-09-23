@@ -13,6 +13,11 @@
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
+# **First, because this file names files under `upstream/` while it is being read.** The fetch
+# is normally done by `common/app.mk` at the bottom, which is too late for the wildcard below.
+# `common/upstream.mk` says the rest; it is guarded, so `app.mk`'s own include costs nothing.
+include $(OOPS_APPS_ROOT)/common/upstream.mk
+
 # **`check-only` until the two subsystems below land.** The payload's source list is real and is
 # named here because that is what says what the title is made of - but `make` builds the shader
 # check and stops, rather than failing on a link everybody already knows will not happen.
@@ -47,6 +52,9 @@ CRAFT_SHIM_SRCS := shim/glfw_shim.c shim/craft_offline.c
 #     `main.c` calls, and says so.
 #   - `client.c` **is** compiled: it is the network client, it is inert until `client_enable()`
 #     is called, and it costs nothing to keep the code path honest.
+# The wildcard needs `upstream/` to exist, and the fetch that creates it lives in
+# `common/upstream.mk`, which this file includes at the top for that reason - `common/app.mk` at
+# the bottom would be eighty lines too late, and on a fresh checkout this would match nothing.
 CRAFT_UPSTREAM_SRCS := $(filter-out upstream/src/auth.c,$(wildcard upstream/src/*.c))
 
 # The vendored libraries Craft carries. lodepng and noise are pure C and need nothing; sqlite
