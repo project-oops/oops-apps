@@ -12,7 +12,8 @@ choice being re-litigated by somebody who only has the choice.
 | 🟢 | D002 | [The base layer is on loan, and belongs in the SDK](decisions/D002-the-base-layer-is-on-loan-from-obscene.md) | decided | 2026-09-04 |
 | 🟢 | D003 | [The encoder session is gated off until its parameter layouts are known](decisions/D003-the-encoder-session-is-gated-off-until.md) | decided | 2026-09-07 |
 | 🟢 | D004 | [Hardware encode and pad injection are both out of reach from a payload](decisions/D004-hardware-encode-and-pad-injection-are.md) | hardware | 2026-09-09 |
-| 🟡 | D005 | [Exceptions come from our own libunwind, and one measurement gates the build shape](decisions/D005-exceptions-come-from-our-own-libunwind-and-one-measurement-gates-it.md) | assumed | 2026-09-21 |
+| 🟢 | D005 | [Exceptions come from our own libunwind, and one measurement gates the build shape](decisions/D005-exceptions-come-from-our-own-libunwind-and-one-measurement-gates-it.md) | decided | 2026-09-21 |
+| 🟢 | D006 | [Three things had to be true for a `throw` to reach its `catch`, and each one hid the next](decisions/D006-three-things-had-to-be-true-for-a-throw-to-reach-its-catch.md) | decided | 2026-09-23 |
 
 | | meaning |
 |---|---|

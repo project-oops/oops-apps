@@ -7,9 +7,34 @@
  * # This is `INSERT AFTER`, not a replacement
  *
  * A bare `-T script` *replaces* the default linker script, which for a title would throw away
- * everything `app.mk` and the platform rely on. `INSERT AFTER .text` instead splices these two
- * output sections into the default layout and leaves the rest of it alone. ld.lld supports this
- * and it is the only form that is safe next to `app.mk`'s existing link line.
+ * everything `app.mk` and the platform rely on. `INSERT AFTER` instead splices these two output
+ * sections into the default layout and leaves the rest of it alone. ld.lld supports this and it
+ * is the only form that is safe next to `app.mk`'s existing link line.
+ *
+ * # `AFTER .rodata`, and this is the whole point of the file
+ *
+ * **The frame table is read as data, so it must not land in the text segment.** This platform
+ * maps a title's text execute-only: the CPU may fetch instructions from it and may not load from
+ * it. `SELFish`'s `native_eboot.ld` puts `.text` and `.plt` in a `FLAGS(5)` PT_LOAD and
+ * everything readable - `.rodata`, `.gcc_except_table` and the rest - in the `FLAGS(6)` one.
+ *
+ * This said `INSERT AFTER .text` until 2026-09-23, which put `.eh_frame` and `.eh_frame_hdr` in
+ * the execute-only segment. libunwind found them, tried to read them, and the kernel killed the
+ * title with
+ *
+ *     exception: 0xa0020328 (SYSTEM_XO_VIOLATION)
+ *     fault address: 00000000004403fc (xotext:"eboot.bin"+0x403fc)
+ *
+ * where `0x403fc` is `__eh_frame_end` / `__eh_frame_hdr_start` exactly - the first byte of the
+ * index, faulting on the first load. `.gcc_except_table` was never affected, because nothing
+ * names it here and the default layout had already put it beside `.rodata` in the readable
+ * segment. That asymmetry is what made this look like a handler-table problem for two probes:
+ * the LSDA was always fine and the frame table was never readable.
+ *
+ * `AFTER .rodata` puts both sections next to `.gcc_except_table`, which is where the other
+ * unwind table already lives. An output section with no `:phdr` of its own inherits the previous
+ * section's, so following `.rodata` is what assigns them to the readable segment - the ordering
+ * is load-bearing, not cosmetic.
  *
  * # Why `KEEP` matters here
  *
@@ -61,4 +86,4 @@ SECTIONS
     KEEP(*(.eh_frame_hdr))
     __eh_frame_hdr_end = .;
   }
-} INSERT AFTER .text;
+} INSERT AFTER .rodata;

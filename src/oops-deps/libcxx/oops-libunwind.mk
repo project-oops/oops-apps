@@ -74,8 +74,29 @@ OOPS_LIBUNWIND_ASM_SRCS := $(wildcard $(OOPS_LIBUNWIND_SRC)/*.S)
 #
 # `-fno-exceptions` on the unwinder itself is not a contradiction. libunwind *implements*
 # throwing; it does not throw.
+#
+# # `-fasynchronous-unwind-tables`, and why the unwinder is the one library that cannot skip it
+#
+# **Not throwing is not the same as not being unwound through.** `_Unwind_RaiseException` takes
+# the context, then its very first act is to step *past its own frame* - upstream's comment in
+# `unwind_phase1` is literally "skip over first which is `_Unwind_RaiseException`". That step is
+# a DWARF step, so it needs an FDE for `_Unwind_RaiseException`. `_Unwind_Resume` is the same on
+# the cleanup path.
+#
+# This target emits none by default: clang for `x86_64-unknown-freebsd` with these flags leaves
+# asynchronous unwind tables off, which is why a pure C title here has no `.eh_frame` section at
+# all. libc++abi is compiled *with* exceptions and so got tables anyway - and that asymmetry is
+# what made this so hard to see. `__cxa_throw`, `__cxa_begin_catch` and `__gxx_personality_v0`
+# were all covered by FDEs; `_Unwind_RaiseException` and `_Unwind_Resume` were not, and they are
+# the two that matter first.
+#
+# The symptom was a `throw` reaching std::terminate with no handler consulted at all - including
+# `catch (...)` - because the first `__unw_step` returned end-of-stack and phase 1 concluded
+# there were no frames to search. Measured on hardware 2026-09-23, after a readable frame table
+# had already ruled out the two earlier causes.
 OOPS_LIBUNWIND_FLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                        -nostdlibinc -fPIC -fno-stack-protector -O2 -w \
+                       -fasynchronous-unwind-tables \
                        -isystem $(OOPS_LIBCXX_DIR)/include \
                        -isystem $(OOPS_SDK_DIR)/include/libc \
                        -I$(OOPS_SDK_DIR)/include \

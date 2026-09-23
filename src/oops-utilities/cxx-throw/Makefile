@@ -74,7 +74,8 @@ $(HOST_PROBE): probe.cpp boundary.cpp cxx_throw.h | $(BUILD)
 	    host_main.cpp probe.cpp boundary.cpp
 	@echo "cxx-throw: host probe built"
 
-.PHONY: check-host check-target-symbols check-target-eh-frame check-target-frames
+.PHONY: check-host check-target-symbols check-target-eh-frame check-target-frames \
+        check-target-eh-readable
 check-host: $(HOST_PROBE)
 	@$(HOST_PROBE)
 
@@ -114,6 +115,24 @@ check-host: $(HOST_PROBE)
 # Matching only the first shape is how the first pass of this rewrite reported the two symbols
 # it was written to check as MISSING while the other six passed.
 MAP := $(BUILD)/$(APP_NAME).map
+
+# # The two ELF-reading checks relink first, because `check` packages before they run
+#
+# `make title` rewrites `$(BUILD)/$(APP_NAME).elf` in place into a console module and drops its
+# section headers, and `check` reaches the packaging step first. So a check that only *detected*
+# the stripped ELF failed every full `make check` - correctly, and uselessly.
+#
+# Relinking is the cheap answer: same inputs, same output, about ten seconds, and it leaves the
+# packaged title alone under `build/title/`. The two checks that read sections depend on this;
+# the two that read the map do not, because nothing rewrites the map.
+.PHONY: relink-if-stripped
+relink-if-stripped: $(BUILD)/$(APP_NAME).elf
+	@if [ "$$(readelf -hW $(BUILD)/$(APP_NAME).elf 2>/dev/null \
+	          | awk '/Number of section headers/ {print $$NF}')" = "0" ]; then \
+	    echo "cxx-throw: the ELF was packaged into a console module; relinking to read sections"; \
+	    rm -f $(BUILD)/$(APP_NAME).elf; \
+	    $(MAKE) --no-print-directory $(BUILD)/$(APP_NAME).elf >/dev/null; \
+	fi
 
 check-target-symbols: $(BUILD)/$(APP_NAME).elf
 	@missing=0; \
@@ -196,17 +215,21 @@ check-target-eh-frame: $(BUILD)/$(APP_NAME).elf
 # `$(BUILD)/$(APP_NAME).elf` in place into a console module and drops its section headers, so
 # this check must see a fresh link. It says so rather than reporting a false failure, which is
 # the mistake the other two checks made until today.
-COVERED_BY_FDE   := cxx_throw_raise cxx_throw_raise_derived cxx_throw_run __cxa_throw
-UNCOVERED_BY_FDE := _Unwind_Resume_or_Rethrow cxx_throw_start
+# **`_Unwind_RaiseException` and `_Unwind_Resume` belong on the covered list**, and putting them
+# there is the whole lesson of 2026-09-23. Not throwing is not the same as not being unwound
+# through: phase 1's first act is a DWARF step *past `_Unwind_RaiseException`'s own frame* -
+# upstream's comment says "skip over first which is `_Unwind_RaiseException`" - and phase 2's
+# cleanup path steps past `_Unwind_Resume`. libunwind was built without asynchronous unwind
+# tables, so neither had an FDE, the first step returned end-of-stack, phase 1 concluded there
+# were no frames to search, and `catch (...)` was unreachable. Three hardware probes read as a
+# handler-table fault before this was the thing that was wrong.
+COVERED_BY_FDE   := cxx_throw_raise cxx_throw_raise_derived cxx_throw_run __cxa_throw \
+                    __cxa_begin_catch __gxx_personality_v0 \
+                    _Unwind_RaiseException _Unwind_Resume
+UNCOVERED_BY_FDE := cxx_throw_start
 
-check-target-frames: $(BUILD)/$(APP_NAME).elf
-	@if [ "$$(readelf -hW $(BUILD)/$(APP_NAME).elf 2>/dev/null | awk '/Number of section headers/ {print $$NF}')" = "0" ]; then \
-	    echo "cxx-throw: $(BUILD)/$(APP_NAME).elf has no section headers." >&2; \
-	    echo "  `make title` rewrites it into a console module, which is where they go. Relink" >&2; \
-	    echo "  first - rm $(BUILD)/$(APP_NAME).elf && make $(BUILD)/$(APP_NAME).elf - then check." >&2; \
-	    exit 1; \
-	fi; \
-	llvm-dwarfdump --eh-frame $(BUILD)/$(APP_NAME).elf 2>/dev/null \
+check-target-frames: relink-if-stripped
+	@llvm-dwarfdump --eh-frame $(BUILD)/$(APP_NAME).elf 2>/dev/null \
 	    | grep -oE 'pc=[0-9a-f]+\.\.\.[0-9a-f]+' | sed 's/pc=//; s/\.\.\./ /' > $(BUILD)/.fdes; \
 	total=$$(wc -l < $(BUILD)/.fdes); \
 	if [ "$$total" -eq 0 ]; then \
@@ -237,4 +260,52 @@ check-target-frames: $(BUILD)/$(APP_NAME).elf
 	fi; \
 	echo "cxx-throw: $$total FDEs, and every frame an unwind walks is covered"
 
-check: check-host check-target-symbols check-target-eh-frame check-target-frames
+# # A table you cannot read is worth exactly as much as one that is not there
+#
+# This platform maps a title's text **execute-only**: the CPU fetches instructions from it and
+# may not load from it. The frame table is read as data, so it has to live in the readable
+# segment - and until 2026-09-23 `oops-deps/libcxx/link/eh-frame.ld` said `INSERT AFTER .text`,
+# which put it in the wrong one. Every check above passed on that build. The table was present,
+# 19,540 bytes wide, and covered every frame an unwind walks. It was also unreadable, and the
+# kernel killed the title on the unwinder's first load from it:
+#
+#     exception: 0xa0020328 (SYSTEM_XO_VIOLATION)
+#     fault address: 00000000004403fc (xotext:"eboot.bin"+0x403fc)
+#
+# `0x403fc` is `__eh_frame_end` / `__eh_frame_hdr_start` exactly - the index's first byte.
+#
+# So this asks the only question the others cannot: **is the frame table in the same segment as
+# `.text`?** If it is, it is execute-only and no unwind can read it. The positive half - that it
+# sits with `.gcc_except_table` - is asserted too, because that is where the *other* unwind table
+# already lives and their being apart is what disguised this for two hardware probes: the LSDA
+# was always readable, so `catch (...)` failing looked like a personality-routine fault.
+check-target-eh-readable: relink-if-stripped
+	@map=$$(readelf -lW $(BUILD)/$(APP_NAME).elf 2>/dev/null | awk '/Section to Segment/,0'); \
+	seg_text=$$(echo "$$map"  | awk '{ for (i=2;i<=NF;i++) if ($$i == ".text")             { print $$1; exit } }'); \
+	seg_eh=$$(echo "$$map"    | awk '{ for (i=2;i<=NF;i++) if ($$i == ".eh_frame")         { print $$1; exit } }'); \
+	seg_hdr=$$(echo "$$map"   | awk '{ for (i=2;i<=NF;i++) if ($$i == ".eh_frame_hdr")     { print $$1; exit } }'); \
+	seg_lsda=$$(echo "$$map"  | awk '{ for (i=2;i<=NF;i++) if ($$i == ".gcc_except_table") { print $$1; exit } }'); \
+	if [ -z "$$seg_text" ] || [ -z "$$seg_eh" ] || [ -z "$$seg_hdr" ] || [ -z "$$seg_lsda" ]; then \
+	    echo "cxx-throw: could not place .text/.eh_frame/.eh_frame_hdr/.gcc_except_table in a segment" >&2; \
+	    exit 1; \
+	fi; \
+	bad=0; \
+	for pair in ".eh_frame:$$seg_eh" ".eh_frame_hdr:$$seg_hdr"; do \
+	    s=$${pair%%:*}; n=$${pair##*:}; \
+	    if [ "$$n" = "$$seg_text" ]; then \
+	        echo "  XO       $$s is in segment $$n, the same one as .text" >&2; bad=$$((bad+1)); \
+	    elif [ "$$n" != "$$seg_lsda" ]; then \
+	        echo "  APART    $$s is in segment $$n, .gcc_except_table is in $$seg_lsda" >&2; bad=$$((bad+1)); \
+	    else \
+	        echo "  ok       $$s is in segment $$n with .gcc_except_table, not $$seg_text with .text"; \
+	    fi; \
+	done; \
+	if [ "$$bad" -ne 0 ]; then \
+	    echo "cxx-throw: the frame table is not readable as data - this platform's text is" >&2; \
+	    echo "  execute-only, so an unwind through it dies on SYSTEM_XO_VIOLATION. Check the" >&2; \
+	    echo "  INSERT AFTER target in oops-deps/libcxx/link/eh-frame.ld; it must follow a" >&2; \
+	    echo "  section in the readable PT_LOAD (.rodata), never .text." >&2; \
+	    exit 1; \
+	fi
+
+check: check-host check-target-symbols check-target-eh-frame check-target-frames check-target-eh-readable

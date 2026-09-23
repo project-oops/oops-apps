@@ -112,7 +112,50 @@ bool (*const kChecks[])() = {
     check_multi_frame,
 };
 
+const char *const kCheckNames[] = {
+    "basic", "derived-matches-base", "destructors-run", "rethrow", "multi-frame",
+};
+
 } /* namespace */
+
+/*
+ * Saying which check, and saying it before the check runs.
+ *
+ * The first two hardware runs printed `running exception checks` and then a libc++abi terminate
+ * message naming only the exception *type*, which three of the five checks throw. So the report
+ * could not say which one died, and the difference matters - `basic` failing is an unwinder that
+ * does not work at all, `destructors-run` failing is one that works and skips cleanups.
+ *
+ * A line before each check is the whole fix: the last name printed is the check that did not
+ * come back, because a check that terminates never reaches its own result line.
+ */
+extern "C" void oops_klog(const char *tag, const char *msg);
+
+namespace {
+
+/*
+ * The terminate handler is installed here rather than by a static constructor.
+ *
+ * `common/cxxrt.cpp` installs one from a namespace-scope object, and on hardware it never ran -
+ * libc++abi's own default handler printed the message instead. **Nothing walks `.init_array` in
+ * this title.** oops-mesa titles call `oops_mesa_run_init_array` for exactly this reason and a
+ * plain C++ title has no equivalent, so a static constructor here is silently dead code.
+ *
+ * Calling `set_terminate` from `cxx_throw_run` is not a workaround for that; it is the honest
+ * placement for a probe, which should not depend on a mechanism it is not testing.
+ */
+void terminate_says_so()
+{
+    oops_klog("cxx-throw", "std::terminate - the check named above threw and no handler ran");
+    __builtin_trap();
+}
+
+} /* namespace */
+
+namespace std {
+using terminate_handler = void (*)();
+terminate_handler set_terminate(terminate_handler) noexcept;
+} /* namespace std */
 
 extern "C" int cxx_throw_total(void)
 {
@@ -121,10 +164,16 @@ extern "C" int cxx_throw_total(void)
 
 extern "C" int cxx_throw_run(void)
 {
+    std::set_terminate(terminate_says_so);
+
     int passed = 0;
     for (int i = 0; i < cxx_throw_total(); ++i) {
+        oops_klog("cxx-throw", kCheckNames[i]);
         if (kChecks[i]()) {
             passed += 1;
+            oops_klog("cxx-throw", "  ^ came back through the unwinder");
+        } else {
+            oops_klog("cxx-throw", "  ^ returned, but the wrong way - handler ran with bad state");
         }
     }
     return passed;

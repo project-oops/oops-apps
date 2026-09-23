@@ -15,6 +15,17 @@
 
 #include "cxx_throw.h"
 
+/*
+ * `probe.cpp` narrates each check through `oops_klog`, which on the console is the SDK's kernel
+ * log. The host has no SDK, so it gets the same narration on stdout - and that is the point
+ * rather than a stub: the two runs then print the same sequence, and a console run can be read
+ * against a known-good one line for line instead of by eye.
+ */
+extern "C" void oops_klog(const char *tag, const char *msg)
+{
+    std::printf("[%s] %s\n", tag, msg);
+}
+
 int main()
 {
     const int total  = cxx_throw_total();
