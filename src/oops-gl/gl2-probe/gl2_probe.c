@@ -2246,17 +2246,30 @@ static int check_point_coord(void) {
  *   `separate-blend-eq` (`GL_ONE, GL_ONE` reverse-subtract), `two-draw-buffers`, and this check.
  *   The first two now census themselves; they still pass on their centre pixel.
  *
- *   gl1-probe: sixteen checks enable blending - `blend`, `blend-additive-strip`,
- *   `blend-constant`, `blend-equation`, `blend-over-texture`, `front-and-back`,
- *   `internal-formats`, `lit-texture-parity`, `pixel-fragments`, `polygon-smooth`, `smooth`,
- *   `smooth-textured`, `tex-unit1-stretch`, `texture-luminance`, `attrib-stack` and `logic-op`.
- *   Not all of them combine two terms, and none has been censused; `polygon-smooth` and `smooth`
- *   are the ones to look at first, because antialiasing *is* a blend and a coverage fade that
- *   lands on one lane in four would read as a working fade at any single sample.
+ *   gl1-probe, by what the factors actually compute rather than by whether blending is on:
  *
- * So roughly twenty of the two suites' checks decide from one pixel of a blended draw. None of
- * them is known wrong - the lattice's correct lane is exactly where they sample - and none is
- * known right either. That is the state to hold until `-5b8e` comes back.
+ *     **combining, so affected** - `blend`, `texture-luminance`, `pixel-fragments`,
+ *     `internal-formats`, `smooth`, `polygon-smooth`, `smooth-textured`, `tex-unit1-stretch`,
+ *     `blend-over-texture` and `lit-texture-parity` (all `GL_SRC_ALPHA,
+ *     GL_ONE_MINUS_SRC_ALPHA`); `attrib-stack`, `front-and-back` and `blend-equation`
+ *     (`GL_ONE, GL_ONE`); `blend-additive-strip` (`GL_SRC_ALPHA, GL_ONE`).
+ *
+ *     **not combining, so not affected** - `blend-constant` and `logic-op`, whose every arm is
+ *     `<something>, GL_ZERO` or `GL_ONE, GL_ZERO`: the result is one operand scaled, and
+ *     `blend-uniformity` measured that case clean. `blend-constant` passing with exact byte
+ *     values on hardware is consistent with it and is a small piece of corroboration.
+ *
+ * **Two caveats, because this is a reading of source and not a measurement.** `GL_SRC_ALPHA,
+ * GL_ONE_MINUS_SRC_ALPHA` only combines when the source alpha is strictly between 0 and 1 - at
+ * alpha 1 it degenerates to a copy, which is how the first version of this very check produced a
+ * clean arm and nearly a wrong conclusion. And `GL_MAX` in `blend-equation` selects an operand
+ * per channel rather than summing, so whether it is affected is genuinely unknown.
+ *
+ * So fourteen gl1 checks and three here decide from one pixel of a blend that combines. None is
+ * known wrong - the lattice's correct lane is exactly where they sample - and none is known
+ * right either. `polygon-smooth` and `smooth` are the ones to look at first: antialiasing *is* a
+ * blend, and a coverage fade landing on one lane in four reads as a working fade at any single
+ * sample. That is the state to hold until `-5b8e` comes back.
  */
 static int check_blend_uniformity(void) {
     reset_view();
