@@ -14,6 +14,7 @@
 #include "oops/system.h"
 #include "oops/fs.h"
 #include "oops/savedata.h"
+#include "oops/keyboard.h" /* oops_input_set_log_level */
 #include <stdlib.h> /* setenv, for HOME */
 #include <GL/gl.h>
 
@@ -33,6 +34,7 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
     (void)args;
 
     oops_log_info("NVRB", "entry");
+
 
     /* **Capture one settled frame of the title screen, when `/app0/capture` asks for it.**
        Frame 3 rather than 0: the first frames build the window and upload the level's textures,

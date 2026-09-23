@@ -1,4 +1,4 @@
-Say which state the game is in, and what a menu token was.
+Say which state the game is in.
 
 A port is debugged from a log and a screen, and the screen only shows what a state managed
 to draw - so a transition that happened and rendered nothing looks exactly like one that
@@ -6,45 +6,19 @@ never happened. That cost an evening: pressing Play appeared to restart the menu
 whether it had reached the name screen, reached the level select and bounced, or never
 fired at all could not be told apart from outside the machine.
 
-With these two lines it took one run. The log read
+With this line it took one run. The log read
 
     state: st_title -> st_name     the name screen was reached
     state: st_name  -> st_set      the name was accepted
     state: st_set   -> st_title    and the level select bounced straight off
 
-which is a different problem from the one it looked like, and named it precisely: the level
-select returns to the title on `GUI_BACK` and nothing else, so something was sending a
-second activation. It was - the SDK was delivering every keypress twice.
+which is a different problem from the one it looked like. Two more lines - the button
+dispatch and the menu token - narrowed it to one keypress arriving as two activations, and
+came out again once it had; this one stays, because knowing where the game is is not a
+question that gets answered once.
 
-The addresses resolve against `build/neverball.map`, where every `st_*` is a symbol. The
-token line names what a menu screen was asked to do, which is the same question one level
-further in.
+The addresses resolve against `build/neverball.map`, where every `st_*` is a symbol.
 
-diff --git a/ball/st_set.c b/ball/st_set.c
-index 5a96176..51e4374 100644
---- a/ball/st_set.c
-+++ b/ball/st_set.c
-@@ -19,6 +19,7 @@
- #include "config.h"
- #include "util.h"
- #include "common.h"
-+#include "log.h"
- 
- #include "game_common.h"
- 
-@@ -46,6 +47,12 @@ enum
- 
- static int set_action(int tok, int val)
- {
-+    /* **Which token, and how many sets there were to choose from.** This screen returns to the
-+     * title on `GUI_BACK` and on nothing else, so when Play appeared to bounce straight off it
-+     * the question was only ever whether something sent `GUI_BACK` or whether the screen had
-+     * nothing to show. One line answers it; `GUI_BACK` is 1, `SET_SELECT` is `GUI_LAST`. */
-+    log_printf("set_action: tok=%d val=%d total=%d\n", tok, val, total);
-+
-     audio_play(AUD_MENU, 1.0f);
- 
-     switch (tok)
 diff --git a/share/state.c b/share/state.c
 index d0c2dcd..697fb4b 100644
 --- a/share/state.c
