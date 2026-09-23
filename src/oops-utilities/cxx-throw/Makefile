@@ -74,7 +74,7 @@ $(HOST_PROBE): probe.cpp boundary.cpp cxx_throw.h | $(BUILD)
 	    host_main.cpp probe.cpp boundary.cpp
 	@echo "cxx-throw: host probe built"
 
-.PHONY: check-host check-target-symbols check-target-eh-frame
+.PHONY: check-host check-target-symbols check-target-eh-frame check-target-frames
 check-host: $(HOST_PROBE)
 	@$(HOST_PROBE)
 
@@ -164,4 +164,77 @@ check-target-eh-frame: $(BUILD)/$(APP_NAME).elf
 	fi; \
 	echo "  ok       frame table is $$bytes bytes (0x$$start .. 0x$$end)"
 
-check: check-host check-target-symbols check-target-eh-frame
+# # And a wide table is not the same as a table covering the right frames
+#
+# 19,540 bytes of `.eh_frame` proves something was kept. It does not prove there is an FDE for
+# the function that throws, for the one holding the `catch`, or for `__cxa_throw` in between -
+# and an unwind walks all three. A table full of FDEs for libunwind's own frames and none for
+# the probe's would measure the same width and fail the same way on hardware.
+#
+# So this asks the question directly: for each address the unwind has to step through, is there
+# an FDE whose pc range contains it? `llvm-dwarfdump --eh-frame` prints the ranges; `nm` gives
+# the addresses. Both come from this build, so nothing here is transcribed.
+#
+# ## Two absences that are correct, and are asserted as absences
+#
+# `_Unwind_Resume_or_Rethrow` has no FDE and must not: libunwind is compiled `-fno-exceptions`
+# because it *implements* throwing rather than throwing, so its frames are not unwind targets.
+# `cxx_throw_start` has none either - it is the entry point, and an exception reaching it is by
+# definition uncaught. Listing them here as expected-absent means a future build that starts
+# emitting FDEs for them gets noticed rather than silently absorbed.
+#
+# ## `nm -C`, because two of these names are C++
+#
+# `cxx_throw_raise` is `_Z15cxx_throw_raisei` in the symbol table and matching it literally
+# found nothing. The lookup demangles and then compares up to the `(`, so a signature change
+# does not have to be tracked here; `cxx_throw_run` and `__cxa_throw` are `extern "C"` and pass
+# through either way.
+#
+# ## Why this one needs the ELF and the others do not
+#
+# The frame table lives in the ELF; only the *symbols* live in the map. `make title` rewrites
+# `$(BUILD)/$(APP_NAME).elf` in place into a console module and drops its section headers, so
+# this check must see a fresh link. It says so rather than reporting a false failure, which is
+# the mistake the other two checks made until today.
+COVERED_BY_FDE   := cxx_throw_raise cxx_throw_raise_derived cxx_throw_run __cxa_throw
+UNCOVERED_BY_FDE := _Unwind_Resume_or_Rethrow cxx_throw_start
+
+check-target-frames: $(BUILD)/$(APP_NAME).elf
+	@if [ "$$(readelf -hW $(BUILD)/$(APP_NAME).elf 2>/dev/null | awk '/Number of section headers/ {print $$NF}')" = "0" ]; then \
+	    echo "cxx-throw: $(BUILD)/$(APP_NAME).elf has no section headers." >&2; \
+	    echo "  `make title` rewrites it into a console module, which is where they go. Relink" >&2; \
+	    echo "  first - rm $(BUILD)/$(APP_NAME).elf && make $(BUILD)/$(APP_NAME).elf - then check." >&2; \
+	    exit 1; \
+	fi; \
+	llvm-dwarfdump --eh-frame $(BUILD)/$(APP_NAME).elf 2>/dev/null \
+	    | grep -oE 'pc=[0-9a-f]+\.\.\.[0-9a-f]+' | sed 's/pc=//; s/\.\.\./ /' > $(BUILD)/.fdes; \
+	total=$$(wc -l < $(BUILD)/.fdes); \
+	if [ "$$total" -eq 0 ]; then \
+	    echo "cxx-throw: the frame table parses to no FDEs at all" >&2; exit 1; \
+	fi; \
+	bad=0; \
+	for s in $(COVERED_BY_FDE) $(UNCOVERED_BY_FDE); do \
+	    want=covered; \
+	    case " $(UNCOVERED_BY_FDE) " in *" $$s "*) want=absent;; esac; \
+	    a=$$(nm -C --defined-only $(BUILD)/$(APP_NAME).elf 2>/dev/null \
+	         | awk -v n="$$s" '{ f = $$3; sub(/\(.*/, "", f); if (f == n) { print $$1; exit } }'); \
+	    if [ -z "$$a" ]; then echo "  MISSING  $$s is not in the symbol table"; bad=$$((bad+1)); continue; fi; \
+	    hit=$$(awk -v a="$$((0x$$a))" '{ if (a >= strtonum("0x" $$1) && a < strtonum("0x" $$2)) \
+	                                     { printf "%s..%s", $$1, $$2; exit } }' $(BUILD)/.fdes); \
+	    if [ "$$want" = covered ] && [ -n "$$hit" ]; then \
+	        echo "  ok       $$s covered by FDE $$hit"; \
+	    elif [ "$$want" = absent ] && [ -z "$$hit" ]; then \
+	        echo "  ok       $$s has no FDE, as it should not"; \
+	    elif [ "$$want" = covered ]; then \
+	        echo "  NO FDE   $$s at 0x$$a - an unwind through it cannot proceed"; bad=$$((bad+1)); \
+	    else \
+	        echo "  UNEXPECTED $$s now has an FDE ($$hit); it had none by design"; bad=$$((bad+1)); \
+	    fi; \
+	done; \
+	rm -f $(BUILD)/.fdes; \
+	if [ "$$bad" -ne 0 ]; then \
+	    echo "cxx-throw: $$bad frame(s) wrong - see oops-deps/libcxx/link/eh-frame.ld" >&2; exit 1; \
+	fi; \
+	echo "cxx-throw: $$total FDEs, and every frame an unwind walks is covered"
+
+check: check-host check-target-symbols check-target-eh-frame check-target-frames
