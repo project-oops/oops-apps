@@ -87,12 +87,32 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
      * the process no longer had. `oops_system_escape_sandbox` now makes the SDK's lazily loaded
      * modules resident before it escapes, so the order this title needs is the order it can
      * have. */
-    {
+    /* **Behind `/app0/savedata`, because the escape costs the title its own package.**
+     *
+     * Mounting this before `main` works and `HOME` is exported, and then the title boots to a
+     * black screen: `Failure to open "classic" theme file`, a window at 800x600 rather than the
+     * display's size, and a thousand draw calls a frame of geometry with nothing on it. The
+     * package is mounted at `/app0`, which is a path *inside* the sandbox, and
+     * `oops_savedata_mount`'s fallback reaches `/data` by leaving it. Savedata is then readable
+     * and writable - the config is there, which is why 800x600 came back out of it - and every
+     * asset the game ships is not.
+     *
+     * So the escape is not a thing to do and then carry on from. That is a heavier finding than
+     * the module loading `oops_system_escape_sandbox` now guards against, and it is measured
+     * rather than reasoned: the probe below reports whether `/app0` survives, before and after,
+     * so the next run says so in one line instead of by the absence of a menu.
+     *
+     * Until it is settled the marker keeps a default launch working. */
+    const int sd_fd = oops_fs_open("/app0/savedata", 0 /* O_RDONLY */, 0);
+    const int app0_before = oops_fs_exists("/app0/eboot.bin");
+    if (sd_fd >= 0) {
+        oops_fs_close(sd_fd);
         const int sd_mount = oops_savedata_mount("NVRBSAVE",
                                                  OOPS_SAVEDATA_MODE_CREATE |
                                                  OOPS_SAVEDATA_MODE_READ_WRITE,
                                                  mount, sizeof(mount));
-        oops_log_info("NVRB", "savedata mount rc=%d", sd_mount);
+        oops_log_info("NVRB", "savedata mount rc=%d, /app0 before=%d after=%d",
+                      sd_mount, app0_before, oops_fs_exists("/app0/eboot.bin"));
         if (sd_mount == 0) {
             have_mount = GL_TRUE;
             oops_log_info("NVRB", "savedata mounted at %s", mount);
