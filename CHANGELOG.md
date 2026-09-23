@@ -12,6 +12,28 @@ Nothing has shipped yet - this is the initial state.
 
 ### Added
 
+- **gl2-probe puts a fragment into two colour buffers** (2026-09-23). `draw-buffers` measures
+  GL 2.0's API and then draws into one buffer; until now nothing in this suite had ever reached
+  two colour targets, and the only check that does is gl1-probe's `front-and-back`, through the
+  fixed-function `glDrawBuffer(GL_FRONT_AND_BACK)`. That check fails on hardware in a shape worth
+  reproducing from a shader whose output this suite chooses: red and green blend correctly against
+  each target's own destination and **blue comes back the same byte in both** - `0x14`, `0x56`,
+  `0xb9`, `0xd3`, `0x4e` across five runs, drifting between runs and stable within one. A byte
+  equal in both targets is not a blend result; the two destinations differ by the whole range in
+  blue and `GL_ONE, GL_ONE` saturates, so the one holding 255 cannot come back at 78.
+  `two-draw-buffers` drives the same path twice through `glDrawBuffers(2, {GL_BACK, GL_FRONT})`,
+  once with the source's blue set and once with it zero, which is the one difference between the
+  two readings: whether the fault is the second export or what reaches it.
+
+### Fixed
+
+- **gl2-probe's host gate links again** (2026-09-23). `make check` had stopped linking -
+  `system.c`'s disk sink reaches into `fs.c` for `oops_fs_get_storage_dir`, and `fs.c` into the
+  allocator - so the software-reference run that every check is written against was not being
+  made at all, and nothing said so louder than a build error nobody was reading. gl1-probe's
+  source list already carried `fs.c` for this exact reason; gl2-probe's now carries it and
+  `heap.c`, and the suite reports 58/58 on the host again.
+
 - **gl1-probe reports the pixel behind a failure** (2026-09-20). Its first full hardware run
   produced seven `FAIL` rows and not one value between them, so the failures could be grouped by
   what they call but not told apart by what they saw - and the difference between "the draw

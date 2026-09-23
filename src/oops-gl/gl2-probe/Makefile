@@ -29,10 +29,16 @@ FORMATS = eboot title
 # The whole GL layer, from the one list in common/app.mk. The self-test supplies its own display
 # and allocator, since the SDK's are direct memory and have nothing to talk to on a build
 # machine.
+# `fs.c` because `system.c` reaches into it for the log's disk sink - `oops_log_enable_disk_sink`
+# calls `oops_fs_get_storage_dir`. The payload link has always had it and only the host self-test
+# had to be told, which is the same one-line fix gl1-probe's list already carries; without it
+# `make check` does not link at all, so the host gate silently stops being run.
 HOST_TEST_SRCS = gl2_probe_selftest.c \
                  gl2_probe.c \
                  $(OOPS_GL_SRCS) \
                  $(OOPS_SDK_DIR)/src/system/system.c \
+                 $(OOPS_SDK_DIR)/src/system/fs.c \
+                 $(OOPS_SDK_DIR)/src/memory/heap.c \
                  $(OOPS_SDK_DIR)/src/system/freestd.c
 HOST_TEST_LIBS = -lm
 

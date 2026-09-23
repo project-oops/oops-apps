@@ -1998,6 +1998,123 @@ static int check_draw_buffers(void) {
     return ok && glGetError() == GL_NO_ERROR;
 }
 
+/* One pixel of a named colour buffer, packed the way the `saw` rows read: A, R, G, B.
+ *
+ * A single-pixel read is the thing `scan_frame`'s comment warns against doing *after* a scan,
+ * because `frame()` finishes again and lands on the next scanout buffer round. This is not that
+ * read: it goes through `glReadPixels`, which reads the buffer it is told to by name rather than
+ * the rotating readback copy, and the check below takes every one of them before it scans.
+ * gl1-probe's `read_centre` is the same two calls and passes on hardware in `front-buffer`. */
+static uint32_t centre_of(GLenum buffer) {
+    GLubyte c[4] = {0u, 0u, 0u, 0u};
+    glReadBuffer(buffer);
+    glReadPixels(MID_X, MID_Y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, c);
+    glReadBuffer(GL_BACK);
+    return ((uint32_t)c[3] << 24) | ((uint32_t)c[0] << 16) | ((uint32_t)c[1] << 8) |
+           (uint32_t)c[2];
+}
+
+/*
+ * **Two colour buffers written by one compiled shader**, each blending against its own
+ * destination.
+ *
+ * `draw-buffers` above measures the API and then draws into one buffer. Nothing in this suite
+ * has ever put a fragment into two colour targets, which is why the fault below has only ever
+ * been visible from the other suite.
+ *
+ * **What this is here to tell apart.** gl1-probe's `front-and-back` reaches two targets through
+ * `glDrawBuffer(GL_FRONT_AND_BACK)` and fails on hardware in a particular shape: red and green
+ * blend correctly against each target's own destination, and **blue comes back the same byte in
+ * both** - `0x14`, `0x56`, `0xb9`, `0xd3`, `0x4e` across five runs, drifting between runs and
+ * stable within one. A byte equal in both targets cannot be a blend result. The two destinations
+ * there differ by the whole range in blue, and under `GL_ONE, GL_ONE` the one with 255 in it
+ * saturates whatever the source is; 78 is not a value that blend can produce.
+ *
+ * That check's source blue is 0.0. This one drives the same two-export path twice - once with
+ * the blue set and once with it zero - so the two readings can be separated:
+ *
+ *   - a defined blue survives and a zero one does not: what reaches the export is the fault,
+ *     not the export, and the next question is which lane the second export reads.
+ *   - neither survives: the second export itself, and this file reproduces it from a shader
+ *     whose output it chooses, which is a far shorter loop than the fixed-function path.
+ *   - both survive: `front-and-back`'s fault is not the two-export path at all, and belongs to
+ *     GL 1.x's own colour path - which would retire a line of enquiry rather than open one.
+ *
+ * `glDrawBuffers(2, {GL_BACK, GL_FRONT})` is GL 2.0's way to the same place. The union of two
+ * distinct names is what `GL_FRONT_AND_BACK` names in one, and the list form is how a program
+ * asks for it without naming a buffer that covers more than one - which 4.2.1 refuses, and which
+ * `draw-buffers` above asserts is refused.
+ *
+ * **The front is the discriminator and the back is the control.** The front's destination blue
+ * is 0, so the source's blue arrives there intact and the two arms expect different values. The
+ * back's is 255, so it saturates in both arms and must read 255 either way - a back that reads
+ * anything else is the `front-and-back` fault reproduced here.
+ */
+static int check_two_draw_buffers(void) {
+    reset_view();
+    const GLuint p = use_program(VS_PASSTHROUGH,
+                                 "uniform vec4 c;\n"
+                                 "void main() { gl_FragColor = c; }\n");
+    if (!p) return 0;
+    const GLint pos = glGetAttribLocation(p, "pos");
+    const GLint kc = glGetUniformLocation(p, "c");
+    if (pos < 0 || kc < 0) return 0;
+
+    int ok = 1;
+    for (int arm = 0; arm < 2; arm++) {
+        /* 0.75 is 191 of 255, far from both destinations and from the drifting byte. */
+        const float src_b = (arm == 0) ? 0.75f : 0.0f;
+        const int want_b = (arm == 0) ? 191 : 0;
+        const char *const was_name =
+            (arm == 0) ? "two-draw-buffers/set-was" : "two-draw-buffers/zero-was";
+        const char *const got_name =
+            (arm == 0) ? "two-draw-buffers/set-got" : "two-draw-buffers/zero-got";
+
+        /* **Each destination drawn on its own**, so they differ in every channel the blend
+         * reads - and so the front's is a buffer this check put there rather than whatever the
+         * last one left. Alpha stays 1.0 throughout: the blended draw contributes none. */
+        glDisable(GL_BLEND);
+        glDrawBuffer(GL_BACK);
+        glUniform4f(kc, 0.0f, 0.0f, 1.0f, 1.0f);
+        attrib_rect(pos, -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+        glDrawBuffer(GL_FRONT);
+        glUniform4f(kc, 1.0f, 0.0f, 0.0f, 1.0f);
+        attrib_rect(pos, -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+        glDrawBuffer(GL_BACK);
+
+        /* Both destinations through the same reads the verdict uses, before the blended draw.
+         * If these are not red and blue the check never measured a blend, and the rows below
+         * say so rather than leaving it to be inferred. */
+        const uint32_t was_front = centre_of(GL_FRONT);
+        const uint32_t was_back = centre_of(GL_BACK);
+
+        const GLenum both[2] = {GL_BACK, GL_FRONT};
+        glDrawBuffers(2, both);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE);
+        glUniform4f(kc, 0.25f, 0.5f, src_b, 0.0f);
+        attrib_rect(pos, -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+        glDisable(GL_BLEND);
+        glDrawBuffer(GL_BACK);
+
+        const uint32_t front = centre_of(GL_FRONT);
+        const uint32_t back = centre_of(GL_BACK);
+
+        if (gl2_probe_saw) {
+            gl2_probe_saw(was_name, was_front, 0u, 0, was_back, 0u);
+            gl2_probe_saw(got_name, front, 0u, 0, back, 0u);
+        }
+
+        ok = ok && near_rgb(was_front, 255, 0, 0, 2) && near_rgb(was_back, 0, 0, 255, 2);
+        /* 0.25 and 0.5 are 64 and 128; the front adds them to red, the back to blue. */
+        ok = ok && near_rgb(front, 255, 128, want_b, 6);
+        ok = ok && near_rgb(back, 64, 128, 255, 6);
+    }
+
+    (void)scan_frame();
+    return ok && glGetError() == GL_NO_ERROR;
+}
+
 static int check_draw_is_deterministic(void) {
     reset_view();
     /* The same program drawn twice has to produce the same frame word for word. A shader whose
@@ -2108,6 +2225,7 @@ static const gl2_probe_case_t g_cases[] = {
     {"separate-stencil", check_separate_stencil},
     {"separate-blend-eq", check_separate_blend_equation},
     {"draw-buffers", check_draw_buffers},
+    {"two-draw-buffers", check_two_draw_buffers},
 };
 
 /* **The suite must fit in its callers' result array**, or the checks past the end are run by
