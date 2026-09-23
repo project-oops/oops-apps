@@ -2264,28 +2264,59 @@ static int check_loop_uniformity(void) {
     const int flat_bad = census_wrong(s, 64, 128, 64, 3);
     const uint32_t flat_mid = SCAN_PX(s, MID_X, MID_Y);
 
-    reset_view();
-    const GLuint b = use_program(
-        VS_PASSTHROUGH,
-        "void main() {\n"
-        "  float r = 0.0;\n"
-        "  for (int i = 0; i < 1; i++) { r += 0.25; }\n"
-        "  float g = 0.0;\n"
-        "  for (int j = 0; j < 4; j++) { g += 0.125; }\n"
-        "  float bl = 0.0;\n"
-        "  for (int k = 0; k < 8; k++) { if (k == 1) break; bl += 0.25; }\n"
-        "  gl_FragColor = vec4(r, g, bl, 1.0);\n"
-        "}\n");
-    if (!b) return 0;
-    attrib_rect(glGetAttribLocation(b, "pos"), -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
-    s = scan_frame();
-    const int loop_bad = census_wrong(s, 64, 128, 64, 3);
+    /*
+     * **One loop shape per arm**, because "a loop" is three different things to the generator and
+     * the first run could not say which. Every arm paints the same `(64, 128, 64)`; only the way
+     * one channel is arrived at changes, so a count that moves names the shape that moved it.
+     *
+     *   `once`   a loop that runs a single time - the trip count is 1 and nothing branches over
+     *   `count`  a plain counted loop, four iterations, no early exit
+     *   `break`  a counted loop left early, which is the one that touches the exec mask
+     *
+     * `break` is the suspect worth separating: leaving a loop early is lowered by masking lanes
+     * off, and a mask not fully restored before the colour export would leave lanes unwritten -
+     * which is what "this pixel never got the value" looks like from the outside.
+     */
+    static const struct { const char *name; const char *body; } ARMS[3] = {
+        {"loop-uniformity/once",
+         "  float r = 0.0;\n"
+         "  for (int i = 0; i < 1; i++) { r += 0.25; }\n"
+         "  gl_FragColor = vec4(r, 0.5, 0.25, 1.0);\n"},
+        {"loop-uniformity/count",
+         "  float g = 0.0;\n"
+         "  for (int j = 0; j < 4; j++) { g += 0.125; }\n"
+         "  gl_FragColor = vec4(0.25, g, 0.25, 1.0);\n"},
+        {"loop-uniformity/break",
+         "  float b = 0.0;\n"
+         "  for (int k = 0; k < 8; k++) { if (k == 1) break; b += 0.25; }\n"
+         "  gl_FragColor = vec4(0.25, 0.5, b, 1.0);\n"},
+    };
 
-    if (gl2_probe_saw) {
-        gl2_probe_saw("loop-uniformity/flat", flat_mid, 0u, flat_bad, 0u, 0u);
-        gl2_probe_saw("loop-uniformity/looped", SCAN_PX(s, MID_X, MID_Y), 0u, loop_bad, 0u, 0u);
+    int worst = 0;
+    for (int m = 0; m < 3; m++) {
+        char src[256];
+        int at = 0;
+        const char *head = "void main() {\n";
+        for (int c = 0; head[c] && at < 200; c++) src[at++] = head[c];
+        for (int c = 0; ARMS[m].body[c] && at < 250; c++) src[at++] = ARMS[m].body[c];
+        src[at++] = '}';
+        src[at++] = '\n';
+        src[at] = '\0';
+
+        reset_view();
+        const GLuint b = use_program(VS_PASSTHROUGH, src);
+        if (!b) return 0;
+        attrib_rect(glGetAttribLocation(b, "pos"), -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+        s = scan_frame();
+        const int bad = census_wrong(s, 64, 128, 64, 3);
+        if (bad > worst) worst = bad;
+        if (gl2_probe_saw) {
+            gl2_probe_saw(ARMS[m].name, SCAN_PX(s, MID_X, MID_Y), 0u, bad, 0u, 0u);
+        }
     }
-    return flat_bad == 0 && loop_bad == 0 && glGetError() == GL_NO_ERROR;
+
+    if (gl2_probe_saw) gl2_probe_saw("loop-uniformity/flat", flat_mid, 0u, flat_bad, 0u, 0u);
+    return flat_bad == 0 && worst == 0 && glGetError() == GL_NO_ERROR;
 }
 
 static int check_do_while(void) {
