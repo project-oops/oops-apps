@@ -126,9 +126,10 @@ static void saw(const char *name, uint32_t centre, unsigned int err, int drawn, 
     probe_klog(line);
 }
 
-/* **Three digits, because the suite is allowed a hundred and twenty-eight checks.** gl1-probe's
- * two-digit version would print 41/41 for a hundred and forty-one, which is the failure mode
- * that made `GL2_PROBE_MAX_CASES` exist in the first place. */
+/* **Three digits, because the suite is allowed a hundred and twenty-eight checks.** A two-digit
+ * printer says `41/41` for a hundred and forty-one, and `98/01` for ninety-eight of a hundred and
+ * one - which is not a hypothetical: gl1-probe printed exactly that on 2026-09-23 the first time
+ * its suite passed a hundred, and carries this printer now for the same reason. */
 static void report_total(int passed, int ran) {
     char line[80];
     int at = 0;

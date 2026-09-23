@@ -81,14 +81,23 @@ static void saw(const char *name, uint32_t centre) {
     probe_klog(line);
 }
 
+/* **Three digits, because the suite is allowed a hundred and twenty-eight checks** - the same
+ * printer gl2-probe has had since it was written, and for the reason that file's comment names.
+ * Two digits was right while the suite was short and became wrong the moment it was not: the
+ * 2026-09-23 13:08 run printed `98/01` for ninety-eight of a hundred and one, because `ran % 100`
+ * is 1. The count the verdict line carries is the one that gets read at a glance and quoted into
+ * a worklog, so it is worth the four characters. `GL1_PROBE_MAX_CASES` is 128 and statically
+ * asserted against `g_cases`, so three digits cannot themselves overflow. */
 static void report_total(int passed, int ran) {
     char line[64];
     int at = 0;
     const char *head = "gl1-probe: ";
     for (int i = 0; head[i]; i++) line[at++] = head[i];
+    line[at++] = (char)('0' + (passed / 100) % 10);
     line[at++] = (char)('0' + (passed / 10) % 10);
     line[at++] = (char)('0' + passed % 10);
     line[at++] = '/';
+    line[at++] = (char)('0' + (ran / 100) % 10);
     line[at++] = (char)('0' + (ran / 10) % 10);
     line[at++] = (char)('0' + ran % 10);
     const char *tail = " passed on hardware";
