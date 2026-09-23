@@ -4602,6 +4602,101 @@ static int check_tex_linear_stretch(void) {
     return 1;
 }
 
+/* **The sky draw, reproduced down to the texture unit.**
+ *
+ * `texture-unit1-alone` has covered unit 1 for a long time, with a 1x1 texture under GL_REPLACE -
+ * a texture of one texel cannot show a per-pixel artifact, because every texel in it is the same
+ * one. So the unit-1 path has only ever been exercised in the single configuration where the
+ * fault being chased is invisible by construction.
+ *
+ * The port draws its sky through unit 1 with unit 0 *disabled*, which is what a two-stage texture
+ * environment looks like: the first stage is staged but off, and the real texture is on the
+ * second. Everything else here is that draw's own state, taken from the log of it - a 16x128
+ * gradient, GL_LINEAR, GL_MODULATE, a white vertex colour, blending on, and no depth test,
+ * culling or lighting. On screen it comes back as two images interleaved a column at a time.
+ *
+ * The verdict is the same shape one `tex-linear-stretch` uses, and for the same reason: a
+ * magnified gradient must not change abruptly between neighbouring pixels. Interleaved columns
+ * fail that on every pair.
+ */
+static int check_tex_unit1_stretch(void) {
+    reset_view();
+
+    static GLubyte img[16 * 128 * 4];
+    for (int y = 0; y < 128; y++) {
+        for (int x = 0; x < 16; x++) {
+            GLubyte *t = img + (((size_t)y * 16u) + (size_t)x) * 4u;
+            t[0] = (GLubyte)(x * 17); /* 0..255 across the width */
+            t[1] = 64;
+            t[2] = (GLubyte)(y * 2);
+            t[3] = 255;
+        }
+    }
+
+    /* Unit 0: a texture environment set up and then switched off, exactly as the port's first
+     * stage is - so unit 1 is reached the way the port reaches it rather than on its own. */
+    glActiveTexture(GL_TEXTURE0);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE);
+    glDisable(GL_TEXTURE_2D);
+
+    glActiveTexture(GL_TEXTURE1);
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 16, 128, 0, GL_RGBA, GL_UNSIGNED_BYTE, img);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_LIGHTING);
+    glDepthMask(GL_FALSE);
+
+    /* The coordinate goes to unit 1, because that is the unit being sampled. */
+    glBegin(GL_QUADS);
+    glMultiTexCoord2f(GL_TEXTURE1, 0.0f, 0.0f); glVertex3f(-1.0f, -1.0f, 0.0f);
+    glMultiTexCoord2f(GL_TEXTURE1, 1.0f, 0.0f); glVertex3f( 1.0f, -1.0f, 0.0f);
+    glMultiTexCoord2f(GL_TEXTURE1, 1.0f, 1.0f); glVertex3f( 1.0f,  1.0f, 0.0f);
+    glMultiTexCoord2f(GL_TEXTURE1, 0.0f, 1.0f); glVertex3f(-1.0f,  1.0f, 0.0f);
+    glEnd();
+
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glDisable(GL_TEXTURE_2D);
+    glActiveTexture(GL_TEXTURE0);
+    if (glGetError() != GL_NO_ERROR) { glDeleteTextures(1, &tex); return 0; }
+
+    /* Twenty neighbouring pixels across the middle. Sixteen texels over PROBE_W pixels is eight
+     * pixels to a texel, so red climbs by about two per pixel; a jump of more than forty is a
+     * different image, not a gradient. */
+    int r[20];
+    for (int i = 0; i < 20; i++) {
+        r[i] = chan_r(px(PROBE_W / 4 + i, PROBE_H / 2));
+    }
+    glDeleteTextures(1, &tex);
+
+    int worst = 0;
+    for (int i = 1; i < 20; i++) {
+        int d = r[i] - r[i - 1];
+        if (d < 0) d = -d;
+        if (d > worst) worst = d;
+    }
+    if (gl1_probe_saw) {
+        gl1_probe_saw("tex-unit1/first3",
+                      ((uint32_t)r[0] << 16) | ((uint32_t)r[1] << 8) | (uint32_t)r[2]);
+        gl1_probe_saw("tex-unit1/worst-step", (uint32_t)worst);
+    }
+    return worst <= 40;
+}
+
 static int check_tex_state_leak(void) {
     g_readback_dirty = 1;
     const int ok = readback_at_width("tex-leak/w4", "tex-leak/w4-rgb", 4, 0, QUAD_IMMEDIATE);
@@ -4888,6 +4983,9 @@ static const gl1_probe_case_t g_cases[] = {
     {"tex-state-leak",   check_tex_state_leak},
     /* A magnified 4x128 gradient under GL_LINEAR: the port's sky, which no check here had. */
     {"tex-linear-stretch", check_tex_linear_stretch},
+    /* The same magnified gradient through unit 1 with unit 0 off - the port's own arrangement,
+     * and the one the existing unit-1 check cannot see a per-pixel fault in. */
+    {"tex-unit1-stretch", check_tex_unit1_stretch},
     {"tex-churn-ring",   check_tex_churn_ring},
     {"ps-ring-churn",    check_ps_ring_churn},
     /* **Last on purpose**, both of them: a check that can take the GPU down costs its own row
@@ -5076,11 +5174,22 @@ void gl1_probe_test_card(void) {
        The readings are taken on the first pass, before its swap, so they describe the frame this
        drew rather than whatever the second pass found. */
     for (int pass = 0; pass < 2; pass++) {
-        /* Six rows: five flat, then the ramp. */
+        /* **The two passes are deliberately different now.** Painting both buffers with the same
+           image was meant to stop a stale one showing through, and it also made this card unable
+           to see the one thing a two-buffer display can get wrong: presenting both at once. The
+           port's buffers differ on every frame and its sky comes back as two complete images
+           interleaved a column at a time, which is what that would look like; this card's did
+           not differ at all, so it could not have shown it.
+           Pass 0 paints the bands as described, pass 1 paints their complement. One of them is
+           on screen afterwards and it must be *one* - any mixture of the two, in columns or
+           otherwise, is the display serving both. */
         for (int i = 0; i < 5; i++) {
             const float y1 = 1.0f - (float)i * (2.0f / 6.0f);
             const float y0 = 1.0f - (float)(i + 1) * (2.0f / 6.0f);
-            draw_rect(-1.0f, y0, 1.0f, y1, band[i][0], band[i][1], band[i][2]);
+            const float r = pass ? 1.0f - band[i][0] : band[i][0];
+            const float g = pass ? 1.0f - band[i][1] : band[i][1];
+            const float b = pass ? 1.0f - band[i][2] : band[i][2];
+            draw_rect(-1.0f, y0, 1.0f, y1, r, g, b);
         }
         /* The ramp, as one smooth-shaded quad rather than steps - a band boundary this draws
            itself would be indistinguishable from one the display introduced. */
