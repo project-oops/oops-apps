@@ -2757,18 +2757,48 @@ static int check_point_coord(void) {
  *
  * So map it over the **whole 128x96 region** rather than the interior box - the box was drawn to
  * dodge a border that this draw does not have, and cutting the picture down is how a shape gets
- * missed. One known-dirty shader (`if (k < 1) x += 0.25` over eight trips, which should leave
- * 0.25 and leaves 2.0 saturated where it fails), profiled three ways:
+ * missed. One known-dirty shader: `if (k < 1) x += 0.25` over eight trips, which should leave
+ * 0.25 and leaves 2.0 saturated where it fails.
  *
- *   `rows`   one bit per scan row that holds any wrong pixel, 96 of them across three words
- *   `cols`   one bit per scan column that holds any wrong pixel, 128 across four
- *   `row40`  one row's full 128-bit profile, so a row that is partly wrong can be told from one
- *            that is wholly wrong - the two look identical in the summaries above
- *
- * A clean split in `rows` with `cols` all set means horizontal banding; the reverse means
- * vertical; both dense with `row40` patchy means neither, and the shape is in the tiling.
+ * **Classifying the wrong pixels answered one question and closed a line of enquiry.** Sorting
+ * them into saturated, never-drawn and neither returned 6015, 0 and 0. Nothing is uncovered -
+ * this draw is a full-region quad, so there was never a coverage pixel to confuse with a
+ * computed one, and the interior box's border problem was never this arm's. What it did settle
+ * is that the failure has exactly one value, so the region is a binary image and a bitmap is
+ * the honest way to carry it.
  */
-static int check_loop_spatial(void) {
+#define LS_WORDS (PROBE_W * PROBE_H / 32) /* 12,288 pixels, one bit each */
+
+static uint32_t g_ls_a[LS_WORDS];
+static uint32_t g_ls_b[LS_WORDS];
+
+/* One draw of the known-dirty shader, reduced to a bitmap: set means saturated. Returns the
+ * number of bits set, or -1 if any pixel held a third value - which would mean the failure has
+ * more than one outcome and a one-bit map is the wrong instrument. */
+static int ls_build(uint32_t *map) {
+    const uint32_t *const s = scan_frame();
+    int n = 0;
+    for (int i = 0; i < LS_WORDS; i++) map[i] = 0u;
+    for (int y = 0; y < PROBE_H; y++) {
+        for (int x = 0; x < PROBE_W; x++) {
+            const uint32_t c = SCAN_PX(s, x, y);
+            if (near_rgb(c, 64, 128, 64, 3)) continue;
+            if (!near_rgb(c, 64, 128, 255, 3)) return -1;
+            const int bit = y * PROBE_W + x;
+            map[bit >> 5] |= 1u << (bit & 31);
+            n++;
+        }
+    }
+    return n;
+}
+
+static int ls_popcount(uint32_t v) {
+    int n = 0;
+    while (v) { v &= v - 1u; n++; }
+    return n;
+}
+
+static int ls_draw(void) {
     reset_view();
     const GLuint p = use_program(VS_PASSTHROUGH,
                                  "void main() {\n"
@@ -2778,56 +2808,65 @@ static int check_loop_spatial(void) {
                                  "}\n");
     if (!p) return 0;
     attrib_rect(glGetAttribLocation(p, "pos"), -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
-    const uint32_t *const s = scan_frame();
+    return 1;
+}
 
+static int check_loop_spatial(void) {
     /*
-     * **Counting "wrong" merged two different things, and the first map showed it.**
+     * **Stop inferring the shape from its margins and print the map.**
      *
-     * `census_wrong` asks only whether a pixel differs from the expected colour, which is the
-     * same answer for a pixel the draw never covered (still the reset colour) and a pixel the
-     * shader computed wrongly (blue saturated). Over the interior box that did not matter;
-     * over the whole region it does, and the mixture is what made the first map incoherent -
-     * every row and every column dirty, yet row 40 holding just six wrong pixels.
+     * Three summaries - which rows hold a wrong pixel, which columns, and one row's full
+     * profile - described a picture that cannot exist: 6015 of 12288 saturated, every column
+     * dirty, all but four rows dirty, and row 40 holding six pixels in a run at x=74..79. At
+     * 49% density a typical row should hold about sixty. Marginals cannot separate that from a
+     * dozen other arrangements, and each new summary has only added a constraint rather than an
+     * answer, so this dumps all 384 words and lets the shape be looked at directly.
      *
-     * So classify instead of count. `saturated` is the fault - blue at 255 where 64 was wanted,
-     * which is the `+=` having run all eight trips. `background` is coverage, not computation.
-     * `other` is neither and would mean the failure has more than one value, which nothing so
-     * far suggests and everything so far would have hidden.
+     * **And first, whether there is a shape at all.** The same draw runs twice and the two
+     * bitmaps are compared. If the fault is a property of a pixel's position, the maps are
+     * identical and `differ` is 0. If it depends on which wave a fragment landed in and how
+     * that wave was scheduled, they will not be - and every map drawn so far has been noise,
+     * which would explain an incoherence that no amount of extra summarising has resolved.
+     * That is the arm's own falsifier: a `differ` above zero says the previous three runs were
+     * measuring scheduling, not geometry.
      *
-     * The row and column masks now track **only the saturated pixels**, so the shape they draw
-     * is the fault's and not the draw's.
+     * A third pixel value would make the one-bit map wrong, so `ls_build` refuses rather than
+     * quietly folding it in - the mistake the count-everything-that-differs version made.
      */
-    uint32_t rows[3] = {0u, 0u, 0u};
-    uint32_t cols[4] = {0u, 0u, 0u, 0u};
-    uint32_t row40[4] = {0u, 0u, 0u, 0u};
-    int saturated = 0, background = 0, other = 0;
-    for (int y = 0; y < PROBE_H; y++) {
-        for (int x = 0; x < PROBE_W; x++) {
-            const uint32_t c = SCAN_PX(s, x, y);
-            if (near_rgb(c, 64, 128, 64, 3)) continue;
-            if (near_rgb(c, 64, 128, 255, 3)) {
-                saturated++;
-                rows[y >> 5] |= 1u << (y & 31);
-                cols[x >> 5] |= 1u << (x & 31);
-                if (y == 40) row40[x >> 5] |= 1u << (x & 31);
-            } else if (c == PROBE_BG) {
-                background++;
-            } else {
-                other++;
+    if (!ls_draw()) return 0;
+    const int a = ls_build(g_ls_a);
+    if (!ls_draw()) return 0;
+    const int b = ls_build(g_ls_b);
+
+    int differ = 0, first = -1;
+    if (a >= 0 && b >= 0) {
+        for (int i = 0; i < LS_WORDS; i++) {
+            const uint32_t d = g_ls_a[i] ^ g_ls_b[i];
+            if (d && first < 0) {
+                int t = 0;
+                while (!((d >> t) & 1u)) t++;
+                first = i * 32 + t;
             }
+            differ += ls_popcount(d);
         }
     }
+
     if (gl2_probe_saw) {
-        /* `saw` the saturated count, `L` the background count, `R` anything else. */
-        gl2_probe_saw("loop-spatial/kinds", (uint32_t)saturated, 0u, 0, (uint32_t)background,
-                      (uint32_t)other);
-        gl2_probe_saw("loop-spatial/rows", rows[0], 0u, saturated, rows[1], rows[2]);
-        gl2_probe_saw("loop-spatial/cols", cols[0], 0u, 0, cols[1], cols[2]);
-        gl2_probe_saw("loop-spatial/cols3", cols[3], 0u, 0, row40[0], row40[1]);
-        gl2_probe_saw("loop-spatial/row40", row40[2], 0u, 0, row40[3],
-                      SCAN_PX(s, MID_X, MID_Y));
+        /* `saw` the first draw's count, `drawn` the second's, `L` how many pixels changed
+         * between them and `R` the first that did - so a stable map and a scheduled one are
+         * told apart before any of the words below are read. */
+        gl2_probe_saw("loop-spatial/pass2", (uint32_t)(a < 0 ? -1 : a), 0u, b < 0 ? 0 : b,
+                      (uint32_t)differ, (uint32_t)first);
+        /* The map itself: 384 words, three to a line, `err` and `drawn` both carrying the line's
+         * index so the dump can be reassembled from a log that interleaved with something else.
+         * Only when the fault is present - a correct implementation stays quiet. */
+        if (a > 0) {
+            for (int i = 0; i < LS_WORDS / 3; i++)
+                gl2_probe_saw("loop-spatial/map", g_ls_a[i * 3], (unsigned int)i, i,
+                              g_ls_a[i * 3 + 1], g_ls_a[i * 3 + 2]);
+        }
     }
-    return saturated == 0 && other == 0 && glGetError() == GL_NO_ERROR;
+    return a == 0 && b == 0 && glGetError() == GL_NO_ERROR;
 }
 
 /*
