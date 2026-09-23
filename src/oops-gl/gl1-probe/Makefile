@@ -15,10 +15,14 @@ EXTRA_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 # this app's link the next time it is built.
 GL_SRCS = $(OOPS_GL_SRCS)
 
+# `fs.c` because `system.c` reaches into it for the log's disk sink; the payload link has always
+# had it, and only the host self-test had to be told.
 HOST_TEST_SRCS = gl1_probe_selftest.c \
                  gl1_probe.c \
                  $(GL_SRCS) \
                  $(OOPS_SDK_DIR)/src/system/system.c \
+                 $(OOPS_SDK_DIR)/src/system/fs.c \
+                 $(OOPS_SDK_DIR)/src/memory/heap.c \
                  $(OOPS_SDK_DIR)/src/system/freestd.c
 HOST_TEST_LIBS = -lm
 

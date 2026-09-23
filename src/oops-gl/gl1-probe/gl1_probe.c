@@ -4248,7 +4248,71 @@ static int check_limits_reported(void) {
  * wrong channel together shows up as a specific wrong number rather than as "not what we
  * expected". Blue is the clearest of the three - the texture holds 128 everywhere, so the
  * framebuffer must hold 32, and 64 or 128 coming back names which vertex channel reached it. */
-static int readback_at_width(const char *name, const char *name_rgb, int w, int modulate) {
+/* **The same quad, submitted the three ways a program can submit one.**
+ *
+ * Every textured check in this suite draws with glBegin/glEnd, and the port draws everything
+ * through vertex arrays backed by buffer objects. `vertex-arrays` and `buffer-objects` exist here
+ * but neither has ever bound a texture, so "a textured draw through an array" - which is what a
+ * real title does for every triangle it has - was untested in both halves at once.
+ *
+ * The texture coordinate is the reason to care. `glTexCoordPointer(2, ...)` supplies s and t and
+ * leaves the array path to default q to 1, and the textured shader divides s and t by q at every
+ * fragment. A q that arrives as zero makes a coordinate that explodes per pixel, which is a
+ * surface of fine noise rather than a stretched image - and immediate mode, where glTexCoord2f
+ * sets q itself, would never show it.
+ */
+enum { QUAD_IMMEDIATE = 0, QUAD_ARRAY = 1, QUAD_VBO = 2 };
+
+static const GLfloat g_quad_pos[12] = {
+    -1.0f, -1.0f, 0.0f,  1.0f, -1.0f, 0.0f,  1.0f, 1.0f, 0.0f,  -1.0f, 1.0f, 0.0f,
+};
+static const GLfloat g_quad_tc[8] = {
+    0.0f, 0.0f,  1.0f, 0.0f,  1.0f, 1.0f,  0.0f, 1.0f,
+};
+
+static void draw_unit_quad(int via) {
+    if (via == QUAD_IMMEDIATE) {
+        glBegin(GL_QUADS);
+        glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, -1.0f, 0.0f);
+        glTexCoord2f(1.0f, 0.0f); glVertex3f( 1.0f, -1.0f, 0.0f);
+        glTexCoord2f(1.0f, 1.0f); glVertex3f( 1.0f,  1.0f, 0.0f);
+        glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f,  1.0f, 0.0f);
+        glEnd();
+        return;
+    }
+    if (via == QUAD_ARRAY) {
+        glEnableClientState(GL_VERTEX_ARRAY);
+        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+        glVertexPointer(3, GL_FLOAT, 0, g_quad_pos);
+        glTexCoordPointer(2, GL_FLOAT, 0, g_quad_tc); /* two components: q is the array's to default */
+        glDrawArrays(GL_QUADS, 0, 4);
+        glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+        glDisableClientState(GL_VERTEX_ARRAY);
+        return;
+    }
+    /* The same again out of buffer objects, which is what the port actually does - the pointer
+     * arguments below are offsets into the bound buffer, not addresses. */
+    GLuint vb = 0, tb = 0;
+    glGenBuffers(1, &vb);
+    glGenBuffers(1, &tb);
+    glBindBuffer(GL_ARRAY_BUFFER, vb);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)sizeof(g_quad_pos), g_quad_pos, GL_STATIC_DRAW);
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(3, GL_FLOAT, 0, (const GLvoid *)0);
+    glBindBuffer(GL_ARRAY_BUFFER, tb);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)sizeof(g_quad_tc), g_quad_tc, GL_STATIC_DRAW);
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+    glTexCoordPointer(2, GL_FLOAT, 0, (const GLvoid *)0);
+    glDrawArrays(GL_QUADS, 0, 4);
+    glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glDisableClientState(GL_VERTEX_ARRAY);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glDeleteBuffers(1, &vb);
+    glDeleteBuffers(1, &tb);
+}
+
+static int readback_at_width(const char *name, const char *name_rgb, int w, int modulate,
+                             int via) {
     reset_view();
 
     /* Red spread across the full range so neighbouring columns cannot be confused at 8 bits;
@@ -4290,12 +4354,7 @@ static int readback_at_width(const char *name, const char *name_rgb, int w, int 
         glColor3f(1.0f, 1.0f, 1.0f);
     }
 
-    glBegin(GL_QUADS);
-    glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, -1.0f, 0.0f);
-    glTexCoord2f(1.0f, 0.0f); glVertex3f( 1.0f, -1.0f, 0.0f);
-    glTexCoord2f(1.0f, 1.0f); glVertex3f( 1.0f,  1.0f, 0.0f);
-    glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f,  1.0f, 0.0f);
-    glEnd();
+    draw_unit_quad(via);
     glDisable(GL_TEXTURE_2D);
     if (glGetError() != GL_NO_ERROR) { glDeleteTextures(1, &tex); return 0; }
 
@@ -4385,13 +4444,23 @@ static int readback_at_width(const char *name, const char *name_rgb, int w, int 
 }
 
 static int check_tex_readback_w4(void) {
-    return readback_at_width("tex-readback/w4", "tex-readback/w4-rgb", 4, 0);
+    return readback_at_width("tex-readback/w4", "tex-readback/w4-rgb", 4, 0, QUAD_IMMEDIATE);
 }
 static int check_tex_readback_w16(void) {
-    return readback_at_width("tex-readback/w16", "tex-readback/w16-rgb", 16, 0);
+    return readback_at_width("tex-readback/w16", "tex-readback/w16-rgb", 16, 0, QUAD_IMMEDIATE);
 }
 static int check_tex_readback_w64(void) {
-    return readback_at_width("tex-readback/w64", "tex-readback/w64-rgb", 64, 0);
+    return readback_at_width("tex-readback/w64", "tex-readback/w64-rgb", 64, 0, QUAD_IMMEDIATE);
+}
+/* **The same texture and the same verification, submitted the way a title submits.** Width 4
+ * deliberately: the immediate-mode run at this width already passes on hardware, so a failure
+ * here is the submission path and cannot be the pitch. It is also the width of every gradient
+ * the port stretches across its sky, which is the surface that renders as noise. */
+static int check_tex_array_draw(void) {
+    return readback_at_width("tex-array/w4", "tex-array/w4-rgb", 4, 0, QUAD_ARRAY);
+}
+static int check_tex_vbo_draw(void) {
+    return readback_at_width("tex-vbo/w4", "tex-vbo/w4-rgb", 4, 0, QUAD_VBO);
 }
 /* **At 64 on purpose**, which is the width whose rows are already 256-byte aligned and whose
  * descriptor therefore carries no custom pitch. Running the combine over the one texture shape
@@ -4399,7 +4468,7 @@ static int check_tex_readback_w64(void) {
  * with `tex-readback-w64` passing over the identical image under GL_REPLACE, the pair says which
  * of the two halves of the reported fault is real. */
 static int check_tex_readback_modulate(void) {
-    return readback_at_width("tex-readback/mod", "tex-readback/mod-rgb", 64, 1);
+    return readback_at_width("tex-readback/mod", "tex-readback/mod-rgb", 64, 1, QUAD_IMMEDIATE);
 }
 
 /* **Past the end of both rings, which is where this port lives and the suite does not.**
@@ -4660,6 +4729,15 @@ static const gl1_probe_case_t g_cases[] = {
      * was sampled wrongly from one that was sampled correctly and coloured wrongly. */
     {"tex-readback-modulate", check_tex_readback_modulate},
     /* The two caches nothing else here reaches the end of, and the port does on every frame. */
+    /* The same textured quad an array and a buffer object at a time - the way every triangle in
+     * a real title arrives, and the one submission path no textured check here had used.
+     *
+     * **Ahead of the two churn checks, not after them.** `ps-ring-churn` hung on 2026-09-23
+     * having passed on the run before it, waiting on a fence that never signalled, and took
+     * these two unrun with it - which is the same way `multitexture` cost thirty-nine rows on
+     * 2026-09-20. A check that has hung once is a check everything else goes in front of. */
+    {"tex-array-draw",   check_tex_array_draw},
+    {"tex-vbo-draw",     check_tex_vbo_draw},
     {"tex-churn-ring",   check_tex_churn_ring},
     {"ps-ring-churn",    check_ps_ring_churn},
     /* **Last on purpose**, both of them: a check that can take the GPU down costs its own row
