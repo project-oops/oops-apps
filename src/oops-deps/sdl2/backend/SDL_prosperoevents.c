@@ -35,6 +35,68 @@
 #include "oops/mouse.h"
 #include "oops/system.h"
 
+/*
+ * **The character a key press stands for, so that typing works and not just key handling.**
+ *
+ * This backend sent `SDL_SendKeyboardKey` and nothing else, which gives a program every
+ * `SDL_KEYDOWN` it could want and no `SDL_TEXTINPUT` at all. A program that reads keys directly
+ * never notices; a program that expects the text of what was typed gets an empty string for
+ * ever. Neverball is the second kind - `SDL_StartTextInput` in share/text.c:106, `SDL_TEXTINPUT`
+ * in ball/main.c:246 - so its name entry could not be completed, `CONFIG_PLAYER` stayed empty,
+ * and `st_title` sent every press of Play to the name screen and every press of Enter there
+ * back to the menu. From the sofa that is a menu that will not start a game.
+ *
+ * `SDL_SendKeyboardText` needs nothing from this backend beyond being called: it posts
+ * `SDL_TEXTINPUT` whenever the event is enabled, which `SDL_StartTextInput` does on its own
+ * without a `StartTextInput` hook, and it drops unprintable characters itself
+ * (SDL_keyboard.c:1042-1050).
+ *
+ * **US layout, and that is a limitation rather than a decision.** The platform hands over an HID
+ * usage and a modifier mask, not a character, so the layout has to be applied here and there is
+ * only one written down. A keyboard set to another layout types the wrong punctuation. Caps
+ * lock is not represented in the modifier mask at all, so it does nothing; shift does the work.
+ * Both are worth fixing when something needs them, and neither stops a name being entered.
+ */
+static char prospero_key_char(SDL_Scancode sc, uint8_t mods)
+{
+    const int shift = (mods & OOPS_KMOD_SHIFT) != 0;
+
+    if (sc >= SDL_SCANCODE_A && sc <= SDL_SCANCODE_Z) {
+        return (char)((shift ? 'A' : 'a') + (int)(sc - SDL_SCANCODE_A));
+    }
+    /* SDL orders these 1..9 then 0, which is the order the row is in and not the digits'. */
+    if (sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_0) {
+        static const char plain[] = "1234567890";
+        static const char upper[] = "!@#$%^&*()";
+        return (shift ? upper : plain)[sc - SDL_SCANCODE_1];
+    }
+    if (sc >= SDL_SCANCODE_KP_1 && sc <= SDL_SCANCODE_KP_0) {
+        static const char kp[] = "1234567890";
+        return kp[sc - SDL_SCANCODE_KP_1];
+    }
+
+    switch (sc) {
+    case SDL_SCANCODE_SPACE:        return ' ';
+    case SDL_SCANCODE_MINUS:        return shift ? '_' : '-';
+    case SDL_SCANCODE_EQUALS:       return shift ? '+' : '=';
+    case SDL_SCANCODE_LEFTBRACKET:  return shift ? '{' : '[';
+    case SDL_SCANCODE_RIGHTBRACKET: return shift ? '}' : ']';
+    case SDL_SCANCODE_BACKSLASH:    return shift ? '|' : '\\';
+    case SDL_SCANCODE_SEMICOLON:    return shift ? ':' : ';';
+    case SDL_SCANCODE_APOSTROPHE:   return shift ? '"' : '\'';
+    case SDL_SCANCODE_GRAVE:        return shift ? '~' : '`';
+    case SDL_SCANCODE_COMMA:        return shift ? '<' : ',';
+    case SDL_SCANCODE_PERIOD:       return shift ? '>' : '.';
+    case SDL_SCANCODE_SLASH:        return shift ? '?' : '/';
+    case SDL_SCANCODE_KP_DIVIDE:    return '/';
+    case SDL_SCANCODE_KP_MULTIPLY:  return '*';
+    case SDL_SCANCODE_KP_MINUS:     return '-';
+    case SDL_SCANCODE_KP_PLUS:      return '+';
+    case SDL_SCANCODE_KP_PERIOD:    return '.';
+    default:                        return '\0';
+    }
+}
+
 static void PROSPERO_PumpKeyboard(PROSPERO_VideoData *data)
 {
     oops_key_event_t events[OOPS_MAX_KEY_EVENTS];
@@ -55,6 +117,15 @@ static void PROSPERO_PumpKeyboard(PROSPERO_VideoData *data)
         scancode = (SDL_Scancode)events[i].usage;
         SDL_SendKeyboardKey(events[i].transition == OOPS_KEY_DOWN ? SDL_PRESSED : SDL_RELEASED,
                             scancode);
+
+        /* And the text it stands for, on the press only - a release types nothing. */
+        if (events[i].transition == OOPS_KEY_DOWN) {
+            const char c = prospero_key_char(scancode, events[i].modifiers);
+            if (c != '\0') {
+                const char text[2] = {c, '\0'};
+                SDL_SendKeyboardText(text);
+            }
+        }
     }
     (void)data;
 }

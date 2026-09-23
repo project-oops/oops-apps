@@ -5648,6 +5648,14 @@ const char *gl1_probe_case_name(int i) {
 }
 
 int gl1_probe_run(gl1_probe_result_t *out, int max) {
+    /* **A diagnostic asks for the diagnostics.** The per-frame and per-submit counters are off
+       by default since 2026-09-24, because a title submitting thirty times a frame writes them
+       thousands of times a second and buries everything else in the log - which is how an
+       evening went looking for a title's own messages under them. This suite is the tool those
+       counters exist for, so it turns them on. */
+#ifndef OOPS_HOST_BUILD
+    oops_gl_set_log_level(OOPS_GL_LOG_FRAMES);
+#endif
     g_disp = oops_display_open(OOPS_DISPLAY_BACKEND_AUTO, PROBE_DISPLAY_W, PROBE_DISPLAY_H);
     if (!g_disp) return -1;
     /* **A display that could not open is returned, not hidden** - `oops/display.h` says so, and
