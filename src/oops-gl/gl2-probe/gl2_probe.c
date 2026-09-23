@@ -2780,27 +2780,54 @@ static int check_loop_spatial(void) {
     attrib_rect(glGetAttribLocation(p, "pos"), -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
     const uint32_t *const s = scan_frame();
 
+    /*
+     * **Counting "wrong" merged two different things, and the first map showed it.**
+     *
+     * `census_wrong` asks only whether a pixel differs from the expected colour, which is the
+     * same answer for a pixel the draw never covered (still the reset colour) and a pixel the
+     * shader computed wrongly (blue saturated). Over the interior box that did not matter;
+     * over the whole region it does, and the mixture is what made the first map incoherent -
+     * every row and every column dirty, yet row 40 holding just six wrong pixels.
+     *
+     * So classify instead of count. `saturated` is the fault - blue at 255 where 64 was wanted,
+     * which is the `+=` having run all eight trips. `background` is coverage, not computation.
+     * `other` is neither and would mean the failure has more than one value, which nothing so
+     * far suggests and everything so far would have hidden.
+     *
+     * The row and column masks now track **only the saturated pixels**, so the shape they draw
+     * is the fault's and not the draw's.
+     */
     uint32_t rows[3] = {0u, 0u, 0u};
     uint32_t cols[4] = {0u, 0u, 0u, 0u};
     uint32_t row40[4] = {0u, 0u, 0u, 0u};
-    int total = 0;
+    int saturated = 0, background = 0, other = 0;
     for (int y = 0; y < PROBE_H; y++) {
         for (int x = 0; x < PROBE_W; x++) {
-            if (near_rgb(SCAN_PX(s, x, y), 64, 128, 64, 3)) continue;
-            total++;
-            rows[y >> 5] |= 1u << (y & 31);
-            cols[x >> 5] |= 1u << (x & 31);
-            if (y == 40) row40[x >> 5] |= 1u << (x & 31);
+            const uint32_t c = SCAN_PX(s, x, y);
+            if (near_rgb(c, 64, 128, 64, 3)) continue;
+            if (near_rgb(c, 64, 128, 255, 3)) {
+                saturated++;
+                rows[y >> 5] |= 1u << (y & 31);
+                cols[x >> 5] |= 1u << (x & 31);
+                if (y == 40) row40[x >> 5] |= 1u << (x & 31);
+            } else if (c == PROBE_BG) {
+                background++;
+            } else {
+                other++;
+            }
         }
     }
     if (gl2_probe_saw) {
-        gl2_probe_saw("loop-spatial/rows", rows[0], 0u, total, rows[1], rows[2]);
+        /* `saw` the saturated count, `L` the background count, `R` anything else. */
+        gl2_probe_saw("loop-spatial/kinds", (uint32_t)saturated, 0u, 0, (uint32_t)background,
+                      (uint32_t)other);
+        gl2_probe_saw("loop-spatial/rows", rows[0], 0u, saturated, rows[1], rows[2]);
         gl2_probe_saw("loop-spatial/cols", cols[0], 0u, 0, cols[1], cols[2]);
         gl2_probe_saw("loop-spatial/cols3", cols[3], 0u, 0, row40[0], row40[1]);
         gl2_probe_saw("loop-spatial/row40", row40[2], 0u, 0, row40[3],
                       SCAN_PX(s, MID_X, MID_Y));
     }
-    return total == 0 && glGetError() == GL_NO_ERROR;
+    return saturated == 0 && other == 0 && glGetError() == GL_NO_ERROR;
 }
 
 /*
