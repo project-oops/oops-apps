@@ -2291,10 +2291,24 @@ static int check_loop_uniformity(void) {
      * stays with the position in the sequence is the scanning. Whichever it is, one run says so.
      */
     static const struct { const char *name; const char *body; } ARMS[6] = {
+        /*
+         * **This arm added `0.0` until 2026-09-24, which made it unable to fail.**
+         *
+         * `b += 0.0` gives the same answer whether the loop runs once or eight times, so the arm
+         * reported clean and I read that as "a divergent break is fine". It was not evidence of
+         * anything. That is the second insensitive arm in this file inside a day - the first was
+         * a `GL_SRC_ALPHA` blend at alpha 1.0, which reduces to a copy - and both times the
+         * useless arm was the one that made the story tidy.
+         *
+         * It accumulates for real now. Every lane in the interior has `gl_FragCoord.x` well
+         * above 8, so no lane breaks before the last trip and all eight adds land: `0.03125 * 8`
+         * is 0.25, the same value every other arm expects. The divergence is in the *condition*
+         * being per-pixel, which is what this is here to vary, not in the count.
+         */
         {"loop-uniformity/break-divergent",
          "  float b = 0.0;\n"
-         "  for (int k = 0; k < 8; k++) { if (float(k) > gl_FragCoord.x) break; b += 0.0; }\n"
-         "  gl_FragColor = vec4(0.25, 0.5, 0.25 + b, 1.0);\n"},
+         "  for (int k = 0; k < 8; k++) { if (float(k) > gl_FragCoord.x) break; b += 0.03125; }\n"
+         "  gl_FragColor = vec4(0.25, 0.5, b, 1.0);\n"},
         /*
          * **Does the counter advance?** Both failing arms read blue 255, which is `b += 0.25`
          * having run all eight trips - and that is what happens for *opposite* conditions
