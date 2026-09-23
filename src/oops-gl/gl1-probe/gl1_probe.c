@@ -4208,6 +4208,136 @@ static int check_limits_reported(void) {
     return 1;
 }
 
+/* **What the sampler actually fetched**, which no other check here asks.
+ *
+ * `texture` next door draws a 2x2 and requires its four quadrants to come back distinct. That
+ * passes for a sampler reading the right texture at the wrong stride, because wrong rows are
+ * still four different colours - and a port whose textures render as smooth, wrongly-coloured
+ * surfaces is exactly the case it cannot see. The difference between "the bytes in memory are
+ * right" and "the sampler read the bytes in memory" has cost several hardware runs, and until
+ * now the only instrument for it was a photograph of a television.
+ *
+ * So each texel is given an identity and the identity is read back out of the framebuffer.
+ * Red carries the column and green the row, which separates the two failures that look alike on
+ * a screen: a texture addressed at the wrong pitch comes back with the wrong *row* while its
+ * columns stay in order, and one addressed at the wrong width comes back with the wrong column.
+ *
+ * The widths are the ones the 64-pixel rule divides. `ADDR_SW_LINEAR` aligns a row to 256 bytes,
+ * so a 4-wide RGBA texture occupies rows 64 texels apart with 60 texels of padding, while a
+ * 64-wide one has no padding at all and needs no custom pitch in its descriptor. 64 is therefore
+ * the control: if it passes and 4 fails, the pitch is the answer and nothing else is.
+ *
+ * Orientation is deliberately not asserted - which screen band holds which texel row depends on
+ * a convention `texture` also declines to pin down, and gl-cube owns that question. What is
+ * asserted is that the mapping is a bijection: four bands, four distinct rows. A sampler that
+ * collapses them all onto row 0, which is what reading a 4-wide texture at a 4-texel stride
+ * does, fails that however the image is flipped.
+ */
+static int readback_at_width(const char *name, int w) {
+    reset_view();
+
+    /* Red spread across the full range so neighbouring columns cannot be confused at 8 bits;
+     * green on 64-unit centres, which decodes by a shift and tolerates any rounding a blend or a
+     * format conversion could introduce; blue constant, as the witness that this is our texture
+     * being read at all rather than the background or whatever the allocator left. */
+    static GLubyte texels[64 * 4 * 4];
+    for (int y = 0; y < 4; y++) {
+        for (int x = 0; x < w; x++) {
+            GLubyte *t = texels + (((size_t)y * (size_t)w) + (size_t)x) * 4u;
+            t[0] = (GLubyte)((x * 252) / (w - 1));
+            t[1] = (GLubyte)(32 + y * 64);
+            t[2] = 128;
+            t[3] = 255;
+        }
+    }
+
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, texels);
+    /* NEAREST both ways and clamped: every sample must land on one texel and return it whole,
+     * so that a value between two texels is a failure rather than a filter doing its job. */
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glEnable(GL_TEXTURE_2D);
+    /* GL_REPLACE, so the texel reaches the framebuffer unmultiplied - under GL_MODULATE a wrong
+     * vertex colour would be indistinguishable from a wrong texel, and the combine is a separate
+     * question with its own checks. */
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glColor3f(1.0f, 1.0f, 1.0f);
+
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, -1.0f, 0.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f( 1.0f, -1.0f, 0.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f( 1.0f,  1.0f, 0.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f,  1.0f, 0.0f);
+    glEnd();
+    glDisable(GL_TEXTURE_2D);
+    if (glGetError() != GL_NO_ERROR) { glDeleteTextures(1, &tex); return 0; }
+
+    /* Three columns and four bands, each sampled at its centre: the quad covers the viewport, so
+     * band b spans t in [b/4, (b+1)/4) and its centre lands squarely inside texel row b. */
+    int row_of_band[4];
+    int r_first[4], r_last[4];
+    int blue_ok = 1;
+    for (int b = 0; b < 4; b++) {
+        const int y = (b * 2 + 1) * PROBE_H / 8;
+        int g_seen = -1, ok = 1;
+        int rs[3];
+        for (int k = 0; k < 3; k++) {
+            const uint32_t c = px((k * 2 + 1) * PROBE_W / 6, y);
+            rs[k] = chan_r(c);
+            if (chan_b(c) < 112 || chan_b(c) > 144) blue_ok = 0;
+            const int g = chan_g(c);
+            /* Decode the row this texel came from, and refuse a green that is not one of the
+             * four the texture holds - an interpolated or invented value is not a row. */
+            const int idx = g / 64;
+            if (idx < 0 || idx > 3) { ok = 0; }
+            else if (g - (32 + idx * 64) > 16 || (32 + idx * 64) - g > 16) { ok = 0; }
+            else if (g_seen < 0) { g_seen = idx; }
+            else if (g_seen != idx) { ok = 0; } /* the row changed along a row: a skewed read */
+        }
+        row_of_band[b] = ok ? g_seen : 0xf;
+        r_first[b] = rs[0];
+        r_last[b] = rs[2];
+    }
+    glDeleteTextures(1, &tex);
+
+    /* One word carrying the whole result, so a failure on the console says what it saw instead
+     * of only that it failed: a nibble per band holding the texture row that band sampled. 0x0123
+     * and 0x3210 are the two correct answers; 0x0000 is every band reading row 0, which is what a
+     * 4-wide texture read at a 4-texel stride gives; 0xf marks a green that was not a row. */
+    if (gl1_probe_saw) {
+        gl1_probe_saw(name, ((uint32_t)row_of_band[0] << 12) | ((uint32_t)row_of_band[1] << 8) |
+                            ((uint32_t)row_of_band[2] << 4) | (uint32_t)row_of_band[3]);
+    }
+
+    if (!blue_ok) return 0;
+    /* Four bands, four different rows. */
+    for (int b = 0; b < 4; b++) {
+        if (row_of_band[b] > 3) return 0;
+        for (int o = b + 1; o < 4; o++) {
+            if (row_of_band[b] == row_of_band[o]) return 0;
+        }
+    }
+    /* And the columns run one way along every band. A flip reverses all four together, so the
+     * direction is not asserted, only that there is one and that it is shared. */
+    const int dir = (r_last[0] > r_first[0]) ? 1 : -1;
+    for (int b = 0; b < 4; b++) {
+        const int d = r_last[b] - r_first[b];
+        if (d < 24 && d > -24) return 0;         /* flat: no column information survived */
+        if ((d > 0 ? 1 : -1) != dir) return 0;   /* scrambled: bands disagree */
+    }
+    return 1;
+}
+
+static int check_tex_readback_w4(void)  { return readback_at_width("tex-readback/w4", 4); }
+static int check_tex_readback_w16(void) { return readback_at_width("tex-readback/w16", 16); }
+static int check_tex_readback_w64(void) { return readback_at_width("tex-readback/w64", 64); }
+
 /* ------------------------------------------------------------------------- */
 
 static const gl1_probe_case_t g_cases[] = {
@@ -4293,6 +4423,11 @@ static const gl1_probe_case_t g_cases[] = {
     {"two-lights",       check_two_lights},
     {"refusals",         check_refusals},
     {"limits",           check_limits_reported},
+    /* The three widths together, and in this order: 64 is the control that needs no custom
+     * pitch, so a run where it passes and the other two fail has named the fault outright. */
+    {"tex-readback-w64", check_tex_readback_w64},
+    {"tex-readback-w16", check_tex_readback_w16},
+    {"tex-readback-w4",  check_tex_readback_w4},
     /* **Last on purpose**, both of them: a check that can take the GPU down costs its own row
      * and every row after it, because the fault kills the process and the suite stops there.
      *
