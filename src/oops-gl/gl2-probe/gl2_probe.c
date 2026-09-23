@@ -1466,6 +1466,68 @@ static int check_discard_inside_a_loop(void) {
     return ok && glGetError() == GL_NO_ERROR;
 }
 
+/* **An early `return` taken by some fragments and not others.**
+ *
+ * A guard clause is the shape - `if (...) return x;` and then the real body - and the lanes that
+ * take it have to rejoin the caller immediately afterwards. With every fragment going the same
+ * way that is invisible: the whole quad returns or none of it does, and a mask that was never
+ * restored looks identical to one that was. Here the left half returns early and the right half
+ * runs the body, and the green channel is written *after* the call, so a lane whose mask was not
+ * put back loses its green rather than its red.
+ */
+static int check_early_return(void) {
+    reset_view();
+    const GLuint p = use_program("attribute vec3 pos;\n"
+                                 "attribute vec4 tint;\n"
+                                 "varying vec4 v;\n"
+                                 "void main() { v = tint; gl_Position = vec4(pos, 1.0); }\n",
+                                 "varying vec4 v;\n"
+                                 "float pick(float a) {\n"
+                                 "  if (a < 0.5) { return 0.25; }\n"
+                                 "  return 1.0;\n"
+                                 "}\n"
+                                 "void main() {\n"
+                                 "  float r = pick(v.x);\n"
+                                 "  gl_FragColor = vec4(r, 1.0, 0.0, 1.0);\n"
+                                 "}\n");
+    if (!p) return 0;
+    const GLint pos = glGetAttribLocation(p, "pos");
+    const GLint tint = glGetAttribLocation(p, "tint");
+    static const float corners[4][4] = {
+        {0.0f, 0.0f, 0.0f, 1.0f},
+        {1.0f, 0.0f, 0.0f, 1.0f},
+        {1.0f, 0.0f, 0.0f, 1.0f},
+        {0.0f, 0.0f, 0.0f, 1.0f}};
+    attrib_rect2(pos, tint, -1.0f, -0.8f, 1.0f, 0.8f, corners);
+
+    const uint32_t *s = scan_frame();
+    /* Left returned early (0.25), right ran on (1.0), and both kept the green the caller wrote
+     * after the call - which is the half a restored mask is responsible for. */
+    int ok = near_rgb(SCAN_PX(s, 16, MID_Y), 64, 255, 0, 6);
+    ok = ok && near_rgb(SCAN_PX(s, PROBE_W - 17, MID_Y), 255, 255, 0, 6);
+    return ok && glGetError() == GL_NO_ERROR;
+}
+
+/* **A local array indexed by an unrolled loop's counter**, which is the shape that makes an
+ * array in a register file worth having. Element `k` sits `k * width` registers along, so a
+ * stride that is wrong reads a neighbour rather than faulting - and neighbours here are chosen
+ * so that reading one gives a visibly different colour rather than a near one. */
+static int check_local_arrays(void) {
+    /* w = 1, 2, 3, 4. The sum is 10, and 10 * 0.1 is 1.0 - a total no single element reaches,
+     * so a loop that read one element four times comes out at 0.4 or less. The green channel
+     * takes a single element by literal index, which a wrong stride moves off 0.75. */
+    return language_check(
+        "  float w[4];\n"
+        "  for (int i = 0; i < 4; i++) { w[i] = float(i) + 1.0; }\n"
+        "  float total = 0.0;\n"
+        "  for (int i = 0; i < 4; i++) { total += w[i]; }\n"
+        "  vec3 v[2];\n"
+        "  v[0] = vec3(0.0, 0.25, 0.5);\n"
+        "  v[1] = vec3(0.75, 1.0, 0.0);\n"
+        "  gl_FragColor = vec4(total * 0.1, v[1].x, v[0].z, 1.0);",
+        255, 191, 128, 3);
+}
+
 static int check_constructors(void) {
     /* **`mat4(1.0)` is the identity and not a matrix of ones** - the constructor people get
      * wrong - and `vec4(v.xy, 1.0, 0.0)` gathers four values from three arguments. */
@@ -1825,6 +1887,8 @@ static const gl2_probe_case_t g_cases[] = {
     {"loop-divergence", check_loop_divergence},
     {"discard-in-loop", check_discard_inside_a_loop},
     {"user-functions", check_user_functions},
+    {"early-return", check_early_return},
+    {"local-arrays", check_local_arrays},
     {"builtin-math", check_builtin_math},
     {"mod-and-int-divide", check_mod_is_floored},
     {"relational-builtins", check_relational_builtins},
