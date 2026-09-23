@@ -2345,9 +2345,15 @@ static int check_loop_uniformity(void) {
          * are clean, the `+=` is innocent and what `if-in-loop` has that these lack is the
          * accumulation being the *only* statement in the body.
          */
+        /* **The assigned value has to depend on the trip, or this arm cannot fail.** `x = 0.25`
+         * is the same answer whether it runs once or eight times, so it could not tell a mask
+         * that applies from one that never does - the very thing being measured. That was the
+         * third insensitive arm in this file in a day, caught this time before it was believed.
+         * `0.25 + float(k)` is 0.25 on the one trip the mask allows and 7.25 on the last trip if
+         * the mask never applies, which saturates - so a failure is unmissable. */
         {"loop-uniformity/if-assign",
          "  float x = 0.0;\n"
-         "  for (int k = 0; k < 8; k++) { if (k < 1) x = 0.25; }\n"
+         "  for (int k = 0; k < 8; k++) { if (k < 1) x = 0.25 + float(k); }\n"
          "  gl_FragColor = vec4(0.25, 0.5, x, 1.0);\n"},
         {"loop-uniformity/if-rmw",
          "  float x = 0.0;\n"
