@@ -73,8 +73,8 @@ after any change that could move one.
 | **IMPORTS-FAIL** — compiles, but a symbol is undefined | 3 | 4 |
 
 **None of that means a demo draws anything.** The three outcomes are about the port surface, and
-the whole point of this title is the measurement that comes *after* they are all green — six have
-had that measurement so far, and they are listed below.
+the whole point of this title is the measurement that comes *after* they are all green — seven
+have had that measurement so far, and they are listed below.
 
 ### What got them there
 
@@ -107,13 +107,18 @@ All of them, but not all at once and not all equally.
 `fbo_firecube`, `fire`, `geartrain`, `ipers`, `lodbias`, `reflect`, `teapot`, `terrain`,
 `textures`, `tunnel`, `tunnel2`. Compiling is not finding.
 
+That path is [measured now](../../../../oops-mesa/docs/hardware/the-asset-path-works-fw1240.md):
+`textures` opened four files from `/app0/data/` and decoded them correctly. `stage-data` copies
+all 13 assets whichever demo is built, so a staged title already carries what the other eleven
+need — each is a rebuild and a restore with no further asset work.
+
 **The other twenty-five need nothing but a slot.** `clearspd`, `trispd` and `gltestperf` are
 throughput measurements rather than pictures and would say something about the present path
 rather than about GL. `cubemap`, `fbotexture`, `shadowtex` and `stex3d` each exercise a feature
 no probe here had touched - cube maps, framebuffer objects, shadow comparison, 3D textures - and
 are the most informative per run.
 
-Six have now run on this console:
+Seven have now run on this console:
 
 | demo | what it settled |
 |---|---|
@@ -123,6 +128,7 @@ Six have now run on this console:
 | `fbotexture` | [render to texture with depth and stencil](../../../../oops-mesa/docs/hardware/render-to-texture-with-depth-and-stencil-fw1240.md) — a full off-screen pass, sampled back, correct in every part. Then [it animated](../../../../oops-mesa/docs/hardware/third-frame-with-an-fbo-faults-the-gpu-fw1240.md) once the winsys learned to walk radeonsi's command-buffer chain, which it needs ~13 times a frame |
 | `shadowtex` | [shadow mapping through `GL_ARB_fragment_program`](../../../../oops-mesa/docs/hardware/shadow-mapping-and-arb-fragment-program-fw1240.md) — depth-comparison sampling and the assembly shader path, both new here |
 | `stex3d` | [solid texturing from a 3D texture](../../../../oops-mesa/docs/hardware/solid-texturing-a-3d-texture-on-hardware-fw1240.md) — a torus carved out of a noise volume, no seam and no collapsed slice |
+| `textures` | [the asset path works](../../../../oops-mesa/docs/hardware/the-asset-path-works-fw1240.md) — four SGI images read from `/app0/data/`, decoded with correct hues, alpha included. The first demo here that opens a file |
 
 `fbotexture` is also the one to reach for when a demo's log looks stalled: its `Anim` defaults to
 false, so **one** `present us:` line is its specified behaviour. And `a` is the cheapest keyboard
