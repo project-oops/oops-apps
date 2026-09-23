@@ -71,22 +71,38 @@ SECTIONS
     .dynamic        : { *(.dynamic); . += 0x20000; } :data :dynamic
 
     /*
-     * .eh_frame is deliberately NOT discarded, and this block must stay in step with
-     * SELFish's `link/native_eboot.ld`, which this file is a copy of plus a PT_TLS.
+     * # `.eh_frame` is discarded HERE, and must not be in SELFish's copy of this script
      *
-     * `oops-deps/libcxx/link/eh-frame.ld` brackets .eh_frame with __eh_frame_start and
-     * __eh_frame_end, which is where a freestanding libunwind (_LIBUNWIND_IS_BAREMETAL)
-     * reads its frame table from. A /DISCARD/ entry beats that KEEP, so the two symbols
-     * came out equal and the table was zero bytes long. With no frame table the unwinder
-     * cannot leave the throwing frame at all, so a `throw` reached std::terminate rather
-     * than any `catch` - including `catch (...)`, which is what made it look like the
-     * handler tables were wrong when the walk had never started. The loader's
-     * "corrupted eh_frame_hdr or eh_frame" line in every mesa-demos log is the same fact.
+     * This file is SELFish's `link/native_eboot.ld` plus a PT_TLS. SELFish's copy dropped
+     * `*(.eh_frame .eh_frame_hdr)` from this block on 2026-09-23 (selfish#D105) and must
+     * stay that way: a `/DISCARD/` entry beats the `KEEP` in
+     * `oops-deps/libcxx/link/eh-frame.ld`, so it left a freestanding libunwind
+     * (`_LIBUNWIND_IS_BAREMETAL`) with `__eh_frame_start == __eh_frame_end` and a
+     * zero-byte frame table. With no frame table the unwinder cannot step out of the
+     * frame that threw, so `cxx-throw` reached std::terminate without entering any
+     * `catch` - `catch (...)` included, which is what made it read as broken handler
+     * tables when the walk had never started.
+     *
+     * **This title is not that title, and the entry stays here because it was measured.**
+     * mesa-demos links no unwinder: `oops-libunwind.mk` is included by `cxx-throw` and by
+     * nothing else, and `grep -c libunwind build/mesa-demos.map` is 0. Keeping `.eh_frame`
+     * here cost 1,386,512 bytes on the eboot - 26.7 MB to 28.1 MB, measured on `textures`
+     * - for a table with no reader in the image. That is what `/DISCARD/` is for.
+     *
+     * So the rule is: **discard it exactly where nothing in the linked image reads it.**
+     * If this title ever includes `oops-libunwind.mk`, delete the `.eh_frame` line below
+     * in the same change, and check the width rather than the symbols:
+     *
+     *     grep __eh_frame_ build/mesa-demos.map    # end must exceed start
+     *
+     * Four non-zero symbols is not evidence; `cxx-throw`'s `make check` asserted exactly
+     * that and passed on every broken build.
      */
 
     /DISCARD/ : {
         *(.comment)
         *(.note .note.*)
+        *(.eh_frame .eh_frame_hdr)
         *(.gnu.version*)
     }
 }
