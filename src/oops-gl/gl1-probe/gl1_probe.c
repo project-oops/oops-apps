@@ -4233,7 +4233,18 @@ static int check_limits_reported(void) {
  * collapses them all onto row 0, which is what reading a 4-wide texture at a 4-texel stride
  * does, fails that however the image is flipped.
  */
-static int readback_at_width(const char *name, int w) {
+/* `modulate` asks the other half of the question. Under GL_REPLACE the texel reaches the
+ * framebuffer untouched, so a failure is the sampler's; under GL_MODULATE it is multiplied by the
+ * vertex colour first, so a failure that appears only here is the combine's. The reported fault
+ * has two halves - surfaces that lost their detail and surfaces that came back the wrong colour -
+ * and those are not necessarily the same bug. Running the identical texture both ways is what
+ * tells them apart.
+ *
+ * The vertex colour is (1, 1/2, 1/4): three different factors, so a combine that multiplied the
+ * wrong channel together shows up as a specific wrong number rather than as "not what we
+ * expected". Blue is the clearest of the three - the texture holds 128 everywhere, so the
+ * framebuffer must hold 32, and 64 or 128 coming back names which vertex channel reached it. */
+static int readback_at_width(const char *name, const char *name_rgb, int w, int modulate) {
     reset_view();
 
     /* Red spread across the full range so neighbouring columns cannot be confused at 8 bits;
@@ -4263,11 +4274,17 @@ static int readback_at_width(const char *name, int w) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glEnable(GL_TEXTURE_2D);
-    /* GL_REPLACE, so the texel reaches the framebuffer unmultiplied - under GL_MODULATE a wrong
-     * vertex colour would be indistinguishable from a wrong texel, and the combine is a separate
-     * question with its own checks. */
-    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-    glColor3f(1.0f, 1.0f, 1.0f);
+    /* GL_REPLACE puts the texel in the framebuffer unmultiplied, so a wrong pixel is the
+     * sampler's doing and nothing else's. GL_MODULATE adds the vertex colour, which is the only
+     * difference between the two runs - so a texel that survives the first and not the second was
+     * sampled correctly and combined wrongly. */
+    if (modulate) {
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+        glColor3f(1.0f, 0.5f, 0.25f);
+    } else {
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+        glColor3f(1.0f, 1.0f, 1.0f);
+    }
 
     glBegin(GL_QUADS);
     glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, -1.0f, 0.0f);
@@ -4280,6 +4297,16 @@ static int readback_at_width(const char *name, int w) {
 
     /* Three columns and four bands, each sampled at its centre: the quad covers the viewport, so
      * band b spans t in [b/4, (b+1)/4) and its centre lands squarely inside texel row b. */
+    /* Where the row codes land once the combine has had them. GL_REPLACE leaves them at 32, 96,
+     * 160 and 224; GL_MODULATE halves them to 16, 48, 80 and 112. The tolerance stays under half
+     * the step either way, so a value falling between two rows is refused rather than rounded
+     * into one of them. Blue is the constant witness: 128 in the texture, so 128 back under
+     * REPLACE and 32 under MODULATE, and any other value names which vertex channel reached it. */
+    const int g_base = modulate ? 16 : 32;
+    const int g_step = modulate ? 32 : 64;
+    const int b_want = modulate ? 32 : 128;
+    const int g_tol = modulate ? 10 : 16;
+
     int row_of_band[4];
     int r_first[4], r_last[4];
     int blue_ok = 1;
@@ -4290,13 +4317,14 @@ static int readback_at_width(const char *name, int w) {
         for (int k = 0; k < 3; k++) {
             const uint32_t c = px((k * 2 + 1) * PROBE_W / 6, y);
             rs[k] = chan_r(c);
-            if (chan_b(c) < 112 || chan_b(c) > 144) blue_ok = 0;
+            if (chan_b(c) < b_want - 12 || chan_b(c) > b_want + 12) blue_ok = 0;
             const int g = chan_g(c);
             /* Decode the row this texel came from, and refuse a green that is not one of the
              * four the texture holds - an interpolated or invented value is not a row. */
-            const int idx = g / 64;
-            if (idx < 0 || idx > 3) { ok = 0; }
-            else if (g - (32 + idx * 64) > 16 || (32 + idx * 64) - g > 16) { ok = 0; }
+            const int idx = (g - g_base + g_step / 2) / g_step;
+            const int centre_of_idx = g_base + idx * g_step;
+            if (g < g_base - g_step / 2 || idx < 0 || idx > 3) { ok = 0; }
+            else if (g - centre_of_idx > g_tol || centre_of_idx - g > g_tol) { ok = 0; }
             else if (g_seen < 0) { g_seen = idx; }
             else if (g_seen != idx) { ok = 0; } /* the row changed along a row: a skewed read */
         }
@@ -4304,6 +4332,8 @@ static int readback_at_width(const char *name, int w) {
         r_first[b] = rs[0];
         r_last[b] = rs[2];
     }
+    /* Read before the texture goes, so the colour reported on a failure is the one drawn. */
+    const uint32_t centre = px(PROBE_W / 2, PROBE_H / 2);
     glDeleteTextures(1, &tex);
 
     /* One word carrying the whole result, so a failure on the console says what it saw instead
@@ -4313,9 +4343,25 @@ static int readback_at_width(const char *name, int w) {
     if (gl1_probe_saw) {
         gl1_probe_saw(name, ((uint32_t)row_of_band[0] << 12) | ((uint32_t)row_of_band[1] << 8) |
                             ((uint32_t)row_of_band[2] << 4) | (uint32_t)row_of_band[3]);
+        /* And the colour itself, which the row map cannot carry. Under MODULATE this is the one
+         * number that says what the combine did: the centre texel is a known row and column, so
+         * its three channels are known before the multiply and known after it. */
+        gl1_probe_saw(name_rgb, centre);
     }
 
     if (!blue_ok) return 0;
+    /* Red is multiplied by 1, so under MODULATE it must come back at full strength. The texture's
+     * rightmost sampled column holds 212 at this width; a half or a quarter of that is 106 or 53,
+     * so a single threshold separates "red was left alone" from "red was scaled by the wrong
+     * vertex channel" without depending on exactly which texel the sampler picked. */
+    if (modulate) {
+        int red_max = 0;
+        for (int b = 0; b < 4; b++) {
+            if (r_first[b] > red_max) red_max = r_first[b];
+            if (r_last[b] > red_max) red_max = r_last[b];
+        }
+        if (red_max < 180) return 0;
+    }
     /* Four bands, four different rows. */
     for (int b = 0; b < 4; b++) {
         if (row_of_band[b] > 3) return 0;
@@ -4334,9 +4380,23 @@ static int readback_at_width(const char *name, int w) {
     return 1;
 }
 
-static int check_tex_readback_w4(void)  { return readback_at_width("tex-readback/w4", 4); }
-static int check_tex_readback_w16(void) { return readback_at_width("tex-readback/w16", 16); }
-static int check_tex_readback_w64(void) { return readback_at_width("tex-readback/w64", 64); }
+static int check_tex_readback_w4(void) {
+    return readback_at_width("tex-readback/w4", "tex-readback/w4-rgb", 4, 0);
+}
+static int check_tex_readback_w16(void) {
+    return readback_at_width("tex-readback/w16", "tex-readback/w16-rgb", 16, 0);
+}
+static int check_tex_readback_w64(void) {
+    return readback_at_width("tex-readback/w64", "tex-readback/w64-rgb", 64, 0);
+}
+/* **At 64 on purpose**, which is the width whose rows are already 256-byte aligned and whose
+ * descriptor therefore carries no custom pitch. Running the combine over the one texture shape
+ * that cannot have a stride fault means a failure here is the combine's and nothing else's - and
+ * with `tex-readback-w64` passing over the identical image under GL_REPLACE, the pair says which
+ * of the two halves of the reported fault is real. */
+static int check_tex_readback_modulate(void) {
+    return readback_at_width("tex-readback/mod", "tex-readback/mod-rgb", 64, 1);
+}
 
 /* ------------------------------------------------------------------------- */
 
@@ -4428,6 +4488,9 @@ static const gl1_probe_case_t g_cases[] = {
     {"tex-readback-w64", check_tex_readback_w64},
     {"tex-readback-w16", check_tex_readback_w16},
     {"tex-readback-w4",  check_tex_readback_w4},
+    /* The same image again with the combine switched on, so the pair separates a texture that
+     * was sampled wrongly from one that was sampled correctly and coloured wrongly. */
+    {"tex-readback-modulate", check_tex_readback_modulate},
     /* **Last on purpose**, both of them: a check that can take the GPU down costs its own row
      * and every row after it, because the fault kills the process and the suite stops there.
      *
