@@ -2277,7 +2277,7 @@ static int check_loop_uniformity(void) {
      * off, and a mask not fully restored before the colour export would leave lanes unwritten -
      * which is what "this pixel never got the value" looks like from the outside.
      */
-    static const struct { const char *name; const char *body; } ARMS[3] = {
+    static const struct { const char *name; const char *body; } ARMS[5] = {
         {"loop-uniformity/once",
          "  float r = 0.0;\n"
          "  for (int i = 0; i < 1; i++) { r += 0.25; }\n"
@@ -2290,10 +2290,27 @@ static int check_loop_uniformity(void) {
          "  float b = 0.0;\n"
          "  for (int k = 0; k < 8; k++) { if (k == 1) break; b += 0.25; }\n"
          "  gl_FragColor = vec4(0.25, 0.5, b, 1.0);\n"},
+        /* **An `if` inside a loop, with no `break`** - the one thing `break` needs that `count`
+         * never had. If this is dirty the fault is the mask an `if` saves inside a loop body and
+         * `break` is innocent; if it is clean, `break` itself is the whole of it. Same trip
+         * count and same arithmetic as the arm above, so nothing else moves. */
+        {"loop-uniformity/if-in-loop",
+         "  float b = 0.0;\n"
+         "  for (int k = 0; k < 8; k++) { if (k < 1) b += 0.25; }\n"
+         "  gl_FragColor = vec4(0.25, 0.5, b, 1.0);\n"},
+        /* **A `break` every lane takes at the same trip is the easy case**, and it is the one
+         * failing. This is the hard case for comparison: the trip a lane leaves on depends on
+         * its own position, so lanes in a quad diverge. If the uniform break is broken and this
+         * is too, they are one bug; if this is clean, the uniform path has something specific
+         * to it. `gl_FragCoord.x` is whole numbers, so the compare is exact. */
+        {"loop-uniformity/break-divergent",
+         "  float b = 0.0;\n"
+         "  for (int k = 0; k < 8; k++) { if (float(k) > gl_FragCoord.x) break; b += 0.0; }\n"
+         "  gl_FragColor = vec4(0.25, 0.5, 0.25 + b, 1.0);\n"},
     };
 
     int worst = 0;
-    for (int m = 0; m < 3; m++) {
+    for (int m = 0; m < 5; m++) {
         char src[256];
         int at = 0;
         const char *head = "void main() {\n";
@@ -2310,8 +2327,21 @@ static int check_loop_uniformity(void) {
         s = scan_frame();
         const int bad = census_wrong(s, 64, 128, 64, 3);
         if (bad > worst) worst = bad;
+        /* **Where the first wrong pixel is, and what it holds.** A count says how many and never
+         * which, and "which" is what separates a parity from a band from a wave. Packed as
+         * `(x << 16) | y` in scan coordinates beside the value itself. */
+        uint32_t first_at = 0xffffffffu, first_px = 0u;
+        for (int y = CENSUS_Y0; y < CENSUS_Y1 && first_at == 0xffffffffu; y++) {
+            for (int x = CENSUS_X0; x < CENSUS_X1; x++) {
+                if (!near_rgb(SCAN_PX(s, x, y), 64, 128, 64, 3)) {
+                    first_at = ((uint32_t)x << 16) | (uint32_t)y;
+                    first_px = SCAN_PX(s, x, y);
+                    break;
+                }
+            }
+        }
         if (gl2_probe_saw) {
-            gl2_probe_saw(ARMS[m].name, SCAN_PX(s, MID_X, MID_Y), 0u, bad, 0u, 0u);
+            gl2_probe_saw(ARMS[m].name, SCAN_PX(s, MID_X, MID_Y), 0u, bad, first_at, first_px);
         }
     }
 
