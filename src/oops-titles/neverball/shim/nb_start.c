@@ -35,13 +35,6 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
 
     oops_log_info("NVRB", "entry");
 
-    /* **Temporary: the per-frame counters, while the frame rate is under investigation.**
-       In-game runs at about one flip a second where the menu manages twenty-odd, and the flip
-       itself costs 17ms, so the time is going somewhere before it. `draw-us`, `flush-us` and
-       `patch-us` split a frame between this library's CPU work, waiting for the GPU, and
-       rebuilding shader words. Twelve lines a second, not the per-draw trace, which stays at
-       TRACE. Take this out once the frame is understood. */
-    oops_gl_set_log_level((int)OOPS_LOG_DEBUG);
 
 
     /* **Capture one settled frame of the title screen, when `/app0/capture` asks for it.**

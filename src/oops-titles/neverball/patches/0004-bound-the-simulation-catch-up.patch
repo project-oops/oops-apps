@@ -1,0 +1,156 @@
+Bound the simulation's catch-up, and time the frame's three phases.
+
+The accumulator in `lockstep_run` steps the simulation at a fixed ninety hertz by running as
+many steps as the elapsed time asks for, with no cap. On a desktop that is one or two steps
+a frame and is right as written. On a console whose frame takes longer than a step it is a
+spiral: `dt` is how long the last frame took, so a slow frame asks for more steps, running
+them makes the next frame slower, and that asks for more again.
+
+Measured: a level ran eleven frames spending 1,647ms inside it and then **one frame that
+spent 42,873ms** - forty-three seconds in a single frame, thousands of iterations deep,
+with no fault, no GL error and no stalled fence anywhere. The menu and the Ready/Set/GO
+animation were smooth because neither steps the simulation, so it began exactly when the
+player was given control, and it read as the game freezing on the first frame of play.
+
+Past the cap the backlog is dropped rather than carried, because carrying it is what closes
+the loop. The simulation then runs visibly slow instead of running away, and catches up by
+itself once frames are quick enough.
+
+The timing in `main` is what found it. A port is debugged from a log, and the three places a
+frame can go - the event pump, the game step, the paint and swap - are not distinguishable
+from outside. One line a second separated them immediately: `timer` was the whole frame and
+`paint` was a tenth of it, which is the opposite of where several hardware runs had been
+spent looking.
+
+**Neither is a fix for the frame being slow.** With the cap in place a step still costs
+about 137ms where it should cost microseconds, and that is the next thing to find.
+
+diff --git a/ball/game_common.c b/ball/game_common.c
+index 0fbc7d0..2954a61 100644
+--- a/ball/game_common.c
++++ b/ball/game_common.c
+@@ -213,14 +213,48 @@ void lockstep_clr(struct lockstep *ls)
+     ls->ts = 1.0f;
+ }
+ 
++/* **The catch-up is bounded, so a slow frame cannot make the next one slower.**
++ *
++ * The accumulator runs the simulation at a fixed rate - ninety steps a second - by stepping it
++ * as many times as the elapsed time asks for. On a desktop that is one or two steps a frame and
++ * the loop below is right as written.
++ *
++ * On a console whose frame takes longer than a step, it is a spiral. `dt` is the time the last
++ * frame took, so a slow frame asks for more steps, and running them makes the next frame slower
++ * still, which asks for more again. Measured on 2026-09-24: a level ran eleven frames spending
++ * 1,647ms in this function and then **one frame that spent 42,873ms in it** - forty-three
++ * seconds of one frame, thousands of iterations deep, with nothing wrong anywhere else. The
++ * menu and the Ready/Set/GO animation were smooth, because neither steps the simulation; it
++ * began the instant the player was given control, and it read as the game freezing.
++ *
++ * So the backlog is capped. Past the cap the remaining time is dropped rather than carried,
++ * because carrying it is what closes the loop: the simulation then runs slow - in slow motion,
++ * visibly - instead of running away, and it recovers by itself as soon as frames are quick
++ * enough to keep up. Sixteen steps is a fifth of a second of catch-up, comfortably more than a
++ * healthy frame needs and far less than a spiral.
++ *
++ * **The real fix is a frame that does not take a fifth of a second**, and this does not
++ * substitute for it. It stops the failure being unbounded.
++ */
++#define LOCKSTEP_MAX_CATCHUP 16
++
+ void lockstep_run(struct lockstep *ls, float dt)
+ {
++    int steps = 0;
++
+     ls->at += dt * ls->ts;
+ 
+     while (ls->at >= ls->dt)
+     {
++        if (steps >= LOCKSTEP_MAX_CATCHUP)
++        {
++            ls->at = 0.0f;
++            break;
++        }
++
+         ls->step(ls->dt);
+         ls->at -= ls->dt;
++        steps++;
+     }
+ }
+ 
+diff --git a/ball/main.c b/ball/main.c
+index 1bfe751..7e6a0b1 100644
+--- a/ball/main.c
++++ b/ball/main.c
+@@ -578,24 +578,60 @@ int main(int argc, char *argv[])
+ 
+     t0 = SDL_GetTicks();
+ 
+-    while (loop())
+     {
+-        if ((t1 = SDL_GetTicks()) > t0)
++        /* **Where a frame's time actually goes**, once a second.
++         *
++         * On the console a level ran at about half a frame a second while the renderer
++         * accounted for seventy milliseconds of it - so ninety-five per cent of the frame was
++         * somewhere this loop can see and the graphics library cannot. These are the only three
++         * places it can be: the event pump in `loop`, the game step, and the paint and swap.
++         * Guessing between them from outside cost several hardware runs; measuring them costs
++         * four calls to a clock that is already being read. */
++        Uint32 acc_loop = 0, acc_timer = 0, acc_paint = 0, acc_swap = 0, acc_frames = 0;
++        Uint32 report_at = SDL_GetTicks() + 1000;
++        Uint32 ta, tb;
++
++        for (;;)
+         {
+-            /* Step the game state. */
++            ta = SDL_GetTicks();
++            if (!loop())
++                break;
++            tb = SDL_GetTicks(); acc_loop += tb - ta;
++
++            if ((t1 = SDL_GetTicks()) > t0)
++            {
++                /* Step the game state. */
++
++                ta = SDL_GetTicks();
++                st_timer(0.001f * (t1 - t0));
++                tb = SDL_GetTicks(); acc_timer += tb - ta;
++
++                t0 = t1;
+ 
+-            st_timer(0.001f * (t1 - t0));
++                /* Render. */
+ 
+-            t0 = t1;
++                ta = SDL_GetTicks();
++                hmd_step();
++                st_paint(0.001f * t0);
++                tb = SDL_GetTicks(); acc_paint += tb - ta;
+ 
+-            /* Render. */
++                ta = SDL_GetTicks();
++                video_swap();
++                tb = SDL_GetTicks(); acc_swap += tb - ta;
+ 
+-            hmd_step();
+-            st_paint(0.001f * t0);
+-            video_swap();
++                acc_frames++;
+ 
+-            if (config_get_d(CONFIG_NICE))
+-                SDL_Delay(1);
++                if (config_get_d(CONFIG_NICE))
++                    SDL_Delay(1);
++            }
++
++            if (SDL_GetTicks() >= report_at)
++            {
++                log_printf("frame: %u frames, loop %ums, timer %ums, paint %ums, swap %ums\n",
++                           acc_frames, acc_loop, acc_timer, acc_paint, acc_swap);
++                acc_loop = acc_timer = acc_paint = acc_swap = acc_frames = 0;
++                report_at = SDL_GetTicks() + 1000;
++            }
+         }
+     }
+ 
