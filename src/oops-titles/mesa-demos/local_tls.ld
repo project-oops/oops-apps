@@ -70,10 +70,23 @@ SECTIONS
     .sce_dynlibdata : { KEEP(*(.sce_dynlibdata)) } :dynlibdata
     .dynamic        : { *(.dynamic); . += 0x20000; } :data :dynamic
 
+    /*
+     * .eh_frame is deliberately NOT discarded, and this block must stay in step with
+     * SELFish's `link/native_eboot.ld`, which this file is a copy of plus a PT_TLS.
+     *
+     * `oops-deps/libcxx/link/eh-frame.ld` brackets .eh_frame with __eh_frame_start and
+     * __eh_frame_end, which is where a freestanding libunwind (_LIBUNWIND_IS_BAREMETAL)
+     * reads its frame table from. A /DISCARD/ entry beats that KEEP, so the two symbols
+     * came out equal and the table was zero bytes long. With no frame table the unwinder
+     * cannot leave the throwing frame at all, so a `throw` reached std::terminate rather
+     * than any `catch` - including `catch (...)`, which is what made it look like the
+     * handler tables were wrong when the walk had never started. The loader's
+     * "corrupted eh_frame_hdr or eh_frame" line in every mesa-demos log is the same fact.
+     */
+
     /DISCARD/ : {
         *(.comment)
         *(.note .note.*)
-        *(.eh_frame .eh_frame_hdr)
         *(.gnu.version*)
     }
 }

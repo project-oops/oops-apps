@@ -70,10 +70,17 @@ SECTIONS
     .sce_dynlibdata : { KEEP(*(.sce_dynlibdata)) } :dynlibdata
     .dynamic        : { *(.dynamic); . += 0x20000; } :data :dynamic
 
+    /*
+     * .eh_frame is deliberately NOT discarded; keep this block in step with SELFish's
+     * `link/native_eboot.ld`, which every copy of this file is derived from. Discarding it
+     * beat the KEEP in `oops-deps/libcxx/link/eh-frame.ld`, so __eh_frame_start and
+     * __eh_frame_end came out equal, a freestanding libunwind found a zero-length frame
+     * table, and every `throw` reached std::terminate instead of its `catch`.
+     */
+
     /DISCARD/ : {
         *(.comment)
         *(.note .note.*)
-        *(.eh_frame .eh_frame_hdr)
         *(.gnu.version*)
     }
 }

@@ -30,6 +30,23 @@
  * Four symbols with non-zero addresses is the evidence; a clean link is not. This is the same
  * shape as the `nm -u` discipline oops-sdk records for cross-module calls, and it is why this
  * comment is longer than the script.
+ *
+ * # And four non-zero symbols are not enough either
+ *
+ * The base script this splices into is SELFish's `link/native_eboot.ld`, or one of the
+ * `local_tls.ld` copies of it, and until 2026-09-23 every one of them listed
+ * `*(.eh_frame .eh_frame_hdr)` in `/DISCARD/`. A `/DISCARD/` entry beats the `KEEP` above, so
+ * the input sections went nowhere and both symbols landed on the *same* address - four
+ * non-zero values, a zero-length table, and `nm` reporting what looks like success.
+ *
+ * So the check that means something is the width, not the presence:
+ *
+ *     nm <title>.elf | grep __eh_frame_       # __eh_frame_end must exceed __eh_frame_start
+ *
+ * `oops-utilities/cxx-throw`'s `make check` asserts exactly that. What the zero-length table
+ * looked like from the outside was a `throw` reaching std::terminate without entering any
+ * handler, `catch (...)` included - because with no frame table the unwinder cannot leave the
+ * throwing frame, so it never gets as far as asking what the handler tables say.
  */
 SECTIONS
 {

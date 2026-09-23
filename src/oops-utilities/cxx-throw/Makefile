@@ -74,7 +74,7 @@ $(HOST_PROBE): probe.cpp boundary.cpp cxx_throw.h | $(BUILD)
 	    host_main.cpp probe.cpp boundary.cpp
 	@echo "cxx-throw: host probe built"
 
-.PHONY: check-host check-target-symbols
+.PHONY: check-host check-target-symbols check-target-eh-frame
 check-host: $(HOST_PROBE)
 	@$(HOST_PROBE)
 
@@ -86,12 +86,41 @@ check-host: $(HOST_PROBE)
 #
 # This is the same discipline oops-sdk records for cross-module calls, arrived at the same way:
 # a clean exit code proving nothing.
+#
+# ## The map, not the ELF
+#
+# This read `nm $(BUILD)/$(APP_NAME).elf` until 2026-09-23 and reported all eight symbols
+# MISSING on a perfectly good build. `make title` rewrites that ELF in place into a console
+# module - its tables move into an unmapped vendor segment - so after a full build `nm` finds
+# one line and the check is measuring the packaging step rather than the link.
+#
+# `$(BUILD)/$(APP_NAME).map` is written by the linker and nothing rewrites it afterwards, so it
+# answers the same question in the state the question is about.
+#
+# Both checks still *depend* on the ELF, because the map has no rule of its own - `app.mk`
+# writes it as a side effect of the link (`-Wl,-Map=`), so the ELF's rule is what produces it.
+#
+# ## Two line shapes, and the pattern has to admit both
+#
+# A symbol from an object file ends the line with its name:
+#
+#             20bd0            20bd0       45     1                 __cxa_throw
+#
+# A symbol *assigned by a linker script* - which is what all four `__eh_frame_*` are - ends it
+# with the assignment instead:
+#
+#             3b7a8            3b7a8        0     1         __eh_frame_start = .
+#
+# Matching only the first shape is how the first pass of this rewrite reported the two symbols
+# it was written to check as MISSING while the other six passed.
+MAP := $(BUILD)/$(APP_NAME).map
+
 check-target-symbols: $(BUILD)/$(APP_NAME).elf
 	@missing=0; \
 	for s in __cxa_throw __cxa_begin_catch __cxa_allocate_exception __gxx_personality_v0 \
 	         _Unwind_RaiseException _Unwind_Resume \
 	         __eh_frame_start __eh_frame_end; do \
-	    if nm $(BUILD)/$(APP_NAME).elf 2>/dev/null | grep -qE " [TtRrDd] $$s$$"; then \
+	    if grep -qE "[[:space:]]$$s([[:space:]]*=.*)?\$$" $(MAP) 2>/dev/null; then \
 	        echo "  ok       $$s"; \
 	    else \
 	        echo "  MISSING  $$s"; missing=$$((missing+1)); \
@@ -103,4 +132,36 @@ check-target-symbols: $(BUILD)/$(APP_NAME).elf
 	fi; \
 	echo "cxx-throw: the payload carries its own unwinder"
 
-check: check-host check-target-symbols
+# # Present is not the same as non-empty
+#
+# The loop above passed on a payload whose every `throw` reached std::terminate. All four
+# `__eh_frame_*` symbols were defined and non-zero - and `start` and `end` held the *same*
+# address, because the base linker script listed `*(.eh_frame .eh_frame_hdr)` in `/DISCARD/`
+# and a discard beats the `KEEP` in `oops-deps/libcxx/link/eh-frame.ld`.
+#
+# A freestanding libunwind takes that range as its whole frame table. Zero bytes of table means
+# it cannot walk out of the frame that threw, so it never reaches the handler tables at all and
+# `catch (...)` is as unreachable as a typed catch - which is what made this look like a
+# personality-routine fault rather than an empty table.
+#
+# So the width is the check, and it is separate from the presence above because the two fail
+# for different reasons and want different answers.
+check-target-eh-frame: $(BUILD)/$(APP_NAME).elf
+	@start=$$(grep -E "[[:space:]]__eh_frame_start([[:space:]]*=.*)?\$$" $(MAP) | awk '{print $$1}' | tail -1); \
+	end=$$(grep -E "[[:space:]]__eh_frame_end([[:space:]]*=.*)?\$$" $(MAP) | awk '{print $$1}' | tail -1); \
+	if [ -z "$$start" ] || [ -z "$$end" ]; then \
+	    echo "cxx-throw: __eh_frame_start/__eh_frame_end are not in $(MAP)" >&2; \
+	    exit 1; \
+	fi; \
+	bytes=$$(( 0x$$end - 0x$$start )); \
+	if [ "$$bytes" -le 0 ]; then \
+	    echo "cxx-throw: the frame table is $$bytes bytes (0x$$start .. 0x$$end)" >&2; \
+	    echo "  every throw in this payload would reach std::terminate without entering a catch," >&2; \
+	    echo "  because with no frame table the unwinder cannot leave the frame that threw." >&2; \
+	    echo "  Check the base linker script does not discard .eh_frame - see" >&2; \
+	    echo "  oops-deps/libcxx/link/eh-frame.ld and selfish/link/native_eboot.ld." >&2; \
+	    exit 1; \
+	fi; \
+	echo "  ok       frame table is $$bytes bytes (0x$$start .. 0x$$end)"
+
+check: check-host check-target-symbols check-target-eh-frame

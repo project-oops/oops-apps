@@ -263,3 +263,64 @@ int __cxa_atexit(void (*destructor)(void *), void *arg, void *dso)
 }
 
 } /* extern "C" */
+
+#ifdef OOPS_CXX_EXCEPTIONS
+
+/*
+ * Declared rather than included, which is this file's habit and here it is forced.
+ *
+ * `<exception>` pulls in `<cstdlib>`, which refuses to compile unless libc++'s own `<stdlib.h>`
+ * shim is found before a C one - and `cxx.mk` puts oops-sdk's `include/libc` ahead of libc++'s
+ * include directory, so it is not. Reordering them to suit one declaration would change how
+ * every C header resolves for every C++ title, which is a much larger change than this is worth.
+ *
+ * `set_terminate` is declared in namespace `std` because that is where libc++abi defines it
+ * (`cxa_handlers.cpp`), and the name it links against is the mangling of that declaration.
+ */
+namespace std {
+using terminate_handler = void (*)();
+terminate_handler set_terminate(terminate_handler) noexcept;
+} /* namespace std */
+
+extern "C" void oops_klog(const char *tag, const char *msg);
+extern "C" void abort(void) __attribute__((noreturn));
+
+/*
+ * A terminate handler that says so, installed before `main` runs.
+ *
+ * libc++abi's default handler explains itself through `__abort_message`, which writes to `stderr`
+ * and then calls `abort`. Both halves of that are fine here in principle - oops-sdk routes
+ * `stderr` to the kernel log (`libc.c:584`) and `abort` now announces itself - but
+ * `__abort_message` is `_LIBCXXABI_HIDDEN`, so nothing outside the archive can reach it, and on
+ * 2026-09-23 `cxx-throw` died on hardware with `signal: 12 (SIGSYS)`, a one-frame backtrace and
+ * **no message at all**. Resolving that frame against the link map by hand was the only way to
+ * learn it had landed in `exit`.
+ *
+ * So a handler goes in ahead of the default one. It cannot say *which* exception - the type name
+ * lives behind the same hidden machinery - but it can say the unwinder reached terminate, which
+ * separates the three failures that otherwise look identical from outside: a throw that found no
+ * handler, a throw that never came back, and a fault that had nothing to do with exceptions.
+ *
+ * Installed by a constructor rather than asked of each title, because a title that forgets is
+ * exactly the one that will need it. `oops_mesa_run_init_array` and a hosted title's crt both
+ * walk `.init_array`, so this runs wherever the C++ archive is linked.
+ */
+namespace {
+
+void oops_cxx_terminate_handler()
+{
+    oops_klog("cxx", "std::terminate reached - an exception found no handler, or a handler threw");
+    /* Falls through to `abort`, which says so too and then parks. Not calling it here: the
+     * standard requires terminate to end the program, and letting the default path do it keeps
+     * one exit route rather than two. */
+    abort();
+}
+
+struct oops_cxx_terminate_installer {
+    oops_cxx_terminate_installer() { std::set_terminate(oops_cxx_terminate_handler); }
+};
+
+const oops_cxx_terminate_installer s_install_terminate;
+
+} /* namespace */
+#endif /* OOPS_CXX_EXCEPTIONS */
