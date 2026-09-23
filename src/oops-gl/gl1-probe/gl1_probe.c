@@ -4402,6 +4402,170 @@ static int check_tex_readback_modulate(void) {
     return readback_at_width("tex-readback/mod", "tex-readback/mod-rgb", 64, 1);
 }
 
+/* **Past the end of both rings, which is where this port lives and the suite does not.**
+ *
+ * Every check here draws a handful of quads with one or two textures and a state that barely
+ * moves. Neverball has eighty-five textures and changes the texture environment between most of
+ * its draws, and the two caches that absorb that are sized 64 and 6. Nothing in this suite has
+ * ever reached either limit, so the wrap has never been tested by anything except the port that
+ * reports the bug - and a cache that returns the wrong entry when it wraps looks exactly like a
+ * texture being sampled wrongly, which is what sent this investigation at the sampler for a day.
+ *
+ * Both are laid out as a grid of cells with one draw each, so a wrong answer says *which* draw
+ * was wrong rather than only that the frame was.
+ */
+
+#define CHURN_TEX 80   /* > 64: OOPS_GL_DESC_RING_SLOTS is 63 plus slot 0 */
+#define CHURN_COLS 10
+#define CHURN_ROWS 8
+
+static int check_tex_churn_ring(void) {
+    reset_view();
+    glClearColor(((float)((PROBE_BG >> 16) & 0xffu)) / 255.0f,
+                 ((float)((PROBE_BG >> 8) & 0xffu)) / 255.0f,
+                 ((float)(PROBE_BG & 0xffu)) / 255.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    /* Eighty textures, each a flat colour that names itself: red counts up with the index and
+     * green counts down, so a cell showing another texture's colour identifies which one it got
+     * rather than merely being wrong. */
+    static GLuint tex[CHURN_TEX];
+    glGenTextures(CHURN_TEX, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    for (int i = 0; i < CHURN_TEX; i++) {
+        GLubyte texels[4 * 4 * 4];
+        for (int t = 0; t < 16; t++) {
+            texels[t * 4 + 0] = (GLubyte)(i * 3);
+            texels[t * 4 + 1] = (GLubyte)(255 - i * 3);
+            texels[t * 4 + 2] = 128;
+            texels[t * 4 + 3] = 255;
+        }
+        glBindTexture(GL_TEXTURE_2D, tex[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, texels);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    }
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glColor3f(1.0f, 1.0f, 1.0f);
+
+    /* All eighty in one frame, which is the point: the ring holds 64 and must submit partway
+     * through rather than quietly reusing a slot a queued draw still names. */
+    for (int i = 0; i < CHURN_TEX; i++) {
+        const int c = i % CHURN_COLS;
+        const int r = i / CHURN_COLS;
+        const float x0 = -1.0f + 2.0f * (float)c / (float)CHURN_COLS;
+        const float x1 = -1.0f + 2.0f * (float)(c + 1) / (float)CHURN_COLS;
+        const float y1 = 1.0f - 2.0f * (float)r / (float)CHURN_ROWS;
+        const float y0 = 1.0f - 2.0f * (float)(r + 1) / (float)CHURN_ROWS;
+        glBindTexture(GL_TEXTURE_2D, tex[i]);
+        glBegin(GL_QUADS);
+        glTexCoord2f(0.0f, 0.0f); glVertex3f(x0, y0, 0.0f);
+        glTexCoord2f(1.0f, 0.0f); glVertex3f(x1, y0, 0.0f);
+        glTexCoord2f(1.0f, 1.0f); glVertex3f(x1, y1, 0.0f);
+        glTexCoord2f(0.0f, 1.0f); glVertex3f(x0, y1, 0.0f);
+        glEnd();
+    }
+    glDisable(GL_TEXTURE_2D);
+    if (glGetError() != GL_NO_ERROR) { glDeleteTextures(CHURN_TEX, tex); return 0; }
+
+    int bad = -1, saw_r = 0;
+    for (int i = 0; i < CHURN_TEX && bad < 0; i++) {
+        const int c = i % CHURN_COLS;
+        const int r = i / CHURN_COLS;
+        const uint32_t p = px((c * 2 + 1) * PROBE_W / (CHURN_COLS * 2),
+                              (r * 2 + 1) * PROBE_H / (CHURN_ROWS * 2));
+        if (!near_rgb(p, i * 3, 255 - i * 3, 128, 10)) { bad = i; saw_r = chan_r(p); }
+    }
+    glDeleteTextures(CHURN_TEX, tex);
+    if (bad >= 0) {
+        /* Which cell, and which texture's colour turned up in it - red divided by three is the
+         * index that was actually sampled, so the two numbers together say how far the ring
+         * slipped rather than only that it did. */
+        if (gl1_probe_saw) {
+            gl1_probe_saw("tex-churn/first-bad", (uint32_t)bad);
+            gl1_probe_saw("tex-churn/saw-index", (uint32_t)(saw_r / 3));
+        }
+        return 0;
+    }
+    return 1;
+}
+
+/* Eight distinct textured shaders against six ring slots, drawn twice through so a variant that
+ * was evicted has to be rebuilt and is checked again after it was.
+ *
+ * The alpha test is what varies, because its eight comparisons are eight different patches of
+ * the same shader and the result of each is not a colour to be measured but a question of
+ * whether the quad is there at all. A fragment alpha of 0.75 against a reference of 0.5 makes
+ * the first four comparisons reject and the last four pass, with no float equality anywhere near
+ * the boundary. */
+static int check_ps_ring_churn(void) {
+    reset_view();
+    glClearColor(((float)((PROBE_BG >> 16) & 0xffu)) / 255.0f,
+                 ((float)((PROBE_BG >> 8) & 0xffu)) / 255.0f,
+                 ((float)(PROBE_BG & 0xffu)) / 255.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    static const GLenum func[8] = {
+        GL_NEVER, GL_LESS, GL_EQUAL, GL_LEQUAL,     /* reject at 0.75 vs 0.5 */
+        GL_GREATER, GL_NOTEQUAL, GL_GEQUAL, GL_ALWAYS, /* pass */
+    };
+    GLubyte texels[4 * 4 * 4];
+    for (int t = 0; t < 16; t++) {
+        texels[t * 4 + 0] = 204; texels[t * 4 + 1] = 51;
+        texels[t * 4 + 2] = 102; texels[t * 4 + 3] = 191; /* 191/255 = 0.749 */
+    }
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE, texels);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glEnable(GL_ALPHA_TEST);
+
+    for (int i = 0; i < 16; i++) {
+        const int c = i % 4;
+        const int r = i / 4;
+        const float x0 = -1.0f + 2.0f * (float)c / 4.0f;
+        const float x1 = -1.0f + 2.0f * (float)(c + 1) / 4.0f;
+        const float y1 = 1.0f - 2.0f * (float)r / 4.0f;
+        const float y0 = 1.0f - 2.0f * (float)(r + 1) / 4.0f;
+        glAlphaFunc(func[i % 8], 0.5f);
+        glBegin(GL_QUADS);
+        glTexCoord2f(0.0f, 0.0f); glVertex3f(x0, y0, 0.0f);
+        glTexCoord2f(1.0f, 0.0f); glVertex3f(x1, y0, 0.0f);
+        glTexCoord2f(1.0f, 1.0f); glVertex3f(x1, y1, 0.0f);
+        glTexCoord2f(0.0f, 1.0f); glVertex3f(x0, y1, 0.0f);
+        glEnd();
+    }
+    glDisable(GL_ALPHA_TEST);
+    glDisable(GL_TEXTURE_2D);
+    if (glGetError() != GL_NO_ERROR) { glDeleteTextures(1, &tex); return 0; }
+
+    /* One bit per cell, in the order drawn: 1 where the quad is there and 0 where the test
+     * rejected it. The two passes must agree, and both must be 0x0f - four rejects then four
+     * passes - so a single word carries the whole shape of the failure. */
+    uint32_t bits = 0u;
+    int ok = 1;
+    for (int i = 0; i < 16; i++) {
+        const int c = i % 4;
+        const int r = i / 4;
+        const uint32_t p = px((c * 2 + 1) * PROBE_W / 8, (r * 2 + 1) * PROBE_H / 8);
+        const int drew = near_rgb(p, 204, 51, 102, 10);
+        const int blank = near_rgb(p, 32, 32, 32, 10);
+        if (!drew && !blank) ok = 0; /* neither the texture nor the background: a third answer */
+        if (drew) bits |= 1u << i;
+        if (drew != ((i % 8) >= 4)) ok = 0;
+    }
+    glDeleteTextures(1, &tex);
+    if (!ok && gl1_probe_saw) gl1_probe_saw("ps-ring/cells", bits);
+    return ok;
+}
+
 /* ------------------------------------------------------------------------- */
 
 static const gl1_probe_case_t g_cases[] = {
@@ -4495,6 +4659,9 @@ static const gl1_probe_case_t g_cases[] = {
     /* The same image again with the combine switched on, so the pair separates a texture that
      * was sampled wrongly from one that was sampled correctly and coloured wrongly. */
     {"tex-readback-modulate", check_tex_readback_modulate},
+    /* The two caches nothing else here reaches the end of, and the port does on every frame. */
+    {"tex-churn-ring",   check_tex_churn_ring},
+    {"ps-ring-churn",    check_ps_ring_churn},
     /* **Last on purpose**, both of them: a check that can take the GPU down costs its own row
      * and every row after it, because the fault kills the process and the suite stops there.
      *
