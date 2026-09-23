@@ -3075,6 +3075,24 @@ static int check_two_draw_buffers(void) {
         glBlendFunc(GL_ONE, GL_ONE);
         glUniform4f(kc, 0.25f, 0.5f, src_b, 0.0f);
         attrib_rect(pos, -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+
+        /*
+         * **The front read while it is still the second target**, which the read below it is not.
+         *
+         * Measured on hardware, the front comes back holding exactly what it held before the
+         * blended draw - not a wrong colour, the *unchanged* one. Two very different things give
+         * that: the draw never wrote the second target, or the draw wrote it and the read could
+         * not see it. They are told apart by *when* the read happens, because dropping back to
+         * `glDrawBuffer(GL_BACK)` clears `fb_also`, and the copy that makes a second target
+         * readable is emitted only while `fb_also` is live. The read below runs after that line
+         * and so cannot distinguish them; this one runs before it.
+         *
+         * Correct here and stale below means the pixels were always written and the readback is
+         * torn down too early. Unchanged in both means the second target is genuinely never
+         * written, and the shader's export is the place to look.
+         */
+        const uint32_t front_live = centre_of(GL_FRONT);
+
         glDisable(GL_BLEND);
         glDrawBuffer(GL_BACK);
 
@@ -3087,6 +3105,11 @@ static int check_two_draw_buffers(void) {
 
         if (gl2_probe_saw) {
             gl2_probe_saw(was_name, was_front, 0u, 0, was_back, 0u);
+            /* `saw` the front while it was still bound as the second target, `L` the same pixel
+             * after the draw buffer went back to one - so a write that never happened and a
+             * write that was never copied back read differently. */
+            gl2_probe_saw(arm == 0 ? "two-draw-buffers/set-live" : "two-draw-buffers/zero-live",
+                          front_live, 0u, 0, front, 0u);
             gl2_probe_saw(got_name, front, 0u, 0, back, 0u);
             /* `saw` is the front one row down, `L` the back one row down: the same two reads the
              * row above made, moved by one, against a verdict row that samples exactly here. */
@@ -3102,37 +3125,31 @@ static int check_two_draw_buffers(void) {
     }
 
     /*
-     * **The shape of the wrong blue**, from the one snapshot the check already takes.
+     * **The back target's region, which is now uniform and right.**
      *
-     * GL row 47 of the back holds blue 255 and GL row 48 holds blue 0, in both arms, after a draw
-     * that covers the whole region uniformly. One pixel either side of a boundary says nothing
-     * about what the boundary *is* - every other row, one row, a tile edge, half the region are
-     * all consistent with two samples - and which it is decides whether this is rasterisation,
-     * addressing, or the second export. So: count the region, and print where the two values sit.
+     * This census was added when GL row 47 of the back read blue 255 and row 48 read blue 0,
+     * which looked like a two-target draw writing some rows and not others. It was neither: the
+     * two rows were being read by two instruments that disagreed about which row the centre is
+     * (`row_below_centre_of` above says how), and the blue that was genuinely wrong was the
+     * export-format fault, fixed in oops-sdk `fa39fdc`. Both counts now come back 12288 of
+     * 12288 at `0xff4080ff`, so the back is whole and the failure is entirely the front's.
      *
-     * A scan row `y` is GL row `PROBE_H - 1 - y`, because `scan_frame` indexes the readback image
-     * top-down from `g_row0` and `glGetFrameReadback` fills it with GL `height - 1 - row`. The
-     * masks below are in **scan** rows and columns, so bit 0 of `blue-rows` is GL row 95.
-     *
-     * Counted in three buckets rather than two: a third value anywhere would mean this is not a
-     * clean split and the row/column masks are not the right instrument.
+     * It stays because it is the control that keeps that true: a census here going non-uniform
+     * again means the single-target path regressed, and the front's diagnosis would be built on
+     * sand. A scan row `y` is GL row `PROBE_H - 1 - y`, so bit 0 of `blue-rows` is GL row 95.
      */
     blue_census("two-draw-buffers/two-count", "two-draw-buffers/two-rows",
                 "two-draw-buffers/two-cols", "two-draw-buffers/two-cols3");
     uniformity_census("two-draw-buffers/two-u");
 
     /*
-     * **The same blend into one target**, which is the control the pattern above demands.
+     * **The same blend into one target**, which is the control the census above demands.
      *
-     * A quarter of the region holding the right blue, at exactly the pixels with both coordinates
-     * even, is the fragment quad's shape. Nothing in this suite had ever counted a channel across
-     * the region before, so "only under two targets" is an assumption, not a measurement: every
-     * other check reads one pixel, and `scan_frame`'s centre is an even/even pixel - the one the
-     * lattice gets right. A single-target blend with the same colours says which it is.
-     *
-     * If this census is also one-in-four, the two-target path is innocent and something far older
-     * has been writing three quarters of every blended blue wrong, unseen because nobody looked
-     * anywhere but the centre.
+     * Written to answer whether a quarter of the region holding the right blue was peculiar to
+     * two targets or was the fragment quad's shape showing up under any blend. It was the
+     * latter, and it is gone; both censuses are uniform now. Keeping the pair is what makes the
+     * two-target verdict mean anything - "the front is wrong" is only interesting while the
+     * one-target blend beside it is right, and this is the line that says so.
      */
     glDisable(GL_BLEND);
     glDrawBuffer(GL_BACK);
