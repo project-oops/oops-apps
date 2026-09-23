@@ -44,10 +44,56 @@ OOPS_LIBCXX_INCLUDE := \
 OOPS_LIBCXX_LIB := $(OOPS_LIBCXX_BUILD)/libc++.a
 OOPS_LIBCXX_LDFLAGS := $(OOPS_LIBCXX_LIB)
 
-# The two symbols a string-and-containers link actually needs, and the files they are in.
+# # The sources, and why the list is explicit rather than a wildcard
+#
+# It was two files - `verbose_abort.cpp` and `string.cpp` - for as long as the only consumer was
+# ACO, which needs eight definitions and no streams. The GL CTS needs streams
+# (`oops-apps#D007`), so localization is on in `__config_site` and this list grew to what that
+# requires.
+#
+# **It is still not `$(wildcard src/*.cpp)`**, and the reason is in the survey behind D007: of
+# the 45 sources upstream ships, 32 compile for this target and 13 do not. Nine of those are
+# threading, which `_LIBCPP_HAS_THREADS 0` switches off, and the rest want a platform facility
+# that is genuinely absent. A glob would add them, fail the build, and invite somebody to switch
+# a `__config_site` line to make the error go away - which is how a library ends up claiming a
+# facility it cannot deliver. Naming them means adding one is a decision.
+#
+# Re-run `tools/libcxx-survey.sh` after touching `__config_site` or oops-sdk's C library; it
+# compiles all 45 and prints what each failure is waiting for.
 OOPS_LIBCXX_SRCS := \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/algorithm.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/any.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/bind.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/call_once.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/error_category.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/exception.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/fstream.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/functional.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/hash.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/ios.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/ios.instantiations.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/iostream.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/locale.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/memory.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/memory_resource.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/new.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/new_handler.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/new_helpers.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/optional.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/ostream.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/print.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/random_shuffle.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/regex.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/stdexcept.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/string.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/strstream.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/system_error.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/typeinfo.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/valarray.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/variant.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/vector.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/verbose_abort.cpp \
-    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/string.cpp
+    $(OOPS_LIBCXX_DIR)/src/rune_table.c
 
 # `_LIBCPP_BUILDING_LIBRARY` is what libc++'s own sources are compiled with; without it they
 # build as a consumer would and the out-of-line instantiations never get emitted.

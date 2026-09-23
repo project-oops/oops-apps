@@ -62,26 +62,64 @@ locale argument dropped. So:
   which is what the facet is specified to do when there is no catalogue - and there is none,
   because a title ships none.
 
-## Where it stands, and what is left
+## Where it ended: localization is on and streams link
 
-`<xlocale.h>` is gone. The remaining 28 failures group as:
+**`_LIBCPP_HAS_LOCALIZATION` is 1, libc++ builds 33 sources where it built 2, and a translation
+unit using `std::ostringstream`, `std::istringstream`, `std::string`, `std::runtime_error` and a
+`throw`/`catch` links against `libc++.a` + `libc++abi.a` + `libunwind.a` with zero unresolved
+symbols.** That is the CTS framework's exact shape.
+
+Working back from `<xlocale.h>`, each cause in series and what answered it:
+
+| cause | files it blocked | answer | whose |
+|---|---|---|---|
+| `<xlocale.h>` | 21 | select the no-locale backend | here |
+| `MB_CUR_MAX` | 20 | `<stdlib.h>`, value fixed at 1 | oops-sdk |
+| `asprintf` | 23 | implemented over `vsnprintf`, growing | oops-sdk |
+| `strcoll` / `strxfrm` | 23 | `strcmp` and a bounded copy, which is what the C locale specifies | oops-sdk |
+| `_CTYPE_*` masks | 22 | FreeBSD's values, cited | oops-sdk |
+| `struct tm` undeclared before `<cwchar>` | 21 | a `<wchar.h>` that declares types and no functions | oops-sdk |
+| `ungetc` | 3 (every stream) | one character of pushback, in `FILE` | oops-sdk |
+| `_DefaultRuneLocale` | 1 (`locale.cpp`) | `runetype.h` + a generated C-locale table | here |
+
+`MB_CUR_MAX` and the rest went to oops-sdk as `REQ-20260923T1810Z-7d42` and were then done
+directly rather than waited on. They belong there on the merits: every one is a C library
+facility that the C standard or POSIX puts in a named header, and none of them knows what libc++
+is.
+
+The two that stayed here are the two that are *about* libc++: choosing its locale backend, and
+`_DefaultRuneLocale`, which is FreeBSD libc's own symbol that this SDK is not obliged to have.
+oops-sdk's `<ctype.h>` answers each class with an inline comparison and has no rune concept;
+giving it one for a consumer that is not the C library would be shaping the SDK around libc++.
+The table is generated from those same inline predicates by `tools/gen-rune-table.py`, so
+`isalpha(c)` and `classic_table()[c] & _CTYPE_A` cannot disagree - the one failure mode a
+hand-written 256-entry table would invite and nothing would catch.
+
+### What is still off, and deliberately
+
+13 of the 45 do not compile, and the list is no longer a blocker but a description:
 
 | cause | files |
 |---|---|
-| `MB_CUR_MAX` undeclared | **20** |
-| threading (`_LIBCPP_HAS_THREADS 0`) | 4 |
-| `bad_expected_access`, `aligned_alloc`, `<sys/types.h>`, `shared/fp_bits.h` | 1 each |
+| threading (`_LIBCPP_HAS_THREADS 0`) | 9 |
+| `timeval`, `random_device`, `bad_expected_access`, `shared/fp_bits.h` | 1 each |
 
-**One macro is twenty of them.** `MB_CUR_MAX` is specified to live in `<stdlib.h>` and it is
-locale state, so it is the C library's - filed as oops-sdk `REQ-20260923T1810Z-7d42` rather than
-worked around here.
+Threading is the big one and the CTS framework does not appear to need it - `framework/`
+includes no `<thread>` or `<mutex>`, because dEQP threads itself in C through `delibs`. That is a
+count of the framework, not of the test modules, so it is a reason not to turn threads on *yet*
+rather than a finding that they can stay off.
 
-It was worked around here first, and that is worth recording because the workaround *looked*
-clean: an `include/stdlib.h` doing `#include_next <stdlib.h>` plus the define. It made things
-worse - `<cstdlib>`'s own `#include_next` then resolved differently and 24 sources began failing
-on `asprintf` that had not been failing before, plus `new.cpp` on `aligned_alloc`. Backed out.
-**A header that inserts itself into someone else's `include_next` chain changes every resolution
-downstream of it**, which is not visible from the file itself.
+It was worked around here first, as an `include/stdlib.h` doing `#include_next <stdlib.h>` plus
+the define, and the failure count went *up* - 24 sources started failing on `asprintf` that had
+not been failing before. That was read as the shadow breaking `<cstdlib>`'s own `#include_next`
+chain, and it was **wrong**: when oops-sdk supplied `MB_CUR_MAX` properly, the same 24 failures
+appeared. The shadow had not caused them, it had *revealed* them, by getting 20 files past the
+macro so they could reach the next missing name.
+
+The real lesson is about reading the number. **A failure count is not a progress bar when the
+causes are in series**: fixing the blocker that 20 files share moves all 20 onto whatever is
+behind it, and the total can rise while the work is going well. Only the *cause* histogram means
+anything, which is why the table below groups by cause and not by file.
 
 Threading is a separate switch and, per the header count above, the CTS framework does not appear
 to need it. That is a count of `framework/`, not of the test modules, so it is a reason to leave

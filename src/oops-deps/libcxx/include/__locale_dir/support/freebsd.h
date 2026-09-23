@@ -26,6 +26,13 @@
 #ifndef _LIBCPP___LOCALE_DIR_SUPPORT_FREEBSD_H
 #define _LIBCPP___LOCALE_DIR_SUPPORT_FREEBSD_H
 
+/* `locale.cpp` compiles `std::ctype<char>::classic_table()` to `_DefaultRuneLocale.__runetype`
+ * on this target, so the type and the object have to be declared by the time it gets there.
+ * This is the header on the path - `<__locale>` includes `locale_base_api.h`, which includes
+ * this - so the declaration goes in here rather than being left to a header FreeBSD would have
+ * supplied and this SDK does not. */
+#include <runetype.h>
+
 #include <__locale_dir/support/fuchsia.h>
 
 #endif /* _LIBCPP___LOCALE_DIR_SUPPORT_FREEBSD_H */

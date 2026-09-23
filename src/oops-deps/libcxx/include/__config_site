@@ -64,9 +64,31 @@
  * Measured rather than guessed, and the ratio is what decides it. It is left overridable so the
  * question can be reopened by a title that genuinely needs streams, rather than being settled
  * here for everybody for ever.
+ *
+ * # Reopened on 2026-09-23, by the title that genuinely needs streams
+ *
+ * The GL 3.3 CTS. Its framework is an ordinary C++ application: `framework/common` and
+ * `framework/opengl` of `opengl-cts-4.6.8.1` include `<sstream>` 15 times, `<ostream>` 6,
+ * `<iostream>` 4 and `<fstream>` 4, and `tcu::TestLog` builds every message through a stream.
+ * That is not 29 uses in one title, it is the reporting mechanism of the suite that decides
+ * whether this collection's OpenGL claim is true. See `oops-apps#D007`.
+ *
+ * **What it actually cost was far less than the paragraph above feared**, and the fear was
+ * reasonable - it assumed implementing FreeBSD's `_l` function family. Instead libc++'s own
+ * no-locale backend is selected (`__locale_dir/support/freebsd.h` here shadows upstream's and
+ * defers to Fuchsia's), so what remained was: `locale.h`, `nl_types.h` and `runetype.h` in this
+ * directory, a generated C-locale character table, and five additions to oops-sdk's C library -
+ * `asprintf`/`vasprintf`, `strcoll`/`strxfrm`, the `_CTYPE_*` masks, a `<wchar.h>` that exists
+ * to declare `struct tm`, and `ungetc`. 32 of libc++'s 45 sources now compile, up from 25, and
+ * every stream source is among them.
+ *
+ * **This must stay in `__config_site` rather than the library's own build flags.** A title that
+ * includes `<sstream>` reads this file too, and if it disagreed with the library about whether
+ * localization exists, the two would disagree about the layout of every stream class - which
+ * links cleanly and fails at run time.
  */
 #ifndef _LIBCPP_HAS_LOCALIZATION
-#  define _LIBCPP_HAS_LOCALIZATION 0
+#  define _LIBCPP_HAS_LOCALIZATION 1
 #endif
 
 /*

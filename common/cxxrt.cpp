@@ -57,60 +57,39 @@ void operator delete(void *p) noexcept
     oops_free(p);
 }
 
-/* `aligned_alloc`, which this platform can only half provide, and says so.
+/* `aligned_alloc` used to be defined here, and is now oops-sdk's (2026-09-23).
  *
  * libc++abi's `__cxa_allocate_exception` reaches `fallback_malloc.cpp`, which reaches libc++'s
- * `__libcpp_aligned_alloc`, which calls `::aligned_alloc`. It is on the road to every `throw`.
- * oops-sdk's freestanding libc has no aligned form, so the C++ runtime supplies one; the
- * declaration is in `src/oops-deps/libcxx/include/stdlib.h`.
+ * `__libcpp_aligned_alloc`, which calls `::aligned_alloc`. It is on the road to every `throw`,
+ * and oops-sdk's freestanding C library had no aligned form - so this file supplied one.
  *
- * # Why this is a passthrough and not the usual over-allocation trick
+ * # Why the version that was here refused most requests
  *
  * The obvious implementation over-allocates, returns the first aligned address inside the block,
- * and stashes the original pointer just below it. **That is wrong here**, and quietly: libc++
- * releases this memory with `__libcpp_aligned_free`, which on every non-MSVC target is a plain
- * `::free(ptr)` on the pointer it was handed. Handing `oops_free` an address `oops_malloc` never
- * returned corrupts the heap at some *other* allocation's expense, and faults somewhere
- * unrelated. So whatever this returns must be free-able directly, which means it must be
- * something `oops_malloc` itself returned.
+ * and stashes the original pointer just below it. **That is wrong if `free` cannot find the
+ * original**: libc++ releases this memory with `__libcpp_aligned_free`, which on every non-MSVC
+ * target is a plain `::free(ptr)` on the pointer it was handed. Handing an allocator an address
+ * it never returned corrupts the heap at some *other* allocation's expense and faults somewhere
+ * unrelated.
  *
- * # What the heap actually guarantees, measured rather than assumed
+ * `oops_malloc` hands out `16-aligned + 24`, which is 8-byte aligned and never 16, so the
+ * version here served requests up to 8 and returned null above that. `__cxa_allocate_exception`
+ * wants `alignof(__cxa_exception)`, which is 16 - so **every throw took libc++abi's fallback
+ * path into a small fixed buffer.**
  *
- * `oops_malloc` returns `block + sizeof(heap_block_header_t)`, and that header is
- * `uint32_t, uint32_t, size_t, size_t` - 24 bytes. The blocks underneath are 16 KB page-aligned
- * or 16-byte-rounded slab chunks, so every pointer it hands out is `something 16-aligned + 24`:
- * **8-byte aligned, never 16.**
+ * # What changed
  *
- * So requests up to 8 are served exactly, and larger ones cannot be served at all without
- * breaking the free contract above. Returning null for those is not a stub: it is the C11
- * answer for a request the allocator cannot meet, and libc++abi handles it by falling back to
- * its own static buffer rather than by crashing.
+ * `oops_aligned_alloc` (`src/memory/heap.c`) does the over-allocation *and* writes a real block
+ * header immediately below the aligned address, carrying `mmap_base` and the `0xFE` marker that
+ * `oops_free` reads to unmap the original. So the pointer it returns is directly free-able,
+ * which is the property the version here could not provide, and it serves any alignment rather
+ * than only 8.
  *
- * # This is a real limit on exceptions, and it is filed
- *
- * `__cxa_allocate_exception` wants `alignof(__cxa_exception)`, which is 16 on x86-64 - so on
- * this heap it takes the fallback path every time, and that path is a small fixed buffer. The
- * fix is a heap that returns `max_align_t`-aligned pointers, which is oops-sdk's to make and is
- * on the bus. A malloc returning 8-byte-aligned memory is non-conforming for `long double` and
- * for anything SSE-aligned, so this is not a C++-only problem; exceptions are just the first
- * thing to stand on it.
+ * Both definitions existed briefly and the link said so - `ld.lld: error: duplicate symbol:
+ * aligned_alloc` - which is the good failure. This one went, the C library's stayed, and
+ * exceptions stopped taking the fallback path.
  */
-extern "C" void *aligned_alloc(size_t alignment, size_t size)
-{
-    /* C11 7.22.3.1: the alignment must be a power of two. */
-    if (alignment == 0u || (alignment & (alignment - 1u)) != 0u) {
-        return nullptr;
-    }
 
-    /* What `oops_malloc` guarantees today. See the comment above for how it is derived; if the
-       heap's header or block alignment changes, this is the constant that moves with it. */
-    const size_t heap_guarantee = 8u;
-    if (alignment > heap_guarantee) {
-        return nullptr;
-    }
-
-    return oops_malloc(size ? size : 1u);
-}
 
 void operator delete[](void *p) noexcept
 {
