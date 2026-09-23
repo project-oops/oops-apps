@@ -125,6 +125,7 @@ static int near_chan(int got, int want, int tol) {
 /* Declared here because the blending checks above its definition report it - see the comment on
  * the definition for what it counts and why a blended check needs it. */
 static void uniformity_census_of(const uint32_t *s, const char *name);
+static int census_wrong(const uint32_t *s, int r, int g, int b, int tol);
 
 /* -------------------------------------------------------------------------
  * The state every check starts from
@@ -1770,14 +1771,34 @@ static int check_blend_applies(void) {
     /* **The alpha the shader wrote is the blend's source alpha.** White at 0.5 over the 0x20
      * background is 0x90 per channel; a driver that took the fixed-function current alpha
      * instead would give white. */
-    const int ok = near_rgb(SCAN_PX(s, MID_X, MID_Y), 0x8f, 0x8f, 0x8f, 3);
-    /* **And this one is in the affected class too.** `GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA` at
-     * source alpha 0.5 is `src/2 + dst/2` - a genuine combination of both terms, which
-     * `blend-uniformity` measured as correct at one pixel in every 2x2 quad and wrong at the
-     * other three. This check has been passing on hardware from the region's centre, which is
-     * the even/even pixel the lattice gets right. Diagnostic for the same reason
-     * `separate-blend-eq`'s is; `-5b8e` is where it is answered. */
+    /*
+     * **Counted, not sampled - and that is a reversal of what this file said yesterday.**
+     *
+     * `GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA` at source alpha 0.5 is `src/2 + dst/2`, a genuine
+     * combination of both terms, and `blend-uniformity` measured that class as correct at one
+     * pixel in every 2x2 quad and wrong at the other three. This check sampled the region's
+     * centre, which is the even/even pixel the lattice leaves right, and passed on hardware
+     * throughout.
+     *
+     * The census was added as a diagnostic, with a comment arguing the verdict should not widen
+     * until `-5b8e` came back - that failing a check for a fault every blended draw shares would
+     * bury what the check measures. gl1-probe reached the opposite conclusion on its own the
+     * same day (`3de205b`, `a348010`) and turned `blend-over-texture` and
+     * `blend-additive-strip` red. That is the better call and this follows it: a check that
+     * reports success while three quarters of its region is wrong is making a claim that is not
+     * true, and one root cause producing several honest reds is a smaller problem than several
+     * greens that are not.
+     *
+     * The `saw` rows still separate the two questions, so nothing is lost by the verdict being
+     * the strict one.
+     */
+    const int bad = census_wrong(s, 0x8f, 0x8f, 0x8f, 3);
+    const int ok = (bad == 0);
     uniformity_census_of(s, "blend/uniformity");
+    if (gl2_probe_saw) {
+        gl2_probe_saw("blend/wrong-of-3072", (uint32_t)bad, 0u, 0,
+                      SCAN_PX(s, MID_X, MID_Y), 0u);
+    }
     return ok && glGetError() == GL_NO_ERROR;
 }
 
@@ -2114,6 +2135,24 @@ static uint32_t row_below_centre_of(GLenum buffer) { return pixel_of(buffer, MID
 #define CENSUS_X1 (MID_X + 32)
 #define CENSUS_Y0 (MID_Y - 24)
 #define CENSUS_Y1 (MID_Y + 24)
+
+/*
+ * **How many interior pixels are not the colour they should be.**
+ *
+ * The uniformity census below measures whether the region agrees with its own centre, which
+ * cannot tell "uniformly right" from "uniformly wrong". This measures correctness, and it is the
+ * shape gl1-probe settled on independently (`census_wrong`, 3de205b) - worth matching, because
+ * two suites counting blended regions differently would be two answers to one question.
+ */
+static int census_wrong(const uint32_t *s, int r, int g, int b, int tol) {
+    int bad = 0;
+    for (int y = CENSUS_Y0; y < CENSUS_Y1; y++) {
+        for (int x = CENSUS_X0; x < CENSUS_X1; x++) {
+            if (!near_rgb(SCAN_PX(s, x, y), r, g, b, tol)) bad++;
+        }
+    }
+    return bad;
+}
 
 static void uniformity_census_of(const uint32_t *s, const char *name) {
     const uint32_t mid = SCAN_PX(s, MID_X, MID_Y);
