@@ -2106,6 +2106,82 @@ static void blue_census(const char *name_count, const char *name_rows, const cha
 }
 
 /*
+ * **Which blends are a lattice, and whether the arithmetic has anything to do with it.**
+ *
+ * `two-draw-buffers` established that a `GL_ONE, GL_ONE` blend is correct at one pixel in every
+ * 2x2 quad and wrong at the other three, while an unblended draw of the same shader over the
+ * same region is uniform to the last pixel - and that one colour target and two behave
+ * identically. `REQ-20260923T2015Z-5b8e` carries that to obSCEne.
+ *
+ * The question that request will be asked back is the shape of it, and four blend modes answer
+ * it. **`GL_ONE, GL_ZERO` is the one that matters most**: arithmetically it is a copy - the
+ * destination contributes nothing and the result is the source, exactly what the unblended draw
+ * writes. If that is *also* a lattice, then the fault is the colour block being switched on at
+ * all and not the sum it computes, and no amount of reading blend factors will find it. If it is
+ * clean, the arithmetic is implicated and the destination fetch is the thing to look at.
+ *
+ * `GL_ZERO, GL_ONE` is its mirror: the source contributes nothing and the destination must
+ * survive untouched. `GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA` is the blend real programs use, so
+ * its census says how much of the port this actually costs.
+ *
+ * Each arm paints its own destination, blends over it, and reports the per-channel count of
+ * pixels differing from the region's centre - the centre being even/even, the lane the lattice
+ * gets right. A clean arm reports three zeros.
+ */
+static int check_blend_uniformity(void) {
+    reset_view();
+    const GLuint p = use_program(VS_PASSTHROUGH,
+                                 "uniform vec4 c;\n"
+                                 "void main() { gl_FragColor = c; }\n");
+    if (!p) return 0;
+    const GLint pos = glGetAttribLocation(p, "pos");
+    const GLint kc = glGetUniformLocation(p, "c");
+    if (pos < 0 || kc < 0) return 0;
+
+    static const struct {
+        const char *name;
+        GLenum src, dst;
+    } MODES[4] = {
+        {"blend-uniformity/one-one", GL_ONE, GL_ONE},
+        {"blend-uniformity/one-zero", GL_ONE, GL_ZERO},
+        {"blend-uniformity/zero-one", GL_ZERO, GL_ONE},
+        {"blend-uniformity/src-alpha", GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA},
+    };
+
+    int ok = 1;
+    for (int m = 0; m < 4; m++) {
+        /* A destination with something in every channel, so no arm can be clean by arithmetic
+         * accident - a channel that is zero either side proves nothing. */
+        glDisable(GL_BLEND);
+        glUniform4f(kc, 0.125f, 0.25f, 0.5f, 1.0f);
+        attrib_rect(pos, -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+
+        glEnable(GL_BLEND);
+        glBlendFunc(MODES[m].src, MODES[m].dst);
+        glUniform4f(kc, 0.25f, 0.5f, 0.125f, 1.0f);
+        attrib_rect(pos, -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+        glDisable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ZERO);
+
+        uniformity_census(MODES[m].name);
+    }
+
+    /* **The verdict is uniformity, not a colour.** What each blend should compute is measured by
+     * `blend` above; this check exists to say whether it computes it everywhere, and a region
+     * that disagrees with its own centre is a failure whatever the centre holds. */
+    {
+        const uint32_t *const s = scan_frame();
+        const uint32_t mid = SCAN_PX(s, MID_X, MID_Y);
+        for (int y = 0; y < PROBE_H && ok; y++) {
+            for (int x = 0; x < PROBE_W && ok; x++) {
+                if (SCAN_PX(s, x, y) != mid) ok = 0;
+            }
+        }
+    }
+    return ok && glGetError() == GL_NO_ERROR;
+}
+
+/*
  * **Two colour buffers written by one compiled shader**, each blending against its own
  * destination.
  *
@@ -2377,6 +2453,7 @@ static const gl2_probe_case_t g_cases[] = {
     {"separate-blend-eq", check_separate_blend_equation},
     {"draw-buffers", check_draw_buffers},
     {"two-draw-buffers", check_two_draw_buffers},
+    {"blend-uniformity", check_blend_uniformity},
 };
 
 /* **The suite must fit in its callers' result array**, or the checks past the end are run by
