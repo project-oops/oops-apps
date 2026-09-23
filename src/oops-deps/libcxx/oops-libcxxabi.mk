@@ -44,7 +44,14 @@ ifndef OOPS_LIBCXXABI_DIR
 OOPS_LIBCXXABI_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
 OOPS_LIBCXXABI_UPSTREAM ?= $(OOPS_LIBCXXABI_DIR)/upstream
+# Hosted and freestanding land in different directories for the reason `oops-libcxx.mk` gives at
+# length: the two disagree about the C library underneath, and a title that linked the wrong one
+# would resolve every symbol and read the wrong bytes.
+ifeq ($(OOPS_LIBCXX_HOSTED),1)
+OOPS_LIBCXXABI_BUILD    ?= $(OOPS_LIBCXXABI_DIR)/build-cxxabi-hosted
+else
 OOPS_LIBCXXABI_BUILD    ?= $(OOPS_LIBCXXABI_DIR)/build-cxxabi
+endif
 OOPS_LIBCXXABI_LIB      := $(OOPS_LIBCXXABI_BUILD)/libc++abi.a
 OOPS_LIBCXXABI_SRCDIR   := $(OOPS_LIBCXXABI_UPSTREAM)/libcxxabi/src
 
@@ -64,6 +71,25 @@ OOPS_LIBCXXABI_LDFLAGS := -Wl,--whole-archive $(OOPS_LIBCXXABI_LIB) -Wl,--no-who
 # `<cstdlib> tried including <stdlib.h>`, which names neither the cause nor the fix.
 #
 # `-fexceptions -frtti`, obviously: this is the library that implements both.
+ifeq ($(OOPS_LIBCXX_HOSTED),1)
+# The hosted half. `--sysroot` in place of `-nostdlibinc` plus oops-sdk's libc, no
+# `include/freestanding` because the sysroot has the real headers, and `_POSIX_C_SOURCE` for the
+# `__BSD_VISIBLE` reason `oops-libcxx.mk` sets out.
+OOPS_LIBCXXABI_FLAGS = -target x86_64-unknown-freebsd --sysroot=$(OOPS_MESA_SYSROOT) \
+                       -D_POSIX_C_SOURCE=200809L \
+                       -fPIC -fno-stack-protector -O2 -w -std=c++20 \
+                       -fexceptions -frtti \
+                       -isystem $(OOPS_LIBCXX_DIR)/include \
+                       -I$(OOPS_SDK_DIR)/include \
+                       -nostdinc++ \
+                       -I$(OOPS_LIBCXX_UPSTREAM)/libcxx/include \
+                       -I$(OOPS_LIBCXX_UPSTREAM)/libcxx/src \
+                       -I$(OOPS_LIBCXXABI_UPSTREAM)/libcxxabi/include \
+                       -I$(OOPS_LIBCXXABI_UPSTREAM)/libcxxabi/src \
+                       -I$(OOPS_LIBCXXABI_UPSTREAM)/libunwind/include \
+                       -D_LIBCXXABI_BUILDING_LIBRARY -D_LIBCPP_BUILDING_LIBRARY \
+                       -D_LIBCXXABI_HAS_NO_THREADS -D_LIBCPP_HAS_NO_THREADS
+else
 OOPS_LIBCXXABI_FLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                        -nostdlibinc -fPIC -fno-stack-protector -O2 -w -std=c++20 \
                        -fexceptions -frtti \
@@ -79,6 +105,7 @@ OOPS_LIBCXXABI_FLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builti
                        -I$(OOPS_LIBCXXABI_UPSTREAM)/libunwind/include \
                        -D_LIBCXXABI_BUILDING_LIBRARY -D_LIBCPP_BUILDING_LIBRARY \
                        -D_LIBCXXABI_HAS_NO_THREADS -D_LIBCPP_HAS_NO_THREADS
+endif
 
 TARGET_CXX ?= clang++
 

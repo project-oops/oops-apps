@@ -44,7 +44,11 @@ ifndef OOPS_LIBUNWIND_DIR
 OOPS_LIBUNWIND_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
 OOPS_LIBUNWIND_UPSTREAM ?= $(OOPS_LIBUNWIND_DIR)/upstream
+ifeq ($(OOPS_LIBCXX_HOSTED),1)
+OOPS_LIBUNWIND_BUILD    ?= $(OOPS_LIBUNWIND_DIR)/build-unwind-hosted
+else
 OOPS_LIBUNWIND_BUILD    ?= $(OOPS_LIBUNWIND_DIR)/build-unwind
+endif
 OOPS_LIBUNWIND_LIB      := $(OOPS_LIBUNWIND_BUILD)/libunwind.a
 OOPS_LIBUNWIND_SRC      := $(OOPS_LIBUNWIND_UPSTREAM)/libunwind/src
 
@@ -94,6 +98,23 @@ OOPS_LIBUNWIND_ASM_SRCS := $(wildcard $(OOPS_LIBUNWIND_SRC)/*.S)
 # `catch (...)` - because the first `__unw_step` returned end-of-stack and phase 1 concluded
 # there were no frames to search. Measured on hardware 2026-09-23, after a readable frame table
 # had already ruled out the two earlier causes.
+ifeq ($(OOPS_LIBCXX_HOSTED),1)
+# `_LIBUNWIND_IS_BAREMETAL` stays on in the hosted build, and that is not an oversight. It is not
+# a claim about the C library - it is a claim about **how the frame table is found**, and that is
+# the same either way: there is no `dl_iterate_phdr` on this platform for a statically linked
+# title to ask, measured as absent in `REQ-20260921T1830Z-b4d1`. So both builds bracket
+# `.eh_frame` with the linker script and read it directly.
+OOPS_LIBUNWIND_FLAGS = -target x86_64-unknown-freebsd --sysroot=$(OOPS_MESA_SYSROOT) \
+                       -D_POSIX_C_SOURCE=200809L \
+                       -fPIC -fno-stack-protector -O2 -w \
+                       -fasynchronous-unwind-tables \
+                       -isystem $(OOPS_LIBCXX_DIR)/include \
+                       -I$(OOPS_SDK_DIR)/include \
+                       $(OOPS_LIBUNWIND_INCLUDE) -I$(OOPS_LIBUNWIND_SRC) \
+                       -D_LIBUNWIND_IS_BAREMETAL=1 \
+                       -D_LIBUNWIND_HAS_NO_THREADS \
+                       -D_LIBUNWIND_USE_DLADDR=0
+else
 OOPS_LIBUNWIND_FLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                        -nostdlibinc -fPIC -fno-stack-protector -O2 -w \
                        -fasynchronous-unwind-tables \
@@ -105,6 +126,7 @@ OOPS_LIBUNWIND_FLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builti
                        -D_LIBUNWIND_IS_BAREMETAL=1 \
                        -D_LIBUNWIND_HAS_NO_THREADS \
                        -D_LIBUNWIND_USE_DLADDR=0
+endif
 
 OOPS_LIBUNWIND_CXXFLAGS = $(OOPS_LIBUNWIND_FLAGS) -nostdinc++ \
                           -I$(OOPS_LIBCXX_UPSTREAM)/libcxx/include \
