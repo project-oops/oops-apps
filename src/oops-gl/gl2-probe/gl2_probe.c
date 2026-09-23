@@ -2290,11 +2290,27 @@ static int check_loop_uniformity(void) {
      * A result that follows the shader when the order changes is the shader's. A result that
      * stays with the position in the sequence is the scanning. Whichever it is, one run says so.
      */
-    static const struct { const char *name; const char *body; } ARMS[5] = {
+    static const struct { const char *name; const char *body; } ARMS[6] = {
         {"loop-uniformity/break-divergent",
          "  float b = 0.0;\n"
          "  for (int k = 0; k < 8; k++) { if (float(k) > gl_FragCoord.x) break; b += 0.0; }\n"
          "  gl_FragColor = vec4(0.25, 0.5, 0.25 + b, 1.0);\n"},
+        /*
+         * **Does the counter advance?** Both failing arms read blue 255, which is `b += 0.25`
+         * having run all eight trips - and that is what happens for *opposite* conditions
+         * (`k == 1` never true, `k < 1` always true) if `k` is stuck at 0. The loop still ends,
+         * because the trip guard is a scalar counter and does not depend on the lane.
+         *
+         * So carry the counter out and read it. `last` is 7 after a loop that counts and 0 if `k`
+         * never moved, and dividing by 28 puts a correct 7 at the same 0.25 every other arm
+         * expects - so this arm needs no expectation of its own, and a stuck counter reads red 0
+         * against a green and blue that are still right. A wrong red beside a right green says
+         * the counter; everything wrong says something larger.
+         */
+        {"loop-uniformity/counter-out",
+         "  float last = 0.0;\n"
+         "  for (int k = 0; k < 8; k++) { if (k < 1) last = 0.0; last = float(k); }\n"
+         "  gl_FragColor = vec4(last / 28.0, 0.5, 0.25, 1.0);\n"},
         {"loop-uniformity/if-in-loop",
          "  float b = 0.0;\n"
          "  for (int k = 0; k < 8; k++) { if (k < 1) b += 0.25; }\n"
@@ -2314,12 +2330,12 @@ static int check_loop_uniformity(void) {
     };
 
     int worst = 0;
-    for (int m = 0; m < 5; m++) {
-        char src[256];
+    for (int m = 0; m < 6; m++) {
+        char src[320];
         int at = 0;
         const char *head = "void main() {\n";
-        for (int c = 0; head[c] && at < 200; c++) src[at++] = head[c];
-        for (int c = 0; ARMS[m].body[c] && at < 250; c++) src[at++] = ARMS[m].body[c];
+        for (int c = 0; head[c] && at < 260; c++) src[at++] = head[c];
+        for (int c = 0; ARMS[m].body[c] && at < 310; c++) src[at++] = ARMS[m].body[c];
         src[at++] = '}';
         src[at++] = '\n';
         src[at] = '\0';
