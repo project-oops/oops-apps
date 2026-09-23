@@ -2213,6 +2213,57 @@ static void blue_census(const char *name_count, const char *name_rows, const cha
 }
 
 /*
+ * **`do { } while`**, which the parser has always handled and nothing had ever run (2026-09-24).
+ *
+ * An audit of the GLSL constructs this front end accepts against the ones either suite
+ * exercises found this one gap: `while`, `continue`, and `out`/`inout` parameters are all
+ * covered, `struct` is genuinely not implemented, and `do` is implemented and untested.
+ *
+ * **Its defining property is the one a branch-lowered loop gets wrong.** A `do` body runs before
+ * the condition is evaluated at all, so a compiler that emits the ordinary "test, then branch
+ * over the body" shape produces a loop that runs zero times where GLSL says one. The first arm
+ * is exactly that case - a condition that is false the first time it is ever looked at - and a
+ * `while` compiled in its place scores 0 there and is otherwise indistinguishable.
+ *
+ * Three arms in three channels, so one draw settles all of them:
+ *
+ *   red    the body runs once although the condition never holds  -> 1 of 4
+ *   green  it iterates the right number of times                  -> 4 of 8
+ *   blue   `break` leaves it from inside                          -> 1 of 4
+ *
+ * Counted over the interior rather than sampled. Nothing here blends, so the lattice cannot
+ * reach it - but a count costs nothing and a sample is the habit this collection is unlearning.
+ */
+static int check_do_while(void) {
+    reset_view();
+    const GLuint p = use_program(
+        VS_PASSTHROUGH,
+        "void main() {\n"
+        "  float once = 0.0;\n"
+        "  int i = 0;\n"
+        "  do { once += 1.0; i++; } while (i < 0);\n"
+        "  float n = 0.0;\n"
+        "  int j = 0;\n"
+        "  do { n += 1.0; j++; } while (j < 4);\n"
+        "  float b = 0.0;\n"
+        "  int k = 0;\n"
+        "  do { k++; if (k == 2) break; b += 1.0; } while (k < 8);\n"
+        "  gl_FragColor = vec4(once / 4.0, n / 8.0, b / 4.0, 1.0);\n"
+        "}\n");
+    if (!p) return 0;
+    attrib_rect(glGetAttribLocation(p, "pos"), -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+
+    const uint32_t *const s = scan_frame();
+    /* 1/4, 4/8 and 1/4 of 255: 64, 128, 64. */
+    const int bad = census_wrong(s, 64, 128, 64, 3);
+    if (gl2_probe_saw) {
+        gl2_probe_saw("do-while/wrong-of-3072", (uint32_t)bad, 0u, 0,
+                      SCAN_PX(s, MID_X, MID_Y), 0u);
+    }
+    return bad == 0 && glGetError() == GL_NO_ERROR;
+}
+
+/*
  * **The ten GL 2.0 entry points nothing in this suite had ever called** (2026-09-23).
  *
  * Every GL 2.0 function is implemented; an audit of the specification's list against
@@ -2850,6 +2901,7 @@ static const gl2_probe_case_t g_cases[] = {
     {"blend-uniformity", check_blend_uniformity},
     {"point-coord", check_point_coord},
     {"program-introspection", check_program_introspection},
+    {"do-while", check_do_while},
 };
 
 /* **The suite must fit in its callers' result array**, or the checks past the end are run by
