@@ -39,6 +39,10 @@ include $(OOPS_VORBIS)/oops-libvorbis.mk
 # The shared POSIX shim - `stat`, `opendir`, `readdir`, `getcwd`. Shared with Extreme Tux Racer.
 include $(OOPS_APPS_ROOT)/common/posix.mk
 
+# Included here rather than left to `app.mk` below, because the archive rule further down uses
+# `oops_depgen` and `app.mk` is read after it. Guarded, so including it twice costs nothing.
+include $(OOPS_APPS_ROOT)/common/deps.mk
+
 # --- flags ----------------------------------------------------------------
 #
 # `ENABLE_NLS=0` drops gettext. The filesystem is stdio rather than PhysicsFS, which is
@@ -117,8 +121,16 @@ OOPS_NB_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nos
 EXTRA_TARGET_LDFLAGS += -Wl,--whole-archive $(OOPS_NB_LIB) -Wl,--no-whole-archive
 PAYLOAD_EXTRA_DEPS   += $(OOPS_NB_LIB)
 
+# The 74 upstream sources here reach 152 headers between `shim/include`, `upstream/share` and
+# `oops-sdk` - 11 of them the SDK's - and a change to any of them has to rebuild the archive.
+# `common/deps.mk` has the whole reasoning and the measurement. It matters more here than
+# anywhere else: this archive carries `main`, so a stale one is the entire game.
+OOPS_NB_DEPFILE := $(OOPS_NB_BUILD)/libneverball.a.d
+-include $(OOPS_NB_DEPFILE)
+
 $(OOPS_NB_LIB): $(NB_SRCS) $(MAKEFILE_LIST)
 	@mkdir -p $(OOPS_NB_BUILD)
+	$(call oops_depgen,$(TARGET_CC),$(OOPS_NB_CFLAGS),$@,$(NB_SRCS),$(OOPS_NB_DEPFILE))
 	@rm -f $@
 	@n=0; for s in $(NB_SRCS); do n=$$((n+1)); \
 	   $(TARGET_CC) $(OOPS_NB_CFLAGS) -c -o $(OOPS_NB_BUILD)/nb$$n.o "$$s" || exit 1; done; \

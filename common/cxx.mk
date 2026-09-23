@@ -31,6 +31,11 @@ ifndef OOPS_CXX_MK_DIR
 OOPS_CXX_MK_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
 
+# The archive's headers are prerequisites too, for the reason `common/deps.mk` gives: a title
+# whose C++ reaches an `oops-sdk` header would otherwise not rebuild when that header changed,
+# and the ELF beside it would relink against the *previous* archive without a word.
+include $(OOPS_CXX_MK_DIR)/deps.mk
+
 OOPS_CXX_BUILD ?= build/cxx
 OOPS_CXX_LIB   := $(OOPS_CXX_BUILD)/libcxxtitle.a
 
@@ -95,8 +100,12 @@ OOPS_CXX_FLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nos
 # on the link line, and a static archive seen before the objects that need it contributes nothing.
 OOPS_CXX_LDFLAGS := -Wl,--whole-archive $(OOPS_CXX_LIB) -Wl,--no-whole-archive
 
+OOPS_CXX_DEPFILE := $(OOPS_CXX_BUILD)/libcxxtitle.a.d
+-include $(OOPS_CXX_DEPFILE)
+
 $(OOPS_CXX_LIB): $(OOPS_CXX_SRCS) $(OOPS_CXX_RT_SRC) $(MAKEFILE_LIST)
 	@mkdir -p $(OOPS_CXX_BUILD)
+	$(call oops_depgen,$(TARGET_CXX),$(OOPS_CXX_FLAGS),$@,$(OOPS_CXX_RT_SRC) $(OOPS_CXX_SRCS),$(OOPS_CXX_DEPFILE))
 	@rm -f $@
 	@n=0; for src in $(OOPS_CXX_RT_SRC) $(OOPS_CXX_SRCS); do \
 	    n=$$((n+1)); \

@@ -10,6 +10,10 @@ SELFISH ?= $(abspath $(OOPS_APPS_ROOT)/../selfish)
 include $(OOPS_SDK)/oops-sdk.mk
 OOPS_SDK_DIR := $(abspath $(OOPS_SDK))
 
+# `$(call oops_depgen,...)`, which makes the headers behind a source list into prerequisites.
+# Guarded, so a title that included it itself (neverball, for its own archive) is unaffected.
+include $(OOPS_APPS_ROOT)/common/deps.mk
+
 # **oops-gl's sources, listed once.**
 #
 # Apps that use OpenGL compile the library out of the SDK tree rather than linking its archive,
@@ -365,12 +369,52 @@ else
 all: $(if $(HOST_TEST_SRCS),$(BUILD)/$(APP_NAME)_selftest)
 endif
 
+# **`make` does not package, and the packaged output is what gets deployed.**
+#
+# `all` builds the ELF. `eboot.bin` and the title directory are made by `eboot`, `title` and
+# `dist`, so a `make` that relinks leaves a *correct* ELF beside an eboot built from the previous
+# one - and says nothing, because from `all`'s point of view nothing is wrong. The next
+# `pros restore` then stages the old payload and reports `0 files ... unchanged`, which is the
+# same silence this file spent 2026-09-23 removing one layer down.
+#
+# Making `all` package would be the wrong fix: it would run `selfish` and zip a title directory
+# on every build, including the many that are only a `check`. So it says so instead, and only
+# when there is something to say - the warning needs a packaged file that already exists and is
+# strictly older than the module beside it.
+#
+# `find -newer` rather than `test -nt`, which is not in POSIX `test` and this recipe runs under
+# whatever `/bin/sh` is. Strictly older, so a package written in the same coarse-grained second
+# as the link that fed it is not reported.
+ifneq ($(strip $(PAYLOAD_SRCS)),)
+all:
+	@elf="$(BUILD)/$(APP_NAME).elf"; stale=""; \
+	for p in $(BUILD)/title/$(TITLE_ID)/eboot.bin $(EBOOT_ARTIFACT) $(TITLE_ZIP_ARTIFACT); do \
+	    [ -f "$$p" ] || continue; \
+	    if [ -n "$$(find "$$elf" -newer "$$p" 2>/dev/null)" ]; then stale="$$stale $$p"; fi; \
+	done; \
+	if [ -n "$$stale" ]; then \
+	    echo "$(APP_NAME): NOTE - $$elf is newer than what was packaged from it:"; \
+	    for p in $$stale; do echo "    $$p"; done; \
+	    echo "  'make' builds the module, not the package. Run 'make title' (or 'make eboot',"; \
+	    echo "  'make dist') before restoring, or the console keeps running the previous code."; \
+	fi
+endif
+
 $(BUILD):
 	@mkdir -p $(BUILD)
 
 # Host test gate
+#
+# The self-test compiles the same SDK sources the payload does, so it has the same header
+# problem and the same reason to care: this is the gate that is supposed to vouch for the code,
+# and a gate that reran an unchanged binary would pass on the *previous* version of a fix. See
+# `common/deps.mk`.
 ifneq ($(strip $(HOST_TEST_SRCS)),)
+OOPS_SELFTEST_DEPFILE := $(BUILD)/$(APP_NAME)_selftest.d
+-include $(OOPS_SELFTEST_DEPFILE)
+
 $(BUILD)/$(APP_NAME)_selftest: $(HOST_TEST_SRCS) $(HOST_TEST_EXTRA_DEPS) | $(BUILD)
+	$(call oops_depgen,$(CC),$(CFLAGS),$@,$(HOST_TEST_SRCS),$(OOPS_SELFTEST_DEPFILE))
 	$(CC) $(CFLAGS) -o $@ $(HOST_TEST_SRCS) $(HOST_TEST_LIBS)
 
 check: $(BUILD)/$(APP_NAME)_selftest
@@ -463,9 +507,19 @@ UNDEF_CHECK ?= $(if $(filter 1,$(USE_MESA)),0,1)
 # depends on its sources, so adding a file to `CORE_SDK_SRCS` did not relink what was already
 # built - and the undefined-symbol check then answered about the previous build, which is exactly
 # how it looked like a fix had not worked.
+#
+# **The headers are prerequisites too**, which they were not until 2026-09-23, and the symptom
+# was the same one a level quieter: an SDK *header* change relinked nothing, `selfish` wrapped
+# the ELF that was already there, and `pros restore` reported `0 files ... unchanged` while the
+# console went on running the previous code. They cannot be listed here - `common/deps.mk` says
+# why, and asks the compiler for them instead.
 ifneq ($(strip $(PAYLOAD_SRCS)),)
+OOPS_ELF_DEPFILE := $(BUILD)/$(APP_NAME).elf.d
+-include $(OOPS_ELF_DEPFILE)
+
 $(BUILD)/$(APP_NAME).elf: $(PAYLOAD_SRCS) $(TARGET_SYS_SRCS) $(PAYLOAD_EXTRA_DEPS) \
                           $(MAKEFILE_LIST) | $(BUILD)
+	$(call oops_depgen,$(TARGET_CC),$(TARGET_CFLAGS),$@,$(PAYLOAD_SRCS) $(TARGET_SYS_SRCS),$(OOPS_ELF_DEPFILE))
 	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) -o $@ $(PAYLOAD_SRCS) $(TARGET_SYS_SRCS)
 	@nm_tool=$$(command -v $(NM) 2>/dev/null || command -v llvm-nm 2>/dev/null || true); \
 	if [ "$(UNDEF_CHECK)" != "1" ]; then \
@@ -585,7 +639,20 @@ title: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 ifneq ($(filter-out check-only,$(FORMATS)),)
 ifneq ($(strip $(PAYLOAD_SRCS)),)
 # Release staging: stages artifacts for each requested format in $(FORMATS)
-dist: $(BUILD)/$(APP_NAME).elf
+#
+# **The stamp is a prerequisite because `mkmodule` rewrites the ELF in place.** Without it, the
+# `elf` case below copied `$(BUILD)/$(APP_NAME).elf` *before* the `eboot` and `title` cases had
+# caused it to be tagged, so `make dist` staged a different `.elf` on its first run than on its
+# second, from the same tree with no source change - measured on 2026-09-23, md5 `c7e1f856d879`
+# then `8eb9be684ac3`.
+#
+# The first-run one is the untouched link. Its `PT_SCE_DYNLIBDATA` is *present and empty* -
+# offset 0, size 0, because the linker script reserves the segment and `mkmodule` is what fills
+# it (0x7e80 bytes here) and rewrites `PT_DYNAMIC` down to the loader's form. That is the
+# container the stamp rule above describes: staged perfectly, refused at load, nothing said on
+# this side. So the release artifact was the right one only on a *rebuild* and the wrong one on
+# a clean build, which is the wrong way round for the copy that gets published.
+dist: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	@mkdir -p $(DIST)
 	@for fmt in $(FORMATS); do \
 	    case "$$fmt" in \
