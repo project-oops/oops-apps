@@ -103,6 +103,33 @@ static const uint32_t *frame(void) {
     return (const uint32_t *)g_fb;
 }
 
+/*
+ * **One pixel is not evidence about a blend on this part.**
+ *
+ * A blend whose result *combines* both terms - `GL_ONE, GL_ONE`, `GL_SRC_ALPHA,
+ * GL_ONE_MINUS_SRC_ALPHA`, `GL_DST_COLOR, GL_ONE`, and the rest - is correct at one pixel in
+ * every 2x2 quad and wrong at the other three. The correct pixel is the one with **both
+ * coordinates even**. A blend whose result is a single operand (`GL_ONE, GL_ZERO`,
+ * `GL_ZERO, GL_ONE`) is correct everywhere. Measured over 12,288 pixels and filed as obSCEne
+ * request `REQ-20260923T2015Z-5b8e`; unresolved at the time of writing.
+ *
+ * `PROBE_W / 2` is 64 and `PROBE_H / 2` is 48. **Both are even**, so the centre pixel - which
+ * fifty-odd checks in this file use as their verdict - is exactly the lane the fault spares.
+ * A blended check that reads it passes whatever the other three lanes did.
+ *
+ * That is not hypothetical. `blend-over-texture` and `blend-additive-strip` were written on
+ * 2026-09-23, reported their arithmetic to the byte - `0x8cb4dc` against an expected `0x8cb4dc` -
+ * and were offered as evidence that compositing on this part was sound. Censused, the same draws
+ * were wrong at 2,304 of 3,072 pixels. The centre was right and three quarters of the region was
+ * not.
+ *
+ * **So: if a check blends, count the region with `census_wrong` and return on the count.** Use
+ * `px` for an unblended draw, where the lattice does not reach, or for reporting a sample
+ * alongside a census. A verdict from `px` on a blended draw is a verdict about one lane.
+ *
+ * The same discipline applies to anything else that turns out to vary within a quad; the fault
+ * above is the one that is known.
+ */
 static uint32_t px(int x, int y) {
     if (!g_fb || x < 0 || y < 0 || x >= PROBE_W || y >= PROBE_H) return 0u;
     const uint32_t *f = frame();
