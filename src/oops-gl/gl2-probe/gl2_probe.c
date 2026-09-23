@@ -2050,6 +2050,36 @@ static uint32_t row_below_centre_of(GLenum buffer) { return pixel_of(buffer, MID
  * Three buckets rather than two, because a third value anywhere means this is not a clean split
  * and the bit masks are the wrong instrument to read it with.
  */
+/*
+ * **Which channels are a lattice, measured against the region's own centre.**
+ *
+ * `blue_census` says blue is right at one pixel in four and wrong at the rest, for a blend into
+ * one target as much as two. It cannot say whether blue is *written* at one pixel in four or
+ * *blended* there - the difference between a draw that never put the channel down and a colour
+ * block that dropped the destination for three lanes of every quad - and those are different
+ * bugs with different registers behind them. Run after a plain unblended draw, this answers it:
+ * a lattice with no blending in the frame at all belongs to the draw.
+ *
+ * Counts pixels differing from the centre rather than from an expected constant, so it needs no
+ * argument and reads the same after any uniform draw. The centre is even/even, which the lattice
+ * gets right, so "differs from the centre" is "wrong" wherever the census above found a lattice.
+ */
+static void uniformity_census(const char *name) {
+    const uint32_t *const s = scan_frame();
+    const uint32_t mid = SCAN_PX(s, MID_X, MID_Y);
+    int dr = 0, dg = 0, db = 0;
+    for (int y = 0; y < PROBE_H; y++) {
+        for (int x = 0; x < PROBE_W; x++) {
+            const uint32_t c = SCAN_PX(s, x, y);
+            if (chan_r(c) != chan_r(mid)) dr++;
+            if (chan_g(c) != chan_g(mid)) dg++;
+            if (chan_b(c) != chan_b(mid)) db++;
+        }
+    }
+    /* `saw` is the centre the three counts are measured against, so a row is self-contained. */
+    if (gl2_probe_saw) gl2_probe_saw(name, mid, 0u, dr, (uint32_t)dg, (uint32_t)db);
+}
+
 static void blue_census(const char *name_count, const char *name_rows, const char *name_cols,
                         const char *name_cols3) {
     const uint32_t *const s = scan_frame();
@@ -2199,6 +2229,7 @@ static int check_two_draw_buffers(void) {
      */
     blue_census("two-draw-buffers/two-count", "two-draw-buffers/two-rows",
                 "two-draw-buffers/two-cols", "two-draw-buffers/two-cols3");
+    uniformity_census("two-draw-buffers/two-u");
 
     /*
      * **The same blend into one target**, which is the control the pattern above demands.
@@ -2217,6 +2248,11 @@ static int check_two_draw_buffers(void) {
     glDrawBuffer(GL_BACK);
     glUniform4f(kc, 0.0f, 0.0f, 1.0f, 1.0f);
     attrib_rect(pos, -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+    /* **No blending has happened in this frame yet.** One uniform draw of a constant colour, and
+     * the region has to be that colour everywhere. A lattice here is the draw's, and nothing
+     * below it needs investigating. */
+    uniformity_census("two-draw-buffers/plain");
+
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE);
     glUniform4f(kc, 0.25f, 0.5f, 0.75f, 0.0f);
@@ -2224,6 +2260,7 @@ static int check_two_draw_buffers(void) {
     glDisable(GL_BLEND);
     blue_census("two-draw-buffers/one-count", "two-draw-buffers/one-rows",
                 "two-draw-buffers/one-cols", "two-draw-buffers/one-cols3");
+    uniformity_census("two-draw-buffers/one-u");
 
     return ok && glGetError() == GL_NO_ERROR;
 }
