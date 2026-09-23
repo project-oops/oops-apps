@@ -2277,36 +2277,40 @@ static int check_loop_uniformity(void) {
      * off, and a mask not fully restored before the colour export would leave lanes unwritten -
      * which is what "this pixel never got the value" looks like from the outside.
      */
+    /*
+     * **The order is reversed from the run that produced the first result, on purpose.**
+     *
+     * That run reported `break` and `if-in-loop` with the same count (1484), the same first
+     * wrong pixel (80, 24) and the same value - three coincidences between two shaders that
+     * differ. Six `scan_frame` calls happen in this one check, and this file's own comment warns
+     * that a second scan inside a check lands on the next scanout buffer round. An instrument
+     * that has fooled this investigation twice already does not get believed a third time on its
+     * own word.
+     *
+     * A result that follows the shader when the order changes is the shader's. A result that
+     * stays with the position in the sequence is the scanning. Whichever it is, one run says so.
+     */
     static const struct { const char *name; const char *body; } ARMS[5] = {
-        {"loop-uniformity/once",
-         "  float r = 0.0;\n"
-         "  for (int i = 0; i < 1; i++) { r += 0.25; }\n"
-         "  gl_FragColor = vec4(r, 0.5, 0.25, 1.0);\n"},
-        {"loop-uniformity/count",
-         "  float g = 0.0;\n"
-         "  for (int j = 0; j < 4; j++) { g += 0.125; }\n"
-         "  gl_FragColor = vec4(0.25, g, 0.25, 1.0);\n"},
-        {"loop-uniformity/break",
-         "  float b = 0.0;\n"
-         "  for (int k = 0; k < 8; k++) { if (k == 1) break; b += 0.25; }\n"
-         "  gl_FragColor = vec4(0.25, 0.5, b, 1.0);\n"},
-        /* **An `if` inside a loop, with no `break`** - the one thing `break` needs that `count`
-         * never had. If this is dirty the fault is the mask an `if` saves inside a loop body and
-         * `break` is innocent; if it is clean, `break` itself is the whole of it. Same trip
-         * count and same arithmetic as the arm above, so nothing else moves. */
-        {"loop-uniformity/if-in-loop",
-         "  float b = 0.0;\n"
-         "  for (int k = 0; k < 8; k++) { if (k < 1) b += 0.25; }\n"
-         "  gl_FragColor = vec4(0.25, 0.5, b, 1.0);\n"},
-        /* **A `break` every lane takes at the same trip is the easy case**, and it is the one
-         * failing. This is the hard case for comparison: the trip a lane leaves on depends on
-         * its own position, so lanes in a quad diverge. If the uniform break is broken and this
-         * is too, they are one bug; if this is clean, the uniform path has something specific
-         * to it. `gl_FragCoord.x` is whole numbers, so the compare is exact. */
         {"loop-uniformity/break-divergent",
          "  float b = 0.0;\n"
          "  for (int k = 0; k < 8; k++) { if (float(k) > gl_FragCoord.x) break; b += 0.0; }\n"
          "  gl_FragColor = vec4(0.25, 0.5, 0.25 + b, 1.0);\n"},
+        {"loop-uniformity/if-in-loop",
+         "  float b = 0.0;\n"
+         "  for (int k = 0; k < 8; k++) { if (k < 1) b += 0.25; }\n"
+         "  gl_FragColor = vec4(0.25, 0.5, b, 1.0);\n"},
+        {"loop-uniformity/break",
+         "  float b = 0.0;\n"
+         "  for (int k = 0; k < 8; k++) { if (k == 1) break; b += 0.25; }\n"
+         "  gl_FragColor = vec4(0.25, 0.5, b, 1.0);\n"},
+        {"loop-uniformity/count",
+         "  float g = 0.0;\n"
+         "  for (int j = 0; j < 4; j++) { g += 0.125; }\n"
+         "  gl_FragColor = vec4(0.25, g, 0.25, 1.0);\n"},
+        {"loop-uniformity/once",
+         "  float r = 0.0;\n"
+         "  for (int i = 0; i < 1; i++) { r += 0.25; }\n"
+         "  gl_FragColor = vec4(r, 0.5, 0.25, 1.0);\n"},
     };
 
     int worst = 0;
