@@ -1607,6 +1607,81 @@ static int check_texture_proj(void) {
     return ok && glGetError() == GL_NO_ERROR;
 }
 
+/* **A volume sampled from a compiled shader.** Each slice is a flat colour, so the answer says
+ * which slice the third coordinate reached - and that is the thing a volume can get wrong that
+ * a 2D cannot. r = 0.75 lands in the second of two slices. */
+static int check_texture_3d(void) {
+    reset_view();
+    static const GLubyte slices[2][4] = {{255, 0, 0, 255}, {0, 0, 255, 255}};
+    GLubyte vol[2 * 4];
+    for (int i = 0; i < 2; i++) {
+        for (int k = 0; k < 4; k++) vol[i * 4 + k] = slices[i][k];
+    }
+    GLuint t = 0;
+    glActiveTexture(GL_TEXTURE0);
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_3D, t);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA, 1, 1, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, vol);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+
+    const GLuint p = use_program(VS_PASSTHROUGH,
+                                 "uniform sampler3D vol;\n"
+                                 "void main() {\n"
+                                 "  gl_FragColor = texture3D(vol, vec3(0.5, 0.5, 0.75));\n"
+                                 "}\n");
+    if (!p) { glDeleteTextures(1, &t); return 0; }
+    attrib_rect(glGetAttribLocation(p, "pos"), -0.8f, -0.8f, 0.8f, 0.8f, 0.0f);
+    const uint32_t *s = scan_frame();
+    const int ok = near_rgb(SCAN_PX(s, MID_X, MID_Y), 0, 0, 255, 4); /* the far slice */
+    glBindTexture(GL_TEXTURE_3D, 0);
+    glDeleteTextures(1, &t);
+    return ok && glGetError() == GL_NO_ERROR;
+}
+
+/* **A shadow lookup compares instead of returning a texel**, and the comparison is the
+ * sampler's own `GL_TEXTURE_COMPARE_FUNC`. The stored depth is 0.5, so a reference of 0.25
+ * passes and 0.75 fails under less-or-equal - and both halves are drawn, because with `s` below
+ * the stored depth a lowering that left the reference in the wrong address register still gets
+ * the passing half right and only the failing half gives it away. */
+static int check_shadow_compare(void) {
+    reset_view();
+    static const GLfloat depth = 0.5f;
+    GLuint t = 0;
+    glActiveTexture(GL_TEXTURE0);
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, 1, 1, 0, GL_DEPTH_COMPONENT, GL_FLOAT,
+                 &depth);
+
+    /* The left half references 0.25 and the right half 0.75, from the varying. */
+    const GLuint p = use_program("attribute vec3 pos;\n"
+                                 "varying float ref;\n"
+                                 "void main() {\n"
+                                 "  ref = (pos.x < 0.0) ? 0.25 : 0.75;\n"
+                                 "  gl_Position = vec4(pos, 1.0);\n"
+                                 "}\n",
+                                 "uniform sampler2DShadow depth;\n"
+                                 "varying float ref;\n"
+                                 "void main() {\n"
+                                 "  gl_FragColor = shadow2D(depth, vec3(0.5, 0.5, ref));\n"
+                                 "}\n");
+    if (!p) { glDeleteTextures(1, &t); return 0; }
+    attrib_rect(glGetAttribLocation(p, "pos"), -0.9f, -0.8f, 0.9f, 0.8f, 0.0f);
+    const uint32_t *s = scan_frame();
+    int ok = near_rgb(SCAN_PX(s, 16, MID_Y), 255, 255, 255, 4);            /* 0.25 passes */
+    ok = ok && near_rgb(SCAN_PX(s, PROBE_W - 17, MID_Y), 0, 0, 0, 4);      /* 0.75 fails */
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glDeleteTextures(1, &t);
+    return ok && glGetError() == GL_NO_ERROR;
+}
+
 /* `m * m` is a product and not componentwise, and `transpose` moves the off-diagonal. Values
  * chosen so the product, the componentwise answer and the transpose are three different
  * colours - a matrix test on symmetric operands passes with the rows and columns swapped. */
@@ -2000,6 +2075,8 @@ static const gl2_probe_case_t g_cases[] = {
     {"derivatives", check_derivatives},
     {"texture-cube", check_texture_cube},
     {"texture-proj", check_texture_proj},
+    {"texture-3d", check_texture_3d},
+    {"shadow-compare", check_shadow_compare},
 
     /* The language */
     {"matrix-arithmetic", check_matrix_arithmetic},
