@@ -68,6 +68,7 @@ OOPS_LIBCXXABI_FLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builti
                        -nostdlibinc -fPIC -fno-stack-protector -O2 -w -std=c++20 \
                        -fexceptions -frtti \
                        -isystem $(OOPS_LIBCXX_DIR)/include \
+                       -I$(OOPS_LIBCXX_DIR)/include/freestanding \
                        -isystem $(OOPS_SDK_DIR)/include/libc \
                        -I$(OOPS_SDK_DIR)/include \
                        -nostdinc++ \
@@ -83,7 +84,7 @@ TARGET_CXX ?= clang++
 
 # `ar` is handed the list rather than the directory - `common/deps.mk` says what the glob cost.
 $(OOPS_LIBCXXABI_LIB): $(OOPS_LIBCXXABI_SRCS) $(lastword $(MAKEFILE_LIST)) \
-                       $(OOPS_LIBCXX_DIR)/include/stdlib.h
+                       $(OOPS_LIBCXX_DIR)/include/__config_site
 	@mkdir -p $(OOPS_LIBCXXABI_BUILD)
 	@rm -f $@
 	@n=0; objs=""; for src in $(OOPS_LIBCXXABI_SRCS); do \

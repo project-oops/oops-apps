@@ -25,8 +25,25 @@ INCLUDES="-I$UP/delibs/debase -I$UP/delibs/depool -I$UP/delibs/deutil
           -I$UP/egl -I$HERE/shim/include
           -I$UP/opengl/wrapper -I$UP/egl/wrapper"
 
-BASE="-target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib
-      -fPIC -fno-stack-protector -O2 -w -nostdlibinc -DOOPS_TARGET=3
+# # This is a HOSTED title, so the C library is the Mesa sysroot's
+#
+# `common/app.mk` puts it plainly at its `USE_MESA` block: a hosted title takes its target C
+# library from the Mesa sysroot, and oops-sdk's freestanding libc headers **collide** with it -
+# the sysroot's `__clock_t` is `int` where oops-sdk's `clock_t` is `int64_t`. So `app.mk` empties
+# `OOPS_SDK_LIBC_INCLUDE` for these titles.
+#
+# This survey used oops-sdk's freestanding libc until 2026-09-23 and was measuring a
+# configuration this title will never be built in. The sysroot is a full FreeBSD header set -
+# `unistd.h`, `signal.h`, `pthread.h`, `dirent.h`, `sys/stat.h` and a real `libm.a` - so most of
+# what looked like a long list of SDK gaps was the wrong question rather than missing work.
+#
+# oops-sdk's *non-libc* headers stay: `oops/gfx.h` and friends are how the platform layer reaches
+# the display, and they are not a C library.
+MESA_SYSROOT="$OOPS_APPS/../oops-mesa/toolchain/sysroot"
+
+BASE="-target x86_64-unknown-freebsd --sysroot=$MESA_SYSROOT
+      -fPIC -fno-stack-protector -O2 -w -DOOPS_TARGET=3
+      -I$SDK/include
       $INCLUDES"
 
 # # libc++'s headers come before the SDK's, and the order is not cosmetic
@@ -43,8 +60,8 @@ BASE="-target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib
 # rather than as this.
 CXXFLAGS="-nostdinc++ -fexceptions -frtti -std=c++17
           -I$LIBCXX/include -I$LIBCXX/upstream/libcxx/include
-          -I$SDK/include -I$SDK/include/libc $BASE"
-CFLAGS="-std=c11 -I$SDK/include -I$SDK/include/libc $BASE"
+          -DDEQP_TARGET_NAME=\"OOPS\" $BASE"
+CFLAGS="-std=c11 -DDEQP_TARGET_NAME=\"OOPS\" $BASE"
 
 filter="${1:-}"
 ok=0; bad=0

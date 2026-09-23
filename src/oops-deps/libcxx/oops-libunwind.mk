@@ -98,6 +98,7 @@ OOPS_LIBUNWIND_FLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builti
                        -nostdlibinc -fPIC -fno-stack-protector -O2 -w \
                        -fasynchronous-unwind-tables \
                        -isystem $(OOPS_LIBCXX_DIR)/include \
+                       -I$(OOPS_LIBCXX_DIR)/include/freestanding \
                        -isystem $(OOPS_SDK_DIR)/include/libc \
                        -I$(OOPS_SDK_DIR)/include \
                        $(OOPS_LIBUNWIND_INCLUDE) -I$(OOPS_LIBUNWIND_SRC) \

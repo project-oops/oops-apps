@@ -16,39 +16,52 @@ that the tests are somebody else's and the answer is not ours to arrange.
 
 ## Where it is
 
-**196 of 220 framework sources compile for the target.** Run `tools/survey.sh` for the current
+**208 of 220 framework sources compile for the target.** Run `tools/survey.sh` for the current
 number and the cause histogram; it compiles every source one at a time and groups the failures,
 which is the only useful shape for a port this size.
 
 Nothing links yet and nothing has run. Building is not conforming, and the distinction matters
 more here than anywhere else in the collection.
 
-### How it got there
+### This is a hosted title, and getting that wrong cost a day's reading
 
-Three findings, in the order they mattered:
+`OOPS_RENDERER = mesa` makes this a **hosted** title, and `common/app.mk` says what that means
+at its `USE_MESA` block: the target C library comes from **the Mesa sysroot**, and oops-sdk's
+freestanding libc headers *collide* with it — the sysroot's `__clock_t` is `int` where oops-sdk's
+`clock_t` is `int64_t`. So `app.mk` empties `OOPS_SDK_LIBC_INCLUDE` for these titles.
+
+The first pass of this port used oops-sdk's freestanding libc and reached 196 of 220, against a
+configuration this title will never be built in. The sysroot is a full FreeBSD header set —
+`unistd.h`, `signal.h`, `pthread.h`, `dirent.h`, `sys/stat.h`, a real `libm.a` — so most of what
+looked like a long list of missing SDK work was the wrong question rather than work.
+
+**The same trap caught libc++.** `oops-deps/libcxx/include/` held shims standing in for a C
+library that does not exist freestanding — `locale.h`, `runetype.h`, `nl_types.h`. On a hosted
+title's include path those *shadow FreeBSD's real ones*, and 128 of 220 sources failed with
+errors naming neither directory. They now live in `include/freestanding/`, which a hosted build
+does not put on the path.
+
+### How it got there
 
 | | files it unblocked |
 |---|---|
-| libc++'s headers must precede oops-sdk's `include/libc` | **116** |
+| build against the Mesa sysroot, not oops-sdk's freestanding libc | **128** |
+| libc++'s headers must precede the C library's | 116 |
 | the generated GL/EGL wrappers are checked in, under `wrapper/` | 42 |
-| `<fstream>`, and the five stdio names `basic_filebuf` reaches for | 3 |
 
-The first is the one worth remembering. libc++ ships its own `<math.h>`, `<string.h>` and
-friends — thin wrappers that pull in the C library's with `#include_next` and add the C++
-overloads — and `<cmath>` checks that its wrapper was the one found. With the SDK's `include/libc`
-first, the C header wins and **161 of 260 sources failed on that one line**. It is also why
-`common/cxxrt.cpp` declares `std::set_terminate` by hand rather than including `<exception>`,
-which was read at the time as a quirk of that file.
+The middle one still holds and is worth remembering independently: libc++ ships its own
+`<math.h>`, `<string.h>` and friends — wrappers that `#include_next` the C library's and add the
+C++ overloads — and `<cmath>` *checks* that its wrapper was the one found.
 
-### The 24 that do not, and which of them matter
+### The 12 that do not
 
-| blocked on | files | disposition |
-|---|---|---|
-| `signal.h`, `unistd.h`, `sys/stat.h`, `sys/wait.h`, `sys/socket.h`, `dlfcn.h`, `dirent.h`, `semaphore.h`, `xeXMLParser.hpp` | 13 | **Not needed.** These are `deutil`'s process, socket, directory and dynamic-library helpers and the `xexml` executor — the machinery for running tests *remotely* from a host. A title that runs its own cases on the console needs none of it |
-| `sinh` and friends, `fenv.h`, `posix_memalign`, `struct timespec` | 7 | oops-sdk gaps, each small |
-| `pthread.h` | 2 | `dethread`. The framework itself includes no `<thread>` or `<mutex>` — dEQP threads itself in C — so this is a real but bounded piece |
-| `png.h` | 1 | `tcuImageIO`, for reference-image comparison. Wanted eventually |
-| `DEQP_TARGET_NAME is not defined!` | 1 | **Ours.** `deDefs.h` wants to know what platform this is, and answering it is the first line of the port rather than an obstacle to it |
+All single causes now, and all in `delibs` or at the edges: `u_int` and `cpusetid_t` (the staged
+sysroot is a subset of FreeBSD's headers), `malloc_usable_size`, `execinfo.h`, `netinet6/in6.h`,
+`fenv.h`, two files wanting a newer `_POSIX_C_SOURCE`, `png.h` for reference-image comparison,
+and `xeXMLParser.hpp` for the executor.
+
+Several are in files a self-contained run does not need — `deSocket.c`, `deProcess.c` and the
+`xexml` executor exist to drive tests *remotely from a host*. The rest are small.
 
 ## What is not decided yet
 
@@ -57,8 +70,15 @@ a reduced binary: a suite we pruned at compile time is one we curated. That is `
 roadmap row 8 and this title does not get to reopen it — it means building the whole `glcts`,
 which will be a much larger link than anything here so far.
 
-**How the whole thing links.** 196 sources compiling is not an executable, and `glcts` is a much
-larger link than anything attempted here.
+**The link, and it is blocked on one thing that does not exist yet.** 208 objects is not an
+executable. A hosted C++ title needs **libc++, libc++abi and libunwind built against the Mesa
+sysroot**, and the only build of them is the freestanding one — against oops-sdk's libc, which
+disagrees with the sysroot about `FILE` and `clock_t`. Linking the two together would produce a
+binary that resolves every symbol and reads the wrong bytes.
+
+That build should be *smaller* than the freestanding one, not larger: the sysroot has real
+`xlocale.h`, `locale.h` and `runetype.h`, and `librune.a` already supplies `_DefaultRuneLocale`,
+so upstream's own FreeBSD locale backend applies and none of `include/freestanding/` is needed.
 
 ## The platform layer
 

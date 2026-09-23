@@ -36,9 +36,30 @@ OOPS_LIBCXX_BUILD ?= $(OOPS_LIBCXX_DIR)/build
 
 # Ours first: `__config_site` and `__assertion_handler` are normally CMake-generated, and
 # `sys/_types/_mbstate_t.h` answers libc++'s own second-choice route to `mbstate_t`.
+# # Two directories, because there are two kinds of title
+#
+# `include/` holds what libc++ needs **whatever C library is underneath**: `__config_site` and
+# `__assertion_handler`, both of which CMake would normally generate.
+#
+# `include/freestanding/` holds the shims that stand in for a C library this SDK does not have -
+# `locale.h`, `nl_types.h`, `runetype.h`, `inttypes.h`, the `mbstate_t` typedef, and the locale
+# backend selection. They are correct for a title built against oops-sdk's freestanding libc and
+# **actively wrong for a hosted one**, where the Mesa sysroot already has the real versions:
+# putting them on a hosted title's include path shadows FreeBSD's `locale.h` and `runetype.h`
+# and breaks 128 of the CTS framework's 220 sources, with errors that name neither this
+# directory nor the sysroot.
+#
+# `common/app.mk` says the same thing one layer up about oops-sdk's `include/libc`, which it
+# empties for `USE_MESA` titles because the sysroot's `__clock_t` is `int` where oops-sdk's
+# `clock_t` is `int64_t`. This is that rule applied to the C++ library's half.
+#
+# **The archive this file builds is the freestanding one.** A hosted C++ title needs libc++ built
+# against the sysroot instead, and cannot link this one - they disagree about `FILE`. Nothing
+# builds that yet; `gl-cts` is the first title to want it.
 OOPS_LIBCXX_INCLUDE := \
     -nostdinc++ -nostdlibinc \
     -I$(OOPS_LIBCXX_DIR)/include \
+    -I$(OOPS_LIBCXX_DIR)/include/freestanding \
     -I$(OOPS_LIBCXX_UPSTREAM)/libcxx/include
 
 OOPS_LIBCXX_LIB := $(OOPS_LIBCXX_BUILD)/libc++.a
