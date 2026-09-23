@@ -2236,31 +2236,71 @@ static void blue_census(const char *name_count, const char *name_rows, const cha
  */
 static int check_do_while(void) {
     reset_view();
-    const GLuint p = use_program(
-        VS_PASSTHROUGH,
+    const char *const DO_FS =
         "void main() {\n"
         "  float once = 0.0;\n"
         "  int i = 0;\n"
         "  do { once += 1.0; i++; } while (i < 0);\n"
+        "  gl_FragColor = vec4(once / 4.0, 0.5, 0.25, 1.0);\n"
+        "}\n";
+    /* **It compiles and it links**, because a console compile failure is deliberately not a link
+     * failure - `GL_LINK_STATUS` has to read the same on a host and a console, and the software
+     * rasteriser runs this shader correctly. The refusal is the draw's. */
+    const GLuint p = use_program(VS_PASSTHROUGH, DO_FS);
+    if (!p) return 0;
+    GLint linked = 0;
+    glGetProgramiv(p, GL_LINK_STATUS, &linked);
+    int ok = (linked == GL_TRUE);
+
+    (void)glGetError();
+    attrib_rect(glGetAttribLocation(p, "pos"), -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+    const GLenum drew = glGetError();
+    const uint32_t *s = scan_frame();
+    const int painted = census_wrong(s, 0x20, 0x20, 0x20, 4);
+
+#ifdef OOPS_HOST_BUILD
+    /* The software rasteriser generates it, so the host draws the real answer: once is 1, so
+     * red is 1/4. This is what the console is being refused *instead of*. */
+    ok = ok && drew == GL_NO_ERROR && census_wrong(s, 64, 128, 64, 3) == 0;
+#else
+    /* **On the console the draw is refused, and refused cleanly** - `GL_INVALID_OPERATION` and
+     * nothing painted, rather than a loop that ran the wrong number of times. Asserting the
+     * refusal is the point: the generator declines `while` and `do` on purpose, because the trip
+     * guard that stops a runaway loop hanging the command processor takes its bound from a
+     * `for`'s initialiser, bound and step, and a `while` offers none. A loop that never goes
+     * false costs a power cycle, so this trade is deliberate and worth keeping honest. What this
+     * check defends is that it stays a refusal and never becomes a wrong picture. */
+    ok = ok && drew == GL_INVALID_OPERATION && painted == 0;
+#endif
+
+    /*
+     * **And the rewrite the refusal recommends has to work**, or the message sends its reader
+     * nowhere. `for (int i = 0; i < bound; i++)` with a `break` for the real condition is what it
+     * says to write, so that shape is compiled and measured here on both paths - same three
+     * answers a `do` would have given, arrived at the way this implementation supports.
+     */
+    reset_view();
+    const GLuint q = use_program(
+        VS_PASSTHROUGH,
+        "void main() {\n"
+        "  float once = 0.0;\n"
+        "  for (int i = 0; i < 1; i++) { once += 1.0; }\n"
         "  float n = 0.0;\n"
-        "  int j = 0;\n"
-        "  do { n += 1.0; j++; } while (j < 4);\n"
+        "  for (int j = 0; j < 4; j++) { n += 1.0; }\n"
         "  float b = 0.0;\n"
-        "  int k = 0;\n"
-        "  do { k++; if (k == 2) break; b += 1.0; } while (k < 8);\n"
+        "  for (int k = 0; k < 8; k++) { if (k == 1) break; b += 1.0; }\n"
         "  gl_FragColor = vec4(once / 4.0, n / 8.0, b / 4.0, 1.0);\n"
         "}\n");
-    if (!p) return 0;
-    attrib_rect(glGetAttribLocation(p, "pos"), -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
-
-    const uint32_t *const s = scan_frame();
+    if (!q) return 0;
+    attrib_rect(glGetAttribLocation(q, "pos"), -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+    s = scan_frame();
     /* 1/4, 4/8 and 1/4 of 255: 64, 128, 64. */
     const int bad = census_wrong(s, 64, 128, 64, 3);
     if (gl2_probe_saw) {
-        gl2_probe_saw("do-while/wrong-of-3072", (uint32_t)bad, 0u, 0,
-                      SCAN_PX(s, MID_X, MID_Y), 0u);
+        gl2_probe_saw("do-while/refused-err", (uint32_t)drew, 0u, painted,
+                      SCAN_PX(s, MID_X, MID_Y), (uint32_t)bad);
     }
-    return bad == 0 && glGetError() == GL_NO_ERROR;
+    return ok && bad == 0 && glGetError() == GL_NO_ERROR;
 }
 
 /*
