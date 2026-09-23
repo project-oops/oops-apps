@@ -169,6 +169,36 @@ static int chan_b(uint32_t c) { return (int)(c & 0xffu); }
 
 /* Within a tolerance, because the rasteriser interpolates and the hardware path may round
  * differently from the software one. A check that needs exactness says so by using == itself. */
+/* **Count a region, do not sample it.**
+ *
+ * On this part a blend whose result combines both terms is correct at one pixel in every 2x2
+ * quad - the one with both coordinates even - and wrong at the other three (obSCEne
+ * `REQ-20260923T2015Z-5b8e`, measured over 12,288 pixels). Every check here decides from
+ * `px(PROBE_W / 2, PROBE_H / 2)`, and 64 and 48 are both even, so a single-pixel verdict on a
+ * blend reads the one lane in four that works and passes whatever the other three did.
+ *
+ * Two checks written today did exactly that and reported exact arithmetic while three quarters
+ * of their region was wrong. This returns how many pixels of a rectangle miss the expected
+ * colour, so a blended check says how much of it was right rather than whether one pixel was.
+ * The frame pointer is taken once: `px` synchronises on every call, and twelve thousand of
+ * those is a different check.
+ */
+static int near_rgb(uint32_t c, int r, int g, int b, int tol);
+
+static int census_wrong(int x0, int y0, int w, int h, int r, int g, int b, int tol) {
+    const uint32_t *f = frame();
+    if (!f) return w * h;
+    int bad = 0;
+    for (int y = y0; y < y0 + h; y++) {
+        for (int x = x0; x < x0 + w; x++) {
+            if (x < 0 || y < 0 || x >= PROBE_W || y >= PROBE_H) continue;
+            const uint32_t c = f[(size_t)(g_row0 + (unsigned int)y) * (size_t)g_fb_w + (size_t)x];
+            if (!near_rgb(c, r, g, b, tol)) bad++;
+        }
+    }
+    return bad;
+}
+
 static int near_rgb(uint32_t c, int r, int g, int b, int tol) {
     int dr = chan_r(c) - r, dg = chan_g(c) - g, db = chan_b(c) - b;
     if (dr < 0) dr = -dr;
@@ -4849,19 +4879,24 @@ static int check_blend_over_texture(void) {
     glDisable(GL_TEXTURE_2D);
     if (glGetError() != GL_NO_ERROR) { glDeleteTextures(2, tex); return 0; }
 
-    const uint32_t got = px(PROBE_W / 2, PROBE_H / 2);
-    glDeleteTextures(2, tex);
-
     /* src * 128/255 + dst * 127/255, a channel at a time. */
     const int want_r = (40 * 128 + 200 * 127) / 255;   /* 119 */
     const int want_g = (80 * 128 + 60 * 127) / 255;    /* 69  */
     const int want_b = (220 * 128 + 40 * 127) / 255;   /* 130 */
+    /* **Counted, not sampled.** This read one centre pixel and passed on hardware while the
+       region around it was three-quarters wrong - the centre is an even/even pixel and a
+       combining blend is correct only there. */
+    const uint32_t got = px(PROBE_W / 2, PROBE_H / 2);
+    const int bad = census_wrong(16, 16, 64, 48, want_r, want_g, want_b, 12);
+    glDeleteTextures(2, tex);
+
     if (gl1_probe_saw) {
         gl1_probe_saw("blend-tex/got", got);
         gl1_probe_saw("blend-tex/want",
                       ((uint32_t)want_r << 16) | ((uint32_t)want_g << 8) | (uint32_t)want_b);
+        gl1_probe_saw("blend-tex/wrong-of-3072", (uint32_t)bad);
     }
-    return near_rgb(got, want_r, want_g, want_b, 12);
+    return bad == 0;
 }
 
 /* **A lit textured surface, and a verdict shaped like the artifact.**
@@ -5054,19 +5089,23 @@ static int check_blend_additive_strip(void) {
     glDisable(GL_TEXTURE_2D);
     if (glGetError() != GL_NO_ERROR) { glDeleteTextures(2, tex); return 0; }
 
-    const uint32_t got = px(PROBE_W / 2, PROBE_H / 2);
-    glDeleteTextures(2, tex);
-
     /* dst + 2 * src * 128/255, a channel at a time. */
     const int want_r = 40 + 2 * (100 * 128 / 255);   /* 140 */
     const int want_g = 60 + 2 * (120 * 128 / 255);   /* 180 */
     const int want_b = 80 + 2 * (140 * 128 / 255);   /* 220 */
+    /* Counted, for the reason `blend-over-texture` is: additive is a combining blend, and a
+       combining blend on this part is right at one pixel in four. */
+    const uint32_t got = px(PROBE_W / 2, PROBE_H / 2);
+    const int bad = census_wrong(16, 16, 64, 48, want_r, want_g, want_b, 12);
+    glDeleteTextures(2, tex);
+
     if (gl1_probe_saw) {
         gl1_probe_saw("blend-add/got", got);
         gl1_probe_saw("blend-add/want",
                       ((uint32_t)want_r << 16) | ((uint32_t)want_g << 8) | (uint32_t)want_b);
+        gl1_probe_saw("blend-add/wrong-of-3072", (uint32_t)bad);
     }
-    return near_rgb(got, want_r, want_g, want_b, 12);
+    return bad == 0;
 }
 
 static int check_tex_state_leak(void) {
