@@ -1770,7 +1770,15 @@ static int check_blend_applies(void) {
     /* **The alpha the shader wrote is the blend's source alpha.** White at 0.5 over the 0x20
      * background is 0x90 per channel; a driver that took the fixed-function current alpha
      * instead would give white. */
-    return near_rgb(SCAN_PX(s, MID_X, MID_Y), 0x8f, 0x8f, 0x8f, 3) && glGetError() == GL_NO_ERROR;
+    const int ok = near_rgb(SCAN_PX(s, MID_X, MID_Y), 0x8f, 0x8f, 0x8f, 3);
+    /* **And this one is in the affected class too.** `GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA` at
+     * source alpha 0.5 is `src/2 + dst/2` - a genuine combination of both terms, which
+     * `blend-uniformity` measured as correct at one pixel in every 2x2 quad and wrong at the
+     * other three. This check has been passing on hardware from the region's centre, which is
+     * the even/even pixel the lattice gets right. Diagnostic for the same reason
+     * `separate-blend-eq`'s is; `-5b8e` is where it is answered. */
+    uniformity_census("blend/uniformity");
+    return ok && glGetError() == GL_NO_ERROR;
 }
 
 static int check_cull_face_applies(void) {
@@ -2229,6 +2237,26 @@ static int check_point_coord(void) {
  * Each arm paints its own destination, blends over it, and reports the per-channel count of
  * pixels differing from the region's centre - the centre being even/even, the lane the lattice
  * gets right. A clean arm reports three zeros.
+ *
+ * **Which checks this calls into question**, audited 2026-09-23 so the answer to `-5b8e` has a
+ * list to be applied to. A check is affected when it decides from a single pixel of a blend that
+ * combines both terms; one whose result is a single operand is not.
+ *
+ *   gl2-probe: `blend` (`GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA` at alpha 0.5),
+ *   `separate-blend-eq` (`GL_ONE, GL_ONE` reverse-subtract), `two-draw-buffers`, and this check.
+ *   The first two now census themselves; they still pass on their centre pixel.
+ *
+ *   gl1-probe: sixteen checks enable blending - `blend`, `blend-additive-strip`,
+ *   `blend-constant`, `blend-equation`, `blend-over-texture`, `front-and-back`,
+ *   `internal-formats`, `lit-texture-parity`, `pixel-fragments`, `polygon-smooth`, `smooth`,
+ *   `smooth-textured`, `tex-unit1-stretch`, `texture-luminance`, `attrib-stack` and `logic-op`.
+ *   Not all of them combine two terms, and none has been censused; `polygon-smooth` and `smooth`
+ *   are the ones to look at first, because antialiasing *is* a blend and a coverage fade that
+ *   lands on one lane in four would read as a working fade at any single sample.
+ *
+ * So roughly twenty of the two suites' checks decide from one pixel of a blended draw. None of
+ * them is known wrong - the lattice's correct lane is exactly where they sample - and none is
+ * known right either. That is the state to hold until `-5b8e` comes back.
  */
 static int check_blend_uniformity(void) {
     reset_view();
