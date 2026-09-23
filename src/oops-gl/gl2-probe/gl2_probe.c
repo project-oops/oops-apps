@@ -2234,6 +2234,60 @@ static void blue_census(const char *name_count, const char *name_rows, const cha
  * Counted over the interior rather than sampled. Nothing here blends, so the lattice cannot
  * reach it - but a count costs nothing and a sample is the habit this collection is unlearning.
  */
+/*
+ * **Does a loop make a draw non-uniform?** Nothing blends here, so the blend lattice cannot
+ * reach this, and that is the point.
+ *
+ * `do-while`'s `for`-with-`break` arm came back with its centre correct and **1484 of 3072**
+ * interior pixels differing from it, on a draw with no blending in it at all. The nearest thing
+ * already measured is `two-draw-buffers/plain` - an unblended compiled shader, no loops - which
+ * censused 0 differing across all 12,288. The variable between those two is the loop, and a
+ * whole class of checks (`control-flow`, `loop-divergence`, `local-arrays`, `early-return`) pass
+ * on hardware while deciding from one pixel each.
+ *
+ * Two draws, identical output, one arithmetic and one counted round a loop. Both unblended, both
+ * censused over the same interior:
+ *
+ *   `loop-free`  `gl_FragColor = vec4(0.25, 0.5, 0.25, 1.0)` written straight out
+ *   `looped`     the same three values accumulated in `for` loops
+ *
+ * If the loop-free arm is clean and the looped one is not, the fault is the loop and not the
+ * blend - and several green checks are green the way `blend` was.
+ */
+static int check_loop_uniformity(void) {
+    reset_view();
+    const GLuint a = use_program(VS_PASSTHROUGH,
+                                 "void main() { gl_FragColor = vec4(0.25, 0.5, 0.25, 1.0); }\n");
+    if (!a) return 0;
+    attrib_rect(glGetAttribLocation(a, "pos"), -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+    const uint32_t *s = scan_frame();
+    const int flat_bad = census_wrong(s, 64, 128, 64, 3);
+    const uint32_t flat_mid = SCAN_PX(s, MID_X, MID_Y);
+
+    reset_view();
+    const GLuint b = use_program(
+        VS_PASSTHROUGH,
+        "void main() {\n"
+        "  float r = 0.0;\n"
+        "  for (int i = 0; i < 1; i++) { r += 0.25; }\n"
+        "  float g = 0.0;\n"
+        "  for (int j = 0; j < 4; j++) { g += 0.125; }\n"
+        "  float bl = 0.0;\n"
+        "  for (int k = 0; k < 8; k++) { if (k == 1) break; bl += 0.25; }\n"
+        "  gl_FragColor = vec4(r, g, bl, 1.0);\n"
+        "}\n");
+    if (!b) return 0;
+    attrib_rect(glGetAttribLocation(b, "pos"), -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+    s = scan_frame();
+    const int loop_bad = census_wrong(s, 64, 128, 64, 3);
+
+    if (gl2_probe_saw) {
+        gl2_probe_saw("loop-uniformity/flat", flat_mid, 0u, flat_bad, 0u, 0u);
+        gl2_probe_saw("loop-uniformity/looped", SCAN_PX(s, MID_X, MID_Y), 0u, loop_bad, 0u, 0u);
+    }
+    return flat_bad == 0 && loop_bad == 0 && glGetError() == GL_NO_ERROR;
+}
+
 static int check_do_while(void) {
     reset_view();
     const char *const DO_FS =
@@ -2942,6 +2996,7 @@ static const gl2_probe_case_t g_cases[] = {
     {"point-coord", check_point_coord},
     {"program-introspection", check_program_introspection},
     {"do-while", check_do_while},
+    {"loop-uniformity", check_loop_uniformity},
 };
 
 /* **The suite must fit in its callers' result array**, or the checks past the end are run by
