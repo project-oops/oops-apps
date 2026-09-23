@@ -14,6 +14,7 @@
 #include "oops/system.h"
 #include "oops/fs.h"
 #include "oops/savedata.h"
+#include <stdlib.h> /* setenv, for HOME */
 #include <GL/gl.h>
 
 #include "nb_diag.h"
@@ -56,23 +57,69 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
        collection writes a file on the console, so there was no precedent to copy. Rather than
        guess a second time, each candidate is tried and the first that works is used - and the
        log says which, so the next thing that needs to write something already knows. */
+    /* **Savedata is mounted, not found.** The first attempt probed `/savedata0` as a path and
+     * it refused, because that mount point does not exist until `oops_savedata_mount` makes it
+     * - and neither does any other writable place, which is what all five candidates below
+     * refusing actually meant.
+     *
+     * A title with nowhere to write cannot keep anything from one launch to the next.
+     * Neverball's `config_save` writes `neverballrc` - the player's name among the rest - to
+     * whatever `fs_set_write_dir` accepted, and `pick_home_path` (share/base_config.c:51-74)
+     * asks `getenv("HOME")` and otherwise falls back to the read-only package directory. This
+     * SDK's `getenv` answers NULL by design, so upstream has been asking for a name every
+     * launch and correctly failing to keep it. **The persistence logic is all there; a writable
+     * directory is the missing half**, and exporting the mount as `HOME` is the whole fix -
+     * no patch to upstream, and the next port finds it the same way. */
+    static char mount[64];
+    GLboolean have_mount = GL_FALSE;
+    /* **`oops_savedata_mount` is called whatever `oops_savedata_init` said**, because the mount
+     * is the thing that knows how to succeed without it: it initialises the service itself and,
+     * when the vendor container is unavailable, falls back to a title-scoped directory under
+     * `/data/savedata/<app id>/`. Gating the call on the init code, which an earlier version of
+     * this did, skipped the fallback entirely and reported "savedata unavailable" for a slot
+     * that mounts perfectly well - `rc=0`, at `/data/savedata/NVRB00001/NVRBSAVE`.
+     *
+     * **It has to be before `main`**, because upstream's `config_paths` (ball/main.c:491) chooses
+     * the write directory before its `SDL_Init` (:497). That ordering is what made this worth
+     * fixing properly rather than working around: the fallback reaches `/data` by escaping the
+     * sandbox, and doing that before SDL started used to kill the title in `PROSPERO_VideoInit`
+     * with `PRX_NOT_RESOLVED_FUNCTION` - `oops_keyboard_init` loading module 0x0106 along a path
+     * the process no longer had. `oops_system_escape_sandbox` now makes the SDK's lazily loaded
+     * modules resident before it escapes, so the order this title needs is the order it can
+     * have. */
+    {
+        const int sd_mount = oops_savedata_mount("NVRBSAVE",
+                                                 OOPS_SAVEDATA_MODE_CREATE |
+                                                 OOPS_SAVEDATA_MODE_READ_WRITE,
+                                                 mount, sizeof(mount));
+        oops_log_info("NVRB", "savedata mount rc=%d", sd_mount);
+        if (sd_mount == 0) {
+            have_mount = GL_TRUE;
+            oops_log_info("NVRB", "savedata mounted at %s", mount);
+
+            /* **And that is this title's HOME.** Upstream finds its own way from here:
+               `config_paths` builds `<HOME>/.neverball`, sets it as the write directory and
+               creates it if needed (share/base_config.c:77-110), and `config_save` writes
+               `neverballrc` into it - the player's name, the video and audio settings, the key
+               bindings. None of that needed changing; it only ever needed somewhere to write.
+               Exported rather than patched in so that the next port gets it the same way. */
+            if (setenv("HOME", mount, 1) == 0) {
+                oops_log_info("NVRB", "HOME=%s - settings and the player name will persist",
+                              mount);
+            } else {
+                oops_log_error("NVRB", "could not export HOME - settings will not persist");
+            }
+        } else {
+            oops_log_info("NVRB", "savedata unavailable - nothing will persist this launch");
+        }
+    }
+
     const int cap_fd = oops_fs_open("/app0/capture", 0 /* O_RDONLY */, 0);
     if (cap_fd >= 0) {
         oops_fs_close(cap_fd);
-        /* **Savedata is mounted, not found.** The first attempt probed `/savedata0` as a path
-           and it refused, because that mount point does not exist until `oops_savedata_mount`
-           makes it - and neither does any other writable place, which is what all five
-           candidates refusing actually meant. This asks the SDK for a slot first and writes
-           into the path it hands back; the plain directories stay behind it as a fallback for
-           a console where the savedata service is not available. */
         static char chosen[96];
         const char *picked = (const char *)0;
-        static char mount[64];
-        if (oops_savedata_init() == 0 &&
-            oops_savedata_mount("NVRBCAP0", OOPS_SAVEDATA_MODE_CREATE |
-                                            OOPS_SAVEDATA_MODE_READ_WRITE,
-                                mount, sizeof(mount)) == 0) {
-            oops_log_info("NVRB", "savedata mounted at %s", mount);
+        if (have_mount) {
             size_t m = 0u;
             while (mount[m] && m < sizeof(chosen) - 20u) { chosen[m] = mount[m]; m++; }
             const char *name = "/frame.oglcap";
@@ -80,8 +127,6 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
             while (name[j] && m < sizeof(chosen) - 1u) { chosen[m++] = name[j++]; }
             chosen[m] = '\0';
             picked = chosen;
-        } else {
-            oops_log_info("NVRB", "savedata unavailable - trying plain directories");
         }
 
         static const char *const dirs[] = {
