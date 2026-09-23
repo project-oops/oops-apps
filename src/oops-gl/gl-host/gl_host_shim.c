@@ -108,6 +108,17 @@ __attribute__((constructor)) static void gl_host_init(void) {
         return;
     }
     fprintf(stderr, "gl-host: oops-gl is the GL for this process (%ux%u)\n", w, h);
+
+    /* Recording, if it was asked for, from here - which is before the program's own main and so
+       before any texture it will ever upload. See `capture_tick`. */
+    {
+        const char *cap = getenv("OOPS_GL_HOST_CAPTURE");
+        if (cap && *cap) {
+            oops_gl_capture_begin();
+            fprintf(stderr, "gl-host: recording from start, to end at frame %lu\n",
+                    env_num("OOPS_GL_HOST_CAPTURE_FRAME", 60));
+        }
+    }
 }
 
 /* One frame, as a binary PPM - the format costs fifteen lines to write and every image tool
@@ -155,8 +166,55 @@ static void dump_frame(unsigned long n) {
  * a program rather than like a program being measured.
  * -------------------------------------------------------------------------- */
 
+/* **One frame's call stream, written out as a file.**
+ *
+ * The capture engine has existed for a while and has never been usable, because the console has
+ * no writable filesystem to get a capture off. Recording on a desktop instead solves that from
+ * the other end: the same calls, the same format, and a filesystem to put it in.
+ *
+ * What it is for is bisection. `oops_gl_capture_replay` takes a prefix, so a capture replayed on
+ * hardware can be cut at any call - and the call at which the replayed frame stops matching the
+ * host's is the call that breaks it. Nine synthetic reproductions of the port's broken surface
+ * have passed on hardware; the stream is what they were all failing to be.
+ *
+ * OOPS_GL_HOST_CAPTURE names the file and OOPS_GL_HOST_CAPTURE_FRAME the frame to record,
+ * counted in swaps - the title screen takes a few frames to settle, so frame 1 is rarely the one
+ * worth having.
+ */
+static void capture_tick(unsigned long frame) {
+    const char *path = getenv("OOPS_GL_HOST_CAPTURE");
+    if (!path || !*path) return;
+    const unsigned long want = env_num("OOPS_GL_HOST_CAPTURE_FRAME", 60);
+
+    /* **Recording starts before the program does**, in the constructor, not a frame before the
+       one wanted. A title uploads its textures while it loads and draws with them for the rest
+       of its life, so a capture of one frame in the middle names textures that were created
+       before it began - replayed, it draws an untextured white screen, which is exactly what the
+       first attempt produced. The upload has to be in the stream with the draw that uses it. */
+    if (frame != want) return;
+
+    oops_gl_capture_end();
+    size_t bytes = 0;
+    unsigned calls = 0;
+    const void *data = oops_gl_capture_data(&bytes, &calls);
+    if (!data) {
+        fprintf(stderr, "gl-host: capture overflowed, nothing written\n");
+        return;
+    }
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        fprintf(stderr, "gl-host: cannot open %s\n", path);
+        return;
+    }
+    const size_t wrote = fwrite(data, 1, bytes, f);
+    fclose(f);
+    fprintf(stderr, "gl-host: captured frame %lu - %u calls, %zu bytes -> %s\n",
+            frame, calls, wrote, path);
+}
+
 void SDL_GL_SwapWindow(void *window) {
     s_frames++;
+    capture_tick(s_frames);
 
     /* Asked at the boundary rather than per call: glGetError clears as it reports, so a caller
      * checking its own errors would hide them from this and this would hide them from the

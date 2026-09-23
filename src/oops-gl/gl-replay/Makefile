@@ -20,9 +20,13 @@ APP_NAME = gl-replay
 # The whole GL layer: a capture can contain any call the recorder hooks, so the replay needs
 # every entry point behind them - the rasteriser, the texture code, the shader front end. The
 # display and allocator are the tool's own, since the SDK's talk to hardware that is not here.
+# `fs.c` and `heap.c` because `system.c` reaches into them for the log's disk sink; the payload
+# link has always had both, and only the host binaries had to be told.
 HOST_TEST_SRCS = gl_replay_main.c \
                  $(OOPS_GL_SRCS) \
                  $(OOPS_SDK_DIR)/src/system/system.c \
+                 $(OOPS_SDK_DIR)/src/system/fs.c \
+                 $(OOPS_SDK_DIR)/src/memory/heap.c \
                  $(OOPS_SDK_DIR)/src/system/freestd.c
 HOST_TEST_LIBS = -lm
 
