@@ -2138,18 +2138,32 @@ static int check_blend_uniformity(void) {
     const GLint kc = glGetUniformLocation(p, "c");
     if (pos < 0 || kc < 0) return 0;
 
+    /*
+     * **A blend only counts as one if both terms survive it**, and the source's alpha is what
+     * decides that for the factors real programs use. The first run of this check set it to 1.0,
+     * which turns `GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA` into `src * 1 + dst * 0` - the same copy
+     * `GL_ONE, GL_ZERO` performs. Three of the four arms reduced to "the result is one operand",
+     * all three came back clean, and the one arm that genuinely added two non-zero terms was the
+     * one that showed the lattice. That is a result, but it was nearly an accident: 0.5 here is
+     * what makes the alpha arm a real mixture and the reading a measurement.
+     */
     static const struct {
         const char *name;
         GLenum src, dst;
-    } MODES[4] = {
-        {"blend-uniformity/one-one", GL_ONE, GL_ONE},
-        {"blend-uniformity/one-zero", GL_ONE, GL_ZERO},
-        {"blend-uniformity/zero-one", GL_ZERO, GL_ONE},
-        {"blend-uniformity/src-alpha", GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA},
+        float src_alpha;
+    } MODES[5] = {
+        {"blend-uniformity/one-one", GL_ONE, GL_ONE, 1.0f},
+        {"blend-uniformity/one-zero", GL_ONE, GL_ZERO, 1.0f},
+        {"blend-uniformity/zero-one", GL_ZERO, GL_ONE, 1.0f},
+        /* Half alpha, so this is `src/2 + dst/2` and both terms are really there. */
+        {"blend-uniformity/src-alpha", GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, 0.5f},
+        /* A second genuine sum that does not go through alpha at all, so a fault that turns out
+         * to be alpha's can be told from one that belongs to the addition. */
+        {"blend-uniformity/dst-color", GL_DST_COLOR, GL_ONE, 1.0f},
     };
 
     int ok = 1;
-    for (int m = 0; m < 4; m++) {
+    for (int m = 0; m < 5; m++) {
         /* A destination with something in every channel, so no arm can be clean by arithmetic
          * accident - a channel that is zero either side proves nothing. */
         glDisable(GL_BLEND);
@@ -2158,18 +2172,21 @@ static int check_blend_uniformity(void) {
 
         glEnable(GL_BLEND);
         glBlendFunc(MODES[m].src, MODES[m].dst);
-        glUniform4f(kc, 0.25f, 0.5f, 0.125f, 1.0f);
+        glUniform4f(kc, 0.25f, 0.5f, 0.125f, MODES[m].src_alpha);
         attrib_rect(pos, -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
         glDisable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ZERO);
 
         uniformity_census(MODES[m].name);
-    }
 
-    /* **The verdict is uniformity, not a colour.** What each blend should compute is measured by
-     * `blend` above; this check exists to say whether it computes it everywhere, and a region
-     * that disagrees with its own centre is a failure whatever the centre holds. */
-    {
+        /*
+         * **Every arm is in the verdict, not just the last one.** The first version scanned once
+         * after the loop, which measured whichever mode happened to run last - and reported
+         * `pass` on a run whose `one-one` census had printed 6144, 6144, 9216 beside it. A check
+         * that prints its own contradiction and calls itself green is worse than one that does
+         * not look: the rows were read by a person, and the verdict would have been read by a
+         * count.
+         */
         const uint32_t *const s = scan_frame();
         const uint32_t mid = SCAN_PX(s, MID_X, MID_Y);
         for (int y = 0; y < PROBE_H && ok; y++) {
