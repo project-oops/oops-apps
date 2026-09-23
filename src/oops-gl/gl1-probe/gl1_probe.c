@@ -4263,6 +4263,10 @@ static int check_limits_reported(void) {
  */
 enum { QUAD_IMMEDIATE = 0, QUAD_ARRAY = 1, QUAD_VBO = 2 };
 
+/* Raised for one check only - see `check_tex_state_leak`. */
+static int g_readback_dirty;
+static void dirty_then_restore_tex_state(void);
+
 static const GLfloat g_quad_pos[12] = {
     -1.0f, -1.0f, 0.0f,  1.0f, -1.0f, 0.0f,  1.0f, 1.0f, 0.0f,  -1.0f, 1.0f, 0.0f,
 };
@@ -4353,6 +4357,11 @@ static int readback_at_width(const char *name, const char *name_rgb, int w, int 
         glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
         glColor3f(1.0f, 1.0f, 1.0f);
     }
+
+    /* Set by `check_tex_state_leak` only: dirty the coordinate machinery and put it back, so the
+       draw below runs against state that is the default by the specification but arrived there
+       rather than starting there. */
+    if (g_readback_dirty) dirty_then_restore_tex_state();
 
     draw_unit_quad(via);
     glDisable(GL_TEXTURE_2D);
@@ -4461,6 +4470,143 @@ static int check_tex_array_draw(void) {
 }
 static int check_tex_vbo_draw(void) {
     return readback_at_width("tex-vbo/w4", "tex-vbo/w4-rgb", 4, 0, QUAD_VBO);
+}
+
+/* **A bug class this suite cannot catch by construction.**
+ *
+ * Every check here begins with `reset_view` and tests one feature from a clean slate. A real
+ * title never has a clean slate: it draws hundreds of things in sequence and each inherits
+ * whatever the last one left set. So a feature that works when switched on and fails to switch
+ * *off* passes every check here and corrupts every frame of a port - and the surface that shows
+ * it first is whichever one is drawn with the fewest settings of its own, because it is the one
+ * relying most on the defaults being defaults.
+ *
+ * In the port being chased that is the sky, which turns off the depth test, culling and lighting
+ * and then draws a four-pixel gradient with nothing else set at all.
+ *
+ * So this sets the texture-coordinate machinery to something wrong, puts it back the way GL says
+ * it starts, and then runs the ordinary width-4 readback. The expected answer is identical to
+ * `tex-readback-w4`, which passes - so any difference is state that did not come back.
+ */
+static void dirty_then_restore_tex_state(void) {
+    /* A texture matrix that would scale coordinates far past the image, which is what a sky of
+     * fine noise instead of a stretched gradient would look like if it survived. */
+    glMatrixMode(GL_TEXTURE);
+    glLoadIdentity();
+    glScalef(64.0f, 64.0f, 1.0f);
+    glTranslatef(0.375f, 0.125f, 0.0f);
+
+    /* Generated coordinates with planes that are not the defaults, on both axes. */
+    static const GLfloat sp[4] = {3.0f, 1.0f, 0.0f, 0.25f};
+    static const GLfloat tp[4] = {0.0f, 5.0f, 1.0f, 0.5f};
+    glTexGeni(GL_S, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
+    glTexGeni(GL_T, GL_TEXTURE_GEN_MODE, GL_OBJECT_LINEAR);
+    glTexGenfv(GL_S, GL_OBJECT_PLANE, sp);
+    glTexGenfv(GL_T, GL_OBJECT_PLANE, tp);
+    glEnable(GL_TEXTURE_GEN_S);
+    glEnable(GL_TEXTURE_GEN_T);
+
+    /* And a wrap and filter that are not the ones the check will ask for. */
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    /* Now put every one of them back to what GL says it starts as. From here the state is the
+     * default by the specification, and a draw must not be able to tell this happened. */
+    glDisable(GL_TEXTURE_GEN_S);
+    glDisable(GL_TEXTURE_GEN_T);
+    glMatrixMode(GL_TEXTURE);
+    glLoadIdentity();
+    glMatrixMode(GL_MODELVIEW);
+}
+
+/* **The port's sky, as nearly as a check can be it.**
+ *
+ * Every readback here asks for GL_NEAREST, because a nearest sample returns one texel whole and
+ * that is what made those checks decidable. Nothing has ever asked this GL to *magnify* a
+ * texture, and magnifying is the whole of what the surface that renders wrongly does: the sky is
+ * a four-pixel-wide gradient stretched across nineteen hundred, with the default GL_LINEAR
+ * filter, and it comes back as fine noise instead of a smooth ramp.
+ *
+ * Four by a hundred and twenty-eight exactly, because that is the shape every `back/` image in
+ * the port has, and because it is the shape where the row padding is largest: a 4-wide RGBA
+ * texture occupies rows 64 texels wide, so sixty of every sixty-four texels a row contains are
+ * zeroes that no nearest sample can reach and an interpolating one can.
+ *
+ * The verdict is not a colour but a shape. Red rises across the four texels, so a magnified row
+ * must rise smoothly from left to right; what is asserted is that it rises, and that no two
+ * neighbouring samples differ by more than a stretched gradient could. Noise fails the second
+ * of those however pretty its colours are.
+ */
+static int check_tex_linear_stretch(void) {
+    reset_view();
+
+    static GLubyte img[4 * 128 * 4];
+    for (int y = 0; y < 128; y++) {
+        for (int x = 0; x < 4; x++) {
+            GLubyte *t = img + (((size_t)y * 4u) + (size_t)x) * 4u;
+            t[0] = (GLubyte)(x * 85);  /* 0, 85, 170, 255 across the width */
+            t[1] = 64;
+            t[2] = 192;
+            t[3] = 255;
+        }
+    }
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 4, 128, 0, GL_RGBA, GL_UNSIGNED_BYTE, img);
+    /* GL_LINEAR both ways, and clamped so the edges do not wrap - the port's own setting, and
+     * the one no check here has used. */
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    /* The sky's own state, so that if any of it matters this has it too. */
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_LIGHTING);
+    glDepthMask(GL_FALSE);
+
+    draw_unit_quad(QUAD_IMMEDIATE);
+
+    glDepthMask(GL_TRUE);
+    glDisable(GL_TEXTURE_2D);
+    if (glGetError() != GL_NO_ERROR) { glDeleteTextures(1, &tex); return 0; }
+
+    /* Sixteen samples across the middle row. The texture is four texels wide over PROBE_W
+     * pixels, so between neighbouring samples red can climb by at most a quarter of its range
+     * plus a margin; anything larger is not a gradient. */
+    int r[16];
+    for (int i = 0; i < 16; i++) {
+        r[i] = chan_r(px((i * 2 + 1) * PROBE_W / 32, PROBE_H / 2));
+    }
+    glDeleteTextures(1, &tex);
+
+    int rises = 0, jumped = 0;
+    for (int i = 1; i < 16; i++) {
+        if (r[i] > r[i - 1]) rises++;
+        const int d = r[i] - r[i - 1];
+        if (d > 48 || d < -48) jumped = 1;
+    }
+    if (gl1_probe_saw) {
+        /* The first, middle and last of the row, which is the gradient in one word if it is one:
+           low at the left, mid in the middle, high at the right. */
+        gl1_probe_saw("tex-linear/ends",
+                      ((uint32_t)r[0] << 16) | ((uint32_t)r[8] << 8) | (uint32_t)r[15]);
+    }
+    if (jumped) return 0;       /* neighbouring samples far apart: noise, not a ramp */
+    if (rises < 10) return 0;   /* not climbing left to right at all */
+    return 1;
+}
+
+static int check_tex_state_leak(void) {
+    g_readback_dirty = 1;
+    const int ok = readback_at_width("tex-leak/w4", "tex-leak/w4-rgb", 4, 0, QUAD_IMMEDIATE);
+    g_readback_dirty = 0;
+    return ok;
 }
 /* **At 64 on purpose**, which is the width whose rows are already 256-byte aligned and whose
  * descriptor therefore carries no custom pitch. Running the combine over the one texture shape
@@ -4738,6 +4884,10 @@ static const gl1_probe_case_t g_cases[] = {
      * 2026-09-20. A check that has hung once is a check everything else goes in front of. */
     {"tex-array-draw",   check_tex_array_draw},
     {"tex-vbo-draw",     check_tex_vbo_draw},
+    /* State that was set and then unset, which every other check here starts clean of. */
+    {"tex-state-leak",   check_tex_state_leak},
+    /* A magnified 4x128 gradient under GL_LINEAR: the port's sky, which no check here had. */
+    {"tex-linear-stretch", check_tex_linear_stretch},
     {"tex-churn-ring",   check_tex_churn_ring},
     {"ps-ring-churn",    check_ps_ring_churn},
     /* **Last on purpose**, both of them: a check that can take the GPU down costs its own row
