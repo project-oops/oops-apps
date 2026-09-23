@@ -2278,6 +2278,33 @@ static int check_loop_uniformity(void) {
      * which is what "this pixel never got the value" looks like from the outside.
      */
     /*
+     * **What these arms settled, 2026-09-24.** A **uniform `if` condition inside a branched loop
+     * fails to mask**: the body runs on every trip at about half the region's pixels. Four arms
+     * fail identically - 1484 of 3072, first wrong pixel at scan (80, 24) - and they fail for
+     * opposite reasons that this one cause unifies: `k < 1` behaving as always-true gives eight
+     * adds (2.0, saturating to the 255 observed), and `k == 1` behaving as never-true means
+     * `break` never fires and gives the same eight adds.
+     *
+     * Clean: no `if` at all (`flat`, `once`, `count`), and a per-pixel `if` condition
+     * (`break-divergent`). So it is the condition being uniform that matters, not the `if`.
+     *
+     * **Ruled out.** The read-modify-write - `if-assign` and `if-rmw` differ only in that and
+     * both fail. `break` itself - `if-in-loop` has none and fails identically. The loop counter
+     * - `counter-out` reads it back correct, so it advances even while the mask fails.
+     * Compile-time folding of the condition from the counter's initial value, which would
+     * explain every *value* seen here and is excluded by the *spatial* pattern: folding happens
+     * once for the whole draw and would corrupt all 3072 pixels, and the centre is correct.
+     *
+     * **Still unknown: where.** 1484 of 3072 is not a half (1536), not a quarter, and the first
+     * wrong pixel sits 48 columns into the census box rather than on a parity boundary. All four
+     * failing arms give the identical count, position and value, which says the pattern does not
+     * depend on what the shader computes.
+     *
+     * **Two arms here cannot fail and are kept deliberately.** `counter-out`'s `if` is
+     * overwritten on every trip, so its verdict is about the counter and not the mask;
+     * `break-divergent` was insensitive until its `+= 0.0` was fixed. Three arms in this file
+     * have now been found unable to fail, and each one had made a story tidier.
+     *
      * **The order is reversed from the run that produced the first result, on purpose.**
      *
      * That run reported `break` and `if-in-loop` with the same count (1484), the same first
