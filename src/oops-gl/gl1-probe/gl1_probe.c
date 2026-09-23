@@ -65,6 +65,10 @@
 
 static uint32_t *g_fb;
 static oops_display_t *g_disp;
+/* Kept only when the caller asks, so it can paint the screen after the suite - see
+   `gl1_probe_test_card`. Zero for the host self-test, which closes as it always did. */
+static void *g_ctx;
+int gl1_probe_keep_context;
 static unsigned int g_fb_w;   /* the display's real width, which is the row stride */
 static unsigned int g_fb_h;
 static unsigned int g_row0;   /* the framebuffer row the probe's logical row 0 sits on */
@@ -4583,9 +4587,121 @@ int gl1_probe_run(gl1_probe_result_t *out, int max) {
         }
     }
 
+    /* **Kept open when the caller is going to paint the screen**, because the context and the
+       display are what it would paint with and closing them here takes both away. The payload
+       parks after the card and never returns, so nothing is leaked that outlives the process;
+       the host self-test leaves the flag alone and closes as it always did. */
+    if (gl1_probe_keep_context) {
+        g_ctx = ctx;
+        return n < max ? n : max;
+    }
     glContextDestroy(ctx);
     oops_display_close(g_disp);
     g_disp = (oops_display_t *)0;
     g_fb = (uint32_t *)0;
     return n < max ? n : max;
+}
+
+/* **A picture for the one instrument this suite has never used: the television.**
+ *
+ * Every check here decides by reading pixels back, and on hardware they now all pass - the
+ * sampler fetches the right texel at every width and the combine multiplies it correctly. The
+ * port those checks were written for still renders wrongly on screen. Both of those can only be
+ * true at once if what reaches the display is not what the checks read back, and no check can
+ * see that, because a check and the display read through different paths.
+ *
+ * So this paints something whose correct appearance needs no judgement. Flat bands in the
+ * primaries and in mid grey, full width, because vertical banding shows against a flat fill and
+ * a colour cast shows against grey; and a black-to-white ramp, because quantisation shows in a
+ * gradient and nowhere else. Then it reads one pixel out of each band and logs it.
+ *
+ * The two halves are the measurement. If the log says a band holds 0x808080 and the screen shows
+ * it tinted or striped, the frame is correct in memory and the fault is between there and the
+ * panel - which is a different subsystem from the one this suite covers, and would explain why
+ * every check passes while the port looks broken.
+ */
+/* What the frame holds, read back the way every check reads. One sample per flat band, taken at
+ * a quarter width so it is clear of any edge, and three across the ramp.
+ *
+ * **Row 0 is the top here**, which is the opposite of what this first assumed. The first run
+ * reported the bands in reverse with the ramp where the grey should have been - every value
+ * exactly right and every label wrong, which is what an inverted row index looks like. Worth
+ * keeping as a note rather than just a corrected line, because the same inversion is what a
+ * frame arriving on the panel upside down would also produce, and the next reader deserves to
+ * know which of the two was ruled out here.
+ */
+static void card_report(unsigned int w, unsigned int h) {
+    if (!gl1_probe_saw) return;
+    const uint32_t *f = frame();
+    if (!f) return;
+    static const char *const names[5] = {
+        "card/grey", "card/red", "card/green", "card/blue", "card/white",
+    };
+    for (int i = 0; i < 5; i++) {
+        const unsigned int y = (unsigned int)(((float)i + 0.5f) * (float)h / 6.0f);
+        gl1_probe_saw(names[i], f[(size_t)y * (size_t)g_fb_w + (size_t)(w / 4u)]);
+    }
+    const unsigned int ry = (unsigned int)(5.5f * (float)h / 6.0f);
+    gl1_probe_saw("card/ramp-25", f[(size_t)ry * (size_t)g_fb_w + (size_t)(w / 4u)]);
+    gl1_probe_saw("card/ramp-50", f[(size_t)ry * (size_t)g_fb_w + (size_t)(w / 2u)]);
+    gl1_probe_saw("card/ramp-75", f[(size_t)ry * (size_t)g_fb_w + (size_t)(w * 3u / 4u)]);
+}
+
+void gl1_probe_test_card(void) {
+    if (!g_ctx || !g_disp) return;
+
+    /* The whole panel, not the 128x96 corner the checks work in: a defect that repeats every
+       tile or every so many pixels needs the full width to be visible as a repeat. */
+    const unsigned int w = g_fb_w;
+    const unsigned int h = g_fb_h;
+    glViewport(0, 0, (GLsizei)w, (GLsizei)h);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_ALPHA_TEST);
+
+    static const float band[5][3] = {
+        {0.502f, 0.502f, 0.502f}, /* 128: a cast shows here and nowhere better */
+        {1.0f, 0.0f, 0.0f},
+        {0.0f, 1.0f, 0.0f},
+        {0.0f, 0.0f, 1.0f},
+        {1.0f, 1.0f, 1.0f},
+    };
+    /* **Painted into both scanout buffers**, because a swap presents one and leaves the other
+       holding the frame before last. One pass would put the card on screen and leave whatever
+       was there behind it, and anything that presents again afterwards would show that instead.
+       The readings are taken on the first pass, before its swap, so they describe the frame this
+       drew rather than whatever the second pass found. */
+    for (int pass = 0; pass < 2; pass++) {
+        /* Six rows: five flat, then the ramp. */
+        for (int i = 0; i < 5; i++) {
+            const float y1 = 1.0f - (float)i * (2.0f / 6.0f);
+            const float y0 = 1.0f - (float)(i + 1) * (2.0f / 6.0f);
+            draw_rect(-1.0f, y0, 1.0f, y1, band[i][0], band[i][1], band[i][2]);
+        }
+        /* The ramp, as one smooth-shaded quad rather than steps - a band boundary this draws
+           itself would be indistinguishable from one the display introduced. */
+        glShadeModel(GL_SMOOTH);
+        glBegin(GL_QUADS);
+        glColor3f(0.0f, 0.0f, 0.0f); glVertex3f(-1.0f, -1.0f, 0.0f);
+        glColor3f(1.0f, 1.0f, 1.0f); glVertex3f(1.0f, -1.0f, 0.0f);
+        glColor3f(1.0f, 1.0f, 1.0f); glVertex3f(1.0f, -1.0f + (2.0f / 6.0f), 0.0f);
+        glColor3f(0.0f, 0.0f, 0.0f); glVertex3f(-1.0f, -1.0f + (2.0f / 6.0f), 0.0f);
+        glEnd();
+        if (pass == 0) card_report(w, h);
+        /* **And put it on the panel**, which the first version did not. Every check in this
+           suite decides by reading the render target back, so nothing here had ever needed to
+           present a frame - the probe has run its whole life with the display showing nothing,
+           and a black screen was correct behaviour rather than a symptom. The card is the one
+           thing here whose purpose is to be looked at, so it is the one thing that must swap. */
+        glSwapBuffers();
+    }
 }

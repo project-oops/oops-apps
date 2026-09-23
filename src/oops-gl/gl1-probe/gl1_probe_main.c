@@ -112,6 +112,14 @@ __attribute__((visibility("default"))) int gl1_probe_start(const payload_args_t 
     (void)args;
 #endif
 
+    /* **The panel is an instrument this suite has never read.** Every check decides by reading
+       pixels back, and on hardware they all pass while the port they were written for still looks
+       wrong on a television. Keeping the context alive lets the card below be painted after the
+       suite, so the log and the screen can be compared against the same frame. */
+#ifndef OOPS_HOST_BUILD
+    gl1_probe_keep_context = 1;
+#endif
+
     gl1_probe_result_t results[GL1_PROBE_MAX_CASES];
     const int ran = gl1_probe_run(results, (int)(sizeof(results) / sizeof(results[0])));
     if (ran < 0) {
@@ -131,6 +139,10 @@ __attribute__((visibility("default"))) int gl1_probe_start(const payload_args_t 
     }
 #ifndef OOPS_HOST_BUILD
     report_total(passed, ran);
+    /* **After the sentinel, so a harness watching for it is unaffected**, and before the park, so
+       the card is what stays on the panel for as long as the title is up. Its own readings follow
+       as the `card` rows - the log says what the frame holds, the screen says what arrived. */
+    gl1_probe_test_card();
 #endif
 
     /*

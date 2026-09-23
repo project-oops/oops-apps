@@ -34,6 +34,22 @@ const char *gl1_probe_case_name(int i);
 int gl1_probe_run(gl1_probe_result_t *out, int max);
 
 /*
+ * **Leave something on the screen when the suite is done.**
+ *
+ * Set `gl1_probe_keep_context` before calling `gl1_probe_run` and it will not tear the context
+ * and display down on the way out; then call `gl1_probe_test_card` to paint one. The payload
+ * does both, because it parks afterwards and the panel is the only instrument this suite does
+ * not otherwise use. The host self-test does neither.
+ *
+ * The card is flat bands in the primaries and mid grey plus a black-to-white ramp, and each is
+ * also read back and reported through `gl1_probe_saw`. That pairing is the point: if the log
+ * says a band holds 0x808080 and the screen shows it tinted or striped, the frame is right in
+ * memory and what goes wrong happens after the checks can see it.
+ */
+extern int gl1_probe_keep_context;
+void gl1_probe_test_card(void);
+
+/*
  * **Called before each check and again after it**, so a run that never finishes still says how
  * far it got.
  *
