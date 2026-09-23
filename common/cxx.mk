@@ -103,7 +103,7 @@ OOPS_CXX_LDFLAGS := -Wl,--whole-archive $(OOPS_CXX_LIB) -Wl,--no-whole-archive
 OOPS_CXX_DEPFILE := $(OOPS_CXX_BUILD)/libcxxtitle.a.d
 -include $(OOPS_CXX_DEPFILE)
 
-$(OOPS_CXX_LIB): $(OOPS_CXX_SRCS) $(OOPS_CXX_RT_SRC) $(MAKEFILE_LIST)
+$(OOPS_CXX_LIB): $(OOPS_CXX_SRCS) $(OOPS_CXX_RT_SRC) $(oops_makefiles)
 	@mkdir -p $(OOPS_CXX_BUILD)
 	$(call oops_depgen,$(TARGET_CXX),$(OOPS_CXX_FLAGS),$@,$(OOPS_CXX_RT_SRC) $(OOPS_CXX_SRCS),$(OOPS_CXX_DEPFILE))
 	@rm -f $@

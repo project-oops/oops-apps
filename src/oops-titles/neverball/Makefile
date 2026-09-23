@@ -128,7 +128,7 @@ PAYLOAD_EXTRA_DEPS   += $(OOPS_NB_LIB)
 OOPS_NB_DEPFILE := $(OOPS_NB_BUILD)/libneverball.a.d
 -include $(OOPS_NB_DEPFILE)
 
-$(OOPS_NB_LIB): $(NB_SRCS) $(MAKEFILE_LIST)
+$(OOPS_NB_LIB): $(NB_SRCS) $(oops_makefiles)
 	@mkdir -p $(OOPS_NB_BUILD)
 	$(call oops_depgen,$(TARGET_CC),$(OOPS_NB_CFLAGS),$@,$(NB_SRCS),$(OOPS_NB_DEPFILE))
 	@rm -f $@

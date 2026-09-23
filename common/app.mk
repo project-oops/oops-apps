@@ -10,8 +10,9 @@ SELFISH ?= $(abspath $(OOPS_APPS_ROOT)/../selfish)
 include $(OOPS_SDK)/oops-sdk.mk
 OOPS_SDK_DIR := $(abspath $(OOPS_SDK))
 
-# `$(call oops_depgen,...)`, which makes the headers behind a source list into prerequisites.
-# Guarded, so a title that included it itself (neverball, for its own archive) is unaffected.
+# Object rules and the `-MMD` depfiles that make a header a prerequisite of what it is compiled
+# into. Guarded, so a title that included it itself (neverball, for its own archive) is
+# unaffected.
 include $(OOPS_APPS_ROOT)/common/deps.mk
 
 # **oops-gl's sources, listed once.**
@@ -409,13 +410,18 @@ $(BUILD):
 # problem and the same reason to care: this is the gate that is supposed to vouch for the code,
 # and a gate that reran an unchanged binary would pass on the *previous* version of a fix. See
 # `common/deps.mk`.
+#
+# Its objects live in `hostobj/` rather than beside the payload's, because most of these sources
+# are the *same files* compiled under a different compiler and a different set of flags - one
+# freestanding for the console, one hosted for this machine. Sharing a directory would mean
+# whichever built last decided what the other linked.
 ifneq ($(strip $(HOST_TEST_SRCS)),)
-OOPS_SELFTEST_DEPFILE := $(BUILD)/$(APP_NAME)_selftest.d
--include $(OOPS_SELFTEST_DEPFILE)
+OOPS_HOST_OBJS := $(call oops_objs,$(BUILD)/hostobj,$(HOST_TEST_SRCS))
+-include $(OOPS_HOST_OBJS:.o=.d)
+$(call oops_obj_rules,$(BUILD)/hostobj,CC,CFLAGS,$(HOST_TEST_SRCS))
 
-$(BUILD)/$(APP_NAME)_selftest: $(HOST_TEST_SRCS) $(HOST_TEST_EXTRA_DEPS) | $(BUILD)
-	$(call oops_depgen,$(CC),$(CFLAGS),$@,$(HOST_TEST_SRCS),$(OOPS_SELFTEST_DEPFILE))
-	$(CC) $(CFLAGS) -o $@ $(HOST_TEST_SRCS) $(HOST_TEST_LIBS)
+$(BUILD)/$(APP_NAME)_selftest: $(OOPS_HOST_OBJS) $(HOST_TEST_EXTRA_DEPS) | $(BUILD)
+	$(CC) $(CFLAGS) -o $@ $(OOPS_HOST_OBJS) $(HOST_TEST_LIBS)
 
 check: $(BUILD)/$(APP_NAME)_selftest
 	@./$(BUILD)/$(APP_NAME)_selftest
@@ -511,16 +517,22 @@ UNDEF_CHECK ?= $(if $(filter 1,$(USE_MESA)),0,1)
 # **The headers are prerequisites too**, which they were not until 2026-09-23, and the symptom
 # was the same one a level quieter: an SDK *header* change relinked nothing, `selfish` wrapped
 # the ELF that was already there, and `pros restore` reported `0 files ... unchanged` while the
-# console went on running the previous code. They cannot be listed here - `common/deps.mk` says
-# why, and asks the compiler for them instead.
+# console went on running the previous code. They cannot be listed here, so each source is
+# compiled to its own object with `-MMD -MP` and the depfiles are read back in. The link is
+# otherwise the command it always was: the same flags, the same order, and - checked with
+# `BUILD_VERSION` pinned so the embedded timestamp could not hide a difference - the same bytes
+# out. `common/deps.mk` is the whole of the reasoning.
+#
+# The sources are no longer named here as prerequisites, because the objects are, and each
+# object names its source. A relink now costs one compile rather than forty-five.
 ifneq ($(strip $(PAYLOAD_SRCS)),)
-OOPS_ELF_DEPFILE := $(BUILD)/$(APP_NAME).elf.d
--include $(OOPS_ELF_DEPFILE)
+OOPS_PAYLOAD_OBJS := $(call oops_objs,$(BUILD)/obj,$(PAYLOAD_SRCS) $(TARGET_SYS_SRCS))
+-include $(OOPS_PAYLOAD_OBJS:.o=.d)
+$(call oops_obj_rules,$(BUILD)/obj,TARGET_CC,TARGET_CFLAGS,$(PAYLOAD_SRCS) $(TARGET_SYS_SRCS))
 
-$(BUILD)/$(APP_NAME).elf: $(PAYLOAD_SRCS) $(TARGET_SYS_SRCS) $(PAYLOAD_EXTRA_DEPS) \
-                          $(MAKEFILE_LIST) | $(BUILD)
-	$(call oops_depgen,$(TARGET_CC),$(TARGET_CFLAGS),$@,$(PAYLOAD_SRCS) $(TARGET_SYS_SRCS),$(OOPS_ELF_DEPFILE))
-	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) -o $@ $(PAYLOAD_SRCS) $(TARGET_SYS_SRCS)
+$(BUILD)/$(APP_NAME).elf: $(OOPS_PAYLOAD_OBJS) $(PAYLOAD_EXTRA_DEPS) \
+                          $(oops_makefiles) | $(BUILD)
+	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) -o $@ $(OOPS_PAYLOAD_OBJS)
 	@nm_tool=$$(command -v $(NM) 2>/dev/null || command -v llvm-nm 2>/dev/null || true); \
 	if [ "$(UNDEF_CHECK)" != "1" ]; then \
 	  echo "$(APP_NAME): the undefined-symbol check is off - a hosted title's C library is"; \
