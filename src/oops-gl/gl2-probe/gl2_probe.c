@@ -2005,14 +2005,34 @@ static int check_draw_buffers(void) {
  * read: it goes through `glReadPixels`, which reads the buffer it is told to by name rather than
  * the rotating readback copy, and the check below takes every one of them before it scans.
  * gl1-probe's `read_centre` is the same two calls and passes on hardware in `front-buffer`. */
-static uint32_t centre_of(GLenum buffer) {
+static uint32_t pixel_of(GLenum buffer, int gx, int gy) {
     GLubyte c[4] = {0u, 0u, 0u, 0u};
     glReadBuffer(buffer);
-    glReadPixels(MID_X, MID_Y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, c);
+    glReadPixels(gx, gy, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, c);
     glReadBuffer(GL_BACK);
     return ((uint32_t)c[3] << 24) | ((uint32_t)c[0] << 16) | ((uint32_t)c[1] << 8) |
            (uint32_t)c[2];
 }
+
+static uint32_t centre_of(GLenum buffer) { return pixel_of(buffer, MID_X, MID_Y); }
+
+/*
+ * **The row `scan_frame` calls the centre is not the row `glReadPixels` calls the centre**, and
+ * the two have been disagreeing about the same "pixel".
+ *
+ * `scan_frame` indexes the readback image top-down from `g_row0 = g_fb_h - PROBE_H`, so its
+ * `MID_Y` is display row `g_row0 + 48`; `glGetFrameReadback` fills that image with GL y
+ * `height - 1 - row`, which makes it **GL row 47**. `glReadPixels(MID_X, MID_Y)` asks for GL row
+ * **48**. Adjacent rows, both well inside a rectangle drawn over the whole region - so for a
+ * uniform draw they must agree, and they do not: the verdict row reads `0xff4080ff` where
+ * `centre_of` reads `0xff408000`, the same three channels and a blue 255 apart.
+ *
+ * Which makes "the region is not uniform" the thing to measure, and it costs one more read.
+ * If GL row 47 answers 255 and row 48 answers 0, the two-target draw is writing some rows and
+ * not others and the read path was never the fault here; if both answer 0, the two paths really
+ * are reading the same pixel differently and the fault is below `glReadPixels`.
+ */
+static uint32_t row_below_centre_of(GLenum buffer) { return pixel_of(buffer, MID_X, MID_Y - 1); }
 
 /*
  * **Two colour buffers written by one compiled shader**, each blending against its own
@@ -2100,9 +2120,18 @@ static int check_two_draw_buffers(void) {
         const uint32_t front = centre_of(GL_FRONT);
         const uint32_t back = centre_of(GL_BACK);
 
+        /* GL row 47, which is the row the verdict's own scan calls the centre. */
+        const uint32_t back_below = row_below_centre_of(GL_BACK);
+        const uint32_t front_below = row_below_centre_of(GL_FRONT);
+
         if (gl2_probe_saw) {
             gl2_probe_saw(was_name, was_front, 0u, 0, was_back, 0u);
             gl2_probe_saw(got_name, front, 0u, 0, back, 0u);
+            /* `saw` is the front one row down, `L` the back one row down: the same two reads the
+             * row above made, moved by one, against a verdict row that samples exactly here. */
+            gl2_probe_saw(arm == 0 ? "two-draw-buffers/set-row47"
+                                   : "two-draw-buffers/zero-row47",
+                          front_below, 0u, 0, back_below, 0u);
         }
 
         ok = ok && near_rgb(was_front, 255, 0, 0, 2) && near_rgb(was_back, 0, 0, 255, 2);
