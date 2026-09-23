@@ -2140,7 +2140,47 @@ static int check_two_draw_buffers(void) {
         ok = ok && near_rgb(back, 64, 128, 255, 6);
     }
 
-    (void)scan_frame();
+    /*
+     * **The shape of the wrong blue**, from the one snapshot the check already takes.
+     *
+     * GL row 47 of the back holds blue 255 and GL row 48 holds blue 0, in both arms, after a draw
+     * that covers the whole region uniformly. One pixel either side of a boundary says nothing
+     * about what the boundary *is* - every other row, one row, a tile edge, half the region are
+     * all consistent with two samples - and which it is decides whether this is rasterisation,
+     * addressing, or the second export. So: count the region, and print where the two values sit.
+     *
+     * A scan row `y` is GL row `PROBE_H - 1 - y`, because `scan_frame` indexes the readback image
+     * top-down from `g_row0` and `glGetFrameReadback` fills it with GL `height - 1 - row`. The
+     * masks below are in **scan** rows and columns, so bit 0 of `blue-rows` is GL row 95.
+     *
+     * Counted in three buckets rather than two: a third value anywhere would mean this is not a
+     * clean split and the row/column masks are not the right instrument.
+     */
+    {
+        const uint32_t *const s = scan_frame();
+        int n_full = 0, n_zero = 0, n_other = 0;
+        uint32_t rows[3] = {0u, 0u, 0u};  /* scan rows 0..31, 32..63, 64..95 at MID_X */
+        uint32_t cols[4] = {0u, 0u, 0u, 0u}; /* scan cols 0..127 at MID_Y */
+        for (int y = 0; y < PROBE_H; y++) {
+            for (int x = 0; x < PROBE_W; x++) {
+                const int b = chan_b(SCAN_PX(s, x, y));
+                if (b >= 250) n_full++;
+                else if (b <= 5) n_zero++;
+                else n_other++;
+            }
+            if (chan_b(SCAN_PX(s, MID_X, y)) >= 250) rows[y >> 5] |= 1u << (y & 31);
+        }
+        for (int x = 0; x < PROBE_W; x++) {
+            if (chan_b(SCAN_PX(s, x, MID_Y)) >= 250) cols[x >> 5] |= 1u << (x & 31);
+        }
+        if (gl2_probe_saw) {
+            gl2_probe_saw("two-draw-buffers/blue-count", (uint32_t)n_full, 0u, 0,
+                          (uint32_t)n_zero, (uint32_t)n_other);
+            gl2_probe_saw("two-draw-buffers/blue-rows", rows[0], 0u, 0, rows[1], rows[2]);
+            gl2_probe_saw("two-draw-buffers/blue-cols", cols[0], 0u, 0, cols[1], cols[2]);
+            gl2_probe_saw("two-draw-buffers/blue-cols3", cols[3], 0u, 0, 0u, 0u);
+        }
+    }
     return ok && glGetError() == GL_NO_ERROR;
 }
 
