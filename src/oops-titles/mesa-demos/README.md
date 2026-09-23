@@ -42,16 +42,21 @@ Neither is part of the port. Both work around one thing, and both delete togethe
 | file | what it does |
 |---|---|
 | `glu_maths_from_libm.c` | `gl_sin`, `gl_cos`, `gl_sqrt` over libm |
-| `glu_absent_on_mesa.c` | GLU's six quadric entry points as reporting no-ops |
+| `glu_quadrics_on_mesa.c` | GLU's quadrics, **drawn** — `gluSphere`, `gluCylinder`, `gluDisk` |
+| `glu_matrix_on_mesa.c` | the pure-maths half: `gluPerspective`, `gluLookAt`, mipmap building |
 
 oops-sdk's GLU (`src/gl/gl_glu.c`) reaches into oops-gl for its maths and pixel helpers, and
 those live in files that between them define forty OpenGL entry points — so linking it beside
 Mesa would put a second `glMatrixMode` in the binary. GLUT's solid shapes are built on GLU
 quadrics, so they are unavailable here until that is decoupled.
 
-A demo that calls one prints a line naming it and draws nothing. **Deliberately not a stub that
-draws something else**: a substituted shape would make a demo *look* like it ran, and this
-title's entire job is measuring what works.
+The quadrics began as no-ops that logged their own absence, on the reasoning that a shape drawn
+wrong is worse than a shape not drawn. That was right about the principle and wrong about the
+cost: `cubemap` reflection-maps a `glutSolidSphere`, so it ran on hardware and drew a correct room
+around **nothing**, and twelve more demos call quadrics directly. A quadric is a parametric
+surface with a closed form, so writing one is transcription rather than interpretation — which is
+what makes it safe here where a mipmap filter would not have been. `gluPartialDisk` is still a
+reporting no-op: nothing in the set calls it, so nothing would check it.
 
 Filed as `REQ-20260922T0940Z-5c17` against oops-sdk. `gears`, the default, calls none of them.
 
@@ -67,9 +72,9 @@ after any change that could move one.
 | **BUILD-FAIL** — does not compile | 46 | 15 |
 | **IMPORTS-FAIL** — compiles, but a symbol is undefined | 3 | 4 |
 
-**None of that means a demo draws anything.** It has not been on a console. The three outcomes
-are about the port surface, and the whole point of this title is the measurement that comes
-*after* they are all green. `gears` is the only one that has run, on 2026-09-22.
+**None of that means a demo draws anything.** The three outcomes are about the port surface, and
+the whole point of this title is the measurement that comes *after* they are all green — six have
+had that measurement so far, and they are listed below.
 
 ### What got them there
 
@@ -108,7 +113,7 @@ rather than about GL. `cubemap`, `fbotexture`, `shadowtex` and `stex3d` each exe
 no probe here had touched - cube maps, framebuffer objects, shadow comparison, 3D textures - and
 are the most informative per run.
 
-Five have now run on this console:
+Six have now run on this console:
 
 | demo | what it settled |
 |---|---|
@@ -117,6 +122,7 @@ Five have now run on this console:
 | `cubemap` | [cube mapping and reflection texgen draw](../../../../oops-mesa/docs/hardware/cube-mapping-draws-fw1240.md), on a sphere this title's own shim tessellates |
 | `fbotexture` | [render to texture with depth and stencil](../../../../oops-mesa/docs/hardware/render-to-texture-with-depth-and-stencil-fw1240.md) — a full off-screen pass, sampled back, correct in every part. Then [it animated](../../../../oops-mesa/docs/hardware/third-frame-with-an-fbo-faults-the-gpu-fw1240.md) once the winsys learned to walk radeonsi's command-buffer chain, which it needs ~13 times a frame |
 | `shadowtex` | [shadow mapping through `GL_ARB_fragment_program`](../../../../oops-mesa/docs/hardware/shadow-mapping-and-arb-fragment-program-fw1240.md) — depth-comparison sampling and the assembly shader path, both new here |
+| `stex3d` | [solid texturing from a 3D texture](../../../../oops-mesa/docs/hardware/solid-texturing-a-3d-texture-on-hardware-fw1240.md) — a torus carved out of a noise volume, no seam and no collapsed slice |
 
 `fbotexture` is also the one to reach for when a demo's log looks stalled: its `Anim` defaults to
 false, so **one** `present us:` line is its specified behaviour. And `a` is the cheapest keyboard
