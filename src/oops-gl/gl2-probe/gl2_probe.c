@@ -2138,6 +2138,165 @@ static void blue_census(const char *name_count, const char *name_rows, const cha
 }
 
 /*
+ * **The ten GL 2.0 entry points nothing in this suite had ever called** (2026-09-23).
+ *
+ * Every GL 2.0 function is implemented; an audit of the specification's list against
+ * `include/GL/gl.h` and the definitions behind it finds none missing. What the audit did find is
+ * that ten of them had never been *exercised* here: `glGetShaderSource`, `glGetAttachedShaders`,
+ * `glGetActiveAttrib`, `glGetUniformiv`, `glGetVertexAttribfv`, `glGetVertexAttribiv`,
+ * `glGetVertexAttribPointerv`, `glStencilMaskSeparate`, `glDetachShader` and
+ * `glValidateProgram`.
+ *
+ * **They are all introspection, which is why it matters.** A port does not call these to draw;
+ * it calls them to find out what it is holding - SDL asking which attributes a program has, a
+ * loader reading a shader back, an engine restoring vertex array state. A wrong answer from one
+ * of them does not produce a wrong picture that a probe would notice. It produces a port that
+ * binds the wrong attribute and draws nothing, and the drawing checks all still pass.
+ *
+ * Nothing here draws, so this check's verdict is the same on the host and on a console - which
+ * makes it one of the few that can be trusted while the blend lattice is open.
+ */
+static int check_program_introspection(void) {
+    reset_view();
+    const char *const VS_SRC = "attribute vec3 pos;\n"
+                               "attribute vec2 uv;\n"
+                               "uniform int k;\n"
+                               "varying vec2 v;\n"
+                               "void main() { v = uv * float(k); gl_Position = vec4(pos, 1.0); }\n";
+    GLuint vs = make_shader(GL_VERTEX_SHADER, VS_SRC);
+    GLuint fs = make_shader(GL_FRAGMENT_SHADER,
+                            "varying vec2 v;\n"
+                            "void main() { gl_FragColor = vec4(v, 0.0, 1.0); }\n");
+    if (!vs || !fs) return 0;
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vs);
+    glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    GLint linked = 0;
+    glGetProgramiv(prog, GL_LINK_STATUS, &linked);
+    if (!linked) { glDeleteProgram(prog); return 0; }
+    g_prog = prog;
+    glUseProgram(prog);
+    int ok = 1;
+
+    /* **The source comes back as it went in**, with its length not counting the terminator -
+     * which is the rule these getters share and the one easiest to get wrong by one. */
+    {
+        char buf[256];
+        GLsizei len = -1;
+        for (int i = 0; i < 256; i++) buf[i] = '\0';
+        glGetShaderSource(vs, (GLsizei)sizeof(buf), &len, buf);
+        int n = 0;
+        while (VS_SRC[n] != '\0') n++;
+        ok = ok && len == (GLsizei)n && buf[n] == '\0';
+        for (int i = 0; i < n && ok; i++) ok = ok && buf[i] == VS_SRC[i];
+    }
+
+    /* Both shaders come back attached, and `count` is what was written rather than the capacity. */
+    {
+        GLuint got[4] = {0u, 0u, 0u, 0u};
+        GLsizei count = -1;
+        glGetAttachedShaders(prog, 4, &count, got);
+        ok = ok && count == 2;
+        const int has_vs = (got[0] == vs || got[1] == vs);
+        const int has_fs = (got[0] == fs || got[1] == fs);
+        ok = ok && has_vs && has_fs;
+    }
+
+    /* **An active attribute by index**, with its name, type and size. The index is not the
+     * location - the specification is explicit that they are unrelated - so the name is looked
+     * up rather than assumed, and its location asked for separately. */
+    {
+        GLint active = 0;
+        glGetProgramiv(prog, GL_ACTIVE_ATTRIBUTES, &active);
+        ok = ok && active == 2;
+        int seen_pos = 0, seen_uv = 0;
+        for (GLint i = 0; i < active && ok; i++) {
+            char name[64];
+            GLsizei len = 0;
+            GLint size = 0;
+            GLenum type = 0;
+            for (int c = 0; c < 64; c++) name[c] = '\0';
+            glGetActiveAttrib(prog, (GLuint)i, (GLsizei)sizeof(name), &len, &size, &type, name);
+            ok = ok && size == 1 && len > 0;
+            if (name[0] == 'p') { seen_pos = 1; ok = ok && type == GL_FLOAT_VEC3; }
+            if (name[0] == 'u') { seen_uv = 1; ok = ok && type == GL_FLOAT_VEC2; }
+        }
+        ok = ok && seen_pos && seen_uv;
+    }
+
+    /* An integer uniform, read back through the integer getter rather than the float one. */
+    {
+        const GLint loc = glGetUniformLocation(prog, "k");
+        ok = ok && loc >= 0;
+        glUniform1i(loc, 7);
+        GLint got = 0;
+        glGetUniformiv(prog, loc, &got);
+        ok = ok && got == 7;
+    }
+
+    /* **Vertex array state, read back through all three getters.** The pointer one takes a
+     * `void **`, which is the odd signature in this family and the one a port gets wrong. */
+    {
+        static const float verts[6] = {0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f};
+        const GLint pos_loc = glGetAttribLocation(prog, "pos");
+        ok = ok && pos_loc >= 0;
+        glEnableVertexAttribArray((GLuint)pos_loc);
+        glVertexAttribPointer((GLuint)pos_loc, 3, GL_FLOAT, GL_FALSE, 12, verts);
+        GLint enabled = 0, size = 0, stride = 0;
+        GLenum type = 0;
+        glGetVertexAttribiv((GLuint)pos_loc, GL_VERTEX_ATTRIB_ARRAY_ENABLED, &enabled);
+        glGetVertexAttribiv((GLuint)pos_loc, GL_VERTEX_ATTRIB_ARRAY_SIZE, &size);
+        glGetVertexAttribiv((GLuint)pos_loc, GL_VERTEX_ATTRIB_ARRAY_STRIDE, &stride);
+        {
+            GLint t = 0;
+            glGetVertexAttribiv((GLuint)pos_loc, GL_VERTEX_ATTRIB_ARRAY_TYPE, &t);
+            type = (GLenum)t;
+        }
+        ok = ok && enabled == GL_TRUE && size == 3 && stride == 12 && type == GL_FLOAT;
+        void *ptr = (void *)0;
+        glGetVertexAttribPointerv((GLuint)pos_loc, GL_VERTEX_ATTRIB_ARRAY_POINTER, &ptr);
+        ok = ok && ptr == (void *)verts;
+        /* The current generic value, through the float getter. */
+        glVertexAttrib4f((GLuint)pos_loc, 0.25f, 0.5f, 0.75f, 1.0f);
+        float cur[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        glGetVertexAttribfv((GLuint)pos_loc, GL_CURRENT_VERTEX_ATTRIB, cur);
+        ok = ok && near_chan((int)(cur[0] * 255.0f + 0.5f), 64, 1) &&
+             near_chan((int)(cur[2] * 255.0f + 0.5f), 191, 1);
+        glDisableVertexAttribArray((GLuint)pos_loc);
+    }
+
+    /* **The two stencil write masks move independently**, which is the whole point of the
+     * separate form and cannot be seen from one of them. */
+    {
+        glStencilMaskSeparate(GL_FRONT, 0x0fu);
+        glStencilMaskSeparate(GL_BACK, 0xf0u);
+        GLint front = 0, back = 0;
+        glGetIntegerv(GL_STENCIL_WRITEMASK, &front);
+        glGetIntegerv(GL_STENCIL_BACK_WRITEMASK, &back);
+        ok = ok && front == 0x0f && back == 0xf0;
+        glStencilMaskSeparate(GL_FRONT_AND_BACK, 0xffu);
+    }
+
+    /* Validation answers, and detaching leaves one shader attached. */
+    {
+        glValidateProgram(prog);
+        GLint valid = -1;
+        glGetProgramiv(prog, GL_VALIDATE_STATUS, &valid);
+        ok = ok && (valid == GL_TRUE || valid == GL_FALSE);
+        glDetachShader(prog, fs);
+        GLsizei count = -1;
+        GLuint got[4] = {0u, 0u, 0u, 0u};
+        glGetAttachedShaders(prog, 4, &count, got);
+        ok = ok && count == 1 && got[0] == vs;
+    }
+
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    return ok && glGetError() == GL_NO_ERROR;
+}
+
+/*
  * **`gl_PointCoord`** (GLSL 1.20; since 2026-09-23) - where the fragment sits inside the point,
  * (0,0) at one corner and (1,1) at the other.
  *
@@ -2615,6 +2774,7 @@ static const gl2_probe_case_t g_cases[] = {
     {"two-draw-buffers", check_two_draw_buffers},
     {"blend-uniformity", check_blend_uniformity},
     {"point-coord", check_point_coord},
+    {"program-introspection", check_program_introspection},
 };
 
 /* **The suite must fit in its callers' result array**, or the checks past the end are run by
