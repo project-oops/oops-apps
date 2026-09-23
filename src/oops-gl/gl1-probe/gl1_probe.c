@@ -104,31 +104,38 @@ static const uint32_t *frame(void) {
 }
 
 /*
- * **One pixel is not evidence about a blend on this part.**
+ * **One pixel is not evidence about a blend.**
  *
- * A blend whose result *combines* both terms - `GL_ONE, GL_ONE`, `GL_SRC_ALPHA,
- * GL_ONE_MINUS_SRC_ALPHA`, `GL_DST_COLOR, GL_ONE`, and the rest - is correct at one pixel in
- * every 2x2 quad and wrong at the other three. The correct pixel is the one with **both
- * coordinates even**. A blend whose result is a single operand (`GL_ONE, GL_ZERO`,
- * `GL_ZERO, GL_ONE`) is correct everywhere. Measured over 12,288 pixels and filed as obSCEne
- * request `REQ-20260923T2015Z-5b8e`; unresolved at the time of writing.
+ * The fault this was written for is fixed - see below - but the rule it produced is the reason
+ * it was found, and it stands.
+ *
+ * Until 2026-09-23 a blend whose result *combines* both terms was correct at one pixel in four
+ * and wrong at the other three, while a blend whose result is a single operand was correct
+ * everywhere. On the scanout path the correct pixel was the one with **both coordinates even**,
+ * which looked like a 2x2 quad and was not: on a linear target the period is four in x with y
+ * irrelevant, and the two are the same sixteen bytes seen through different swizzles. The cause
+ * was this repository's, not the part's - the pixel shader exported four 32-bit floats to an
+ * 8_8_8_8 target, where RB+ requires half-floats, so the render backend unpacked a correct
+ * blend result into two-byte slices across its sixteen-byte transaction. obSCEne request
+ * `REQ-20260923T2015Z-5b8e`, closed by `oops-sdk`'s `gl_ps_patch_export`.
  *
  * `PROBE_W / 2` is 64 and `PROBE_H / 2` is 48. **Both are even**, so the centre pixel - which
- * fifty-odd checks in this file use as their verdict - is exactly the lane the fault spares.
- * A blended check that reads it passes whatever the other three lanes did.
+ * fifty-odd checks in this file use as their verdict - was exactly the lane the fault spared.
+ * A blended check that read it passed whatever the other three lanes did.
  *
  * That is not hypothetical. `blend-over-texture` and `blend-additive-strip` were written on
  * 2026-09-23, reported their arithmetic to the byte - `0x8cb4dc` against an expected `0x8cb4dc` -
  * and were offered as evidence that compositing on this part was sound. Censused, the same draws
  * were wrong at 2,304 of 3,072 pixels. The centre was right and three quarters of the region was
- * not.
+ * not. `front-and-back` had been failing since the day it was written for the mirror-image
+ * reason: `read_centre` reads through `glReadPixels`, whose y origin is the bottom, so at
+ * `PROBE_H / 2` it landed on an odd row and saw nothing but the fault.
  *
  * **So: if a check blends, count the region with `census_wrong` and return on the count.** Use
- * `px` for an unblended draw, where the lattice does not reach, or for reporting a sample
- * alongside a census. A verdict from `px` on a blended draw is a verdict about one lane.
- *
- * The same discipline applies to anything else that turns out to vary within a quad; the fault
- * above is the one that is known.
+ * `px` for an unblended draw, or for reporting a sample alongside a census. A verdict from `px`
+ * on a blended draw is a verdict about one pixel, and a whole class of defect - anything with a
+ * period the sampling point happens to be in step with - is invisible to it. That is how this
+ * one survived ninety-three passing checks.
  */
 static uint32_t px(int x, int y) {
     if (!g_fb || x < 0 || y < 0 || x >= PROBE_W || y >= PROBE_H) return 0u;
@@ -5314,6 +5321,160 @@ static int check_ps_ring_churn(void) {
     return ok;
 }
 
+/* **Which stage of the blender is wrong.**
+ *
+ * Everything measured so far says one thing in one shape: a blend whose result *combines* both
+ * terms is right at one pixel in every 2x2 quad and wrong at the other three, a blend whose
+ * result is a single operand is right everywhere, and an unblended write is right everywhere
+ * across four thousand pixels. That is a single fact about "blending" - and blending is three
+ * separable stages: the **read** of the destination, the **multiply** of each term by its
+ * factor, and the **add** that combines them. `GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA` uses all
+ * three, so a verdict on it cannot say which one is at fault, and every register tried against
+ * it so far has moved the count by nothing or by everything.
+ *
+ * So this draws the same two colours under eight factor pairs chosen to use the stages one at a
+ * time, and censuses each over the same 3072 pixels:
+ *
+ *   zero-one   result is the destination unchanged  - the read, alone
+ *   one-zero   result is the source unchanged       - the export, alone
+ *   one-one    source plus destination              - the add, with both factors trivial
+ *   sa-zero    source scaled by its own alpha       - the source multiply, alone
+ *   zero-sa    destination scaled by source alpha   - the destination multiply, alone
+ *   isa-zero   source scaled by one minus alpha     - the inverted factor, alone
+ *   sa-one     the port's starfield
+ *   sa-isa     the port's panels and floor
+ *
+ * **Read the counts, not the verdict.** `zero-one` wrong means the destination is not being
+ * read correctly and nothing after it can be trusted. The two multiply rows wrong with
+ * `one-one` clean means the factor arithmetic. `one-one` wrong with every single-operand row
+ * clean means both operands arrive intact and the add is where they are lost - which is a
+ * different repair, in a different register, from either of the others.
+ *
+ * Each row also reports the two lanes of one quad: `/even` is (64,48), the lane that works, and
+ * `/odd` is (65,48), a lane that does not. What the broken lane *contains* narrows it further -
+ * the source alone, the destination alone, or neither - and a count without that value has cost
+ * a hardware run more than once.
+ */
+static int check_blend_factor_matrix(void) {
+    /* **No expected channel may clamp and no two rows may expect the same triple**, or a row
+     * cannot be told from its neighbour in the log. Source alpha is 0.25 rather than 0.5 so
+     * that `GL_SRC_ALPHA` and `GL_ONE_MINUS_SRC_ALPHA` are two different numbers instead of the
+     * same number twice - at 0.5 the `isa-zero` row would be a copy of `sa-zero` and would
+     * prove nothing about the subtraction. */
+    static const float D[3] = {0.20f, 0.40f, 0.70f};
+    static const float S[3] = {0.60f, 0.30f, 0.10f};
+    static const float A = 0.25f;
+
+    static const struct {
+        const char *name;
+        GLenum sf, df;
+        float fs, fd; /* what those factors are worth here, for the expectation */
+    } cases[] = {
+        {"zero-one", GL_ZERO,                GL_ONE,                 0.00f, 1.00f},
+        {"one-zero", GL_ONE,                 GL_ZERO,                1.00f, 0.00f},
+        {"one-one",  GL_ONE,                 GL_ONE,                 1.00f, 1.00f},
+        {"sa-zero",  GL_SRC_ALPHA,           GL_ZERO,                0.25f, 0.00f},
+        {"zero-sa",  GL_ZERO,                GL_SRC_ALPHA,           0.00f, 0.25f},
+        {"isa-zero", GL_ONE_MINUS_SRC_ALPHA, GL_ZERO,                0.75f, 0.00f},
+        {"sa-one",   GL_SRC_ALPHA,           GL_ONE,                 0.25f, 1.00f},
+        {"sa-isa",   GL_SRC_ALPHA,           GL_ONE_MINUS_SRC_ALPHA, 0.25f, 0.75f},
+    };
+
+    int bad_total = 0;
+
+    for (unsigned i = 0u; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        /* The destination is laid down unblended, so whatever the previous row left is gone and
+           the only thing the blended draw can be reading is this rectangle. */
+        reset_view();
+        glDisable(GL_BLEND);
+        draw_rect(-0.9f, -0.9f, 0.9f, 0.9f, D[0], D[1], D[2]);
+
+        glEnable(GL_BLEND);
+        glBlendFunc(cases[i].sf, cases[i].df);
+        glColor4f(S[0], S[1], S[2], A);
+        glRectf(-0.9f, -0.9f, 0.9f, 0.9f);
+        glDisable(GL_BLEND);
+        if (glGetError() != GL_NO_ERROR) return 0;
+
+        int want[3];
+        for (int c = 0; c < 3; c++) {
+            float v = S[c] * cases[i].fs + D[c] * cases[i].fd;
+            if (v < 0.0f) v = 0.0f;
+            if (v > 1.0f) v = 1.0f;
+            want[c] = (int)(v * 255.0f + 0.5f);
+        }
+
+        const int bad = census_wrong(16, 16, 64, 48, want[0], want[1], want[2], 12);
+        bad_total += bad;
+
+        if (gl1_probe_saw) {
+            /* `saw` copies the name before it returns, so one buffer serves every row - and it
+               keeps 24 characters, which is what holds these names to a short prefix. */
+            /* **All four lanes of one quad, not two.** The first run of this check reported the
+               base lane and the lane at x+1 only, and could not explain why `isa-zero` came
+               back 1536 wrong where every other engaging row came back 2304: half the region
+               rather than three quarters means two lanes of that quad were right, and which two
+               is not a question two samples can answer. */
+            static const char *const suffix[6] = {"/wrong", "/want", "/even", "/odd",
+                                                  "/oddy", "/oddxy"};
+            for (int k = 0; k < 6; k++) {
+                char n[32];
+                int at = 0;
+                n[at++] = 'b'; n[at++] = 'f'; n[at++] = '-';
+                for (int j = 0; cases[i].name[j] && at < 20; j++) n[at++] = cases[i].name[j];
+                for (int j = 0; suffix[k][j] && at < 30; j++) n[at++] = suffix[k][j];
+                n[at] = '\0';
+
+                uint32_t v;
+                if (k == 0) {
+                    v = (uint32_t)bad;
+                } else if (k == 1) {
+                    v = ((uint32_t)want[0] << 16) | ((uint32_t)want[1] << 8) | (uint32_t)want[2];
+                } else if (k == 2) {
+                    v = px(PROBE_W / 2, PROBE_H / 2);          /* both even - the base lane */
+                } else if (k == 3) {
+                    v = px(PROBE_W / 2 + 1, PROBE_H / 2);      /* x odd */
+                } else if (k == 4) {
+                    v = px(PROBE_W / 2, PROBE_H / 2 + 1);      /* y odd */
+                } else {
+                    v = px(PROBE_W / 2 + 1, PROBE_H / 2 + 1);  /* both odd */
+                }
+                gl1_probe_saw(n, v);
+            }
+
+            /* **Sixteen consecutive words, for the last row only.** Four samples of one quad
+             * established that the three non-base lanes get their middle two bytes and nothing
+             * else; they cannot show whether the bytes that go missing turn up in a neighbour,
+             * which is the difference between a displaced write and a partial one. Two runs of
+             * eight across four whole quads can, and this is the port's own blend
+             * (`GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA`), so the dump is of the case that
+             * matters. Every pixel here wants the same colour, so any byte that differs between
+             * columns came from somewhere it should not have. */
+            if (i == sizeof(cases) / sizeof(cases[0]) - 1u) {
+                for (int yy = 0; yy < 2; yy++) {
+                    for (int xx = 0; xx < 8; xx++) {
+                        char n[32];
+                        int at = 0;
+                        const char *p = "bf-dump/y";
+                        for (int j = 0; p[j]; j++) n[at++] = p[j];
+                        n[at++] = (char)('0' + yy);
+                        n[at++] = 'x';
+                        n[at++] = (char)('0' + (60 + xx) / 10);
+                        n[at++] = (char)('0' + (60 + xx) % 10);
+                        n[at] = '\0';
+                        gl1_probe_saw(n, px(60 + xx, PROBE_H / 2 + yy));
+                    }
+                }
+            }
+        }
+    }
+
+    /* The colour is left where the rest of the suite expects to find it; `check_blend` not
+       doing this is why `evaluators` once depended on what ran before it. */
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    return bad_total == 0;
+}
+
 /* ------------------------------------------------------------------------- */
 
 static const gl1_probe_case_t g_cases[] = {
@@ -5321,6 +5482,9 @@ static const gl1_probe_case_t g_cases[] = {
      * once and then goes silent, and a follow window that closes early loses whatever had not
      * been printed - three runs of this check were lost that way, at around two hundred lines.
      * A check whose result is the reason for the run goes where the window certainly reaches. */
+    /* First of all, because it is the reason for the run: it is the only check that can say
+       which stage of the blender is wrong, and its thirty-two rows have to clear the window. */
+    {"blend-factor-matrix", check_blend_factor_matrix},
     {"lit-texture-parity", check_lit_texture_parity},
     /* Second, for the same reason as the first: the recording of the port's frame says its
      * starfield is drawn this way, and no check here had drawn one. */

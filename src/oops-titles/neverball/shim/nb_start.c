@@ -33,14 +33,21 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
 
     oops_log_info("NVRB", "entry");
 
-    /* **Capture one settled frame of the title screen.** Frame 3 rather than 0: the first
-       frames build the window and upload the level's textures, so they are a loader rather
-       than a frame of the game. The swap does the arming and the writing, so upstream's own
-       loop is untouched and what lands in the file is the program's real behaviour.
+    /* **Capture one settled frame of the title screen, when `/app0/capture` asks for it.**
+       Frame 3 rather than 0: the first frames build the window and upload the level's textures,
+       so they are a loader rather than a frame of the game. The swap does the arming and the
+       writing, so upstream's own loop is untouched and what lands in the file is the program's
+       real behaviour.
 
        Replay it on a build machine with `oops-gl/gl-replay`, where the rasteriser is the
-       reference: the difference between that image and a screenshot of this frame is the bug
-       that ninety-three conformance checks are all passing through.
+       reference: the difference between that image and a screenshot of this frame is whatever
+       the conformance suite is passing through. That is how the blending fault was cornered,
+       and it is the reason this stays in a title that now renders correctly - the next port
+       will want it, and a facility nobody can find is a facility nobody uses.
+
+       **Behind a marker file, because it is an instrument and not part of the game.** It ran on
+       every launch until 2026-09-23 and logged an error on every launch with it, which is the
+       kind of noise that gets a real message overlooked.
 
        **Where it can be written is found, not assumed.** The obvious choice - the title's own
        directory under `/data/homebrew` - is where the package was installed and is *not*
@@ -49,7 +56,9 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
        collection writes a file on the console, so there was no precedent to copy. Rather than
        guess a second time, each candidate is tried and the first that works is used - and the
        log says which, so the next thing that needs to write something already knows. */
-    {
+    const int cap_fd = oops_fs_open("/app0/capture", 0 /* O_RDONLY */, 0);
+    if (cap_fd >= 0) {
+        oops_fs_close(cap_fd);
         /* **Savedata is mounted, not found.** The first attempt probed `/savedata0` as a path
            and it refused, because that mount point does not exist until `oops_savedata_mount`
            makes it - and neither does any other writable place, which is what all five
