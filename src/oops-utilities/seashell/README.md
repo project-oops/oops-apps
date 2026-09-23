@@ -26,7 +26,7 @@ pick.
 ## Screenshot
 
 <p align="center">
-  <img src="assets/screenshot.png" alt="SeaShell running on a PS5, captured over JetKVM" width="600">
+  <img src="assets/screenshot.png" alt="SeaShell running on Prospero, captured over JetKVM" width="600">
 </p>
 
 ## Docs

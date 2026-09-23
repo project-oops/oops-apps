@@ -119,6 +119,17 @@ static void report_total(int passed, int ran) {
  *
  * The format's header is six bytes of magic, a zero, a version and a little-endian count of
  * commands - so cutting the replay short is a four-byte edit rather than a parse. */
+/* The opaque pass is on unless a file beside the capture turns it off, so one build answers both
+ * halves of the question: `capture-noalpha` present means present the frame as the replay left
+ * it, absent means force alpha to 1 first. A file rather than a rebuild, because the two runs
+ * have to be the same binary for the comparison to mean anything. */
+static int getenv_flag_opaque(void) {
+    const int fd = oops_fs_open("/app0/capture-noalpha", 0, 0);
+    if (fd < 0) return 1;
+    oops_fs_close(fd);
+    return 0;
+}
+
 static void replay_capture(int fd) {
     static uint8_t buf[40u * 1024u * 1024u]; /* a frame plus its loading is about 34MB */
     size_t got = 0;
@@ -164,6 +175,36 @@ static void replay_capture(int fd) {
     const unsigned ran = oops_gl_capture_replay(buf, got);
     saw("capture-replayed", (uint32_t)ran);
 
+    /* **Force the frame opaque before presenting it.**
+     *
+     * The readback of this frame matches a desktop's byte for byte, and the panel shows it
+     * green - two views of the same memory disagreeing. What differs between the surfaces that
+     * are right on the panel and the ones that are not is their alpha: the planet, the glyphs
+     * and the title are opaque, and the starfield, the floor and the menu panels are drawn with
+     * GL_SRC_ALPHA/GL_ONE, which accumulates into alpha as well as colour and leaves it short of
+     * 255. `replay/px-c` came back with an alpha of 191 and `px-a` with 255, and those are
+     * exactly the two cases.
+     *
+     * A compositor that honours the scanout buffer's alpha would composite every blended surface
+     * against whatever is behind it and leave the opaque ones alone, which is the picture. So
+     * this writes 1 into alpha everywhere - colour untouched, through the colour mask - and
+     * presents that. If the panel comes good, the frame was always right and only its alpha was
+     * being read by something downstream. */
+    if (getenv_flag_opaque()) {
+        glDisable(GL_BLEND);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_TEXTURE_2D);
+        glDisable(GL_LIGHTING);
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
+        glMatrixMode(GL_PROJECTION); glLoadIdentity();
+        glOrtho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
+        glMatrixMode(GL_MODELVIEW); glLoadIdentity();
+        glColor4f(0.0f, 0.0f, 0.0f, 1.0f);
+        glRectf(-1.0f, -1.0f, 1.0f, 1.0f);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        probe_klog("gl1-probe: alpha forced to 1 across the frame before presenting");
+    }
+
     /* **What the replayed frame actually holds**, because the panel shows it for a moment and
      * then the shell takes the display back - and because bisecting this means running it twenty
      * times, which is twenty numbers to read rather than twenty screenshots to catch.
@@ -183,22 +224,68 @@ static void replay_capture(int fd) {
         const uint32_t *fb = (const uint32_t *)glGetFrameReadback();
         if (!fb) fb = oops_display_get_framebuffer(disp);
         if (fb && fw >= 1920u && fh >= 1080u) {
-            static const struct { unsigned int x, y; const char *name; } pts[] = {
-                {1400u, 300u, "replay/px-a"},
-                {1700u, 200u, "replay/px-b"},
-                { 300u, 900u, "replay/px-c"},
-                { 960u, 540u, "replay/px-d"},
+            /* **The whole frame's colour, not four pixels of it.**
+             *
+             * Four fixed points were chosen before there was a frame to choose them from, and
+             * three of them landed in black where every render agrees. What distinguishes the
+             * two renders is not a pixel, it is a cast: the correct frame's background is a blue
+             * starfield and the broken one is green, over most of the screen. So this averages
+             * the three channels across a grid and reports them - a green frame reads with G far
+             * above B, and a correct one does not, whatever any individual pixel does. */
+            /* **An odd stride, because the artifact has a period of two.** Stepping by 16 walks
+               one parity of pixel columns for ever, and in a frame striped every other column
+               that samples only the dark half - the mean came back matching a correct desktop
+               render while the same frame's neighbouring pixels were black and full green. An
+               average taken on the beat of the thing it is measuring measures nothing. */
+            uint64_t sr = 0u, sg = 0u, sb = 0u, n = 0u;
+            for (unsigned int y = 7u; y < 1080u; y += 13u) {
+                for (unsigned int x = 7u; x < 1920u; x += 13u) {
+                    const uint32_t c = fb[(size_t)y * (size_t)fw + (size_t)x];
+                    sr += (c >> 16) & 0xffu;
+                    sg += (c >> 8) & 0xffu;
+                    sb += c & 0xffu;
+                    n++;
+                }
+            }
+            if (n == 0u) n = 1u;
+            saw("replay/mean-rgb",
+                (uint32_t)(((sr / n) << 16) | ((sg / n) << 8) | (sb / n)));
+            /* The cast in one number: green minus blue, biased by 128 so it prints unsigned.
+               Above 128 is green-dominant, which the correct frame is not. */
+            {
+                const int64_t d = (int64_t)(sg / n) - (int64_t)(sb / n);
+                saw("replay/green-over-blue", (uint32_t)(128 + d));
+            }
+            /* **Eight neighbouring pixels, twice**, because the question is no longer whether
+               the two views differ but how. The frame read back here matches a desktop's and the
+               frame on the panel is green, so something between them is reinterpreting the same
+               bytes - and a permutation, a channel rotation and a stride error all look
+               different across a run of adjacent pixels. Printed here and read off the
+               photograph at the same coordinates, the two runs say which it is. */
+            static const struct { unsigned int x, y; const char *tag; } runs[] = {
+                {1200u, 400u, "replay/r1-"},
+                { 300u, 900u, "replay/r2-"},
             };
-            for (size_t i = 0; i < sizeof(pts) / sizeof(pts[0]); i++) {
-                saw(pts[i].name, fb[(size_t)pts[i].y * (size_t)fw + (size_t)pts[i].x]);
+            for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
+                for (unsigned int k = 0; k < 8u; k++) {
+                    char nm[24];
+                    int at = 0;
+                    for (int c = 0; runs[r].tag[c]; c++) nm[at++] = runs[r].tag[c];
+                    nm[at++] = (char)('0' + (int)k);
+                    nm[at] = 0;
+                    saw(nm, fb[(size_t)runs[r].y * (size_t)fw + (size_t)runs[r].x + k]);
+                }
             }
         } else {
             probe_klog("gl1-probe: no readable frame after the replay");
         }
     }
-    /* Presented twice, so both scanout buffers hold the replayed frame and what stays on the
-     * panel is it rather than whatever was behind it. */
-    glSwapBuffers();
+    /* **Once, not twice.** Swapping twice does not put the frame in both buffers - it presents
+     * the frame and then presents the *other* buffer, which holds whatever was there before.
+     * With a previous run's Neverball frame still in it that is what ends up on the panel, and
+     * it was: a green title screen photographed off the television and reported here as the
+     * replay reproducing the bug, when the replay had drawn the correct frame and then hidden
+     * it. The readback said so at the time and was not believed. */
     glSwapBuffers();
 }
 #endif

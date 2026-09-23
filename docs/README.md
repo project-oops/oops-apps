@@ -58,7 +58,7 @@ link a renderer underneath (oops-gl today) but the framework is the point.
 
 ### `oops-utilities` - tools and shells
 
-- **[seashell](../src/oops-utilities/seashell/README.md)** - SeaShell, the unified PS5 homebrew
+- **[seashell](../src/oops-utilities/seashell/README.md)** - SeaShell, the unified Prospero homebrew
   shell, providing an authentic console UI (PS button overlay, title launcher, settings, media
   player, storage/save manager, notifications).
 - **[gallery](../src/oops-utilities/gallery/README.md)** - visual showcase and capability

@@ -95,6 +95,7 @@ PAYLOAD_SRCS = $(OOPS_POSIX_SRCS) \
                $(OOPS_SDK_DIR)/src/audio/audio.c \
                $(OOPS_SDK_DIR)/src/memory/memory.c \
                $(OOPS_SDK_DIR)/src/system/system.c \
+               $(OOPS_SDK_DIR)/src/system/suspend.c \
                $(OOPS_SDK_DIR)/src/system/freestd.c \
                $(OOPS_SDK_DIR)/src/system/syscall.c \
                $(OOPS_SDK_DIR)/src/system/sysmodule.c \

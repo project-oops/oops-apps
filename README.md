@@ -26,7 +26,7 @@ Within the [OOPS ecosystem](../docs/THE_LOOP.md), `oops-apps` is the **Known Gro
                         ├───────────────────────────────┐
                         ▼                               ▼
 ┌─────────────────────────────────────────┐   ┌───────────────────────────────┐
-│ Deploy to PS5 via Prosperous            │   │ Run in Orbistoun Emulator     │
+│ Deploy to Prospero via Prosperous       │   │ Run in Orbistoun Emulator     │
 │ - pros restore ... && pros launch ...   │   │ - ./bin/orbistoun run ...     │
 │ - Hardware renders on TV via HDMI       │   │ - Verifies Vulkan render loop │
 └───────────────────────┬─────────────────┘   └───────────────┬───────────────┘
@@ -35,7 +35,7 @@ Within the [OOPS ecosystem](../docs/THE_LOOP.md), `oops-apps` is the **Known Gro
 ```
 
 1. **Unambiguous Ground Truth**: Commercial games are massive, opaque, and fail without clear diagnostics. In `oops-apps`, we know every line of code, every vertex buffer, and every expected return value.
-2. **End-to-End Pipeline Verification**: If `gl1-cube` renders a red cube on physical PS5 hardware, but fails in [Orbistoun](../orbistoun/), the gap is isolated immediately without guessing.
+2. **End-to-End Pipeline Verification**: If `gl1-cube` renders a red cube on physical Prospero hardware, but fails in [Orbistoun](../orbistoun/), the gap is isolated immediately without guessing.
 3. **Dogfooding First-Party Tooling**: Every application builds with `app.mk`, packages with `selfish`, and deploys with `pros`.
 
 ---

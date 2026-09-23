@@ -23,7 +23,8 @@ INCLUDES="-I$UP/delibs/debase -I$UP/delibs/depool -I$UP/delibs/deutil
           -I$UP/delibs/dethread -I$UP/delibs/decpp -I$UP/delibs/deimage
           -I$UP/qphelper -I$UP/common -I$UP/opengl -I$UP/referencerenderer
           -I$UP/egl -I$HERE/shim/include
-          -I$UP/opengl/wrapper -I$UP/egl/wrapper"
+          -I$UP/opengl/wrapper -I$UP/egl/wrapper
+          -I$UP/xexml"
 
 # # This is a HOSTED title, so the C library is the Mesa sysroot's
 #
@@ -41,9 +42,42 @@ INCLUDES="-I$UP/delibs/debase -I$UP/delibs/depool -I$UP/delibs/deutil
 # the display, and they are not a C library.
 MESA_SYSROOT="$OOPS_APPS/../oops-mesa/toolchain/sysroot"
 
+# # `<fenv.h>`, which the staged sysroot does not carry and msun's source tree does
+#
+# `deMath.c` sets the floating-point rounding mode through `fegetround`/`fesetround` to compute
+# reference values for the GLSL rounding tests, so it is not optional and a wrong one would make
+# a wrong reference rather than a failure.
+#
+# The sysroot has no `fenv.h` - only libc++'s wrapper, which `#include_next`s a C one that is not
+# there. FreeBSD keeps it per-architecture and amd64 uses `msun/x86/fenv.h`, which oops-mesa
+# already stages from the same pinned checkout as `libm.a`. So this points at the real header
+# rather than writing a second one: the rounding-mode constants are the x87 control-word values
+# and the SSE shift is 3, and neither is worth transcribing by hand.
+#
+# **This reaches past the sysroot into the source tree beside it, and should not have to.**
+# Staging `fenv.h` into `sysroot/usr/include` is oops-mesa's to do; when it does, this line goes.
+MESA_MSUN_X86="$OOPS_APPS/../oops-mesa/toolchain/msun-src/msun/x86"
+
+# # `_XOPEN_SOURCE=600`, and the value is pinned from both sides
+#
+# It has to be **at least 500**, because `deThreadUnix.c:32` is
+# `#if !defined(_XOPEN_SOURCE) || (_XOPEN_SOURCE < 500)` over `#error "You are using too old
+# posix API!"`. (`_POSIX_C_SOURCE` is a different macro and does not satisfy that check - an
+# easy hour to lose.)
+#
+# It has to be **at most 600**, because FreeBSD's `<unistd.h>` guards `usleep` with
+# `(__XSI_VISIBLE && __XSI_VISIBLE <= 600) || __BSD_VISIBLE`: POSIX 2008 removed it, so 700
+# hides it and `deThreadUnix.c` calls it.
+#
+# Setting it also drives `__BSD_VISIBLE` to 0, which is separately necessary: FreeBSD's
+# `<unistd.h>` declares `fflagstostr(u_long)` and `select(..., fd_set *, ...)` in BSD-visible
+# blocks *without including `<sys/types.h>` itself*, so a unit including `<unistd.h>` alone meets
+# them with no `u_long` in scope. `oops-libcxx.mk` reaches the same place through
+# `_POSIX_C_SOURCE`, which is right for it because libc++ never calls `usleep`.
 BASE="-target x86_64-unknown-freebsd --sysroot=$MESA_SYSROOT
+      -D_XOPEN_SOURCE=600
       -fPIC -fno-stack-protector -O2 -w -DOOPS_TARGET=3
-      -I$SDK/include
+      -I$SDK/include -I$MESA_MSUN_X86
       $INCLUDES"
 
 # # libc++'s headers come before the SDK's, and the order is not cosmetic
@@ -61,7 +95,11 @@ BASE="-target x86_64-unknown-freebsd --sysroot=$MESA_SYSROOT
 CXXFLAGS="-nostdinc++ -fexceptions -frtti -std=c++17
           -I$LIBCXX/include -I$LIBCXX/upstream/libcxx/include
           -DDEQP_TARGET_NAME=\"OOPS\" $BASE"
-CFLAGS="-std=c11 -DDEQP_TARGET_NAME=\"OOPS\" $BASE"
+# `-include malloc_np.h`: `deMemory.c` calls `malloc_usable_size`, which FreeBSD declares in
+# `<malloc_np.h>` - the jemalloc extensions - and not in `<stdlib.h>`, which is what upstream
+# includes on this platform. The sysroot has the header; this puts its declaration in scope
+# without shadowing `<stdlib.h>`, which is the trap this port has already fallen into once.
+CFLAGS="-std=c11 -DDEQP_TARGET_NAME=\"OOPS\" -include malloc_np.h $BASE"
 
 filter="${1:-}"
 ok=0; bad=0

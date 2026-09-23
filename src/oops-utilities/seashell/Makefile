@@ -24,6 +24,7 @@ HOST_TEST_SRCS = home_selftest.c home.c $(SKIN_SRCS) \
                  $(OOPS_SDK_DIR)/src/input/keyboard.c \
                  $(OOPS_SDK_DIR)/src/memory/heap.c \
                  $(OOPS_SDK_DIR)/src/system/system.c \
+                 $(OOPS_SDK_DIR)/src/system/fs.c \
                  $(OOPS_SDK_DIR)/src/system/freestd.c
 
 # Target payload sources

@@ -5654,7 +5654,7 @@ int gl1_probe_run(gl1_probe_result_t *out, int max) {
        evening went looking for a title's own messages under them. This suite is the tool those
        counters exist for, so it turns them on. */
 #ifndef OOPS_HOST_BUILD
-    oops_gl_set_log_level(OOPS_GL_LOG_FRAMES);
+    oops_gl_set_log_level((int)OOPS_LOG_DEBUG);
 #endif
     g_disp = oops_display_open(OOPS_DISPLAY_BACKEND_AUTO, PROBE_DISPLAY_W, PROBE_DISPLAY_H);
     if (!g_disp) return -1;
