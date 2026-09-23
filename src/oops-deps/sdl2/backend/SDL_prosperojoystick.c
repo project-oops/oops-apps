@@ -98,6 +98,26 @@ static int PROSPERO_JoystickInit(void)
      * initialise the whole joystick subsystem because no pad is signed in would be worse.
      */
     (void)oops_input_init();
+
+    /*
+     * **SDL delivers the keyboard as a keyboard, so the pad must not deliver it as a pad.**
+     *
+     * `oops_input_read_state` folds the keyboard into port 0 by default: it decodes Enter,
+     * Escape, the arrows, WASD and the rest into `OOPS_BUTTON_*` so that an application with one
+     * input call still gets a keyboard. That is the right default for an application using the
+     * SDK directly - and exactly wrong underneath SDL, which already has a keyboard backend of
+     * its own.
+     *
+     * With both, one press arrives twice: once as `SDL_KEYDOWN`, which Neverball turns into
+     * `st_buttn(A)`, and again as `SDL_JOYBUTTONDOWN` from this driver, which it turns into
+     * `st_buttn(A)` a second time. Two activations of one keypress, and every menu ran itself
+     * twice - Play opened the level select and then that screen's Back, so the menu appeared to
+     * bounce off itself. Measured on 2026-09-24: one `[KBD] event usage=0x28 down` in the log,
+     * two `st_buttn: b=0 d=1` after it, and one key decoding to buttons 4 *and* 5.
+     *
+     * The keyboard is not lost - `PROSPERO_PumpKeyboard` is where it belongs.
+     */
+    oops_input_set_keyboard_as_pad(0);
     return 0;
 }
 
