@@ -43,6 +43,21 @@ MESA_DEMOS_CFLAGS := -Ishim/include -Iupstream/src/util -Iupstream/src
 # shim because the shim does not know which demo it was built with.
 MESA_DEMOS_CFLAGS += -DOOPS_DEMOS_NAME=\"$(DEMO)\"
 
+# **And a stamp, so that name cannot go stale.**
+#
+# `DEMO=` changes a `-D`, not a source file, and make compares timestamps. So switching demos
+# relinked the right `demos/<name>.o` while keeping yesterday's `mesa_demos_entry.o` - and that
+# object is the one with the name compiled into it. On 2026-09-23 a `shadowtex` build announced
+# itself as `starting fbotexture`: the correct demo ran, and the single line that says which demo
+# a run *is* was a lie. A log that cannot answer the question asked of it is the failure this
+# title exists to avoid.
+#
+# The stamp holds the current demo name and is rewritten only when it differs, so it is touched on
+# a switch and left alone on a rebuild. Anything carrying `OOPS_DEMOS_NAME` depends on it.
+DEMO_STAMP := build/.demo-name
+$(shell mkdir -p build 2>/dev/null; \
+        [ "$$(cat $(DEMO_STAMP) 2>/dev/null)" = "$(DEMO)" ] || printf '%s' "$(DEMO)" > $(DEMO_STAMP))
+
 # Where the demos look for their textures and models. Upstream defaults this to `../data/`
 # relative to the build tree (`upstream/meson.build:30`) and the demos concatenate it directly -
 # `#define TEXTURE_FILE DEMOS_DATA_DIR "reflect.rgb"` - so the trailing slash is load-bearing.
@@ -105,6 +120,7 @@ PAYLOAD_SRCS = shim/mesa_demos_entry.c shim/glu_maths_from_libm.c shim/glu_quadr
                 $(OOPS_SDK_DIR)/src/thread/thread.c \
                 $(OOPS_SDK_DIR)/src/time/time.c \
                 $(OOPS_SDK_DIR)/src/system/system.c \
+                $(OOPS_SDK_DIR)/src/system/suspend.c \
                 $(OOPS_SDK_DIR)/src/system/freestd.c \
                 $(OOPS_SDK_DIR)/src/system/syscall.c \
                 $(OOPS_SDK_DIR)/src/system/sysmodule.c \
@@ -133,6 +149,11 @@ OOPS_MESA ?= $(abspath $(OOPS_APPS_ROOT)/../oops-mesa)
 SYMBOLS_FILE := $(abspath build/imports.txt)
 
 include $(OOPS_APPS_ROOT)/common/app.mk
+
+# The one object with `OOPS_DEMOS_NAME` compiled into it. Placed after the include because
+# `$(BUILD)` is app.mk's. The demo's own object is named after the demo, so it is never stale;
+# this is the only file whose contents depend on `DEMO` without its path doing so.
+$(BUILD)/obj/app/shim/mesa_demos_entry.o: $(DEMO_STAMP)
 
 $(SYMBOLS_FILE): $(BUILD)/$(APP_NAME).elf
 	@if [ ! -f "$@" ]; then \
