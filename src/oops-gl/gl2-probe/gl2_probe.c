@@ -124,7 +124,7 @@ static int near_chan(int got, int want, int tol) {
 
 /* Declared here because the blending checks above its definition report it - see the comment on
  * the definition for what it counts and why a blended check needs it. */
-static void uniformity_census(const char *name);
+static void uniformity_census_of(const uint32_t *s, const char *name);
 
 /* -------------------------------------------------------------------------
  * The state every check starts from
@@ -1777,7 +1777,7 @@ static int check_blend_applies(void) {
      * other three. This check has been passing on hardware from the region's centre, which is
      * the even/even pixel the lattice gets right. Diagnostic for the same reason
      * `separate-blend-eq`'s is; `-5b8e` is where it is answered. */
-    uniformity_census("blend/uniformity");
+    uniformity_census_of(s, "blend/uniformity");
     return ok && glGetError() == GL_NO_ERROR;
 }
 
@@ -1995,7 +1995,7 @@ static int check_separate_blend_equation(void) {
      * failing it for a fault every blended draw shares would bury that. `-5b8e` is where the
      * lattice is answered; when it is, the verdict here can widen.
      */
-    uniformity_census("separate-blend-eq/uniformity");
+    uniformity_census_of(s, "separate-blend-eq/uniformity");
     glDisable(GL_BLEND);
     glBlendEquation(GL_FUNC_ADD);
     return ok && glGetError() == GL_NO_ERROR;
@@ -2096,8 +2096,7 @@ static uint32_t row_below_centre_of(GLenum buffer) { return pixel_of(buffer, MID
  * argument and reads the same after any uniform draw. The centre is even/even, which the lattice
  * gets right, so "differs from the centre" is "wrong" wherever the census above found a lattice.
  */
-static void uniformity_census(const char *name) {
-    const uint32_t *const s = scan_frame();
+static void uniformity_census_of(const uint32_t *s, const char *name) {
     const uint32_t mid = SCAN_PX(s, MID_X, MID_Y);
     int dr = 0, dg = 0, db = 0;
     for (int y = 0; y < PROBE_H; y++) {
@@ -2110,6 +2109,24 @@ static void uniformity_census(const char *name) {
     }
     /* `saw` is the centre the three counts are measured against, so a row is self-contained. */
     if (gl2_probe_saw) gl2_probe_saw(name, mid, 0u, dr, (uint32_t)dg, (uint32_t)db);
+}
+
+/*
+ * **Takes the snapshot rather than making one**, for a check that has already scanned.
+ *
+ * This took a scan of its own until 2026-09-23, and on the console that is the mistake
+ * `scan_frame`'s own comment warns about: `frame()` calls `glFinish`, oops-gl draws straight into
+ * the rotating scanout buffers, and a second scan inside one check lands on the *next* buffer
+ * round - cleared, never drawn into. `blend` and `separate-blend-eq` both census after their
+ * verdict has scanned, and both reported `4662 / 8412 / 10350`. Two checks that draw entirely
+ * different things cannot produce counts equal to the pixel; that is what said the rows were a
+ * read of somewhere else.
+ *
+ * `blend-uniformity`'s arms were never affected - their census is the first scan in each arm -
+ * which is why those numbers reproduced run after run while these two did not exist before.
+ */
+static void uniformity_census(const char *name) {
+    uniformity_census_of(scan_frame(), name);
 }
 
 static void blue_census(const char *name_count, const char *name_rows, const char *name_cols,
