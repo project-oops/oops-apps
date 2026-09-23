@@ -1528,6 +1528,125 @@ static int check_local_arrays(void) {
         255, 191, 128, 3);
 }
 
+/* **A cube map sampled from a compiled shader**, with the hardware picking the face.
+ *
+ * Each face is a flat colour, so the answer says which face the direction resolved to and not
+ * merely that something was sampled. `+X` and `-Z` are chosen because they are the pair a lost
+ * sign confuses: `-Z` is face 5 and `+Z` is face 4, and a lowering that dropped the sign would
+ * return magenta where cyan is due and still look like a working cube map.
+ */
+static int check_texture_cube(void) {
+    reset_view();
+    static const GLubyte faces[6][4] = {
+        {255, 0, 0, 255},   /* +X red    */ {0, 255, 0, 255},   /* -X green  */
+        {0, 0, 255, 255},   /* +Y blue   */ {255, 255, 0, 255}, /* -Y yellow */
+        {255, 0, 255, 255}, /* +Z magenta*/ {0, 255, 255, 255}, /* -Z cyan   */
+    };
+    GLuint t = 0;
+    glActiveTexture(GL_TEXTURE0);
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, t);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    for (int f = 0; f < 6; f++) {
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + (GLenum)f, 0, GL_RGBA, 1, 1, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, faces[f]);
+    }
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+
+    /* The left half looks along +X and the right half along -Z, decided by the varying so the
+     * two halves are one draw and one shader. */
+    const GLuint p = use_program("attribute vec3 pos;\n"
+                                 "varying vec3 dir;\n"
+                                 "void main() {\n"
+                                 "  dir = (pos.x < 0.0) ? vec3(1.0, 0.0, 0.0)\n"
+                                 "                      : vec3(0.0, 0.0, -1.0);\n"
+                                 "  gl_Position = vec4(pos, 1.0);\n"
+                                 "}\n",
+                                 "uniform samplerCube sky;\n"
+                                 "varying vec3 dir;\n"
+                                 "void main() { gl_FragColor = textureCube(sky, dir); }\n");
+    if (!p) {
+        glDeleteTextures(1, &t);
+        return 0;
+    }
+    attrib_rect(glGetAttribLocation(p, "pos"), -0.9f, -0.8f, 0.9f, 0.8f, 0.0f);
+    const uint32_t *s = scan_frame();
+    int ok = near_rgb(SCAN_PX(s, 16, MID_Y), 255, 0, 0, 2);            /* +X, face 0 */
+    ok = ok && near_rgb(SCAN_PX(s, PROBE_W - 17, MID_Y), 0, 255, 255, 2); /* -Z, face 5 */
+    glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+    glDeleteTextures(1, &t);
+    return ok && glGetError() == GL_NO_ERROR;
+}
+
+/* `texture2DProj` divides by the coordinate's last component. The `vec4` form divides by `w` and
+ * **ignores `z`**, which is the rule worth measuring: a lowering that took "the last component
+ * of the vector" would divide by the 99.0 parked in `z` and sample a corner. */
+static int check_texture_proj(void) {
+    reset_view();
+    GLuint tex = make_flat_texture(GL_TEXTURE0, 0xff0080ffu);
+    glActiveTexture(GL_TEXTURE0);
+    const GLuint p = use_program("attribute vec3 pos;\n"
+                                 "varying vec2 uv;\n"
+                                 "void main() {\n"
+                                 "  uv = pos.xy * 0.5 + vec2(0.5);\n"
+                                 "  gl_Position = vec4(pos, 1.0);\n"
+                                 "}\n",
+                                 "uniform sampler2D tex;\n"
+                                 "varying vec2 uv;\n"
+                                 "void main() {\n"
+                                 "  vec4 q = vec4(uv * 2.0, 99.0, 2.0);\n"
+                                 "  gl_FragColor = texture2DProj(tex, q);\n"
+                                 "}\n");
+    if (!p) { glDeleteTextures(1, &tex); return 0; }
+    attrib_rect(glGetAttribLocation(p, "pos"), -0.8f, -0.8f, 0.8f, 0.8f, 0.0f);
+    const uint32_t *s = scan_frame();
+    const int ok = near_rgb(SCAN_PX(s, MID_X, MID_Y), 255, 128, 0, 3);
+    glDeleteTextures(1, &tex);
+    return ok && glGetError() == GL_NO_ERROR;
+}
+
+/* `m * m` is a product and not componentwise, and `transpose` moves the off-diagonal. Values
+ * chosen so the product, the componentwise answer and the transpose are three different
+ * colours - a matrix test on symmetric operands passes with the rows and columns swapped. */
+static int check_matrix_products(void) {
+    return language_check_src(
+        "#version 120\n"
+        "void main() {\n"
+        "  mat2 a = mat2(1.0, 2.0, 0.0, 1.0);\n"   /* col0 = (1,2), col1 = (0,1) */
+        "  mat2 b = mat2(3.0, 0.0, 0.0, 4.0);\n"
+        "  mat2 p = a * b;\n"                      /* (1,0) element is 6 */
+        "  mat2 c = matrixCompMult(a, b);\n"       /* the same element is 0 */
+        "  mat2 t = transpose(a);\n"               /* t[1][0] is 2, a[1][0] is 0 */
+        "  gl_FragColor = vec4(p[0][1] * 0.125, c[0][1], t[1][0] * 0.5, 1.0);\n"
+        "}\n",
+        191, 0, 255, 3);
+}
+
+/* The inverse trigonometric functions, against values that are exact in the language's own
+ * terms: asin(1) is pi/2, acos(0) is pi/2, atan(1) is pi/4. Scaled by 1/pi so the channels are
+ * 0.5, 0.5 and 0.25 - and a lowering that lost a quadrant fixup lands on none of them. */
+static int check_inverse_trig(void) {
+    return language_check(
+        "  float a = asin(1.0) * 0.3183098862;\n"
+        "  float b = acos(0.0) * 0.3183098862;\n"
+        "  float c = atan(1.0) * 0.3183098862;\n"
+        "  gl_FragColor = vec4(a, b, c, 1.0);",
+        128, 128, 64, 4);
+}
+
+/* `refract` returns the zero vector under total internal reflection, which is the
+ * specification's wording and the half a shader leans on. Encoded as `r * 0.5 + 0.5`, so the
+ * zero vector is a flat grey and a NaN that escaped the select is not. */
+static int check_refract(void) {
+    return language_check(
+        "  vec3 i = normalize(vec3(1.0, -0.05, 0.0));\n"
+        "  vec3 r = refract(i, vec3(0.0, 1.0, 0.0), 2.0);\n"
+        "  gl_FragColor = vec4(r * 0.5 + 0.5, 1.0);",
+        128, 128, 128, 3);
+}
+
 static int check_constructors(void) {
     /* **`mat4(1.0)` is the identity and not a matrix of ones** - the constructor people get
      * wrong - and `vec4(v.xy, 1.0, 0.0)` gathers four values from three arguments. */
@@ -1879,9 +1998,14 @@ static const gl2_probe_case_t g_cases[] = {
     {"texture-sampler", check_texture_sampler},
     {"sampler-unit", check_sampler_unit_selection},
     {"derivatives", check_derivatives},
+    {"texture-cube", check_texture_cube},
+    {"texture-proj", check_texture_proj},
 
     /* The language */
     {"matrix-arithmetic", check_matrix_arithmetic},
+    {"matrix-products", check_matrix_products},
+    {"inverse-trig", check_inverse_trig},
+    {"refract", check_refract},
     {"swizzles", check_swizzles},
     {"control-flow", check_control_flow},
     {"loop-divergence", check_loop_divergence},
