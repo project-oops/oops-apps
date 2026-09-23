@@ -2290,7 +2290,7 @@ static int check_loop_uniformity(void) {
      * A result that follows the shader when the order changes is the shader's. A result that
      * stays with the position in the sequence is the scanning. Whichever it is, one run says so.
      */
-    static const struct { const char *name; const char *body; } ARMS[6] = {
+    static const struct { const char *name; const char *body; } ARMS[8] = {
         /*
          * **This arm added `0.0` until 2026-09-24, which made it unable to fail.**
          *
@@ -2325,6 +2325,34 @@ static int check_loop_uniformity(void) {
          "  float last = 0.0;\n"
          "  for (int k = 0; k < 8; k++) { if (k < 1) last = 0.0; last = float(k); }\n"
          "  gl_FragColor = vec4(last / 28.0, 0.5, 0.25, 1.0);\n"},
+        /*
+         * **The pair that isolates the read-modify-write**, which is what the failing arms have
+         * and the clean ones do not.
+         *
+         *   `if-assign`  `if (u) x = c;`   a plain store under a uniform mask
+         *   `if-rmw`     `if (u) x += c;`  the same store, reading `x` first
+         *
+         * Both loops run eight trips with the same uniform condition, both leave `x` at 0.25,
+         * and both write `x` on exactly one trip. The only difference is whether the value
+         * written was read back first. `if-in-loop` and `break` - the two that fail - both
+         * accumulate; `count` accumulates with no `if` and is clean, `counter-out` has an `if`
+         * with a plain store and is clean. So the read-modify-write *under a mask* is the last
+         * thing common to the failures and absent from the passes.
+         *
+         * If `if-rmw` is dirty and `if-assign` clean, the fault is the accumulator's register
+         * across a masked region - a lane whose read happens with the mask in one state and
+         * whose write happens in another - and that is a specific thing to go and read. If both
+         * are clean, the `+=` is innocent and what `if-in-loop` has that these lack is the
+         * accumulation being the *only* statement in the body.
+         */
+        {"loop-uniformity/if-assign",
+         "  float x = 0.0;\n"
+         "  for (int k = 0; k < 8; k++) { if (k < 1) x = 0.25; }\n"
+         "  gl_FragColor = vec4(0.25, 0.5, x, 1.0);\n"},
+        {"loop-uniformity/if-rmw",
+         "  float x = 0.0;\n"
+         "  for (int k = 0; k < 8; k++) { if (k < 1) x += 0.25; }\n"
+         "  gl_FragColor = vec4(0.25, 0.5, x, 1.0);\n"},
         {"loop-uniformity/if-in-loop",
          "  float b = 0.0;\n"
          "  for (int k = 0; k < 8; k++) { if (k < 1) b += 0.25; }\n"
@@ -2344,7 +2372,7 @@ static int check_loop_uniformity(void) {
     };
 
     int worst = 0;
-    for (int m = 0; m < 6; m++) {
+    for (int m = 0; m < 8; m++) {
         char src[320];
         int at = 0;
         const char *head = "void main() {\n";
