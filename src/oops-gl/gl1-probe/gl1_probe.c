@@ -4697,6 +4697,101 @@ static int check_tex_unit1_stretch(void) {
     return worst <= 40;
 }
 
+/* **A triangle wound the other way, which almost nothing ever draws.**
+ *
+ * The port's sky is the only surface it draws under a mirroring transform:
+ * `glScalef(-BACK_DIST, BACK_DIST, -BACK_DIST)` negates two axes, which reverses the winding of
+ * every triangle in the dome - and `back_draw` is also the one place that turns culling off, so
+ * those reversed triangles are the only ones in the frame that reach the rasteriser at all.
+ * Everywhere else in the title they would be discarded before coverage was computed.
+ *
+ * That is exactly the population a sign error in an edge test would single out, and the fault
+ * looks like one: whole polygons filled on every other column, bounded by their own straight
+ * edges, while the surfaces around them fill solid.
+ *
+ * So this draws the same magnified gradient twice - once wound as every other check here winds
+ * it, once reversed under a negative scale, both with culling off - and requires the two to
+ * agree. Anything the rasteriser does differently to a negative-area triangle shows up as the
+ * second one disagreeing with the first.
+ */
+static int winding_row(int reversed, int *out, int n) {
+    static GLubyte img[16 * 128 * 4];
+    for (int y = 0; y < 128; y++) {
+        for (int x = 0; x < 16; x++) {
+            GLubyte *t = img + (((size_t)y * 16u) + (size_t)x) * 4u;
+            t[0] = (GLubyte)(x * 17);
+            t[1] = 64;
+            t[2] = (GLubyte)(y * 2);
+            t[3] = 255;
+        }
+    }
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 16, 128, 0, GL_RGBA, GL_UNSIGNED_BYTE, img);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    /* The sky's state, culling included - without this the reversed quad is discarded and the
+     * check measures nothing at all. */
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_LIGHTING);
+    glDepthMask(GL_FALSE);
+
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    if (reversed) glScalef(-1.0f, 1.0f, -1.0f); /* two axes negated, as the port's sky is */
+    glBegin(GL_QUADS);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, -1.0f, 0.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f( 1.0f, -1.0f, 0.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f( 1.0f,  1.0f, 0.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f,  1.0f, 0.0f);
+    glEnd();
+    glPopMatrix();
+
+    glDepthMask(GL_TRUE);
+    glDisable(GL_TEXTURE_2D);
+    if (glGetError() != GL_NO_ERROR) { glDeleteTextures(1, &tex); return 0; }
+    for (int i = 0; i < n; i++) out[i] = chan_r(px(PROBE_W / 4 + i, PROBE_H / 2));
+    glDeleteTextures(1, &tex);
+    return 1;
+}
+
+static int check_tex_winding(void) {
+    int fwd[20], rev[20];
+    reset_view();
+    if (!winding_row(0, fwd, 20)) return 0;
+    reset_view();
+    if (!winding_row(1, rev, 20)) return 0;
+
+    /* Neither row may jump between neighbours, and the reversed one must not differ from the
+     * forward one - a mirrored quad covering the same pixels should carry the same gradient,
+     * because the scale negates x and the coordinates are symmetric about the centre. What is
+     * being asked is not which texel lands where but whether every pixel was covered. */
+    int worst_f = 0, worst_r = 0, holes = 0;
+    for (int i = 1; i < 20; i++) {
+        int d = fwd[i] - fwd[i - 1]; if (d < 0) d = -d;
+        if (d > worst_f) worst_f = d;
+        int e = rev[i] - rev[i - 1]; if (e < 0) e = -e;
+        if (e > worst_r) worst_r = e;
+    }
+    /* A column the reversed draw did not cover reads as the background it was drawn over. */
+    for (int i = 0; i < 20; i++) {
+        if (rev[i] == 0 && fwd[i] != 0) holes++;
+    }
+    if (gl1_probe_saw) {
+        gl1_probe_saw("tex-wind/worst-fwd", (uint32_t)worst_f);
+        gl1_probe_saw("tex-wind/worst-rev", (uint32_t)worst_r);
+        gl1_probe_saw("tex-wind/holes", (uint32_t)holes);
+    }
+    if (holes > 0) return 0;
+    return worst_f <= 40 && worst_r <= 40;
+}
+
 static int check_tex_state_leak(void) {
     g_readback_dirty = 1;
     const int ok = readback_at_width("tex-leak/w4", "tex-leak/w4-rgb", 4, 0, QUAD_IMMEDIATE);
@@ -4986,6 +5081,9 @@ static const gl1_probe_case_t g_cases[] = {
     /* The same magnified gradient through unit 1 with unit 0 off - the port's own arrangement,
      * and the one the existing unit-1 check cannot see a per-pixel fault in. */
     {"tex-unit1-stretch", check_tex_unit1_stretch},
+    /* A mirrored, reverse-wound triangle with culling off - the one population the port's sky
+     * belongs to and nothing else in a frame does. */
+    {"tex-winding",      check_tex_winding},
     {"tex-churn-ring",   check_tex_churn_ring},
     {"ps-ring-churn",    check_ps_ring_churn},
     /* **Last on purpose**, both of them: a check that can take the GPU down costs its own row
