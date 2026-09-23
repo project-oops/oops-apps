@@ -4792,6 +4792,192 @@ static int check_tex_winding(void) {
     return worst_f <= 40 && worst_r <= 40;
 }
 
+/* **A textured quad blended over a textured quad**, which nothing here has ever drawn.
+ *
+ * `blend` covers blending with `glRectf` and no texture at all, and every textured check draws
+ * one quad onto a cleared background. So the combination a real title uses constantly - a
+ * texture blended over what a texture already put there - is untested in both halves at once.
+ *
+ * It is also what separates the surfaces that render correctly in the port from the ones that do
+ * not. Its planet and its glyphs are opaque draws and come back right; its starfield, its menu
+ * panels and its floor are blended over what is behind them and come back washed green.
+ *
+ * The arithmetic is made exact rather than approximate: both textures are flat, the environment
+ * is GL_REPLACE so the texel reaches the blender untouched including its alpha, and the source
+ * alpha is 128. The answer is therefore one number per channel and any drift from it is the
+ * blender reading a destination that is not what was drawn.
+ */
+static int check_blend_over_texture(void) {
+    reset_view();
+
+    /* Destination: opaque, and nothing like the source in any channel. */
+    static GLubyte dst[4 * 4 * 4];
+    for (int i = 0; i < 16; i++) {
+        dst[i * 4 + 0] = 200; dst[i * 4 + 1] = 60; dst[i * 4 + 2] = 40; dst[i * 4 + 3] = 255;
+    }
+    /* Source: half transparent, and the destination's opposite - high where it is low. */
+    static GLubyte src[4 * 4 * 4];
+    for (int i = 0; i < 16; i++) {
+        src[i * 4 + 0] = 40; src[i * 4 + 1] = 80; src[i * 4 + 2] = 220; src[i * 4 + 3] = 128;
+    }
+
+    GLuint tex[2] = {0, 0};
+    glGenTextures(2, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    for (int i = 0; i < 2; i++) {
+        glBindTexture(GL_TEXTURE_2D, tex[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                     i ? src : dst);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    }
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+    /* The destination, unblended - what a title's opaque geometry leaves behind. */
+    glDisable(GL_BLEND);
+    glBindTexture(GL_TEXTURE_2D, tex[0]);
+    draw_unit_quad(QUAD_IMMEDIATE);
+
+    /* And the source over it, blended - what its panels and its starfield are. */
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBindTexture(GL_TEXTURE_2D, tex[1]);
+    draw_unit_quad(QUAD_IMMEDIATE);
+    glDisable(GL_BLEND);
+    glDisable(GL_TEXTURE_2D);
+    if (glGetError() != GL_NO_ERROR) { glDeleteTextures(2, tex); return 0; }
+
+    const uint32_t got = px(PROBE_W / 2, PROBE_H / 2);
+    glDeleteTextures(2, tex);
+
+    /* src * 128/255 + dst * 127/255, a channel at a time. */
+    const int want_r = (40 * 128 + 200 * 127) / 255;   /* 119 */
+    const int want_g = (80 * 128 + 60 * 127) / 255;    /* 69  */
+    const int want_b = (220 * 128 + 40 * 127) / 255;   /* 130 */
+    if (gl1_probe_saw) {
+        gl1_probe_saw("blend-tex/got", got);
+        gl1_probe_saw("blend-tex/want",
+                      ((uint32_t)want_r << 16) | ((uint32_t)want_g << 8) | (uint32_t)want_b);
+    }
+    return near_rgb(got, want_r, want_g, want_b, 12);
+}
+
+/* **A lit textured surface, and a verdict shaped like the artifact.**
+ *
+ * `lighting`, `two-lights` and `color-material` all light untextured geometry, and every textured
+ * check here draws with lighting off. So a lit *textured* surface - which is every piece of level
+ * geometry in every 3D title - has never been drawn by this suite at all.
+ *
+ * It is also the axis that separates what renders correctly in the port from what does not. Its
+ * planet and its glyphs are unlit and come back clean; its floor is lit level geometry and comes
+ * back with alternate pixel columns brighter by a constant 72 on every channel, measured twice
+ * from a console capture. A uniform monochrome addition is what a lighting term looks like.
+ *
+ * So the verdict is parity rather than smoothness: sample a run of neighbouring pixels, average
+ * the even ones and the odd ones, and require the two to agree. A surface shaded by a light must
+ * not care which column a pixel is in, and nothing else here would notice if it did.
+ */
+static int check_lit_texture_parity(void) {
+    reset_view();
+
+    static GLubyte img[32 * 32 * 4];
+    for (int y = 0; y < 32; y++) {
+        for (int x = 0; x < 32; x++) {
+            GLubyte *t = img + (((size_t)y * 32u) + (size_t)x) * 4u;
+            t[0] = 180; t[1] = 180; t[2] = 200; t[3] = 255; /* flat, so any variation is ours */
+        }
+    }
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 32, 32, 0, GL_RGBA, GL_UNSIGNED_BYTE, img);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
+    /* One light and a material with a specular term, because a constant added to a surface is
+     * what the specular stage contributes and it is the part that reaches the colour sum. */
+    static const GLfloat lpos[4] = {0.0f, 0.0f, 1.0f, 0.0f};
+    static const GLfloat white[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const GLfloat grey[4] = {0.4f, 0.4f, 0.4f, 1.0f};
+    /* **Half-strength diffuse, so the total cannot come out at one.** With a white light this
+       check's own numbers summed to exactly 1.0 - ambient 0.04 plus diffuse 0.8 plus a specular
+       of 0.4 x 0.4 at normal incidence - and returned the texel unchanged, which reads exactly
+       like lighting having done nothing. It had done something; the something was invisible.
+       At 0.5 the shade lands near 0.6 of the texel and cannot be confused with an unlit one. */
+    static const GLfloat half[4] = {0.5f, 0.5f, 0.5f, 1.0f};
+    glLightfv(GL_LIGHT0, GL_POSITION, lpos);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, half);
+    glLightfv(GL_LIGHT0, GL_SPECULAR, grey);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, grey);
+    glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 16.0f);
+    glEnable(GL_LIGHT0);
+    glEnable(GL_LIGHTING);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_DEPTH_TEST);
+
+    glBegin(GL_QUADS);
+    glNormal3f(0.0f, 0.0f, 1.0f);
+    glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, -1.0f, 0.0f);
+    glTexCoord2f(1.0f, 0.0f); glVertex3f( 1.0f, -1.0f, 0.0f);
+    glTexCoord2f(1.0f, 1.0f); glVertex3f( 1.0f,  1.0f, 0.0f);
+    glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f,  1.0f, 0.0f);
+    glEnd();
+
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_LIGHT0);
+    glDisable(GL_TEXTURE_2D);
+    /* **Put the material and the light back**, which the first version did not: running this
+       check first made `evaluators` fail, because a specular term and a shininess left behind
+       change every lit surface drawn after them. `reset_view` restores the enables and not
+       these. The defaults are GL 1.x's own - material specular black, shininess zero, and
+       LIGHT0's specular and diffuse white. */
+    static const GLfloat black[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, black);
+    glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 0.0f);
+    glLightfv(GL_LIGHT0, GL_SPECULAR, white);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, white);
+    if (glGetError() != GL_NO_ERROR) { glDeleteTextures(1, &tex); return 0; }
+
+    int even = 0, odd = 0;
+    for (int i = 0; i < 32; i++) {
+        const int v = chan_g(px(PROBE_W / 4 + i, PROBE_H / 2));
+        if (i & 1) odd += v; else even += v;
+    }
+    glDeleteTextures(1, &tex);
+    even /= 16; odd /= 16;
+    int d = even - odd; if (d < 0) d = -d;
+    if (gl1_probe_saw) {
+        gl1_probe_saw("lit-tex/even-odd", ((uint32_t)even << 8) | (uint32_t)odd);
+        gl1_probe_saw("lit-tex/delta", (uint32_t)d);
+    }
+    /* **The light has to have done something, or this measured nothing.**
+     *
+     * The first run returned 180 and 180 - exactly the texture's own green, which is also what
+     * an unlit modulate by a white primary colour returns. That looked like the light having
+     * been ignored, and it was not: with a white light the terms summed to one, ambient 0.04
+     * plus diffuse 0.8 plus specular 0.16 at normal incidence, so a correctly lit surface
+     * returned the texel unchanged. The light above is half strength now for that reason.
+     *
+     * The assertion stays, because the reading it guards against is real even if that instance
+     * of it was not: a parity verdict over a surface no light reached would pass for the wrong
+     * reason, and three checks in this suite have already been found passing for exactly that
+     * kind of reason. A result at full texel strength is reported as this check failing rather
+     * than as the hardware passing. */
+    if (even >= 176) {
+        if (gl1_probe_saw) gl1_probe_saw("lit-tex/unlit-result", (uint32_t)even);
+        return 0;
+    }
+    return d <= 8;
+}
+
 static int check_tex_state_leak(void) {
     g_readback_dirty = 1;
     const int ok = readback_at_width("tex-leak/w4", "tex-leak/w4-rgb", 4, 0, QUAD_IMMEDIATE);
@@ -4974,6 +5160,11 @@ static int check_ps_ring_churn(void) {
 /* ------------------------------------------------------------------------- */
 
 static const gl1_probe_case_t g_cases[] = {
+    /* **First, because the log is what this is read through.** A parked title emits its burst
+     * once and then goes silent, and a follow window that closes early loses whatever had not
+     * been printed - three runs of this check were lost that way, at around two hundred lines.
+     * A check whose result is the reason for the run goes where the window certainly reaches. */
+    {"lit-texture-parity", check_lit_texture_parity},
     {"clear-and-rect",   check_clear_and_rect},
     {"scissor",          check_scissor},
     {"clip-plane",       check_clip_plane},
@@ -5084,6 +5275,9 @@ static const gl1_probe_case_t g_cases[] = {
     /* A mirrored, reverse-wound triangle with culling off - the one population the port's sky
      * belongs to and nothing else in a frame does. */
     {"tex-winding",      check_tex_winding},
+    /* A texture blended over a texture - what the port's panels, starfield and floor are, and
+     * what separates them from the planet and the glyphs that come back correct. */
+    {"blend-over-texture", check_blend_over_texture},
     {"tex-churn-ring",   check_tex_churn_ring},
     {"ps-ring-churn",    check_ps_ring_churn},
     /* **Last on purpose**, both of them: a check that can take the GPU down costs its own row
