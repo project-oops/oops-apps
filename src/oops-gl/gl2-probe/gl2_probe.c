@@ -2096,11 +2096,30 @@ static uint32_t row_below_centre_of(GLenum buffer) { return pixel_of(buffer, MID
  * argument and reads the same after any uniform draw. The centre is even/even, which the lattice
  * gets right, so "differs from the centre" is "wrong" wherever the census above found a lattice.
  */
+/*
+ * **The interior, not the whole region**, because most checks do not cover the whole region.
+ *
+ * A quad drawn at `-0.8..0.8` leaves about 4,400 of the 12,288 pixels untouched, and an
+ * untouched pixel differs from the centre for a reason that has nothing to do with the thing
+ * being measured. The first hardware rows said so: `blend` and `separate-blend-eq` both reported
+ * 4662 differing in red and 8412 in green, equal to the pixel across two checks that draw
+ * different colours over different backgrounds - the border was most of the count and the border
+ * is the same size in both.
+ *
+ * 64 by 48, centred: inside every quad this suite draws, since the smallest is `-0.8..0.8`,
+ * which covers x 13..115 and y 10..86. 3,072 pixels, so a clean census reads 0 and a 2x2 lattice
+ * reads 2,304.
+ */
+#define CENSUS_X0 (MID_X - 32)
+#define CENSUS_X1 (MID_X + 32)
+#define CENSUS_Y0 (MID_Y - 24)
+#define CENSUS_Y1 (MID_Y + 24)
+
 static void uniformity_census_of(const uint32_t *s, const char *name) {
     const uint32_t mid = SCAN_PX(s, MID_X, MID_Y);
     int dr = 0, dg = 0, db = 0;
-    for (int y = 0; y < PROBE_H; y++) {
-        for (int x = 0; x < PROBE_W; x++) {
+    for (int y = CENSUS_Y0; y < CENSUS_Y1; y++) {
+        for (int x = CENSUS_X0; x < CENSUS_X1; x++) {
             const uint32_t c = SCAN_PX(s, x, y);
             if (chan_r(c) != chan_r(mid)) dr++;
             if (chan_g(c) != chan_g(mid)) dg++;
