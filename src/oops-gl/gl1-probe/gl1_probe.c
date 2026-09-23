@@ -4978,6 +4978,97 @@ static int check_lit_texture_parity(void) {
     return d <= 8;
 }
 
+/* **The starfield's own draw, taken from a recording of it.**
+ *
+ * A capture of the port's frame, decoded, says exactly how the surface that comes back green is
+ * drawn - and it is a combination nothing here has ever used:
+ *
+ *     ENABLE GL_CULL_FACE, ENABLE GL_DEPTH_TEST, DEPTH_MASK 0, LIGHTING off
+ *     BIND_TEXTURE GL_TEXTURE_2D 79
+ *     BLEND_FUNC GL_SRC_ALPHA, GL_ONE
+ *     BEGIN GL_TRIANGLE_STRIP        x65, every coordinate to GL_TEXTURE1
+ *
+ * `GL_SRC_ALPHA, GL_ONE` is additive with an alpha-scaled source, and it is not tested here:
+ * `blend` and `blend-over-texture` use ONE_MINUS_SRC_ALPHA, and the two checks that do use
+ * GL_ONE as a destination factor pair it with GL_ONE as the source and so never scale by alpha
+ * at all. Additive accumulates rather than replaces, which is the shape of the artifact being
+ * chased - alternate columns of the port's floor brighter by a constant 72 on every channel.
+ *
+ * Sixty-five overlapping primitives is the other half. One additive quad tests the arithmetic;
+ * two test whether it accumulates the way the specification says, which is what a field of
+ * overlapping stars relies on. The numbers are chosen so neither pass clamps: a destination of
+ * (40, 60, 80), a source of (100, 120, 140) at alpha 128, so one pass gives (90, 120, 150) and
+ * two give (140, 180, 220).
+ */
+static int check_blend_additive_strip(void) {
+    reset_view();
+
+    static GLubyte dst[4 * 4 * 4];
+    for (int i = 0; i < 16; i++) {
+        dst[i * 4 + 0] = 40; dst[i * 4 + 1] = 60; dst[i * 4 + 2] = 80; dst[i * 4 + 3] = 255;
+    }
+    static GLubyte src[4 * 4 * 4];
+    for (int i = 0; i < 16; i++) {
+        src[i * 4 + 0] = 100; src[i * 4 + 1] = 120; src[i * 4 + 2] = 140; src[i * 4 + 3] = 128;
+    }
+    GLuint tex[2] = {0, 0};
+    glGenTextures(2, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    for (int i = 0; i < 2; i++) {
+        glBindTexture(GL_TEXTURE_2D, tex[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 4, 4, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                     i ? src : dst);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    }
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+    /* The destination, opaque and unblended. */
+    glDisable(GL_BLEND);
+    glBindTexture(GL_TEXTURE_2D, tex[0]);
+    draw_unit_quad(QUAD_IMMEDIATE);
+
+    /* And the additive passes, in the state the recording shows: culled, depth tested, depth
+     * writes off, as a triangle strip. Counter-clockwise, so the front face survives culling -
+     * a back-facing strip would be discarded and this would measure the destination twice. */
+    glEnable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    glBindTexture(GL_TEXTURE_2D, tex[1]);
+    for (int pass = 0; pass < 2; pass++) {
+        glBegin(GL_TRIANGLE_STRIP);
+        glTexCoord2f(0.0f, 0.0f); glVertex3f(-1.0f, -1.0f, 0.0f);
+        glTexCoord2f(1.0f, 0.0f); glVertex3f( 1.0f, -1.0f, 0.0f);
+        glTexCoord2f(0.0f, 1.0f); glVertex3f(-1.0f,  1.0f, 0.0f);
+        glTexCoord2f(1.0f, 1.0f); glVertex3f( 1.0f,  1.0f, 0.0f);
+        glEnd();
+    }
+    glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_TEXTURE_2D);
+    if (glGetError() != GL_NO_ERROR) { glDeleteTextures(2, tex); return 0; }
+
+    const uint32_t got = px(PROBE_W / 2, PROBE_H / 2);
+    glDeleteTextures(2, tex);
+
+    /* dst + 2 * src * 128/255, a channel at a time. */
+    const int want_r = 40 + 2 * (100 * 128 / 255);   /* 140 */
+    const int want_g = 60 + 2 * (120 * 128 / 255);   /* 180 */
+    const int want_b = 80 + 2 * (140 * 128 / 255);   /* 220 */
+    if (gl1_probe_saw) {
+        gl1_probe_saw("blend-add/got", got);
+        gl1_probe_saw("blend-add/want",
+                      ((uint32_t)want_r << 16) | ((uint32_t)want_g << 8) | (uint32_t)want_b);
+    }
+    return near_rgb(got, want_r, want_g, want_b, 12);
+}
+
 static int check_tex_state_leak(void) {
     g_readback_dirty = 1;
     const int ok = readback_at_width("tex-leak/w4", "tex-leak/w4-rgb", 4, 0, QUAD_IMMEDIATE);
@@ -5165,6 +5256,9 @@ static const gl1_probe_case_t g_cases[] = {
      * been printed - three runs of this check were lost that way, at around two hundred lines.
      * A check whose result is the reason for the run goes where the window certainly reaches. */
     {"lit-texture-parity", check_lit_texture_parity},
+    /* Second, for the same reason as the first: the recording of the port's frame says its
+     * starfield is drawn this way, and no check here had drawn one. */
+    {"blend-additive-strip", check_blend_additive_strip},
     {"clear-and-rect",   check_clear_and_rect},
     {"scissor",          check_scissor},
     {"clip-plane",       check_clip_plane},
