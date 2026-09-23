@@ -20,7 +20,7 @@ release.
 ## Screenshot
 
 <p align="center">
-  <img src="../../../common/assets/no-screenshot.svg" alt="No screenshot yet" width="600">
+  <img src="assets/demo.gif" alt="Neverball running on Prospero, captured over JetKVM" width="600">
 </p>
 
 ## Docs
