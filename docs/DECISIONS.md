@@ -14,6 +14,7 @@ choice being re-litigated by somebody who only has the choice.
 | 🟢 | D004 | [Hardware encode and pad injection are both out of reach from a payload](decisions/D004-hardware-encode-and-pad-injection-are.md) | hardware | 2026-09-09 |
 | 🟢 | D005 | [Exceptions come from our own libunwind, and one measurement gates the build shape](decisions/D005-exceptions-come-from-our-own-libunwind-and-one-measurement-gates-it.md) | decided | 2026-09-21 |
 | 🟢 | D006 | [Three things had to be true for a `throw` to reach its `catch`, and each one hid the next](decisions/D006-three-things-had-to-be-true-for-a-throw-to-reach-its-catch.md) | decided | 2026-09-23 |
+| 🟢 | D007 | [The CTS blocker is localization, and libc++ picks a different backend rather than growing an `_l` family](decisions/D007-the-cts-blocker-is-localization-and-it-is-measured-not-estimated.md) | decided | 2026-09-23 |
 
 | | meaning |
 |---|---|
