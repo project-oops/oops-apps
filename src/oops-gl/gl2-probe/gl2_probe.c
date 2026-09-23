@@ -122,6 +122,10 @@ static int near_chan(int got, int want, int tol) {
     return (d < 0 ? -d : d) <= tol;
 }
 
+/* Declared here because the blending checks above its definition report it - see the comment on
+ * the definition for what it counts and why a blended check needs it. */
+static void uniformity_census(const char *name);
+
 /* -------------------------------------------------------------------------
  * The state every check starts from
  * ------------------------------------------------------------------------- */
@@ -1964,6 +1968,26 @@ static int check_separate_blend_equation(void) {
     const uint32_t *s = scan_frame();
     /* Destination minus source, 0.5 - 0.25, is 64. Adding would give 191. */
     int ok = near_rgb(SCAN_PX(s, MID_X, MID_Y), 64, 64, 64, 6);
+    /*
+     * **And whether that centre pixel speaks for the region**, which until 2026-09-23 nobody
+     * had asked.
+     *
+     * `blend-uniformity` established that a blend *combining* two terms is correct at one pixel
+     * in every 2x2 quad and wrong at the other three, while a blend whose result is one operand
+     * is correct everywhere. `GL_ONE, GL_ONE` under `GL_FUNC_REVERSE_SUBTRACT` combines, so this
+     * check is in the affected class - and it decides from a single pixel, the region's centre,
+     * which is even/even: the lane the lattice gets right.
+     *
+     * That matters well beyond this check. `0xff40c040` is the value two obSCEne requests are
+     * built on - `-9c31`'s reading that the pairing is positional by channel, and `-4d07`'s
+     * `LINEAR_GENERAL` arm - and every arm in both read one pixel. This row says whether the
+     * value they were reasoning about is the region's or one lane's.
+     *
+     * Diagnostic, not the verdict: what this check exists to measure is the *equation*, and
+     * failing it for a fault every blended draw shares would bury that. `-5b8e` is where the
+     * lattice is answered; when it is, the verdict here can widen.
+     */
+    uniformity_census("separate-blend-eq/uniformity");
     glDisable(GL_BLEND);
     glBlendEquation(GL_FUNC_ADD);
     return ok && glGetError() == GL_NO_ERROR;
