@@ -33,7 +33,21 @@
 #define _LIBCPP_HAS_TERMINAL 0
 #define _LIBCPP_HAS_MUSL_LIBC 0
 #define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 0
-#define _LIBCPP_HAS_FILESYSTEM 0
+/*
+ * `_LIBCPP_HAS_FILESYSTEM` gates `<fstream>` as well as `<filesystem>`, and `<fstream>` is the
+ * one that is wanted (2026-09-23). `basic_filebuf` is `fopen`/`fread`/`fwrite`/`fseek` and
+ * nothing else, all of which oops-sdk has; the directory-walking half of `<filesystem>` is a
+ * separate set of library sources that this build does not compile, so turning the macro on
+ * makes the streams available without claiming the rest.
+ *
+ * The CTS writes its result log through one, and `tcu::TestLog` is not optional.
+ *
+ * **If `<filesystem>` is ever actually included by something, this needs revisiting** - it would
+ * then want `dirent.h`, `stat`, symlinks and a working directory, none of which exist here. The
+ * link would say so by naming `std::__fs::filesystem::*`, which is the loud failure rather than
+ * the quiet one.
+ */
+#define _LIBCPP_HAS_FILESYSTEM 1
 #define _LIBCPP_HAS_RANDOM_DEVICE 0
 #define _LIBCPP_HAS_TIME_ZONE_DATABASE 0
 #define _LIBCPP_INSTRUMENTED_WITH_ASAN 0

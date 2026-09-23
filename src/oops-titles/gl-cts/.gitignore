@@ -1,0 +1,3 @@
+# The fetch, not build output: `make clean` leaves it alone and so does git.
+upstream/
+build/

@@ -1,0 +1,90 @@
+#!/bin/sh
+# Compile every CTS framework source for the target, one at a time, and group the failures by
+# cause.
+#
+# This is the same instrument as the libc++ survey behind `oops-apps#D007`, for the same reason:
+# a port of 260-odd files does not need its first error, it needs to know which twelve causes
+# account for all of them. Nothing is linked and nothing is installed.
+#
+#   tools/survey.sh            all of it
+#   tools/survey.sh tcuDefs    just the sources whose name contains that
+set -u
+
+HERE=$(cd "$(dirname "$0")/.." && pwd)
+OOPS_APPS=$(cd "$HERE/../../.." && pwd)
+SDK=$(cd "$OOPS_APPS/../oops-sdk" && pwd)
+LIBCXX="$OOPS_APPS/src/oops-deps/libcxx"
+UP="$HERE/upstream/framework"
+OUT="${TMPDIR:-/tmp}/gl-cts-survey"
+
+rm -rf "$OUT"; mkdir -p "$OUT"
+
+INCLUDES="-I$UP/delibs/debase -I$UP/delibs/depool -I$UP/delibs/deutil
+          -I$UP/delibs/dethread -I$UP/delibs/decpp -I$UP/delibs/deimage
+          -I$UP/qphelper -I$UP/common -I$UP/opengl -I$UP/referencerenderer
+          -I$UP/egl -I$HERE/shim/include
+          -I$UP/opengl/wrapper -I$UP/egl/wrapper"
+
+BASE="-target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib
+      -fPIC -fno-stack-protector -O2 -w -nostdlibinc -DOOPS_TARGET=3
+      $INCLUDES"
+
+# # libc++'s headers come before the SDK's, and the order is not cosmetic
+#
+# libc++ ships its own `<math.h>`, `<string.h>`, `<errno.h>` and friends: thin wrappers that
+# pull in the C library's with `#include_next` and then add the C++ overloads. `<cmath>` checks
+# that its wrapper was the one found, and says so when it was not:
+#
+#     <cmath> tried including <math.h> but didn't find libc++'s <math.h>
+#
+# With `-I$SDK/include/libc` first, the C header wins and **161 of the framework's 260 sources
+# failed on that one line**. It is also why `common/cxxrt.cpp` declares `std::set_terminate`
+# by hand instead of including `<exception>`, which was read at the time as a quirk of that file
+# rather than as this.
+CXXFLAGS="-nostdinc++ -fexceptions -frtti -std=c++17
+          -I$LIBCXX/include -I$LIBCXX/upstream/libcxx/include
+          -I$SDK/include -I$SDK/include/libc $BASE"
+CFLAGS="-std=c11 -I$SDK/include -I$SDK/include/libc $BASE"
+
+filter="${1:-}"
+ok=0; bad=0
+
+# `framework/platform` holds one subdirectory per operating system - X11, Win32, Android, OSX -
+# and none of them is this one. Ours is what has to be written, and it goes in `shim/`, so
+# compiling upstream's here would only report that we are not Linux. Skipped rather than
+# reported, with the count printed at the end so it is visible rather than silent.
+skipped=0
+for src in $(find "$UP" \( -name '*.cpp' -o -name '*.c' \) | sort); do
+    name=$(basename "$src")
+    case "$name" in *pch*) continue;; esac
+    case "$src" in "$UP"/platform/*) skipped=$((skipped+1)); continue;; esac
+    if [ -n "$filter" ]; then
+        case "$src" in *"$filter"*) ;; *) continue;; esac
+    fi
+
+    stem=$(echo "${src#$UP/}" | tr '/' '_')
+    case "$name" in
+        *.cpp) cc="clang++ $CXXFLAGS";;
+        *.c)   cc="clang $CFLAGS";;
+    esac
+
+    if $cc -c -o "$OUT/$stem.o" "$src" 2>"$OUT/$stem.err"; then
+        ok=$((ok+1))
+    else
+        bad=$((bad+1))
+        why=$(grep -m1 -oE "'[^']+' file not found" "$OUT/$stem.err")
+        [ -z "$why" ] && why=$(grep -m1 -E "error:" "$OUT/$stem.err" \
+                               | sed 's/.*error: //' | cut -c1-64)
+        [ -z "$why" ] && why="(no error line; see $OUT/$stem.err)"
+        printf '%s\t%s\n' "$why" "${src#$UP/}" >> "$OUT/failures.tsv"
+    fi
+done
+
+echo
+if [ -f "$OUT/failures.tsv" ]; then
+    echo "causes, most files first:"
+    cut -f1 "$OUT/failures.tsv" | sort | uniq -c | sort -rn | head -20
+    echo
+fi
+echo "compiles: $ok   fails: $bad   of $((ok+bad))   (skipped $skipped in platform/)"
+echo "per-file errors in $OUT"
