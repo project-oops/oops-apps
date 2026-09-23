@@ -2106,6 +2106,84 @@ static void blue_census(const char *name_count, const char *name_rows, const cha
 }
 
 /*
+ * **`gl_PointCoord`** (GLSL 1.20; since 2026-09-23) - where the fragment sits inside the point,
+ * (0,0) at one corner and (1,1) at the other.
+ *
+ * Refused by this implementation until today on the grounds that point sprites were not
+ * implemented, which had not been true since 2026-09-20: gl1-probe's `point-sprite` drives
+ * `GL_COORD_REPLACE` and passes on hardware. So the interesting part of this check is not that
+ * the name compiles - a unit test says that - but that the **value is right across the point**,
+ * which only a drawn sprite can show.
+ *
+ * One large point, its fragment shader painting `vec4(gl_PointCoord, 0, 1)`. Red therefore runs
+ * left to right and green top to bottom, and the four quadrants of the point are distinguishable
+ * from one another: reading one pixel would pass on a shader that returned a constant. The
+ * corners are sampled inside the point rather than at its edge, where a half-pixel of coverage
+ * decides whether the sample lands on the sprite at all.
+ *
+ * **t runs downward**, because `GL_POINT_SPRITE_COORD_ORIGIN` defaults to `GL_UPPER_LEFT` - the
+ * opposite of the rest of GL, and the specification's own choice. So the *upper* half of the
+ * point on screen holds the small green values, and this check would pass just as well with the
+ * origin flipped if it only looked at one axis.
+ *
+ * **No `glEnable(GL_POINT_SPRITE)`.** That switch belongs to ARB_point_sprite and the
+ * fixed-function path; `gl_PointCoord` is defined for any point, and a shader reading it gets
+ * the coordinate from the program alone. A check that enabled the switch would pass without
+ * proving that.
+ */
+static int check_point_coord(void) {
+    reset_view();
+    /* **A fragment shader on its own**, which is what `gl_PointCoord` requires here and what the
+     * link says so. A point is expanded into its square before the vertex stage, in object space
+     * through the inverse MVP; a vertex shader recomputes each corner from attributes that are
+     * the same for all four, so it collapses the square. The fixed-function vertex stage is the
+     * one that transforms the expansion as it was built. */
+    GLuint fs = make_shader(GL_FRAGMENT_SHADER,
+                            "void main() { gl_FragColor = vec4(gl_PointCoord, 0.0, 1.0); }\n");
+    if (!fs) return 0;
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    glDeleteShader(fs);
+    GLint linked = 0;
+    glGetProgramiv(prog, GL_LINK_STATUS, &linked);
+    if (!linked) { glDeleteProgram(prog); return 0; }
+    g_prog = prog;
+    glUseProgram(prog);
+
+    /* Large enough that its quadrants are tens of pixels apart, and centred, so the whole point
+     * lies inside the region however the rasteriser rounds its edges. */
+    glPointSize(64.0f);
+    glBegin(GL_POINTS);
+    glVertex3f(0.0f, 0.0f, 0.0f);
+    glEnd();
+    glPointSize(1.0f);
+
+    const uint32_t *const s = scan_frame();
+    /* A 64-pixel point centred in a 128x96 region spans x 32..96 and y 16..80 in scan rows.
+     * Sampled a quarter of the way in from each edge, well clear of the coverage boundary. */
+    const uint32_t tl = SCAN_PX(s, 48, 32);
+    const uint32_t tr = SCAN_PX(s, 80, 32);
+    const uint32_t bl = SCAN_PX(s, 48, 64);
+    const uint32_t br = SCAN_PX(s, 80, 64);
+    if (gl2_probe_saw) {
+        gl2_probe_saw("point-coord/top", tl, 0u, 0, tr, 0u);
+        gl2_probe_saw("point-coord/bottom", bl, 0u, 0, br, 0u);
+    }
+
+    /* s rises to the right on both rows, and t rises downward on both columns - each asserted as
+     * an ordering rather than a value, because the exact coordinate at a sample depends on where
+     * the rasteriser put the point's edges. A constant, a swapped pair or an inverted axis all
+     * fail; a point drawn a pixel off does not. */
+    int ok = chan_r(tr) > chan_r(tl) + 32 && chan_r(br) > chan_r(bl) + 32;
+    ok = ok && chan_g(bl) > chan_g(tl) + 32 && chan_g(br) > chan_g(tr) + 32;
+    /* And blue is the constant the shader wrote, so a quadrant that is background rather than
+     * sprite is caught rather than read as a coordinate. */
+    ok = ok && chan_b(tl) == 0 && chan_b(br) == 0;
+    return ok && glGetError() == GL_NO_ERROR;
+}
+
+/*
  * **Which blends are a lattice, and whether the arithmetic has anything to do with it.**
  *
  * `two-draw-buffers` established that a `GL_ONE, GL_ONE` blend is correct at one pixel in every
@@ -2471,6 +2549,7 @@ static const gl2_probe_case_t g_cases[] = {
     {"draw-buffers", check_draw_buffers},
     {"two-draw-buffers", check_two_draw_buffers},
     {"blend-uniformity", check_blend_uniformity},
+    {"point-coord", check_point_coord},
 };
 
 /* **The suite must fit in its callers' result array**, or the checks past the end are run by
