@@ -57,19 +57,26 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
        collection writes a file on the console, so there was no precedent to copy. Rather than
        guess a second time, each candidate is tried and the first that works is used - and the
        log says which, so the next thing that needs to write something already knows. */
-    /* **Savedata is mounted, not found.** The first attempt probed `/savedata0` as a path and
-     * it refused, because that mount point does not exist until `oops_savedata_mount` makes it
-     * - and neither does any other writable place, which is what all five candidates below
-     * refusing actually meant.
+    /* **This is kept only to reproduce a finding, and must not be switched on.**
      *
-     * A title with nowhere to write cannot keep anything from one launch to the next.
-     * Neverball's `config_save` writes `neverballrc` - the player's name among the rest - to
-     * whatever `fs_set_write_dir` accepted, and `pick_home_path` (share/base_config.c:51-74)
-     * asks `getenv("HOME")` and otherwise falls back to the read-only package directory. This
-     * SDK's `getenv` answers NULL by design, so upstream has been asking for a name every
-     * launch and correctly failing to keep it. **The persistence logic is all there; a writable
-     * directory is the missing half**, and exporting the mount as `HOME` is the whole fix -
-     * no patch to upstream, and the next port finds it the same way. */
+     * It was written to give the title a writable directory, on the belief that it had none:
+     * `pick_home_path` (share/base_config.c:51-74) asks `getenv("HOME")`, this SDK's `getenv`
+     * answered NULL, and the fallback is the package directory, which was assumed read-only.
+     *
+     * **Both halves of that were wrong.** `/app0` is writable - `config_paths` has been
+     * creating `/app0/.neverball` and `config_save` filling it with `neverballrc`, `Scores`,
+     * `Replays` and `Screenshots` all along - and the five candidate paths below refused only
+     * because they name the package from *outside* the sandbox, where the process cannot see
+     * it. And mounting savedata is actively destructive: its fallback reaches `/data` through
+     * `oops_system_escape_sandbox`, and leaving the sandbox takes `/app0` with it. Measured by
+     * the probe below, `before=1 after=0`; what the player sees is a black screen, `Failure to
+     * open "classic" theme file`, and a thousand draw calls a frame of geometry with no assets
+     * on it.
+     *
+     * The name was never a storage problem. `config_save` is called from one place - upstream's
+     * `ball/main.c:602`, after the main loop returns - and a console title is closed or killed
+     * rather than quitting, so it never ran. `st_name.c` now writes the config the moment the
+     * name is entered, which is the actual fix and needs none of this. */
     static char mount[64];
     GLboolean have_mount = GL_FALSE;
     /* **`oops_savedata_mount` is called whatever `oops_savedata_init` said**, because the mount
@@ -150,6 +157,7 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
         }
 
         static const char *const dirs[] = {
+            "/app0",                        /* the package, and writable - see above */
             "/data",                        /* the user partition */
             "/data/homebrew/NVRB00001",     /* the install directory - measured to refuse */
             "/download0",

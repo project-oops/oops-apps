@@ -1,0 +1,39 @@
+Save the player's name when it is entered, not only at exit.
+
+Upstream calls `config_save` from exactly one place - `ball/main.c:602`, after the main
+loop returns. On a desktop that is sound: quitting is how a game ends, so every setting
+is written on the way out.
+
+A console title does not end that way. It is closed from the dashboard or killed, `main`
+never returns, and nothing is written. Most settings survive that anyway, because the
+player reaches them through the options screen and some earlier session exited cleanly
+once - but the name cannot, because `st_title` sends the player to this screen whenever
+`CONFIG_PLAYER` is empty and that is the state every launch starts in. The name was
+therefore the one setting that could never persist, and the port asked for it on every
+single launch while `neverballrc` sat on disk beside it with `player` blank.
+
+So it is written the moment it is entered. That costs one file write on a screen the
+player reaches rarely, and it is the narrowest change that fixes it - the alternative,
+saving on the close signal, races the system's own kill timer and would have to be right
+about how long there is.
+
+diff --git a/ball/st_name.c b/ball/st_name.c
+index ed2f023..8ab4f11 100644
+--- a/ball/st_name.c
++++ b/ball/st_name.c
+@@ -71,6 +71,15 @@ static int name_action(int tok, int val)
+ 
+         config_set_s(CONFIG_PLAYER, text_input);
+ 
++        /* **Written out here, not only at exit.** Upstream calls `config_save` in exactly one
++         * place - `ball/main.c:602`, after the main loop returns - which is fine on a desktop,
++         * where quitting is how a game ends. A console title is closed from the dashboard or
++         * killed, and then `main` never returns and nothing is saved; `st_title` sends the
++         * player to this screen whenever the name is empty, so the name was the one setting
++         * that could never survive, and it was asked for on every single launch. Saving the
++         * moment it is entered costs one file write on a screen the player reaches rarely. */
++        config_save();
++
+         return goto_state(ok_state);
+ 
+     case GUI_CL:
