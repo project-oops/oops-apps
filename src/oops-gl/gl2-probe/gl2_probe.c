@@ -2751,6 +2751,59 @@ static int check_point_coord(void) {
 }
 
 /*
+ * **Where the uniform-`if`-in-a-loop fault lands**, which four arms of `loop-uniformity` agree
+ * on and none of them describes: 1484 of 3072 in the census box, first wrong at scan (80, 24).
+ * Neither half nor quarter, and not on a parity boundary.
+ *
+ * So map it over the **whole 128x96 region** rather than the interior box - the box was drawn to
+ * dodge a border that this draw does not have, and cutting the picture down is how a shape gets
+ * missed. One known-dirty shader (`if (k < 1) x += 0.25` over eight trips, which should leave
+ * 0.25 and leaves 2.0 saturated where it fails), profiled three ways:
+ *
+ *   `rows`   one bit per scan row that holds any wrong pixel, 96 of them across three words
+ *   `cols`   one bit per scan column that holds any wrong pixel, 128 across four
+ *   `row40`  one row's full 128-bit profile, so a row that is partly wrong can be told from one
+ *            that is wholly wrong - the two look identical in the summaries above
+ *
+ * A clean split in `rows` with `cols` all set means horizontal banding; the reverse means
+ * vertical; both dense with `row40` patchy means neither, and the shape is in the tiling.
+ */
+static int check_loop_spatial(void) {
+    reset_view();
+    const GLuint p = use_program(VS_PASSTHROUGH,
+                                 "void main() {\n"
+                                 "  float x = 0.0;\n"
+                                 "  for (int k = 0; k < 8; k++) { if (k < 1) x += 0.25; }\n"
+                                 "  gl_FragColor = vec4(0.25, 0.5, x, 1.0);\n"
+                                 "}\n");
+    if (!p) return 0;
+    attrib_rect(glGetAttribLocation(p, "pos"), -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+    const uint32_t *const s = scan_frame();
+
+    uint32_t rows[3] = {0u, 0u, 0u};
+    uint32_t cols[4] = {0u, 0u, 0u, 0u};
+    uint32_t row40[4] = {0u, 0u, 0u, 0u};
+    int total = 0;
+    for (int y = 0; y < PROBE_H; y++) {
+        for (int x = 0; x < PROBE_W; x++) {
+            if (near_rgb(SCAN_PX(s, x, y), 64, 128, 64, 3)) continue;
+            total++;
+            rows[y >> 5] |= 1u << (y & 31);
+            cols[x >> 5] |= 1u << (x & 31);
+            if (y == 40) row40[x >> 5] |= 1u << (x & 31);
+        }
+    }
+    if (gl2_probe_saw) {
+        gl2_probe_saw("loop-spatial/rows", rows[0], 0u, total, rows[1], rows[2]);
+        gl2_probe_saw("loop-spatial/cols", cols[0], 0u, 0, cols[1], cols[2]);
+        gl2_probe_saw("loop-spatial/cols3", cols[3], 0u, 0, row40[0], row40[1]);
+        gl2_probe_saw("loop-spatial/row40", row40[2], 0u, 0, row40[3],
+                      SCAN_PX(s, MID_X, MID_Y));
+    }
+    return total == 0 && glGetError() == GL_NO_ERROR;
+}
+
+/*
  * **Which blends are a lattice, and whether the arithmetic has anything to do with it.**
  *
  * `two-draw-buffers` established that a `GL_ONE, GL_ONE` blend is correct at one pixel in every
@@ -3153,6 +3206,7 @@ static const gl2_probe_case_t g_cases[] = {
     {"program-introspection", check_program_introspection},
     {"do-while", check_do_while},
     {"loop-uniformity", check_loop_uniformity},
+    {"loop-spatial", check_loop_spatial},
 };
 
 /* **The suite must fit in its callers' result array**, or the checks past the end are run by
