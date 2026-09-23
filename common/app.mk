@@ -406,6 +406,7 @@ endif
 # console. `math.c` comes with it, since that is what its float functions stand on.
 CORE_SDK_SRCS := $(OOPS_SDK_DIR)/src/system/procparam.c \
                  $(OOPS_SDK_DIR)/src/system/fs.c \
+                 $(OOPS_SDK_DIR)/src/system/sysmodule.c \
                  $(OOPS_SDK_DIR)/src/memory/heap.c \
                  $(OOPS_SDK_DIR)/src/time/time.c
 # `libc.c`, `math.c` and `scanf.c` are the freestanding C library a non-Mesa port's own code
