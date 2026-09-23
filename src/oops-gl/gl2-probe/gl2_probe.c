@@ -2035,6 +2035,47 @@ static uint32_t centre_of(GLenum buffer) { return pixel_of(buffer, MID_X, MID_Y)
 static uint32_t row_below_centre_of(GLenum buffer) { return pixel_of(buffer, MID_X, MID_Y - 1); }
 
 /*
+ * **The shape of the back's blue channel across the whole region**, from the snapshot
+ * `scan_frame` already takes, so it costs no GL call.
+ *
+ * Two samples cannot name a boundary: every other row, one row, a tile edge and half the region
+ * are all consistent with "row 47 is 255 and row 48 is 0", and which it is decides whether a
+ * fault is rasterisation, addressing or the export. So count the region and print where the
+ * values sit.
+ *
+ * A scan row `y` is GL row `PROBE_H - 1 - y`, because `scan_frame` indexes the readback image
+ * top-down from `g_row0` while `glGetFrameReadback` fills it with GL `height - 1 - row`. The
+ * masks are in **scan** coordinates, so bit 0 of `-rows` is GL row 95.
+ *
+ * Three buckets rather than two, because a third value anywhere means this is not a clean split
+ * and the bit masks are the wrong instrument to read it with.
+ */
+static void blue_census(const char *name_count, const char *name_rows, const char *name_cols,
+                        const char *name_cols3) {
+    const uint32_t *const s = scan_frame();
+    int n_full = 0, n_zero = 0, n_other = 0;
+    uint32_t rows[3] = {0u, 0u, 0u};     /* scan rows 0..95 at the centre column */
+    uint32_t cols[4] = {0u, 0u, 0u, 0u}; /* scan cols 0..127 at the centre row */
+    for (int y = 0; y < PROBE_H; y++) {
+        for (int x = 0; x < PROBE_W; x++) {
+            const int b = chan_b(SCAN_PX(s, x, y));
+            if (b >= 250) n_full++;
+            else if (b <= 5) n_zero++;
+            else n_other++;
+        }
+        if (chan_b(SCAN_PX(s, MID_X, y)) >= 250) rows[y >> 5] |= 1u << (y & 31);
+    }
+    for (int x = 0; x < PROBE_W; x++) {
+        if (chan_b(SCAN_PX(s, x, MID_Y)) >= 250) cols[x >> 5] |= 1u << (x & 31);
+    }
+    if (!gl2_probe_saw) return;
+    gl2_probe_saw(name_count, (uint32_t)n_full, 0u, 0, (uint32_t)n_zero, (uint32_t)n_other);
+    gl2_probe_saw(name_rows, rows[0], 0u, 0, rows[1], rows[2]);
+    gl2_probe_saw(name_cols, cols[0], 0u, 0, cols[1], cols[2]);
+    gl2_probe_saw(name_cols3, cols[3], 0u, 0, 0u, 0u);
+}
+
+/*
  * **Two colour buffers written by one compiled shader**, each blending against its own
  * destination.
  *
@@ -2156,33 +2197,37 @@ static int check_two_draw_buffers(void) {
      * Counted in three buckets rather than two: a third value anywhere would mean this is not a
      * clean split and the row/column masks are not the right instrument.
      */
-    {
-        const uint32_t *const s = scan_frame();
-        int n_full = 0, n_zero = 0, n_other = 0;
-        uint32_t rows[3] = {0u, 0u, 0u};  /* scan rows 0..31, 32..63, 64..95 at MID_X */
-        uint32_t cols[4] = {0u, 0u, 0u, 0u}; /* scan cols 0..127 at MID_Y */
-        for (int y = 0; y < PROBE_H; y++) {
-            for (int x = 0; x < PROBE_W; x++) {
-                const int b = chan_b(SCAN_PX(s, x, y));
-                if (b >= 250) n_full++;
-                else if (b <= 5) n_zero++;
-                else n_other++;
-            }
-            if (chan_b(SCAN_PX(s, MID_X, y)) >= 250) rows[y >> 5] |= 1u << (y & 31);
-        }
-        for (int x = 0; x < PROBE_W; x++) {
-            if (chan_b(SCAN_PX(s, x, MID_Y)) >= 250) cols[x >> 5] |= 1u << (x & 31);
-        }
-        if (gl2_probe_saw) {
-            gl2_probe_saw("two-draw-buffers/blue-count", (uint32_t)n_full, 0u, 0,
-                          (uint32_t)n_zero, (uint32_t)n_other);
-            gl2_probe_saw("two-draw-buffers/blue-rows", rows[0], 0u, 0, rows[1], rows[2]);
-            gl2_probe_saw("two-draw-buffers/blue-cols", cols[0], 0u, 0, cols[1], cols[2]);
-            gl2_probe_saw("two-draw-buffers/blue-cols3", cols[3], 0u, 0, 0u, 0u);
-        }
-    }
+    blue_census("two-draw-buffers/two-count", "two-draw-buffers/two-rows",
+                "two-draw-buffers/two-cols", "two-draw-buffers/two-cols3");
+
+    /*
+     * **The same blend into one target**, which is the control the pattern above demands.
+     *
+     * A quarter of the region holding the right blue, at exactly the pixels with both coordinates
+     * even, is the fragment quad's shape. Nothing in this suite had ever counted a channel across
+     * the region before, so "only under two targets" is an assumption, not a measurement: every
+     * other check reads one pixel, and `scan_frame`'s centre is an even/even pixel - the one the
+     * lattice gets right. A single-target blend with the same colours says which it is.
+     *
+     * If this census is also one-in-four, the two-target path is innocent and something far older
+     * has been writing three quarters of every blended blue wrong, unseen because nobody looked
+     * anywhere but the centre.
+     */
+    glDisable(GL_BLEND);
+    glDrawBuffer(GL_BACK);
+    glUniform4f(kc, 0.0f, 0.0f, 1.0f, 1.0f);
+    attrib_rect(pos, -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    glUniform4f(kc, 0.25f, 0.5f, 0.75f, 0.0f);
+    attrib_rect(pos, -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+    glDisable(GL_BLEND);
+    blue_census("two-draw-buffers/one-count", "two-draw-buffers/one-rows",
+                "two-draw-buffers/one-cols", "two-draw-buffers/one-cols3");
+
     return ok && glGetError() == GL_NO_ERROR;
 }
+
 
 static int check_draw_is_deterministic(void) {
     reset_view();
