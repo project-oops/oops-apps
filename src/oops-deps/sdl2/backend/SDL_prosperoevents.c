@@ -123,6 +123,25 @@ void PROSPERO_PumpEvents(_THIS)
         (void)SDL_SendQuit();
     }
 
+    /* **Service the system's own event queue every frame** (oops/system.h).
+     *
+     * The Close signal above is only half of what the system does. After it - and for rest mode
+     * without any signal at all - the kernel suspends the process asynchronously and allows 100
+     * seconds to reach a suspend point; a title that never does is killed with `0xa0d0c00f`,
+     * `CPU_FAULT_SUSPENDPOINT_TIMEOUT_IN_SUSPEND_ASYNC`. A queue that is serviced only at the end
+     * is a queue that was ignored until then, so this runs on every pump rather than on Close. */
+    (void)oops_system_pump_events();
+
+    /* On the way out, once: empty the queue and drain whatever the renderer has in flight, so
+     * the kernel is freezing a quiescent process rather than one mid-submission. Done here and
+     * not in the title, because every SDL title on this backend wants it and none of them should
+     * have to know the sequence. */
+    static int suspend_prepared = 0;
+    if (quit_sent && !suspend_prepared) {
+        suspend_prepared = 1;
+        oops_system_prepare_for_suspend();
+    }
+
     if (data->keyboard_ready) {
         PROSPERO_PumpKeyboard(data);
     }
