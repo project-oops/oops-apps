@@ -16,27 +16,48 @@ that the tests are somebody else's and the answer is not ours to arrange.
 
 ## Where it is
 
-**It links.** `build/gl-cts.elf` is 33 MB and carries the dEQP framework, the platform layer and
-the GL entry-point table. 217 of 220 framework sources compile; `tools/survey.sh` prints the
-current number and the cause histogram.
+**The tests are in it.** `build/gl-cts.elf` is 68 MB and carries the dEQP framework, all 311
+test sources under `external/openglcts/modules`, dEQP's `modules/glshared` and
+`framework/randomshaders`, the platform layer and the GL entry-point table — 488 C++ objects and
+44 C. `make imports` resolves 501 names with **0 unknown**, and `make title` packages a 66 MB
+`eboot.bin`.
+
+**Twenty-five test packages register**, every `KHR-*` one plus `CTS-Configs`.
+`shim/gl_cts_registry.cpp` has the list and names the six it leaves out.
 
 **Nothing has run.** Building is not conforming, and the distinction matters more here than
-anywhere else in the collection.
+anywhere else in the collection. A case list is not a result and neither is a link.
 
-### Five symbols the link leaves undefined
+### Nothing the link leaves undefined
 
 A hosted title is linked `--unresolved-symbols=ignore-all`, because its C library is resolved at
-load — so the link succeeding is not the same as every symbol being answered. What is left, by
-`nm -u`, after the C library and platform names are set aside:
+load — so the link succeeding is not the same as every symbol being answered, and `nm -u` is the
+check that means something. After the C library and platform names are set aside there is
+**nothing left**: 237 undefined names, every one of them a libc or `sce*` import the loader
+answers, and not one C++ symbol among them.
 
-| symbol | why |
+That took three rounds of the same lesson. Each of these was a C++ name that no platform library
+could ever resolve, and each linked silently:
+
+| symbol | answered by |
 |---|---|
-| `tcu::ImageIO::loadPNG`, `loadPKM` | `tcuImageIO.cpp` is excluded; libpng is not ported. Reached only by a test that loads a reference image |
-| `std::mutex::lock`, `unlock`, `~mutex` | `_LIBCPP_HAS_THREADS` is 0, so libc++'s `mutex.cpp` is not built. `mesa-cube` has none of these, so the reference is dEQP's rather than Mesa's |
+| `tcu::ImageIO::loadPNG`, `loadPKM` | `shim/gl_cts_gaps.cpp` — throws `NotSupportedError`; `tcuImageIO.cpp` is excluded because libpng is not ported |
+| `std::mutex::lock`, `unlock`, `~mutex` | `shim/gl_cts_gaps.cpp` — no-ops. `_LIBCPP_HAS_THREADS` is 0, so libc++'s `mutex.cpp` is not built |
+| five `eglu::` entry points | `shim/gl_cts_gaps.cpp` — throws. `glcConfigListEGL.cpp` references them and cannot reach them |
+| six `glc::spirvUtils` entry points | `shim/gl_cts_spirv_stub.cpp` — throws. glslang and spirv-tools are not ported |
 
-Both would fault if reached. The mutex three are the argument for turning threads on in the
-hosted libc++ configuration: the sysroot has `pthread.h` and oops-mesa already implements the
-pthread surface for Mesa's own C11 threads layer.
+**The `eglu` five are the instructive ones, because they are genuinely unreachable.**
+`getDefaultEglConfigList` opens with `dynamic_cast<tcu::EglPlatform&>(platform)`, this platform
+is not one, and `glcConfigListEGL.cpp:165` turns the `bad_cast` into a `tcu::Exception` that
+`getDefaultConfigList` is written to catch. No call ever arrives. They still have to be defined,
+because *unreachable* and *absent* are the same thing to this linker, and the difference only
+surfaces at `make imports` — which cannot place a C++ name that belongs to no platform library,
+and is the gate the container is refused at.
+
+The `std::mutex` no-ops remain the argument for turning threads on in the hosted libc++
+configuration: the sysroot has `pthread.h` and oops-mesa already implements the pthread surface
+for Mesa's own C11 threads layer. Nothing in the test modules uses `std::` threading — the
+references are the framework's.
 
 ### This is a hosted title, and getting that wrong cost a day's reading
 

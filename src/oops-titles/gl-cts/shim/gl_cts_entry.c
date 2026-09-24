@@ -185,12 +185,28 @@ void gl_cts_start(void)
     int argc = read_args_file(first);
     if (argc == first) {
         /*
-         * No argument file. Write the case list and run nothing: the harness proves itself, the
-         * platform is created, the GL context is made, and the result says what a real run would
-         * cover - without spending an unknown amount of time on a first attempt.
+         * No argument file: run `KHR-GL30.info`. Six cases - vendor, renderer, version, shading
+         * language version, the extension list and the render target - and they are the smallest
+         * thing that exercises the whole chain end to end: the platform is built, a GL context is
+         * created, the driver is asked real questions and six real results reach the `.qpa`.
+         *
+         * **The default used to be `--deqp-runmode=stdout-caselist`**, which was right while no
+         * test package registered: the list was empty and printing it cost nothing. With
+         * twenty-five packages registered that is the entire OpenGL CTS case list - hundreds of
+         * thousands of names - pushed one line at a time through `oops_log` and the kernel log
+         * pipe, which is minutes of output nobody reads to learn something `--deqp-runmode` can
+         * be asked for deliberately.
+         *
+         * It is also the wrong *kind* of default now. A case list says what the binary contains,
+         * which the build already knows; `info` says what the *driver* is, which nothing here
+         * knows until it runs, and which is the input to choosing any real subset.
+         *
+         * `oops-mesa`'s roadmap row 8 is why this is a default rather than a compile-time choice:
+         * which cases run has to be a run-time decision, and `/app0/cts-args.txt` is where a real
+         * one is made.
          */
-        s_argv[argc++] = (char *)"--deqp-runmode=stdout-caselist";
-        oops_log("gl-cts: no /app0/cts-args.txt; writing the case list and running nothing");
+        s_argv[argc++] = (char *)"--deqp-case=KHR-GL30.info.*";
+        oops_log("gl-cts: no /app0/cts-args.txt; running KHR-GL30.info.* (6 cases)");
     } else {
         oops_log("gl-cts: %d arguments from /app0/cts-args.txt", argc - first);
     }
