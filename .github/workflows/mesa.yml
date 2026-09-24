@@ -89,8 +89,8 @@ jobs:
         with:
           path: |
             OOPS/oops-mesa/build
-            OOPS/oops-mesa/toolchain/sysroot/usr/lib
-          key: oops-mesa-build-v2-${{ hashFiles('OOPS/oops-mesa/dependencies.mk', 'OOPS/oops-mesa/toolchain/**', 'OOPS/oops-mesa/patches/**', 'OOPS/oops-mesa/oops-mesa.mk') }}
+            OOPS/oops-mesa/toolchain/sysroot
+          key: oops-mesa-build-v3-${{ hashFiles('OOPS/oops-mesa/dependencies.mk', 'OOPS/oops-mesa/toolchain/**', 'OOPS/oops-mesa/patches/**', 'OOPS/oops-mesa/oops-mesa.mk') }}
 
       - name: Build Mesa
         if: steps.cache-mesa.outputs.cache-hit != 'true'
@@ -105,15 +105,13 @@ jobs:
           echo "== archives =="
           find OOPS/oops-mesa/build -name '*.a' | sort
 
-      # The sysroot (FreeBSD headers the hosted titles compile against) and the toolchain image
-      # are produced by the Mesa build - but that step is skipped on a cache hit, so ensure both
-      # exist here regardless. Staging the sysroot is cheap; the image is rebuilt only if missing.
-      - name: Ensure the sysroot and toolchain image
+      # The toolchain image is produced by the Mesa build, but that step is skipped on a cache
+      # hit, so ensure it here. The sysroot itself is cached whole (headers and archives), so it
+      # is never re-staged - re-staging would `rm` files the container wrote as root and fail.
+      - name: Ensure the toolchain image
         run: |
-          cd OOPS/oops-mesa
-          OOPS_MESA_FREEBSD_SRC="$GITHUB_WORKSPACE/freebsd-src" bash toolchain/stage-sysroot.sh
-          image=$(sed -n 's/^TOOLCHAIN_IMAGE *:= *//p' dependencies.mk)
-          docker image inspect "$image" >/dev/null 2>&1 || docker build -t "$image" toolchain/
+          image=$(sed -n 's/^TOOLCHAIN_IMAGE *:= *//p' OOPS/oops-mesa/dependencies.mk)
+          docker image inspect "$image" >/dev/null 2>&1 || docker build -t "$image" OOPS/oops-mesa/toolchain/
 
       # Link each mesa title against the archives, in the clang-21 toolchain image. This is the
       # proof that the build is usable: if these link, the release can package them. Reported per
