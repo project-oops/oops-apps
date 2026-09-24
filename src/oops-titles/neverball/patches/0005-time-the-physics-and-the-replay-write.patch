@@ -1,0 +1,72 @@
+Time the physics and the replay write separately.
+
+`play_loop_timer` is where a frame's time went - about 2.2 seconds of it - and the two
+things inside it are opposite problems. `game_server_step` is arithmetic, and slow
+arithmetic means the solver needs work. `game_client_sync` writes the replay through
+`demo_fp`, and slow I/O means the stream underneath needs a buffer.
+
+Guessing between them cost several hardware runs; four clock reads settled it in one:
+
+    play: 1 steps, server 0ms, sync 2304ms, demo on
+
+The solver was instant and had been all along, and every millisecond was the replay - each
+command writing its shorts and floats as separate two-to-four-byte calls into a libc whose
+`fwrite` went straight to a syscall. Buffering that stream in the SDK took the same line to
+`server 4ms, sync 2ms` across thirty frames a second.
+
+It stays because it is also a frame-rate readout, and a port wants one.
+
+diff --git a/ball/st_play.c b/ball/st_play.c
+index bd5323a..030dd5e 100644
+--- a/ball/st_play.c
++++ b/ball/st_play.c
+@@ -12,6 +12,8 @@
+  * General Public License for more details.
+  */
+ 
++#include "SDL.h" /* SDL_GetTicks, for the per-phase timing below */
++#include "log.h"
+ #include "gui.h"
+ #include "hud.h"
+ #include "demo.h"
+@@ -392,8 +394,38 @@ static void play_loop_timer(int id, float dt)
+ 
+     game_step_fade(dt);
+ 
+-    game_server_step(dt);
+-    game_client_sync(demo_fp);
++    /* **The physics and the demo writing, separately, once a second.**
++     *
++     * The frame timing in `main` put the whole frame in this state's timer - about 2.2 seconds
++     * of it - and the two candidates inside it are opposite problems. `game_server_step` is
++     * arithmetic and would mean the solver is slow; `game_client_sync` writes the replay to
++     * `<HOME>/.neverball/Replays` through `demo_fp`, and file I/O on this filesystem is not
++     * quick. Splitting them is four clock reads, and it is the difference between optimising a
++     * solver and buffering a file. */
++    {
++        static Uint32 acc_step = 0, acc_sync = 0, acc_n = 0, at = 0;
++        Uint32 a, b;
++
++        a = SDL_GetTicks();
++        game_server_step(dt);
++        b = SDL_GetTicks(); acc_step += b - a;
++
++        a = SDL_GetTicks();
++        game_client_sync(demo_fp);
++        b = SDL_GetTicks(); acc_sync += b - a;
++
++        acc_n++;
++
++        if (at == 0) at = SDL_GetTicks() + 1000;
++        if (SDL_GetTicks() >= at)
++        {
++            log_printf("play: %u steps, server %ums, sync %ums, demo %s\n",
++                       acc_n, acc_step, acc_sync, demo_fp ? "on" : "off");
++            acc_step = acc_sync = acc_n = 0;
++            at = SDL_GetTicks() + 1000;
++        }
++    }
++
+     game_client_blend(game_server_blend());
+ 
+     switch (curr_status())

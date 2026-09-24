@@ -13,6 +13,11 @@ OOPS_APPS_ROOT ?= $(abspath ../../..)
 # renderer; it adds oops-gl's sources itself, so this title does not list them.
 OOPS_RENDERER = gl1
 
+# The SDK sources this title compiles carry no `-O` of their own, and unoptimised oops-gl costs
+# this title around 7.7us per draw call at ten thousand draws a frame. Neverball's own archive
+# already asks for -O2 below.
+EXTRA_TARGET_CFLAGS += -O2
+
 # --- the stack ------------------------------------------------------------
 #
 # Eight dependencies, each pinned in `src/oops-deps/`. The order matters where one needs
