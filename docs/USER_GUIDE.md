@@ -2,17 +2,14 @@
 
 Welcome to the **oops-apps** catalog and operator guide.
 
-This guide provides instructions for **building, testing, and running our homebrew demo titles**, as well as using the **`tracer`** tool to passively record hardware telemetry and graphics command streams.
-
-If you are an AI coding agent or graphics systems architect seeking the internal AGC shader pipelines or hook trampoline disassembly, see the **[Technical Reference](README.md)** and **[src/oops-payloads/tracer/README.md](../src/oops-payloads/tracer/README.md)**.
+This guide covers **building, testing and running the demo titles**, using the **`tracer`** tool to record hardware telemetry, and **adding an application of your own**.
 
 ---
 
 ## Table of Contents
 
-1. [Application Catalog](#1-application-catalog)
-2. [Building & Running the Demo Titles](#2-building--running-the-demo-titles)
-   - [GL-Cube (`src/gl-cube`)](#gl-cube-srcgl-cube)
+1. [Finding the apps](#1-finding-the-apps)
+2. [Building & running a title](#2-building--running-a-title)
 3. [Using `tracer` for Passive Telemetry](#3-using-tracer-for-passive-telemetry)
    - [What `tracer` Does](#a-what-tracer-does)
    - [Attaching `tracer` to an Application](#b-attaching-tracer-to-an-application)
@@ -21,53 +18,35 @@ If you are an AI coding agent or graphics systems architect seeking the internal
 
 ---
 
-## 1. Application Catalog
+## 1. Finding the apps
 
-`oops-apps` houses the apps and payloads built on `oops-sdk`:
+The apps live under `src/`, grouped by the part of the collection they exercise. Three always-current ways to see what is here:
 
-| Application | Title ID | Description | Notes / Subsystems |
-| :--- | :--- | :--- | :--- |
-| **`gl1-cube`** | `GLCB00001` | 3D rotating cube demo (OpenGL 1.x via `oops-sdk` `gl/` on AGC); the pinned hardware oracle. | `OOPS_RENDERER = gl1`. Direct memory mapping, RDNA2 AGC universal queue, PM4 DCB submission, fence synchronisation. Interactive pad toggles + shared GPU HUD. |
-| **`gl1-probe`** | `GLPB00001` | Breadth check: many small draws, each read back and decided, on host and console. | `OOPS_RENDERER = gl1`. A difference between the two runs is a hardware-path bug. |
-| **`gl2-cube`** | `GLTC00001` | Programmable-pipeline (OpenGL 2.0 / GLSL) cube. | `OOPS_RENDERER = gl2`. |
-| **`gl2-probe`** | `GLTP00001` | GL 2.0 shader-path checks. | `OOPS_RENDERER = gl2`. |
-| **`seashell`** | `SCSH00001` | SeaShell unified homebrew shell (title launcher, settings, save/media manager). | Ships as a native eboot Big App (category 0, root). Display + software canvas, multi-port pad, filesystem discovery, PNG icon decode. |
-| **`gallery`** | `GALR00001` | Capability showcase across SDK subsystems. | `oops_*_available()` reachability across display, draw, input, audio, net, and media decode. |
-| **`pad-viz`** | `PADV00001` | Live DualSense/DualShock controller telemetry visualizer. | Batched low-latency input (`oops_input_poll_batch`); sticks, triggers, 6-axis IMU, touchpad. |
-| **`net-tool`** | `NETT00001` | Network configuration and interface diagnostics. | SDK inet helpers, link status, UDP status responder. |
-| **`porthole`** | `PORT00001` | Remote-play target payload: video out and controller input over TCP. | Plain-ELF payload; host half in Prosperous. POSIX sockets, sysmodule load, `klog`; encoder gated off (D003/D004). |
-| **`tracer`** | `TRAC00001` | In-process passive hooking & telemetry engine for real titles. | Plain-ELF payload. Intercepts `sceAgcSubmitDcb` / `sceVideoOutSubmitFlip`; captures PM4 DCB packets and RDNA2 shader bytecode. |
-| **`sandbox-daemon`** | `SNDA00001` | On-demand filesystem-namespace unsandboxing daemon. | Plain-ELF payload (root). Loopback IPC `127.0.0.1:9069`; FreeBSD `filedesc`/`ucred` kernel-memory updates. |
-| **`pltauth-patch`** | `PLTA00001` | Kernel patcher for SceShellCore / platform-authentication entitlement checks. | Plain-ELF payload (system tool). |
-| **`mesa-winsys-probe`** | `MESA00001` | OpenGL-through-Mesa bring-up app (winsys path). | Hosted (non-freestanding) link via `OOPS_RENDERER = mesa`; oops-mesa shim over upstream Mesa. |
-| **`mesa-dri-probe`** | `DRIP00001` | The same stack through the Gallium DRI frontend; renders and hashes a frame. | Hosted; `OOPS_RENDERER = mesa`. |
-| **`mesa-cube`** | `MCUB00001` | The example title: a textured, depth-tested cube through upstream Mesa, presenting every frame at 59.94 fps. | Hosted; `OOPS_RENDERER = mesa`. Interactive pad toggles + shared GPU HUD, same as `gl1-cube`. |
-| **`sdl-probe`** | `SDLP00001` | Upstream SDL2 on the console through `oops-sdl`: init, window + GL context, event pump, controller. | `src/oops-frameworks/`. Links a renderer underneath; the framework is the point. |
-| **`glut-demo`** | `GLUT00001` | An ordinary GLUT program built for the console by compiling it against the SDK's `<GL/glut.h>`. | `src/oops-frameworks/`. |
-| **`cxx-throw`** | `CXTH00001` | C++ exception-handling probe (throw/catch across the runtime). | `src/oops-utilities/`. |
-| **`injector`** | — | Standalone process payload injector. | Source under `src/injector/` (internals not covered here). |
+- **The oops-apps index** — [project-oops.github.io/oops-apps](https://project-oops.github.io/oops-apps/) — screenshots, descriptions and a download of the latest build of each one.
+- **`./bin/oops-apps list`** — every app the repository holds, as the build and release tooling sees it.
+- **The source tree** — each app is a directory under `src/<group>/<app>/` with its own `README.md`, `app.env` and `Makefile`.
+
+There is deliberately no catalog table in the docs: the index, the `list` command and the source tree never fall behind as apps are added; a hand-kept table does.
 
 ---
 
-## 2. Building & Running the Demo Titles
+## 2. Building & running a title
 
-All apps follow the standard Makefile workflow.
+Every app follows the same Makefile workflow. Using `gl1-cube` as the example:
 
-### GL-Cube (`src/gl-cube`)
-
-1. **Build Title Directory**:
+1. **Build the title directory**:
    ```bash
-   cd oops-apps/src/gl-cube
+   cd src/oops-gl/gl1-cube
    make title
    ```
-2. **Deploy to Console**:
+2. **Deploy and launch on hardware**:
    ```powershell
    pros.exe restore build/title/GLCB00001 /data/homebrew/GLCB00001
    pros.exe launch GLCB00001
    ```
-3. **Run in Orbistoun Emulator**:
-   ```powershell
-   orbistoun.exe run build/title/GLCB00001
+3. **Or run it in the Orbistoun emulator**:
+   ```bash
+   ./bin/orbistoun run GLCB00001
    ```
 
 ---
@@ -83,7 +62,7 @@ While `obSCEne` actively probes known functions with synthetic parameters, `trac
 ### B. Attaching `tracer` to an Application
 `tracer` builds as a freestanding plain-ELF payload (`build/tracer.elf`):
 ```bash
-cd oops-apps/src/tracer
+cd src/oops-payloads/tracer
 make elf
 ```
 It runs either injected into a target process (via `injector`) or as a standalone diagnostic payload. On start it installs its trampolines over the target export stubs and begins recording telemetry.

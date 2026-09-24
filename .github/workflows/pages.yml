@@ -60,17 +60,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p site
-          # The shared renderer, the same one the others call, so every set of docs in the
-          # collection looks alike. Grey rather than a project accent: this is not one of the
-          # four, and borrowing one of their colours would suggest it is.
+          # The documentation, under /docs/, rendered by the shared builder the whole
+          # collection uses so every set of docs looks alike. Grey rather than a project
+          # accent: oops-apps is not one of the four.
           bash ../tools/build-docs.sh . site "#8b9096" "oops-apps"
-          cat > site/index.html <<'HTML'
-          <!DOCTYPE html>
-          <meta charset="utf-8">
-          <meta http-equiv="refresh" content="0; url=docs/">
-          <title>oops-apps</title>
-          <a href="docs/">oops-apps documentation</a>
-          HTML
+          # The oops-apps index at the site root. Generated from the apps themselves
+          # (app.env, README, screenshots) so it never lags the repo; its download buttons
+          # resolve live from the rolling latest-main release.
+          bash ../tools/build-apps-index.sh . site "#3fb950"
           du -sh site
         working-directory: OOPS/oops-apps
 

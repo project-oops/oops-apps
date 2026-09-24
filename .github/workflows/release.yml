@@ -52,11 +52,56 @@ jobs:
           echo "discovered: $apps"
         working-directory: OOPS/oops-apps
 
+  # Build the Rust packaging tools once and share them with every matrix cell. Without selfish
+  # (the packager) and obscene-tool (the module tagger), `make dist` cannot produce a title: it
+  # prints "selfish not found" and stages only the bare ELF. That is why the release carried
+  # nothing but `.elf` until this job existed - the C cross-compiler in the build container has
+  # no Rust, so the tools were never built. Built in the *same* container the apps build in, so
+  # the binaries are glibc-compatible with the cells that run them.
+  tools:
+    name: build packaging tools
+    needs: discover
+    runs-on: ubuntu-latest
+    container: silkeh/clang:21
+    steps:
+      - name: Tools this job needs
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq git curl build-essential ca-certificates
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/OOPS
+          path: OOPS
+      - uses: actions/checkout@v4
+        with:
+          path: OOPS/oops-apps
+      # obscene-tool depends by path on selfish, prosperous and oops-libs, and selfish on its own
+      # crates - so fetch the whole set rather than guess the closure.
+      - name: The sibling sources the tools are built from
+        run: OOPS/bin/oops bootstrap
+        env:
+          OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
+      - name: Rust
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+      - name: Build selfish and obscene-tool
+        run: |
+          set -euo pipefail
+          . "$HOME/.cargo/env"
+          cargo build --release --manifest-path OOPS/selfish/Cargo.toml
+          cargo build --release --manifest-path OOPS/obscene/tool/Cargo.toml
+          mkdir -p out
+          cp OOPS/selfish/target/release/selfish out/
+          cp OOPS/obscene/tool/target/release/obscene-tool out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packaging-tools
+          path: out/
+
   # One cell per app, in parallel. `fail-fast: false` so one app's build failing does not pull
   # the finished ones down with it - each app is its own deliverable.
   build:
     name: "stage: ${{ matrix.app }}"
-    needs: discover
+    needs: [discover, tools]
     runs-on: ubuntu-latest
     # **The pinned compiler, because the runner's own is not it.**
     #
@@ -110,6 +155,19 @@ jobs:
         env:
           # Empty unless the org secret exists, and empty is the old behaviour.
           OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
+
+      # The packaging tools from the `tools` job, dropped where make's wildcard looks for them
+      # (app.mk resolves SELFISH_BIN / MKMODULE_BIN by wildcard under these paths). With them in
+      # place `make dist` can package a title; without them it could only ever stage the ELF.
+      - name: The packaging tools this build needs
+        uses: actions/download-artifact@v4
+        with:
+          name: packaging-tools
+          path: tools-bin
+      - name: Put the packaging tools where make expects them
+        run: |
+          install -Dm755 tools-bin/selfish OOPS/selfish/target/release/selfish
+          install -Dm755 tools-bin/obscene-tool OOPS/obscene/tool/target/release/obscene-tool
 
       # `make dist` for this one app, through the same entry point a person uses. If the app
       # has no `dist` target it stages nothing and the upload below finds no files - honest,

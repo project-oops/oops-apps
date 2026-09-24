@@ -137,6 +137,12 @@ ifeq ($(USE_MESA),1)
 endif
 
 # Application identity & metadata defaults
+#
+# `TITLE_CATEGORY` is the *platform* category the title is packaged with (`big-app`, ...). It is
+# not the same thing as `KIND`, an optional app.env field - `game`, `demo`, `probe`, `utility`,
+# `payload` - that says what the app *is*, for grouping in the oops-apps index (tools/
+# build-apps-index.sh). `KIND` is metadata only; the build never reads it, and the index infers
+# it from the app's directory group when it is unset.
 APP_NAME       ?= $(notdir $(CURDIR))
 TITLE_NAME     ?= $(APP_NAME)
 TITLE_CATEGORY ?= big-app
