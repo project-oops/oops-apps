@@ -46,7 +46,7 @@ int oops_dl_render(oops_surface_t *surf, const oops_dl_status_t *st) {
     if (!surf || !surf->pixels || !st) return 0;
 
     oops_draw_clear(surf, BG);
-    oops_draw_rect(surf, 0, 0, surf->width, 6, ACCENT);
+    oops_draw_rect(surf, 0, 0, (int)surf->width, 6, ACCENT);
 
     int rows = 0;
     int y = 70;

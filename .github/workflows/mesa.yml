@@ -1,0 +1,91 @@
+name: Build oops-mesa
+
+# Bring-up workflow for the heavy dependency: compile upstream Mesa for the target and publish
+# its archives, so the USE_MESA titles (mesa-cube, mesa-demos, gl-cts, ...) can link them in the
+# release. It is `workflow_dispatch` only for now - the Mesa build is a ~40-60 minute container
+# compile that pulls a pinned FreeBSD source and the Mesa submodule, so it runs on demand while
+# it is being stabilised, then folds into release.yml once green.
+#
+# Nothing depends on this yet, so a failure here cannot regress the working (non-mesa) release.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oops-mesa-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: compile Mesa for the target
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Tools this job needs
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq git ca-certificates
+
+      # The collection, this repo inside it, then oops-mesa and its Mesa submodule.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/OOPS
+          path: OOPS
+      - uses: actions/checkout@v4
+        with:
+          path: OOPS/oops-apps
+      - name: oops-mesa
+        run: OOPS/bin/oops bootstrap oops-mesa
+        env:
+          OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
+      - name: The Mesa submodule, at the pin oops-mesa records
+        run: git -C OOPS/oops-mesa submodule update --init --depth 1 mesa
+
+      - name: Read the pins
+        id: pins
+        run: |
+          echo "fbsd=$(sed -n 's/^SYSROOT_PIN *:= *//p' OOPS/oops-mesa/dependencies.mk)" >> "$GITHUB_OUTPUT"
+
+      # The FreeBSD source the sysroot is staged from, at the pinned revision. A blob-filtered
+      # clone keeps it to the trees plus the blobs the pin's checkout actually needs; cached by
+      # the pin so it is fetched once. stage-sysroot.sh checks HEAD equals this pin.
+      - name: Cache the FreeBSD source
+        id: cache-fbsd
+        uses: actions/cache@v4
+        with:
+          path: freebsd-src
+          key: freebsd-src-${{ steps.pins.outputs.fbsd }}
+      - name: FreeBSD source at the pin
+        if: steps.cache-fbsd.outputs.cache-hit != 'true'
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/freebsd/freebsd-src.git freebsd-src
+          git -C freebsd-src checkout --detach "${{ steps.pins.outputs.fbsd }}"
+
+      # The archives themselves, keyed on everything that determines them: the Mesa/FreeBSD pins
+      # and oops-mesa's own toolchain and patches. A hit skips the whole compile.
+      - name: Cache the Mesa build
+        id: cache-mesa
+        uses: actions/cache@v4
+        with:
+          path: OOPS/oops-mesa/build
+          key: oops-mesa-build-${{ hashFiles('OOPS/oops-mesa/dependencies.mk', 'OOPS/oops-mesa/toolchain/**', 'OOPS/oops-mesa/patches/**', 'OOPS/oops-mesa/oops-mesa.mk') }}
+
+      - name: Build Mesa
+        if: steps.cache-mesa.outputs.cache-hit != 'true'
+        run: |
+          cd OOPS/oops-mesa
+          OOPS_MESA_FREEBSD_SRC="$GITHUB_WORKSPACE/freebsd-src" ./bin/oops-mesa build
+
+      - name: What was built
+        run: |
+          echo "== link-order.txt =="
+          cat OOPS/oops-mesa/build/link-order.txt 2>/dev/null || echo "(no link-order.txt - the build did not finish)"
+          echo "== archives =="
+          find OOPS/oops-mesa/build -name '*.a' | sort
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oops-mesa-build
+          path: OOPS/oops-mesa/build
+          if-no-files-found: error
