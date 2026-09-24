@@ -95,18 +95,43 @@ over() {
 # Stage each app's shippables, and say which apps have nothing to ship yet rather than
 # failing on them - see the release contract in the header. An app declares it ships by
 # carrying a `dist` target; `make -n` asks whether it does without building anything.
+#
+# **"No dist target" and "the probe failed" are different answers, and this used to give the
+# first for both.** `make -n dist` can fail for reasons that have nothing to do with whether the
+# target exists: a toolchain the Makefile refuses, an upstream fetch that did not complete, a
+# syntax error in an included file. Its output went to /dev/null, so every one of those was
+# reported as an app with nothing to ship - a sentence that is a normal state, printed under a
+# green tick.
+#
+# That hid a dead release for four days. The collection was pinned to clang 21 while CI
+# installed clang 18; every app's probe failed the version check, every app was reported as
+# having nothing to ship, the publish job downloaded nothing, and the rolling `latest-main`
+# release simply stopped moving while every run passed. Nothing in the logs said otherwise,
+# because the workflow had no way to tell the two apart.
+#
+# So the probe now reads its own output. Make says `No rule to make target 'dist'` when the
+# target genuinely is not there; anything else is a failure worth seeing and worth failing on,
+# because an app that cannot even be asked is not an app with nothing to ship.
 distribute() {
-    local any=0 shipped=0
+    local any=0 shipped=0 failed=0
     for app in $(resolve "$@"); do
         any=1
         app_dir="$(app_path "$app")"
         [ -n "$app_dir" ] || app_dir="$HERE/$app"
-        if make -C "$app_dir" -n dist >/dev/null 2>&1; then
+
+        probe_out="$(make -C "$app_dir" -n dist 2>&1)"
+        probe_rc=$?
+
+        if [ "$probe_rc" -eq 0 ]; then
             printf '=== %s: dist ===\n' "$app"
             make -C "$app_dir" dist
             shipped=$((shipped + 1))
-        else
+        elif printf '%s' "$probe_out" | grep -q "No rule to make target"; then
             printf '=== %s: no dist target, nothing to ship yet ===\n' "$app"
+        else
+            printf '=== %s: cannot be asked whether it ships ===\n' "$app" >&2
+            printf '%s\n' "$probe_out" >&2
+            failed=$((failed + 1))
         fi
     done
     if [ "$any" -eq 0 ]; then
@@ -114,6 +139,10 @@ distribute() {
         exit 1
     fi
     printf 'dist: %s app(s) staged something to ship\n' "$shipped"
+    if [ "$failed" -gt 0 ]; then
+        printf 'dist: %s app(s) could not be asked - see above\n' "$failed" >&2
+        exit 1
+    fi
 }
 
 usage() {
