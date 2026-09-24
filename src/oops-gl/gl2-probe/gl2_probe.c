@@ -1517,6 +1517,142 @@ static int check_early_return(void) {
  * array in a register file worth having. Element `k` sits `k * width` registers along, so a
  * stride that is wrong reads a neighbour rather than faulting - and neighbours here are chosen
  * so that reading one gives a visibly different colour rather than a near one. */
+/*
+ * **`struct`, on the hardware that has to lay one out.**
+ *
+ * A struct is a run of registers on this path and a float array on the software one, and the two
+ * agree only because both read the layout the semantic pass fixed. Nothing about that is visible
+ * from a shader that compiles: a member resolved to the wrong register produces a colour, not an
+ * error, so what each arm below does is put a *different member in a different channel*. A
+ * layout off by one comes back rotated and names itself; a layout that collapsed comes back grey.
+ *
+ * **Censused rather than sampled.** Every other language arm here reads the middle pixel, which
+ * is right for a question whose answer is the same everywhere - and the wave32 fault of
+ * 2026-09-24 was exactly the shape that is not. It was uniform in x, banded in y, and a shader
+ * that read one pixel called it correct. A struct's layout should be uniform across the region;
+ * this counts the region so that "should" is measured rather than assumed.
+ *
+ * The last arm builds its struct from a varying, so a generator that got the right answer only
+ * because every operand folded at compile time fails it.
+ */
+static int struct_arm_vs(const char *vs_src, const char *fs_src, const char *name,
+                         int r, int g, int b) {
+    reset_view();
+    const GLuint p = use_program(vs_src, fs_src);
+    if (!p) {
+        if (gl2_probe_saw) gl2_probe_saw(name, 0u, 0xffffu, 0, 0u, 0u);
+        return 0;
+    }
+    attrib_rect(glGetAttribLocation(p, "pos"), -0.8f, -0.8f, 0.8f, 0.8f, 0.0f);
+    const uint32_t *const s = scan_frame();
+    const int wrong = census_wrong(s, r, g, b, 6);
+    if (gl2_probe_saw) {
+        /* `saw` the middle pixel, `drawn` how many of the census box disagree with what the
+         * specification says this shader's one colour is, `L` the colour that was wanted. */
+        gl2_probe_saw(name, SCAN_PX(s, MID_X, MID_Y), 0u, wrong,
+                      0xff000000u | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b, 0u);
+    }
+    return wrong == 0 && glGetError() == GL_NO_ERROR;
+}
+
+/* Most arms need no varying, so they take the passthrough vertex shader every other language
+ * check here uses. */
+static int struct_arm(const char *fs_src, const char *name, int r, int g, int b) {
+    return struct_arm_vs(VS_PASSTHROUGH, fs_src, name, r, g, b);
+}
+
+static int check_structs(void) {
+    /* Construction and a read of each member: 0.25, 0.5, 0.75 into r, g, b. Reversed on the way
+     * out, so a member read from its neighbour's register swaps two channels rather than
+     * landing on the same answer. */
+    int ok = struct_arm(
+        "struct C { float r; float g; float b; };\n"
+        "void main() {\n"
+        "  C c = C(0.75, 0.5, 0.25);\n"
+        "  gl_FragColor = vec4(c.b, c.g, c.r, 1.0);\n"
+        "}\n",
+        "structs/construct", 64, 128, 191);
+
+    /* A vector member and a swizzle of it - the two meanings of `.` in one expression, which is
+     * the distinction the front end had to start making. */
+    ok = ok && struct_arm(
+        "struct M { float lead; vec3 v; };\n"
+        "void main() {\n"
+        "  M m = M(0.0, vec3(0.25, 0.5, 0.75));\n"
+        "  gl_FragColor = vec4(m.v.x, m.v.y, m.v.z, 1.0);\n"
+        "}\n",
+        "structs/vec-member", 64, 128, 191);
+
+    /* **A member is written without disturbing its neighbours**, which a run that overlapped
+     * would break in the channel beside the one assigned. */
+    ok = ok && struct_arm(
+        "struct C { float r; float g; float b; };\n"
+        "void main() {\n"
+        "  C c = C(0.25, 1.0, 0.75);\n"
+        "  c.g = 0.5;\n"
+        "  gl_FragColor = vec4(c.r, c.g, c.b, 1.0);\n"
+        "}\n",
+        "structs/member-write", 64, 128, 191);
+
+    /* Whole-struct copy, then a write to the copy: the original must be untouched. A copy that
+     * aliased would show 1.0 in red instead of 0.25. */
+    ok = ok && struct_arm(
+        "struct C { float r; float g; float b; };\n"
+        "void main() {\n"
+        "  C a = C(0.25, 0.5, 0.75);\n"
+        "  C b = a;\n"
+        "  b.r = 1.0;\n"
+        "  gl_FragColor = vec4(a.r, b.g, b.b, 1.0);\n"
+        "}\n",
+        "structs/copy", 64, 128, 191);
+
+    /* Nested, so the inner struct's layout is added to the outer one's rather than replacing it. */
+    ok = ok && struct_arm(
+        "struct In { float x; float y; };\n"
+        "struct Out { float lead; In in2; };\n"
+        "void main() {\n"
+        "  Out o = Out(0.25, In(0.5, 0.75));\n"
+        "  gl_FragColor = vec4(o.lead, o.in2.x, o.in2.y, 1.0);\n"
+        "}\n",
+        "structs/nested", 64, 128, 191);
+
+    /* Through a function, by value in and by value out. */
+    ok = ok && struct_arm(
+        "struct C { float r; float g; float b; };\n"
+        "C half_of(C c) { return C(c.r * 0.5, c.g * 0.5, c.b * 0.5); }\n"
+        "void main() {\n"
+        "  C c = half_of(C(0.5, 1.0, 1.5));\n"
+        "  gl_FragColor = vec4(c.r, c.g, c.b, 1.0);\n"
+        "}\n",
+        "structs/function", 64, 128, 191);
+
+    /*
+     * **Built from a varying**, so a generator that got every arm above right only because each
+     * operand folded at compile time fails this one.
+     *
+     * `v` is 0.5 everywhere - the vertex shader writes the same value at every corner, so the
+     * interpolator carries a constant and the region stays uniform, which is what lets this be
+     * censused like the rest. What it is *not* is a compile-time constant: the struct's first
+     * member comes out of an interpolated register.
+     *
+     * The member read back is the varying one, scaled three ways, so a read of the *other*
+     * member - the literal 0.25 beside it - gives a flat grey rather than this ramp.
+     */
+    ok = ok && struct_arm_vs(
+        "attribute vec3 pos;\n"
+        "varying float v;\n"
+        "void main() { v = 0.5; gl_Position = vec4(pos, 1.0); }\n",
+        "varying float v;\n"
+        "struct C { float fromv; float lit; };\n"
+        "void main() {\n"
+        "  C c = C(v, 0.25);\n"
+        "  gl_FragColor = vec4(c.fromv * 0.5, c.fromv, c.fromv * 1.5, 1.0);\n"
+        "}\n",
+        "structs/from-varying", 64, 128, 191);
+
+    return ok;
+}
+
 static int check_local_arrays(void) {
     /* w = 1, 2, 3, 4. The sum is 10, and 10 * 0.1 is 1.0 - a total no single element reaches,
      * so a loop that read one element four times comes out at 0.4 or less. The green channel
@@ -3264,6 +3400,7 @@ static const gl2_probe_case_t g_cases[] = {
     {"discard-in-loop", check_discard_inside_a_loop},
     {"user-functions", check_user_functions},
     {"early-return", check_early_return},
+    {"structs", check_structs},
     {"local-arrays", check_local_arrays},
     {"builtin-math", check_builtin_math},
     {"mod-and-int-divide", check_mod_is_floored},
