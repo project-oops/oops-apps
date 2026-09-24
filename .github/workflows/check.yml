@@ -21,7 +21,26 @@ jobs:
   build:
     name: every app builds
     runs-on: ubuntu-latest
+    # **The pinned compiler, for the same reason `release.yml` carries it.**
+    #
+    # `toolchain.mk` pins the collection to clang 21 and names the two runners that carry the
+    # pin - WSL `oops-builder` and this container. Ubuntu's `clang` package is 18, so from the
+    # day the pin landed this gate stopped at the first app with "the host compiler reports
+    # major 18" and compiled nothing at all: every app's build, every app's self-test and the
+    # whole naming-convention sweep below have been unreached since.
+    #
+    # A gate that cannot start its compiler is not a lenient gate, it is an absent one - and it
+    # is worse than absent, because it still reports. The container is what makes the red mean
+    # something again.
+    container: silkeh/clang:21
     steps:
+      # Before `actions/checkout`, which silently falls back to a REST download without git -
+      # and a download has no submodules, which this build needs.
+      - name: Tools the container does not ship
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq git zip jq ca-certificates lld
+
       - uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/OOPS
@@ -30,10 +49,15 @@ jobs:
         with:
           path: OOPS/oops-apps
 
-      - name: Install clang, lld and zip
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq clang lld zip
+      - name: The compiler this build is pinned to
+        run: clang --version | head -1
+
+      # The vendored dependency trees, as in `release.yml`: `common/upstream.mk` fetches a
+      # *title's* own upstream at parse time and nothing fetched the dependencies', so a title
+      # with vendored dependencies asks make for sources that were never downloaded.
+      - name: The dependency trees this build is pinned to
+        run: ./common/deps-fetch.sh
+        working-directory: OOPS/oops-apps
 
       - name: Siblings this build needs
         run: OOPS/bin/oops bootstrap oops-apps
