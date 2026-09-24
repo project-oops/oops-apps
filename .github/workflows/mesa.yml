@@ -41,8 +41,16 @@ jobs:
         run: OOPS/bin/oops bootstrap oops-mesa obscene
         env:
           OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
-      - name: The Mesa submodule, at the pin oops-mesa records
-        run: git -C OOPS/oops-mesa submodule update --init --depth 1 mesa
+      # Mesa as a **standalone** clone at the pin, not a submodule: oops-mesa applies its patches
+      # with `git apply`, and a submodule checkout's `.git` is a gitlink file pointing into the
+      # superproject's module store - a path that does not exist in this assembled checkout, so
+      # git reports "not a git repository". A plain clone has a real .git and patches apply.
+      - name: The pinned Mesa source, as a standalone tree
+        run: |
+          MESA_PIN=$(sed -n 's/^MESA_PIN *:= *//p' OOPS/oops-mesa/dependencies.mk)
+          rm -rf OOPS/oops-mesa/mesa
+          git clone --filter=blob:none --no-checkout https://gitlab.freedesktop.org/mesa/mesa.git OOPS/oops-mesa/mesa
+          git -C OOPS/oops-mesa/mesa checkout --detach "$MESA_PIN"
 
       - name: Read the pins
         id: pins
