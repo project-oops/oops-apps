@@ -37,8 +37,12 @@ jobs:
           path: OOPS/oops-apps
       # obscene too: the platform-stubs stage reads obSCEne's measured import census
       # (data/hardware/ps5-imports.txt) to answer Mesa's "does this symbol exist" probes.
-      - name: oops-mesa and obscene
-        run: OOPS/bin/oops bootstrap oops-mesa obscene
+      # obscene for the import census; oops-sdk because the mesa titles build on it, and this
+      # workflow now also links them against the archives it produces.
+      - name: oops-mesa, obscene, and the SDK the titles build on
+        run: |
+          OOPS/bin/oops bootstrap oops-mesa obscene oops-sdk
+          (cd OOPS/oops-apps && ./common/deps-fetch.sh) || echo "deps-fetch: some upstreams unavailable, continuing"
         env:
           OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
       # Mesa as a **standalone** clone at the pin, not a submodule: oops-mesa applies its patches
@@ -93,6 +97,38 @@ jobs:
           cat OOPS/oops-mesa/build/link-order.txt 2>/dev/null || echo "(no link-order.txt - the build did not finish)"
           echo "== archives =="
           find OOPS/oops-mesa/build -name '*.a' | sort
+
+      # The sysroot (FreeBSD headers the hosted titles compile against) and the toolchain image
+      # are produced by the Mesa build - but that step is skipped on a cache hit, so ensure both
+      # exist here regardless. Staging the sysroot is cheap; the image is rebuilt only if missing.
+      - name: Ensure the sysroot and toolchain image
+        run: |
+          cd OOPS/oops-mesa
+          OOPS_MESA_FREEBSD_SRC="$GITHUB_WORKSPACE/freebsd-src" bash toolchain/stage-sysroot.sh
+          image=$(sed -n 's/^TOOLCHAIN_IMAGE *:= *//p' dependencies.mk)
+          docker image inspect "$image" >/dev/null 2>&1 || docker build -t "$image" toolchain/
+
+      # Link each mesa title against the archives, in the clang-21 toolchain image. This is the
+      # proof that the build is usable: if these link, the release can package them. Reported per
+      # app, and the job does not fail on a title that does not link yet - that is a title's own
+      # bring-up, not a fault in the Mesa build.
+      - name: Link the mesa titles against the archives
+        run: |
+          image=$(sed -n 's/^TOOLCHAIN_IMAGE *:= *//p' OOPS/oops-mesa/dependencies.mk)
+          ok=""; bad=""
+          for app in mesa-cube mesa-dri-probe mesa-winsys-probe gl-cts mesa-demos; do
+            rel=$(cd OOPS/oops-apps && find src -maxdepth 3 -name Makefile -path "*/$app/Makefile" -exec dirname {} \;)
+            echo "::group::$app ($rel)"
+            if docker run --rm -v "$GITHUB_WORKSPACE:/w" -w /w "$image" \
+                 bash -c "make -C 'OOPS/oops-apps/$rel' elf"; then
+              ok="$ok $app"
+            else
+              bad="$bad $app"
+            fi
+            echo "::endgroup::"
+          done
+          echo "linked:$ok"
+          echo "did not link:$bad"
 
       - uses: actions/upload-artifact@v4
         with:
