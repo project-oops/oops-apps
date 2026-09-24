@@ -116,11 +116,27 @@ else
 OOPS_CXX_EH_FLAGS := -fno-exceptions -fno-rtti
 endif
 
+# **libc++ before the C library, which is not a preference but libc++'s requirement.**
+#
+# libc++ ships its own `<errno.h>`, `<wchar.h>`, `<stdio.h>` and the rest: each defines a marker
+# macro, pulls the C library's header in behind it with `#include_next`, and then `<cerrno>` and
+# friends check that marker. Search the C library first and libc++'s wrapper is never reached,
+# the marker is never defined, and the header stops the build itself - "tried including <errno.h>
+# but didn't find libc++'s <errno.h> header ... your header search paths are not configured
+# properly", which is an accurate description of what this line used to do.
+#
+# It was invisible while `include/libc/errno.h` was a partial table, because a C++ title reaching
+# `<system_error>` failed earlier and louder on the forty-two socket errnos that table was
+# missing. Completing the table moved the failure here rather than causing it.
+#
+# `$(OOPS_SDK_INCLUDE)` stays in front: it carries the SDK's own `oops/...` headers, which share
+# no names with the standard library and so cannot shadow it.
 OOPS_CXX_FLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                  -nostdinc++ $(OOPS_CXX_EH_FLAGS) -fPIC -fno-stack-protector \
                  -std=$(OOPS_CXX_STD) -O2 -w \
-                 $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) \
-                 $(OOPS_CXX_INCLUDE) $(EXTRA_TARGET_CFLAGS)
+                 $(OOPS_SDK_INCLUDE) \
+                 $(OOPS_CXX_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) \
+                 $(EXTRA_TARGET_CFLAGS)
 
 # `--whole-archive`, for the reason `oops-sdl.mk` gives: `app.mk` puts LDFLAGS before the sources
 # on the link line, and a static archive seen before the objects that need it contributes nothing.
