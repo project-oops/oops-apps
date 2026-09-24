@@ -29,9 +29,12 @@ EXTRA_TARGET_CFLAGS += -I$(OOPS_MESA)/tools/preamble-dump
 # without the next two does not resolve. gl-replay and seashell already list the trio; this did
 # not, and the gate could not say so while it was stopping on the wrong clang. `oops_mem_alloc`
 # stays the self-test's own, below: heap.c is the allocator, that is the direct memory under it.
+# `gl_glu.c` is linked here as well as in PAYLOAD_SRCS below: the self-test projects with
+# `gluPerspective`, and GLU is a separate library from GL that `$(OOPS_GL_SRCS)` does not carry.
 HOST_TEST_SRCS = gl1_cube_selftest.c \
                  $(OOPS_APPS_ROOT)/common/obj_loader.c \
                  $(OOPS_GL_SRCS) \
+                 $(OOPS_SDK_DIR)/src/gl/gl_glu.c \
                  $(OOPS_SDK_DIR)/src/system/system.c \
                  $(OOPS_SDK_DIR)/src/system/fs.c \
                  $(OOPS_SDK_DIR)/src/memory/heap.c \
@@ -44,6 +47,7 @@ PAYLOAD_SRCS = gl1_cube_main.c \
                $(OOPS_APPS_ROOT)/common/cube_hud.c \
                $(OOPS_SDK_DIR)/src/hud/hud.c \
                $(OOPS_SDK_DIR)/src/display.c \
+               $(OOPS_SDK_DIR)/src/gl/gl_glu.c \
                $(OOPS_SDK_DIR)/src/agc/agc_display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
                $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
