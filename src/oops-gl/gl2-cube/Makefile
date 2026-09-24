@@ -29,9 +29,13 @@ EXTRA_TARGET_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 # end and interpreter need the context, the rasteriser and the texture code behind them. The
 # self-test supplies its own display and allocator, since the SDK's are direct memory and have
 # nothing to talk to on a build machine.
+# system.c, fs.c and heap.c travel together: the disk sink reaches fs.c, fs.c reaches the
+# allocator.
 HOST_TEST_SRCS = gl2_cube_selftest.c \
                  $(OOPS_GL_SRCS) \
                  $(OOPS_SDK_DIR)/src/system/system.c \
+                 $(OOPS_SDK_DIR)/src/system/fs.c \
+                 $(OOPS_SDK_DIR)/src/memory/heap.c \
                  $(OOPS_SDK_DIR)/src/system/freestd.c
 HOST_TEST_LIBS = -lm
 

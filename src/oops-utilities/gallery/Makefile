@@ -10,9 +10,13 @@
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
 # Host test sources
+# system.c, fs.c and heap.c travel together: the disk sink reaches fs.c, fs.c reaches the
+# allocator.
 HOST_TEST_SRCS = gallery_selftest.c gallery.c \
                  $(OOPS_SDK_DIR)/src/draw/draw.c \
                  $(OOPS_SDK_DIR)/src/system/system.c \
+                 $(OOPS_SDK_DIR)/src/system/fs.c \
+                 $(OOPS_SDK_DIR)/src/memory/heap.c \
                  $(OOPS_SDK_DIR)/src/system/freestd.c
 
 # Target payload sources

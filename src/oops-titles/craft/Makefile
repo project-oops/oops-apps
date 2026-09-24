@@ -134,9 +134,13 @@ CRAFT_PAYLOAD_SRCS := $(CRAFT_SHIM_SRCS) $(CRAFT_UPSTREAM_SRCS) $(CRAFT_DEP_SRCS
 # cost against the four limits that can refuse one, so a shader creeping towards a limit is
 # visible before it crosses it.
 # ---------------------------------------------------------------------------
+# system.c, fs.c and heap.c travel together: the disk sink reaches fs.c, fs.c reaches the
+# allocator.
 HOST_TEST_SRCS = tools/shadercheck.c \
                  $(OOPS_GL_SRCS) \
                  $(OOPS_SDK_DIR)/src/system/system.c \
+                 $(OOPS_SDK_DIR)/src/system/fs.c \
+                 $(OOPS_SDK_DIR)/src/memory/heap.c \
                  $(OOPS_SDK_DIR)/src/system/freestd.c
 HOST_TEST_LIBS = -lm
 
