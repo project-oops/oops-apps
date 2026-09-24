@@ -151,8 +151,17 @@ static void check_pair(const char *dir, const char *name) {
     static uint32_t words[OOPS_GL_PS_GL2_WORDS];
     uint32_t count = 0u, vgprs = 0u;
     char log[512] = {0};
-    if (!gl_program_compile_fragment(p, words, OOPS_GL_PS_GL2_WORDS, &count, &vgprs, log,
-                                     sizeof(log))) {
+    /* **Null for the user-SGPR count and the input-enable mask.** Both describe how a draw
+       configures the pixel stage rather than how much of a budget the shader spent, so neither
+       is one of the four limits above - the four that can refuse a shader, which is the whole
+       of what this tool reports. Asking for them and dropping them would suggest they were
+       measured.
+
+       Null is supported here rather than merely survived: `gl_program_compile_fragment` guards
+       every write to all four of its outputs, in the prologue (glsl_ps.c:213-218) and again on
+       the success path (:765-771). */
+    if (!gl_program_compile_fragment(p, words, OOPS_GL_PS_GL2_WORDS, &count, &vgprs,
+                                     (uint32_t *)0, (uint32_t *)0, log, sizeof(log))) {
         printf("  %-8s FAIL  no console code: %s\n", name, log);
         g_failures++;
         return;
