@@ -92,6 +92,21 @@ OOPS_LIBCXXABI_LDFLAGS := -Wl,--whole-archive $(OOPS_LIBCXXABI_LIB) -Wl,--no-who
 # `<cstdlib> tried including <stdlib.h>`, which names neither the cause nor the fix.
 #
 # `-fexceptions -frtti`, obviously: this is the library that implements both.
+# **`include/` is `-I` and not `-isystem`, in both halves, and the order is the whole reason.**
+#
+# clang searches every `-I` directory before any `-isystem` one, whatever order they were written
+# in. So `-isystem $(OOPS_LIBCXX_DIR)/include` sat *behind* `-I$(OOPS_LIBCXX_UPSTREAM)/libcxx/
+# include` on the search path, and our copy of a header upstream also ships could never win.
+#
+# That was harmless while the only headers in `include/` were ones upstream has no version of.
+# Moving `__locale_dir/support/freebsd.h` there - so both configurations get the backend that
+# answers what the *target* exports rather than what the sysroot carries - made it a real
+# collision: libc++abi found upstream's `freebsd.h`, which includes `bsd_like.h`, which includes
+# `<xlocale.h>`, which does not exist here. `cxa_demangle.cpp` stopped on it.
+#
+# `oops-libcxx.mk` never had the bug because it writes all of these as `-I`, ours first. This is
+# that, applied to the half that builds libc++abi. Nothing is lost by dropping `-isystem`: it
+# suppresses warnings in those headers, and `-w` is already on.
 ifeq ($(OOPS_LIBCXX_HOSTED),1)
 # The hosted half. `--sysroot` in place of `-nostdlibinc` plus oops-sdk's libc, no
 # `include/freestanding` because the sysroot has the real headers, and `_POSIX_C_SOURCE` for the
@@ -100,7 +115,7 @@ OOPS_LIBCXXABI_FLAGS = -target x86_64-unknown-freebsd --sysroot=$(OOPS_MESA_SYSR
                        -D_POSIX_C_SOURCE=200809L \
                        -fPIC -fno-stack-protector -O2 -w -std=c++20 \
                        -fexceptions -frtti \
-                       -isystem $(OOPS_LIBCXX_DIR)/include \
+                       -I$(OOPS_LIBCXX_DIR)/include \
                        -I$(OOPS_SDK_DIR)/include \
                        -nostdinc++ \
                        -I$(OOPS_LIBCXX_UPSTREAM)/libcxx/include \
@@ -114,7 +129,7 @@ else
 OOPS_LIBCXXABI_FLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                        -nostdlibinc -fPIC -fno-stack-protector -O2 -w -std=c++20 \
                        -fexceptions -frtti \
-                       -isystem $(OOPS_LIBCXX_DIR)/include \
+                       -I$(OOPS_LIBCXX_DIR)/include \
                        -I$(OOPS_LIBCXX_DIR)/include/freestanding \
                        -isystem $(OOPS_SDK_DIR)/include/libc \
                        -I$(OOPS_SDK_DIR)/include \
