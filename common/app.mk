@@ -674,8 +674,16 @@ title: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	            $(MKMODULE_BIN) mkself "$$LIB_IN" --generation 4 --privilege app --out "$$PRX_OUT"; \
 	        fi; \
 	    fi; \
-	    ZIP_CMD=$$(command -v zip >/dev/null 2>&1 && echo "zip -qr" || echo "tar -a -cf"); \
-	    ( cd $(BUILD)/title && $$ZIP_CMD $(CURDIR)/$(TITLE_ZIP_ARTIFACT) $(TITLE_ID) ); \
+	    ZIP_OUT="$(CURDIR)/$(TITLE_ZIP_ARTIFACT)"; rm -f "$$ZIP_OUT"; \
+	    if command -v zip >/dev/null 2>&1; then \
+	        ( cd $(BUILD)/title && zip -qr "$$ZIP_OUT" $(TITLE_ID) ); \
+	    elif command -v python3 >/dev/null 2>&1; then \
+	        ( cd $(BUILD)/title && python3 -m zipfile -c "$$ZIP_OUT" $(TITLE_ID) ); \
+	    elif tar --version 2>/dev/null | grep -qiE 'bsdtar|libarchive'; then \
+	        ( cd $(BUILD)/title && tar -a -cf "$$ZIP_OUT" $(TITLE_ID) ); \
+	    else \
+	        echo "$(APP_NAME): cannot package title - GNU tar would write a tar named .zip; install 'zip' or 'python3' (or bsdtar)" >&2; exit 1; \
+	    fi; \
 	    echo "$(APP_NAME): created $(TITLE_ZIP_ARTIFACT)"; \
 	else \
 	    echo "selfish not found at $(SELFISH) - build it with cargo build -p selfish-cli"; \
