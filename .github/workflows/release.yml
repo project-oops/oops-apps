@@ -32,6 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       apps: ${{ steps.list.outputs.apps }}
+      mesa_apps: ${{ steps.list.outputs.mesa_apps }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,11 +46,23 @@ jobs:
         env:
           # Empty unless the org secret exists, and empty is the old behaviour.
           OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
+      # Two lists, not one. A title that renders through Mesa (`OOPS_RENDERER = mesa`) needs the
+      # whole oops-mesa build to link, which is a separate, heavy job - so those are split out to
+      # `build-mesa` and the plain matrix never tries (and fails) to build them.
       - id: list
         run: |
-          apps=$(./bin/oops-apps list | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          is_mesa() { grep -qE 'OOPS_RENDERER[[:space:]]*[:?]?=[[:space:]]*mesa|USE_MESA[[:space:]]*[:?]?=[[:space:]]*1' "$1/Makefile" "$1/app.env" 2>/dev/null; }
+          plain=(); mesa=()
+          for a in $(./bin/oops-apps list); do
+            d=$(find src -maxdepth 3 -name Makefile -path "*/$a/Makefile" -exec dirname {} \;)
+            if is_mesa "$d"; then mesa+=("$a"); else plain+=("$a"); fi
+          done
+          apps=$(printf '%s\n' "${plain[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          mesa_apps=$(printf '%s\n' "${mesa[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
           echo "apps=$apps" >> "$GITHUB_OUTPUT"
-          echo "discovered: $apps"
+          echo "mesa_apps=$mesa_apps" >> "$GITHUB_OUTPUT"
+          echo "plain: $apps"
+          echo "mesa:  $mesa_apps"
         working-directory: OOPS/oops-apps
 
   # Build the Rust packaging tools once and share them with every matrix cell. Without selfish
@@ -190,11 +203,141 @@ jobs:
           path: OOPS/oops-apps/staging/*
           if-no-files-found: ignore
 
+  # Build upstream Mesa for the target once, and cache it. This job only primes the cache; the
+  # per-title cells below restore it, so a fresh cache builds Mesa once here rather than five
+  # times in parallel. The cache is keyed on the pins and oops-mesa's own toolchain, so it
+  # rebuilds only when one of those changes. See mesa.yml for the standalone bring-up of this.
+  mesa:
+    name: build oops-mesa
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Tools this job needs
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq git ca-certificates
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/OOPS
+          path: OOPS
+      - uses: actions/checkout@v4
+        with:
+          path: OOPS/oops-apps
+      - name: oops-mesa and obscene
+        run: OOPS/bin/oops bootstrap oops-mesa obscene
+        env:
+          OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
+      - name: The pinned Mesa source, as a standalone tree
+        run: |
+          MESA_PIN=$(sed -n 's/^MESA_PIN *:= *//p' OOPS/oops-mesa/dependencies.mk)
+          rm -rf OOPS/oops-mesa/mesa
+          git clone --filter=blob:none --no-checkout https://gitlab.freedesktop.org/mesa/mesa.git OOPS/oops-mesa/mesa
+          git -C OOPS/oops-mesa/mesa checkout --detach "$MESA_PIN"
+      - id: pins
+        run: echo "fbsd=$(sed -n 's/^SYSROOT_PIN *:= *//p' OOPS/oops-mesa/dependencies.mk)" >> "$GITHUB_OUTPUT"
+      - name: Cache the FreeBSD source
+        id: cache-fbsd
+        uses: actions/cache@v4
+        with:
+          path: freebsd-src
+          key: freebsd-src-${{ steps.pins.outputs.fbsd }}
+      - name: FreeBSD source at the pin
+        if: steps.cache-fbsd.outputs.cache-hit != 'true'
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/freebsd/freebsd-src.git freebsd-src
+          git -C freebsd-src checkout --detach "${{ steps.pins.outputs.fbsd }}"
+      - name: Cache the Mesa build
+        id: cache-mesa
+        uses: actions/cache@v4
+        with:
+          path: |
+            OOPS/oops-mesa/build
+            OOPS/oops-mesa/toolchain/sysroot
+          key: oops-mesa-build-v3-${{ hashFiles('OOPS/oops-mesa/dependencies.mk', 'OOPS/oops-mesa/toolchain/**', 'OOPS/oops-mesa/patches/**', 'OOPS/oops-mesa/oops-mesa.mk') }}
+      - name: Build Mesa
+        if: steps.cache-mesa.outputs.cache-hit != 'true'
+        run: |
+          cd OOPS/oops-mesa
+          OOPS_MESA_FREEBSD_SRC="$GITHUB_WORKSPACE/freebsd-src" ./bin/oops-mesa build
+
+  # One cell per mesa title. Each restores the cached Mesa build (primed by `mesa`), clones the
+  # Mesa headers, places the packaging tools, and packages the title inside the clang-21 toolchain
+  # image - the same route that linked all five in mesa.yml. `fail-fast: false`, so a title that
+  # does not build yet does not pull the others down, and `release` publishes whatever staged.
+  build-mesa:
+    name: "mesa title: ${{ matrix.app }}"
+    needs: [discover, tools, mesa]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.discover.outputs.mesa_apps) }}
+    steps:
+      - name: Tools this job needs
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq git curl build-essential ca-certificates zip jq lld
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/OOPS
+          path: OOPS
+      - uses: actions/checkout@v4
+        with:
+          path: OOPS/oops-apps
+      - name: oops-mesa, obscene, the SDK, and app deps
+        run: |
+          OOPS/bin/oops bootstrap oops-mesa obscene oops-sdk
+          (cd OOPS/oops-apps && ./common/deps-fetch.sh) || echo "deps-fetch: some upstreams unavailable"
+        env:
+          OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
+      - name: The pinned Mesa source (headers)
+        run: |
+          MESA_PIN=$(sed -n 's/^MESA_PIN *:= *//p' OOPS/oops-mesa/dependencies.mk)
+          rm -rf OOPS/oops-mesa/mesa
+          git clone --filter=blob:none --no-checkout https://gitlab.freedesktop.org/mesa/mesa.git OOPS/oops-mesa/mesa
+          git -C OOPS/oops-mesa/mesa checkout --detach "$MESA_PIN"
+      - name: Restore the Mesa build (primed by the mesa job)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            OOPS/oops-mesa/build
+            OOPS/oops-mesa/toolchain/sysroot
+          key: oops-mesa-build-v3-${{ hashFiles('OOPS/oops-mesa/dependencies.mk', 'OOPS/oops-mesa/toolchain/**', 'OOPS/oops-mesa/patches/**', 'OOPS/oops-mesa/oops-mesa.mk') }}
+          fail-on-cache-miss: true
+      - name: The toolchain image
+        run: |
+          image=$(sed -n 's/^TOOLCHAIN_IMAGE *:= *//p' OOPS/oops-mesa/dependencies.mk)
+          docker image inspect "$image" >/dev/null 2>&1 || docker build -t "$image" OOPS/oops-mesa/toolchain/
+      - name: The packaging tools
+        uses: actions/download-artifact@v4
+        with:
+          name: packaging-tools
+          path: tools-bin
+      - name: Place the packaging tools
+        run: |
+          install -Dm755 tools-bin/selfish OOPS/selfish/target/release/selfish
+          install -Dm755 tools-bin/obscene-tool OOPS/obscene/tool/target/release/obscene-tool
+      - name: Package ${{ matrix.app }}
+        run: |
+          image=$(sed -n 's/^TOOLCHAIN_IMAGE *:= *//p' OOPS/oops-mesa/dependencies.mk)
+          docker run --rm -v "$GITHUB_WORKSPACE:/w" -w /w "$image" \
+            bash -c "cd OOPS/oops-apps && ./bin/oops-apps dist ${{ matrix.app }}"
+          mkdir -p staging
+          for d in OOPS/oops-apps/src/*/${{ matrix.app }}/dist; do
+            [ -d "$d" ] && cp -r "$d"/* staging/ 2>/dev/null || true
+          done
+          ls -l staging || echo "nothing staged for ${{ matrix.app }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ matrix.app }}
+          path: staging/*
+          if-no-files-found: ignore
+
   # Collect every app's staged files and replace the rolling `latest-main` prerelease. Runs
   # only on a push to main (or manual dispatch); a pull request builds the apps but publishes nothing.
   release:
     name: publish latest-main
-    needs: [discover, build]
+    needs: [discover, build, build-mesa]
     # **`always()`, because the matrix already says each app is its own deliverable.**
     #
     # `fail-fast: false` above stops one app's failure from cancelling the others, and then this
