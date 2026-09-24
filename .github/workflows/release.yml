@@ -96,6 +96,15 @@ jobs:
       - name: The compiler this build is pinned to
         run: clang --version | head -1
 
+      # The vendored dependency trees. `common/upstream.mk` fetches a *title's* own upstream at
+      # Makefile-parse time and nothing fetched the dependencies', so a title with vendored
+      # dependencies asked make for a source file that was never downloaded, make said "No rule
+      # to make target", and the app was reported as shipping nothing. Idempotent: a tree
+      # already at its revision costs a stamp comparison.
+      - name: The dependency trees this build is pinned to
+        run: ./common/deps-fetch.sh
+        working-directory: OOPS/oops-apps
+
       - name: Siblings this build needs
         run: OOPS/bin/oops bootstrap oops-apps
         env:
