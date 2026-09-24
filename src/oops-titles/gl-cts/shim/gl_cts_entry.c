@@ -23,6 +23,7 @@
  * lifecycle belongs to the shell, `_exit` raises `SIGSYS`, and returning transfers to zero for
  * want of a caller frame. Every other Mesa title here ends the same way.
  */
+#include <errno.h>
 #include <stddef.h>
 #include <stdio.h>
 
@@ -47,13 +48,65 @@ void gl_cts_start(void);
 
 static char  s_argbuf[CTS_ARG_BYTES];
 static char *s_argv[CTS_MAX_ARGS];
+static char *s_file_argv[CTS_MAX_ARGS];
 
 /*
- * Reads `/app0/cts-args.txt` into `s_argv`, one argument per line, and returns the count.
+ * Is `/app0` still reachable?
+ *
+ * **This is not a debugging leftover, it is the arm for the fault that cost the first run with
+ * test packages in it.** `/app0` is a jail-relative mount, and `oops_fs_storage_path` raises
+ * sandbox-escape privileges to reach `/data` - `oops/fs.h:88` says so plainly. The escape
+ * repoints the process's root:
+ *
+ *     [SANDBOX] repointed fd_rdir, fd_jdir, and fd_cdir to rootvnode (...) for PID 3783
+ *
+ * and from that moment `/app0` names nothing. Everything that reads it afterwards fails, and
+ * none of them say why:
+ *
+ *   - `/app0/cts-args.txt` is reported "not present", which is indistinguishable from a run
+ *     that simply has no argument file. The run-time subset mechanism was silently dead.
+ *   - `--deqp-archive-dir=/app0` sends every test resource lookup to a path that is gone.
+ *   - **oops-mesa opens `/app0/eboot.bin`** to get a real, dup-able descriptor for the GPU
+ *     device (`src/winsys/drm_device.c:718`; it needs a dup-able fd because the Gallium DRI
+ *     frontend dups it). That open returned ENOENT, oops-mesa fell back to the `0x57` token,
+ *     and the token cannot be dupped - so `driCreateNewScreen3` returned NULL and there was
+ *     no GL context at all.
+ *
+ * The visible symptom was three layers away from the cause, in somebody else's project, and
+ * read exactly like a Mesa gap. So the reachability is measured on both sides of the call that
+ * changes it and said out loud, which turns a one-line log into the whole diagnosis.
+ *
+ * `eboot.bin` is the file to test because it is the one file `/app0` is guaranteed to hold -
+ * it is what is executing - and because it is the one oops-mesa itself opens.
+ */
+static int app0_is_reachable(const char *when)
+{
+    FILE *f = fopen("/app0/eboot.bin", "rb");
+
+    if (f == NULL) {
+        oops_log("gl-cts: /app0 is NOT reachable %s (errno %d) - "
+                 "oops-mesa cannot open its device descriptor and there will be no GL context",
+                 when, errno);
+        return 0;
+    }
+
+    fclose(f);
+    oops_log("gl-cts: /app0 reachable %s", when);
+    return 1;
+}
+
+/*
+ * Reads `/app0/cts-args.txt` into `s_file_argv`, one argument per line, and returns the count.
  * Returns 0 if the file is absent, which is not an error - it is the ordinary first run.
  *
  * Blank lines and lines beginning `#` are skipped, so the file can carry a note about why a
  * particular subset was chosen. That note is worth having beside the result.
+ *
+ * **It fills its own array rather than `s_argv` directly, and it is called before anything
+ * touches `/data`.** Both are the same fix: this reads from `/app0`, and the log path is
+ * resolved through a call that makes `/app0` unreachable, so the order is not a preference. It
+ * used to be called second, and the file it could no longer open was reported as an absent
+ * file - the one report that looks exactly like the ordinary case.
  */
 static int read_args_file(int start)
 {
@@ -62,7 +115,7 @@ static int read_args_file(int start)
         return start;
 
     size_t used = 0;
-    int    argc = start; /* argv[0] and the log path are filled by the caller */
+    int    argc = start;
 
     while (argc < CTS_MAX_ARGS) {
         char line[512];
@@ -88,7 +141,7 @@ static int read_args_file(int start)
             dst[i] = line[i];
         used += n + 1u;
 
-        s_argv[argc++] = dst;
+        s_file_argv[argc++] = dst;
     }
 
     fclose(f);
@@ -159,8 +212,29 @@ void gl_cts_start(void)
 
     s_argv[0] = (char *)"glcts";
 
+    /*
+     * **Everything that reads `/app0` happens here, before anything touches `/data`.** The
+     * order is a hard requirement, not a tidiness: `resolve_log_argument()` below raises
+     * sandbox-escape privileges and that makes `/app0` unreachable for the rest of the process.
+     * `app0_is_reachable()` above has the whole account.
+     */
+    const int app0_before = app0_is_reachable("before the log path is resolved");
+    const int n_file_args = read_args_file(0);
+
     const char *log_arg = resolve_log_argument();
-    int         first   = 1;
+
+    /*
+     * The same question again, on the other side of the call that changes the answer. If these
+     * two disagree, the line below is the entire diagnosis of a GL context that will not be
+     * created several layers further down, in another project.
+     */
+    const int app0_after = app0_is_reachable("after the log path is resolved");
+
+    if (app0_before && !app0_after)
+        oops_log("gl-cts: the sandbox escape in oops_fs_storage_path took /app0 with it - "
+                 "resources and the device descriptor are both below it");
+
+    int first = 1;
 
     if (log_arg != NULL)
         s_argv[first++] = (char *)log_arg;
@@ -173,17 +247,23 @@ void gl_cts_start(void)
      * relative to. Unlike the log this one fails late and quietly, in whichever test first opens
      * a resource, as a `tcu::ResourceError` a long way from the cause.
      *
-     * `/app0` is the title's own directory and is readable without the privilege step `/data`
-     * needs - `read_args_file` below opens a file there the same way. The tests name their
-     * resources `gl_cts/data/...`, so `make stage-data` puts the tree at `/app0/gl_cts`.
+     * **Which path depends on whether `/app0` survived.** `make stage-data` puts the tree at
+     * `/app0/gl_cts`, and that is the name to use while the title is still inside its jail. Once
+     * the escape has happened `/app0` is gone and the same bytes are reachable by their real
+     * path - the title directory under `/data/homebrew` - because that is what the loader
+     * mounted as `/app0` in the first place.
      *
-     * Overridable: this is filled before `/app0/cts-args.txt` is read, and dEQP's parser takes
-     * the last occurrence, so a line in that file wins.
+     * Overridable either way: this is filled before the file's own arguments are appended, and
+     * dEQP's parser keeps the last occurrence of an option, so a line in `cts-args.txt` wins.
      */
-    s_argv[first++] = (char *)"--deqp-archive-dir=/app0";
+    s_argv[first++] = app0_after ? (char *)"--deqp-archive-dir=/app0"
+                                 : (char *)"--deqp-archive-dir=/data/homebrew/" OOPS_APP_ID;
 
-    int argc = read_args_file(first);
-    if (argc == first) {
+    int argc = first;
+    for (int i = 0; i < n_file_args && argc < CTS_MAX_ARGS; i++)
+        s_argv[argc++] = s_file_argv[i];
+
+    if (n_file_args == 0) {
         /*
          * No argument file: run `KHR-GL30.info`. Six cases - vendor, renderer, version, shading
          * language version, the extension list and the render target - and they are the smallest
@@ -208,7 +288,7 @@ void gl_cts_start(void)
         s_argv[argc++] = (char *)"--deqp-case=KHR-GL30.info.*";
         oops_log("gl-cts: no /app0/cts-args.txt; running KHR-GL30.info.* (6 cases)");
     } else {
-        oops_log("gl-cts: %d arguments from /app0/cts-args.txt", argc - first);
+        oops_log("gl-cts: %d arguments from /app0/cts-args.txt", n_file_args);
     }
 
     for (int i = 1; i < argc; i++)
