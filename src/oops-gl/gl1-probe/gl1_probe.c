@@ -29,6 +29,9 @@
 #include <GL/gl.h>
 #include <GL/glu.h>
 #include <oops/display.h>
+#ifndef OOPS_HOST_BUILD
+#include <oops/system.h> /* OOPS_LOG_DEBUG, which gl1_probe_run asks the GL layer for */
+#endif
 
 #ifdef OOPS_HOST_BUILD
 #include <string.h>
