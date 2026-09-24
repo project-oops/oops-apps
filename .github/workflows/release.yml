@@ -58,11 +58,30 @@ jobs:
     name: "stage: ${{ matrix.app }}"
     needs: discover
     runs-on: ubuntu-latest
+    # **The pinned compiler, because the runner's own is not it.**
+    #
+    # `toolchain.mk` pins the collection to clang 21 and names the two runners that carry the
+    # pin - WSL `oops-builder` and this container. Ubuntu's `clang` package is 18, so from the
+    # day the pin landed every `make -n dist` here failed, every app was reported as having "no
+    # dist target, nothing to ship yet", and the rolling release quietly stopped moving: its
+    # assets sat at 2026-09-20 for four days while the workflow went green every time. The
+    # publish job had nothing to publish and said so in the only way it could, by changing
+    # nothing.
+    #
+    # An honest "nothing to ship" and a broken toolchain are the same message in this workflow,
+    # which is what made it invisible. The container removes the second one.
+    container: silkeh/clang:21
     strategy:
       fail-fast: false
       matrix:
         app: ${{ fromJSON(needs.discover.outputs.apps) }}
     steps:
+      # Before `actions/checkout`, which silently falls back to a REST download without git -
+      # and a download has no submodules, which this build needs.
+      - name: Tools the container does not ship
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq git zip jq ca-certificates lld
       # The standard OOPS preamble: check out the collection, check this repository out into
       # it, ask bootstrap for the siblings the apps build against (oops-sdk, and selfish for
       # any app that packages). Never set a job-level working-directory.
@@ -74,10 +93,8 @@ jobs:
         with:
           path: OOPS/oops-apps
 
-      - name: Install clang, lld and zip
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq clang lld zip
+      - name: The compiler this build is pinned to
+        run: clang --version | head -1
 
       - name: Siblings this build needs
         run: OOPS/bin/oops bootstrap oops-apps
