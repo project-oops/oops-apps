@@ -1561,6 +1561,136 @@ static int struct_arm(const char *fs_src, const char *name, int r, int g, int b)
     return struct_arm_vs(VS_PASSTHROUGH, fs_src, name, r, g, b);
 }
 
+/* -------------------------------------------------------------------------
+ * Framebuffer objects
+ *
+ * **These arms read the attachment, not the display**, which is the one thing that makes them
+ * different from every other check here. `glReadPixels` follows the bound framebuffer, so the
+ * census box is the same box and `census_wrong` is the same function - the pixels just come from
+ * somewhere else.
+ *
+ * The attachment is `PROBE_W` by `PROBE_H` so that it is, and the census covers its interior as
+ * everywhere else. A colour is read back as bytes and packed, because the scan array this suite
+ * censuses is 0xAARRGGBB words.
+ *
+ * **What a console run is for.** On the software reference these pass or the object layer is
+ * broken. On the console they answer a question no host run can: whether `CB_COLOR0_BASE` can be
+ * pointed at an attachment in Garlic and have the command processor draw into it. The
+ * renderbuffer and texture arms are separate so that one run says which of the two works rather
+ * than that "framebuffer objects" did or did not.
+ * ------------------------------------------------------------------------- */
+
+static uint32_t g_fbo_read[PROBE_W * PROBE_H];
+
+/* The bound framebuffer's colour attachment, in the layout `census_wrong` reads. */
+static const uint32_t *fbo_read_attachment(void) {
+    static uint8_t bytes[PROBE_W * PROBE_H * 4];
+    for (int i = 0; i < PROBE_W * PROBE_H; i++) g_fbo_read[i] = 0u;
+    glReadPixels(0, 0, PROBE_W, PROBE_H, GL_RGBA, GL_UNSIGNED_BYTE, bytes);
+    for (int i = 0; i < PROBE_W * PROBE_H; i++) {
+        g_fbo_read[i] = 0xff000000u | ((uint32_t)bytes[i * 4 + 0] << 16) |
+                        ((uint32_t)bytes[i * 4 + 1] << 8) | (uint32_t)bytes[i * 4 + 2];
+    }
+    return g_fbo_read;
+}
+
+/* One framebuffer-object arm. `use_texture` picks what the colour attachment is; everything
+ * else about the two is the same, which is the point of passing it rather than writing the arm
+ * twice. */
+static int fbo_arm(int use_texture, const char *name, int r, int g, int b) {
+    reset_view();
+
+    GLuint fbo = 0u, rbo = 0u, tex = 0u;
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    if (use_texture) {
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, PROBE_W, PROBE_H, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, (const GLvoid *)0);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+    } else {
+        glGenRenderbuffers(1, &rbo);
+        glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, PROBE_W, PROBE_H);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo);
+    }
+
+    const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        /* **Reported, not silently skipped.** `saw` carries the status so a console run says
+         * which answer it gave rather than only that the arm did not pass. */
+        if (gl2_probe_saw) gl2_probe_saw(name, (uint32_t)status, 0xfb01u, -1, 0u, 0u);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0u);
+        glDeleteFramebuffers(1, &fbo);
+        if (rbo) glDeleteRenderbuffers(1, &rbo);
+        if (tex) glDeleteTextures(1, &tex);
+        return 0;
+    }
+
+    glViewport(0, 0, PROBE_W, PROBE_H);
+    const GLuint p = use_program(VS_PASSTHROUGH,
+                                 "void main() { gl_FragColor = vec4(0.25, 0.5, 0.75, 1.0); }\n");
+    int wrong = -1;
+    uint32_t mid = 0u;
+    if (p) {
+        attrib_rect(glGetAttribLocation(p, "pos"), -1.0f, -1.0f, 1.0f, 1.0f, 0.0f);
+        const uint32_t *const s = fbo_read_attachment();
+        wrong = census_wrong(s, r, g, b, 6);
+        mid = SCAN_PX(s, MID_X, MID_Y);
+    }
+
+    /* **And the display was not drawn into**, which is the half that fails when nothing
+     * redirects: the region still holds what `reset_view` cleared it to. Read after unbinding,
+     * because that is what puts the display back. */
+    glBindFramebuffer(GL_FRAMEBUFFER, 0u);
+    const uint32_t *const disp = scan_frame();
+    const int display_wrong = census_wrong(disp, 0x20, 0x20, 0x20, 6);
+
+    if (gl2_probe_saw) {
+        gl2_probe_saw(name, mid, 0u, wrong,
+                      0xff000000u | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b,
+                      (uint32_t)display_wrong);
+    }
+    glDeleteFramebuffers(1, &fbo);
+    if (rbo) glDeleteRenderbuffers(1, &rbo);
+    if (tex) glDeleteTextures(1, &tex);
+    return wrong == 0 && display_wrong == 0 && glGetError() == GL_NO_ERROR;
+}
+
+static int check_framebuffer_objects(void) {
+    /* The object layer first, because an arm that draws proves nothing about a framebuffer whose
+     * completeness rules never ran. An empty framebuffer is incomplete, and one whose attachment
+     * has no storage is incomplete differently. */
+    GLuint fbo = 0u, rbo = 0u;
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    const GLenum empty = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glGenRenderbuffers(1, &rbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo);
+    const GLenum no_storage = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0u);
+    const GLenum window = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glDeleteFramebuffers(1, &fbo);
+    glDeleteRenderbuffers(1, &rbo);
+
+    const int rules_ok = (empty == GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT) &&
+                         (no_storage == GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT) &&
+                         (window == GL_FRAMEBUFFER_COMPLETE);
+    if (gl2_probe_saw) {
+        gl2_probe_saw("fbo/completeness", (uint32_t)empty, 0u, rules_ok ? 0 : 1,
+                      (uint32_t)no_storage, (uint32_t)window);
+    }
+
+    int ok = rules_ok;
+    ok = fbo_arm(0, "fbo/renderbuffer", 64, 128, 191) && ok;
+    ok = fbo_arm(1, "fbo/texture", 64, 128, 191) && ok;
+    return ok;
+}
+
 static int check_structs(void) {
     /* Construction and a read of each member: 0.25, 0.5, 0.75 into r, g, b. Reversed on the way
      * out, so a member read from its neighbour's register swaps two channels rather than
@@ -3401,6 +3531,7 @@ static const gl2_probe_case_t g_cases[] = {
     {"user-functions", check_user_functions},
     {"early-return", check_early_return},
     {"structs", check_structs},
+    {"framebuffer-objects", check_framebuffer_objects},
     {"local-arrays", check_local_arrays},
     {"builtin-math", check_builtin_math},
     {"mod-and-int-divide", check_mod_is_floored},
