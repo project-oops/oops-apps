@@ -5,7 +5,6 @@
 
 #include "oopsy-daisy.h"
 #include "oops/draw.h"
-#include "oops/freestd.h"
 
 #define BG      0xFF08090Bu
 #define ACCENT  0xFFFFD23Bu   /* daisy yellow */
@@ -31,9 +30,17 @@ int oopsy_install_path(const char *title_id, char *buf, int buf_len) {
     return need;
 }
 
+/* Self-contained string helpers, so the pure parse links in the host test (which does not pull
+ * in the SDK's freestanding C sources) as well as on the target. */
+static unsigned str_len(const char *s) {
+    unsigned n = 0;
+    while (s[n]) n++;
+    return n;
+}
+
 /* Does the byte range [s, s+n) end with `suffix`? */
 static int ends_with(const char *s, unsigned n, const char *suffix) {
-    unsigned sl = (unsigned)obs_strlen(suffix);
+    unsigned sl = (unsigned)str_len(suffix);
     if (n < sl) return 0;
     for (unsigned i = 0; i < sl; i++) {
         if (s[n - sl + i] != suffix[i]) return 0;
@@ -68,7 +75,7 @@ int oopsy_parse_catalog(const char *json, oopsy_catalog_t *cat) {
     if (!json) return 0;
 
     const char *KEY = "\"browser_download_url\"";
-    const unsigned KEYLEN = (unsigned)obs_strlen(KEY);
+    const unsigned KEYLEN = (unsigned)str_len(KEY);
     const char *p = json;
 
     while (cat->count < OOPSY_MAX_ENTRIES) {
