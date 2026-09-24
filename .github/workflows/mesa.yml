@@ -78,12 +78,19 @@ jobs:
 
       # The archives themselves, keyed on everything that determines them: the Mesa/FreeBSD pins
       # and oops-mesa's own toolchain and patches. A hit skips the whole compile.
+      # Cache both halves of a title's link: the Mesa archives under build/, and the support
+      # archives (C++ runtime, libelf, libm, librune, cpu_model, the platform stub) that
+      # build-mesa.sh writes to toolchain/sysroot/usr/lib. Caching build/ alone left the second
+      # set missing on a cache hit, so every title failed the link on `-loopsmesa_cxx` and its
+      # kin. `-v2` retires the build-only cache.
       - name: Cache the Mesa build
         id: cache-mesa
         uses: actions/cache@v4
         with:
-          path: OOPS/oops-mesa/build
-          key: oops-mesa-build-${{ hashFiles('OOPS/oops-mesa/dependencies.mk', 'OOPS/oops-mesa/toolchain/**', 'OOPS/oops-mesa/patches/**', 'OOPS/oops-mesa/oops-mesa.mk') }}
+          path: |
+            OOPS/oops-mesa/build
+            OOPS/oops-mesa/toolchain/sysroot/usr/lib
+          key: oops-mesa-build-v2-${{ hashFiles('OOPS/oops-mesa/dependencies.mk', 'OOPS/oops-mesa/toolchain/**', 'OOPS/oops-mesa/patches/**', 'OOPS/oops-mesa/oops-mesa.mk') }}
 
       - name: Build Mesa
         if: steps.cache-mesa.outputs.cache-hit != 'true'
