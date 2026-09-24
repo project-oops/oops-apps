@@ -447,7 +447,48 @@ $(BUILD):
 # are the *same files* compiled under a different compiler and a different set of flags - one
 # freestanding for the console, one hosted for this machine. Sharing a directory would mean
 # whichever built last decided what the other linked.
+# **A shared source the self-test links and the payload does not.**
+#
+# The two lists are allowed to differ, and mostly do: the payload has `display.c`, the AGC path
+# and the syscall layer, which a host test replaces with its own harness. The asymmetry that is
+# always a mistake runs the other way - a source out of `oops-sdk` or `common/` that the *host*
+# test links and the payload does not - because then the host resolves a symbol the payload
+# cannot, and the two builds disagree about what the program is made of.
+#
+# **That failure is quiet in the worst way.** It happened twice on 2026-09-24, to `gl1-probe` and
+# `gl1-cube`: `gl_glu.c` was added to `HOST_TEST_SRCS` and not to `PAYLOAD_SRCS`, so `make check`
+# linked GLU and passed every check while the payload link failed on an undefined `gluPickMatrix`
+# and `gluPerspective`. An app that passes its own test suite and cannot be built is the shape of
+# thing a person stops looking at.
+#
+# The undefined-symbol gate below does catch it, but only at the payload link - which is `make
+# title`, after the point at which a change looks finished. This catches it while the makefile is
+# being read, so `make`, `make check` and an editor's build all stop at the same place and name
+# the file.
+#
+# Measured before it was turned on: every app in the collection that builds both a self-test and
+# a payload was already symmetric under this rule, so it costs nothing today and only ever fires
+# on the mistake. `$(abspath)` because the two lists may spell the same file differently -
+# `$(OOPS_SDK_DIR)` against `$(OOPS_SDK)` - and a textual compare would call those two files.
+#
+# A deliberate exception - a host source with no payload counterpart, a mock the harness needs -
+# goes in `OOPS_HOST_ONLY_SRCS_OK` in the app's own Makefile, which keeps the decision beside the
+# thing it is about.
 ifneq ($(strip $(HOST_TEST_SRCS)),)
+ifneq ($(strip $(PAYLOAD_SRCS)),)
+OOPS_SHARED_PREFIXES := $(OOPS_SDK_DIR)/% $(OOPS_APPS_ROOT)/common/%
+OOPS_HOST_SHARED := $(filter $(OOPS_SHARED_PREFIXES),$(abspath $(HOST_TEST_SRCS)))
+OOPS_PAY_SHARED  := $(filter $(OOPS_SHARED_PREFIXES),$(abspath $(PAYLOAD_SRCS)))
+OOPS_HOST_ONLY   := $(filter-out $(OOPS_PAY_SHARED) $(abspath $(OOPS_HOST_ONLY_SRCS_OK)),$(OOPS_HOST_SHARED))
+ifneq ($(strip $(OOPS_HOST_ONLY)),)
+$(info $(APP_NAME): these shared sources are in HOST_TEST_SRCS and not in PAYLOAD_SRCS:)
+$(foreach s,$(OOPS_HOST_ONLY),$(info     $(s)))
+$(info   The self-test would link them and the payload would not, so `make check` can pass while)
+$(info   `make title` fails on an undefined symbol. Add them to PAYLOAD_SRCS, or name them in)
+$(info   OOPS_HOST_ONLY_SRCS_OK if the host really is meant to have something the payload lacks.)
+$(error $(APP_NAME): host and payload disagree about $(words $(OOPS_HOST_ONLY)) shared source(s))
+endif
+endif
 OOPS_HOST_OBJS := $(call oops_objs,$(BUILD)/hostobj,$(HOST_TEST_SRCS))
 -include $(OOPS_HOST_OBJS:.o=.d)
 $(call oops_obj_rules,$(BUILD)/hostobj,CC,CFLAGS,$(HOST_TEST_SRCS))
@@ -627,6 +668,14 @@ eboot: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	fi
 
 # Package target ELF into a native PS5 title directory (.zip) via selfish
+#
+# **The zip at the end is probed by running python3, not by finding it.** Windows installs an App
+# Execution Alias at `WindowsApps/python3` whether or not Python is installed: `command -v python3`
+# finds it, and running it prints "Python was not found; run without arguments to install from the
+# Microsoft Store" and exits 49. That made the `elif` take a branch that cannot work *and* skip the
+# GNU-tar guard below it, so a title packaged from Git Bash on this machine got no archive at all
+# and the "created" line printed anyway. `python3 -c 'import zipfile'` asks the question the branch
+# actually depends on, so the stub falls through to the guard and the guard says to install `zip`.
 title: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	@mkdir -p $(DIST) $(BUILD)/title
 	@if [ -n "$(SELFISH_BIN)" ]; then \
@@ -677,7 +726,7 @@ title: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	    ZIP_OUT="$(CURDIR)/$(TITLE_ZIP_ARTIFACT)"; rm -f "$$ZIP_OUT"; \
 	    if command -v zip >/dev/null 2>&1; then \
 	        ( cd $(BUILD)/title && zip -qr "$$ZIP_OUT" $(TITLE_ID) ); \
-	    elif command -v python3 >/dev/null 2>&1; then \
+	    elif python3 -c 'import zipfile' >/dev/null 2>&1; then \
 	        ( cd $(BUILD)/title && python3 -m zipfile -c "$$ZIP_OUT" $(TITLE_ID) ); \
 	    elif tar --version 2>/dev/null | grep -qiE 'bsdtar|libarchive'; then \
 	        ( cd $(BUILD)/title && tar -a -cf "$$ZIP_OUT" $(TITLE_ID) ); \
