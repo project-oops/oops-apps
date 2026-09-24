@@ -90,6 +90,37 @@ ifdef OOPS_RENDERER
     endif
 endif
 
+# **OOPS_FEATURES: declare a capability, not the SDK sources behind it.** A title lists the
+# subsystems it uses - `OOPS_FEATURES = keyboard net http` - and the build pulls each one's SDK
+# sources (and, later, its symbol claims) for it, instead of the app hand-listing
+# `$(OOPS_SDK_DIR)/src/...` files and having to know which `libSce*` each imports. It is the
+# general form of the `OOPS_RENDERER` switch above, and it is what an app *should* use: intent,
+# not implementation, so the SDK can refactor a subsystem's files without every app's link
+# breaking one at a time (which is exactly what happened to the GL sources - see OOPS_GL_SRCS).
+#
+# **The mapping is the SDK's.** The per-feature groups (`OOPS_FEATURE_<name>_SRCS` / `_SYMS`) and
+# the roster (`OOPS_FEATURES_AVAILABLE`) are defined by the SDK in `oops-sdk.mk`, because it owns
+# the sources and knows their imports; this is only the consumer.
+#
+# **Inert until that table ships.** With no `OOPS_FEATURES_AVAILABLE` in scope, an `OOPS_FEATURES`
+# line warns and is ignored rather than breaking the build, so this half can land ahead of the
+# SDK half. Once the table exists, an unknown feature name is a hard error. Every existing app
+# sets no `OOPS_FEATURES`, so for them this whole block is a no-op today; migrating them onto it
+# (deleting their hand-listed SDK sources) is the follow-up once the SDK side is in.
+ifdef OOPS_FEATURES
+    ifdef OOPS_FEATURES_AVAILABLE
+        $(foreach f,$(OOPS_FEATURES),\
+            $(if $(filter $(f),$(OOPS_FEATURES_AVAILABLE)),,\
+                $(error OOPS_FEATURES: '$(f)' is not a known feature; the SDK offers: $(OOPS_FEATURES_AVAILABLE))))
+        PAYLOAD_SRCS += $(foreach f,$(OOPS_FEATURES),$(OOPS_FEATURE_$(f)_SRCS))
+        # Collected for packaging: folded into mkmodule's import claims once the SDK ships
+        # per-feature symbol fragments. Until then mkmodule uses the flat common/symbols.txt.
+        OOPS_FEATURE_SYMS += $(foreach f,$(OOPS_FEATURES),$(OOPS_FEATURE_$(f)_SYMS))
+    else
+        $(warning OOPS_FEATURES is set ($(OOPS_FEATURES)) but the SDK feature table (OOPS_FEATURES_AVAILABLE) is not available yet - ignoring it for now)
+    endif
+endif
+
 # **A title whose source is somebody else's** (`src/oops-titles/`), fetched rather than
 # committed. `common/upstream.mk` is the whole of it, and it says why it is its own file: a
 # title that names files under `upstream/` while its own Makefile is being read has to be able
