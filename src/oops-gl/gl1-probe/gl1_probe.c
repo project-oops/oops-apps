@@ -2514,6 +2514,95 @@ static int check_combine(void) {
            near_rgb(px(PROBE_W * 3 / 4, PROBE_H / 2), 255, 255, 255, 16);
 }
 
+/*
+ * **Sixteen textures live in one frame, each drawn once** - the one condition every other check
+ * here avoids and the one a real port meets immediately.
+ *
+ * Every texture arm in this suite binds one texture, or two, and draws a handful of times. A
+ * fault that needs *many* textures resident in a single submit is invisible to all of them, and
+ * that is not a hypothetical: Neverball uses about fourteen textures a frame and renders its
+ * floor with another object's image while 118 checks pass on the same hardware. Its descriptors,
+ * slots, addresses, dimensions, pitches, formats, wrap modes and filters have all been read back
+ * off the console and are all correct. What has never been tested is the count.
+ *
+ * So this tests the count and as little else as possible. Each texture is a **flat colour**, so
+ * the answer cannot depend on filtering, minification, mip selection or texture coordinates -
+ * every texel of texture `i` is the same, and any sample of it is `i`'s colour or it is not.
+ * `GL_REPLACE` keeps the fragment colour out of it. Sixteen quads in a four-by-four grid, one
+ * draw each, one frame.
+ *
+ * The red channel alone identifies a texture - `8 + 16 * i`, sixteen apart - so a quad wearing
+ * the wrong image names *which* image it took, rather than merely failing. That is the difference
+ * between this reproducing the port's fault and this just going red.
+ *
+ * 128x128 rather than 2x2 like the rest of the suite: a texture of a few bytes shares no
+ * allocation boundary with anything, and "reads past its own storage into the next texture" is
+ * one of the shapes this is looking for.
+ */
+#define PROBE_MANY_TEX 16
+
+static int check_many_textures(void) {
+    reset_view();
+    GLuint t[PROBE_MANY_TEX];
+    for (int i = 0; i < PROBE_MANY_TEX; i++) t[i] = 0;
+    glGenTextures(PROBE_MANY_TEX, t);
+
+    /* Flat colours, sixteen apart in red so one channel names the texture. */
+    static GLubyte texel[128 * 128 * 3];
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    for (int i = 0; i < PROBE_MANY_TEX; i++) {
+        const GLubyte r = (GLubyte)(8 + 16 * i);
+        const GLubyte g = (GLubyte)(248 - 16 * i);
+        const GLubyte b = (GLubyte)128;
+        for (int p = 0; p < 128 * 128; p++) {
+            texel[p * 3 + 0] = r;
+            texel[p * 3 + 1] = g;
+            texel[p * 3 + 2] = b;
+        }
+        glBindTexture(GL_TEXTURE_2D, t[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 128, 128, 0, GL_RGB, GL_UNSIGNED_BYTE, texel);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    }
+
+    glEnable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glColor3f(1.0f, 1.0f, 1.0f);
+
+    /* All sixteen in one frame, each its own draw, in the order they were made. */
+    for (int i = 0; i < PROBE_MANY_TEX; i++) {
+        const float x0 = -0.9f + 0.45f * (float)(i % 4);
+        const float y0 = -0.9f + 0.45f * (float)(i / 4);
+        const float x1 = x0 + 0.42f, y1 = y0 + 0.42f;
+        glBindTexture(GL_TEXTURE_2D, t[i]);
+        glBegin(GL_QUADS);
+        glTexCoord2f(0.0f, 0.0f); glVertex3f(x0, y0, 0.0f);
+        glTexCoord2f(1.0f, 0.0f); glVertex3f(x1, y0, 0.0f);
+        glTexCoord2f(1.0f, 1.0f); glVertex3f(x1, y1, 0.0f);
+        glTexCoord2f(0.0f, 1.0f); glVertex3f(x0, y1, 0.0f);
+        glEnd();
+    }
+    glDisable(GL_TEXTURE_2D);
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    if (glGetError() != GL_NO_ERROR) { glDeleteTextures(PROBE_MANY_TEX, t); return 0; }
+
+    int ok = 1;
+    for (int i = 0; i < PROBE_MANY_TEX; i++) {
+        const float x0 = -0.9f + 0.45f * (float)(i % 4);
+        const float y0 = -0.9f + 0.45f * (float)(i / 4);
+        const float cx = x0 + 0.21f, cy = y0 + 0.21f;
+        const int pxx = (int)(((cx + 1.0f) * 0.5f) * (float)PROBE_W);
+        /* **Rows run top-down**, so a y that is up in clip space is down in the readback. */
+        const int pxy = (int)((1.0f - (cy + 1.0f) * 0.5f) * (float)PROBE_H);
+        const uint32_t got = px(pxx, pxy);
+        const int want_r = 8 + 16 * i;
+        const int d = chan_r(got) - want_r;
+        if (d > 6 || d < -6) ok = 0;
+    }
+    glDeleteTextures(PROBE_MANY_TEX, t);
+    return ok;
+}
+
 /* GL_BLEND and GL_DECAL of an RGBA texture - GL 1.0's two texture functions the console's four
  * combine words could not hold, and which modulated there until 2026-09-19.
  *
@@ -5534,6 +5623,7 @@ static const gl1_probe_case_t g_cases[] = {
     {"lod-params",       check_lod_params},
     {"cube-map",         check_cube_map},
     {"combine",          check_combine},
+    {"many-textures",    check_many_textures},
     {"tex-env-blend-decal", check_tex_env_blend_decal},
     {"smooth",           check_smooth},
     {"array-types",      check_array_types},
