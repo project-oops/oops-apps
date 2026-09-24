@@ -121,7 +121,7 @@ CTS_C_EXTRA := -include malloc_np.h
 # The platform layer and the generated loader table. `shim/gl_loader_table.cpp` is produced by
 # `tools/gen-gl-loader.py` from Mesa's own archive, so it is generated at build time rather than
 # committed - see the rule below.
-CTS_SHIM_CXX := shim/tcuOopsPlatform.cpp shim/gl_loader_table.cpp
+CTS_SHIM_CXX := shim/tcuOopsPlatform.cpp shim/gl_loader_table.cpp shim/gl_cts_gaps.cpp
 
 # # Upstream's C builds into an archive, under upstream's flags
 #

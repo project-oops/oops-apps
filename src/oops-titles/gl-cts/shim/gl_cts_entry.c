@@ -29,7 +29,13 @@
 #include "oops/system.h"
 #include "oops/time.h"
 
-int main(int argc, char **argv);
+/*
+ * Not `main`. Under `-ffreestanding` - which `common/cxx.mk` uses - C++ stops special-casing
+ * `int main(int, char **)`, so upstream's is in the archive as `_Z4mainiPPc` and this C file
+ * cannot name it. `shim/tcuOopsPlatform.cpp` is compiled as C++ beside it and exports this
+ * wrapper, which can.
+ */
+int oops_cts_run_main(int argc, char **argv);
 
 void gl_cts_start(void);
 
@@ -115,7 +121,7 @@ void gl_cts_start(void)
     for (int i = 1; i < argc; i++)
         oops_log("gl-cts:   argv[%d] = %s", i, s_argv[i]);
 
-    const int rc = main(argc, s_argv);
+    const int rc = oops_cts_run_main(argc, s_argv);
 
     oops_log("gl-cts: dEQP returned %d", rc);
     oops_log("gl-cts: done");

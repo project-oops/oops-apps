@@ -28,42 +28,58 @@
  * second locale would be a feature with no source of truth behind it. libc++'s own Fuchsia
  * backend assumes exactly this, which is why `__locale_dir/support/freebsd.h` redirects to it.
  *
- * # Freestanding only
+ * # Both configurations, unlike `rune_table.c` beside it
  *
- * Registered beside `rune_table.c` and under its guard, for the reason that file gives: the
- * hosted build links the Mesa sysroot, which carries FreeBSD's real `newlocale` and the rest, and
- * two definitions of one symbol is a duplicate-symbol link error. An avoidable one.
+ * It was registered under `rune_table.c`'s guard at first, on the reasoning that the hosted build
+ * links the Mesa sysroot and so gets FreeBSD's real `newlocale`. **The sysroot carries the
+ * headers; the console does not export the functions.** The GL CTS's import manifest named all
+ * six as unplaceable for the hosted build, and the check refusing to write one is what caught it.
+ *
+ * `rune_table.c` is genuinely different: `librune.a` is a library in the sysroot's `lib`
+ * directory that the link actually resolves `_DefaultRuneLocale` from. `<xlocale.h>` is a header
+ * with nothing behind it here.
  */
 #include <locale.h>
 #include <nl_types.h>
 
-/* **At global scope, not in the anonymous namespace below.** `locale.h` declares
- * `typedef struct oops_locale *locale_t`, which in C++ names `::oops_locale`; completing it
- * inside the anonymous namespace defines a *different* type that merely shares a spelling, and
- * `newlocale` then cannot return a pointer to it. */
+/*
+ * **At global scope, not in the anonymous namespace below**, and only in the freestanding build.
+ *
+ * `include/freestanding/locale.h` declares `typedef struct oops_locale *locale_t`, which in C++
+ * names `::oops_locale`; completing it inside the anonymous namespace would define a *different*
+ * type that merely shares a spelling. The hosted build gets `locale_t` from the sysroot's
+ * `<xlocale.h>` instead, where it is an opaque `struct _xlocale *` and there is nothing to
+ * complete - so this definition would be a stray unused type there.
+ *
+ * `__has_include` is what tells the two apart, the same way `__locale_dir/support/freebsd.h`
+ * does.
+ */
+#if !__has_include(<xlocale.h>)
 struct oops_locale {
     /* Never read - `locale_t` is an opaque handle with exactly one valid value. The member is
      * here because C++ has no zero-sized object, and two distinct handles must not be able to
      * share an address. */
     int one;
 };
+#endif
 
 namespace {
 
 /*
- * The one locale object, and the only `locale_t` value that exists.
+ * The one locale handle, and the only `locale_t` value that exists.
  *
- * **Its type is taken from `locale_t` rather than named**, because the two configurations spell
- * it differently: `include/freestanding/locale.h` makes it `struct oops_locale *`, and the Mesa
- * sysroot's `<xlocale.h>` makes it `struct _xlocale *`. Naming either one compiles in one build
- * and not the other - which is how this file first met the hosted configuration.
+ * **It is an address, not an object of the pointed-to type**, and that is forced rather than
+ * stylistic. The two configurations spell `locale_t` differently - `include/freestanding/
+ * locale.h` makes it `struct oops_locale *` and the Mesa sysroot's `<xlocale.h>` makes it
+ * `struct _xlocale *` - and the sysroot's is an **opaque forward declaration**, so there is no
+ * such object to define. Naming either type builds in one configuration and not the other.
  *
- * Nothing here reads the object. It exists so that `newlocale` has a non-null address to hand
- * back and `uselocale` has something to compare against; a single byte would do, and the type is
- * only chosen so the pointer arithmetic is the compiler's problem rather than a cast.
+ * Nothing here dereferences it. The handle exists so `newlocale` has a non-null value to return
+ * and `uselocale` has something to compare, so one byte of storage with a stable address is the
+ * whole requirement.
  */
-using oops_locale_object = __typeof__(*(locale_t)0);
-oops_locale_object s_the_locale = {};
+char        s_locale_storage;
+const auto  s_the_locale = reinterpret_cast<locale_t>(&s_locale_storage);
 
 /* What `uselocale` last installed, so it can return the previous one as it is specified to.
  * `LC_GLOBAL_LOCALE` is the value a thread starts with and means "the global locale" - which
@@ -81,12 +97,12 @@ locale_t newlocale(int mask, const char *locale, locale_t base) {
     (void)mask;
     (void)locale;
     (void)base;
-    return &s_the_locale;
+    return s_the_locale;
 }
 
 locale_t duplocale(locale_t loc) {
     (void)loc;
-    return &s_the_locale;
+    return s_the_locale;
 }
 
 /* Does nothing to it - there is one object and it is static, so there is nothing to release, and

@@ -215,9 +215,34 @@ private:
 
 /*
  * dEQP's entry point into the platform, declared by `tcuMain.cpp` and by every platform
- * directory upstream ships. One function, and it is the only symbol this file exports.
+ * directory upstream ships.
  */
 tcu::Platform *createPlatform(void)
 {
     return new oops::Platform();
+}
+
+/*
+ * A C-callable way into `tcuMain.cpp`'s `main`, because under `-ffreestanding` it is not `main`.
+ *
+ * C++ special-cases `int main(int, char **)` at namespace scope: it is the program's entry
+ * point, it gets C linkage without being asked, and it may not be called. **`-ffreestanding`
+ * withdraws that**, because a freestanding program's entry point is whatever the link says it
+ * is - so `main` becomes an ordinary function, mangles to `_Z4mainiPPc`, and is callable like
+ * any other.
+ *
+ * `common/cxx.mk` compiles with `-ffreestanding`, so upstream's `main` is in the archive under
+ * the mangled name. `shim/gl_cts_entry.c` is C and cannot spell that, and declaring
+ * `extern "C" int main(...)` here would not match either. This wrapper is compiled as C++,
+ * beside the same rule, so it names the symbol the way the compiler wrote it.
+ *
+ * The symptom of getting this wrong is not a link error: a payload links
+ * `--unresolved-symbols=ignore-all`, so `main` stayed undefined through several builds and only
+ * the import manifest - which refuses to write one for a name it cannot place - said so.
+ */
+int main(int argc, char **argv); /* upstream's, in tcuMain.cpp */
+
+extern "C" int oops_cts_run_main(int argc, char **argv)
+{
+    return main(argc, argv);
 }
