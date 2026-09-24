@@ -35,8 +35,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: OOPS/oops-apps
-      - name: oops-mesa
-        run: OOPS/bin/oops bootstrap oops-mesa
+      # obscene too: the platform-stubs stage reads obSCEne's measured import census
+      # (data/hardware/ps5-imports.txt) to answer Mesa's "does this symbol exist" probes.
+      - name: oops-mesa and obscene
+        run: OOPS/bin/oops bootstrap oops-mesa obscene
         env:
           OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
       - name: The Mesa submodule, at the pin oops-mesa records
