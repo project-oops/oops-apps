@@ -57,14 +57,14 @@ include $(OOPS_MIX)/oops-sdl2-mixer.mk
 
 # SDL2_image, for the one `IMG_Load` in `textures.cpp` that reads all 149 of this title's PNGs.
 #
-# **Three includes for one function, and in this order.** `oops-libpng.mk` reads
-# `$(OOPS_ZLIB_INCLUDE)` as it is read, so zlib is first; `oops-sdl2-image.mk` reads libpng's and
-# SDL2's for the same reason, so it is last. Each of these was already pinned and already
-# compiling - Neverball has been shipping libpng and zlib - which is why the whole of "this title
-# can read its own artwork" is three lines here and no new code anywhere.
-OOPS_ZLIB ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/zlib)
-include $(OOPS_ZLIB)/oops-zlib.mk
-
+# **Two includes, and zlib is not one of them.** `oops-libpng.mk` includes `oops-zlib.mk` itself,
+# so naming zlib here too defines every one of its rules twice - make warns "overriding recipe for
+# target .../libz.a" and takes the second. `oops-sdl2-image.mk` reads libpng's and SDL2's
+# variables as it is read, so it goes after both.
+#
+# Each of these was already pinned and already compiling - Neverball has been shipping libpng and
+# zlib - which is why the whole of "this title can read its own artwork" is two lines here and no
+# new code anywhere.
 OOPS_PNG ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libpng)
 include $(OOPS_PNG)/oops-libpng.mk
 
@@ -102,8 +102,14 @@ PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_SDL_LIB) $(OOPS_MIX_LIB) \
 
 # The C half of the payload: the shared POSIX shim and the SDK. It is C rather than C++ because
 # it implements a C ABI that upstream's headers declare.
+#
+# `gl_glu.c` is named here rather than being part of `$(OOPS_GL_SRCS)`, which is the same place
+# glut-demo names it: GLU is a separate library from GL, and a title that never calls it should
+# not carry the mipmap builder. ETR calls `gluBuild2DMipmaps` - `textures.cpp` builds every one
+# of its textures that way, which is how texture loading was written when ETR was.
 PAYLOAD_SRCS = $(OOPS_POSIX_SRCS) \
                $(OOPS_GL_SRCS) \
+               $(OOPS_SDK_DIR)/src/gl/gl_glu.c \
                $(OOPS_SDK_DIR)/src/display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \

@@ -20,6 +20,17 @@
 # MP3, FLAC, Opus, MIDI, MOD and Timidity are off. Extreme Tux Racer ships ten `.wav` and ten
 # `.ogg` and nothing else; a decoder no title has a file for is still a parser of untrusted bytes
 # and still something to carry across a bump.
+#
+# **`MUSIC_OGG` is not defined, and that is the whole of the difference from `MUSIC_OGG_STB`.**
+# It used to be, alongside it. `music.c` reads the two independently and registers an interface
+# for each, so defining both asked for `Mix_MusicInterface_OGG` from `music_ogg.c` - the
+# *libvorbis* back end, which this file deliberately does not build and whose external dependency
+# the paragraph above exists to avoid. The reference had never been resolved and never been seen,
+# because a payload link ignores unresolved symbols.
+#
+# **`mp3utils.c` is built although MP3 is off**, which is not a contradiction: it is where
+# `read_id3v2_from_mem` lives, and `music_wav.c` calls it to step over an ID3 tag on a WAV. The
+# file is tag parsing rather than an MP3 decoder, and the decoder is still absent.
 
 ifndef OOPS_MIX_DIR
 OOPS_MIX_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
@@ -41,11 +52,12 @@ OOPS_MIX_SRCS := \
     $(OOPS_MIX_UPSTREAM)/src/codecs/load_aiff.c \
     $(OOPS_MIX_UPSTREAM)/src/codecs/load_voc.c \
     $(OOPS_MIX_UPSTREAM)/src/codecs/music_wav.c \
-    $(OOPS_MIX_UPSTREAM)/src/codecs/music_ogg_stb.c
+    $(OOPS_MIX_UPSTREAM)/src/codecs/music_ogg_stb.c \
+    $(OOPS_MIX_UPSTREAM)/src/codecs/mp3utils.c
 
 OOPS_MIX_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                   -nostdlibinc -fPIC -O2 -w -D__PROSPERO__=1 \
-                  -DMUSIC_WAV -DMUSIC_OGG -DMUSIC_OGG_STB \
+                  -DMUSIC_WAV -DMUSIC_OGG_STB \
                   -I$(OOPS_MIX_UPSTREAM)/src -I$(OOPS_MIX_UPSTREAM)/src/codecs \
                   $(OOPS_MIX_INCLUDE) $(OOPS_SDL_INCLUDE) \
                   $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)

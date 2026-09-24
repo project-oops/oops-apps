@@ -193,17 +193,28 @@ OOPS_LIBCXX_SRCS := \
 # sysroot's `librune.a` defines the same symbol, from FreeBSD's own `locale/table.c`, and two
 # definitions is a duplicate-symbol link error - the good failure, but an avoidable one.
 #
-# `locale_shim.cpp` is here for the same reason and under the same guard: it defines the
-# `<locale.h>` and `<nl_types.h>` entry points that `include/freestanding/` has declared all
-# along, and the Mesa sysroot the hosted build links carries FreeBSD's real ones.
+# `locale_shim.cpp` defines the `<locale.h>` and `<nl_types.h>` entry points that
+# `include/freestanding/` has declared all along. Those headers each said "the definitions are in
+# `locale_shim.cpp`" while no such file existed; a payload link ignores unresolved symbols, so
+# nothing said so until a title reached its link and named the six libc++ references -
+# `newlocale`, `freelocale`, `uselocale`, `catopen`, `catgets`, `catclose`.
 #
-# Those headers each said "the definitions are in `locale_shim.cpp`" while no such file existed.
-# A payload link ignores unresolved symbols, so nothing said so until a title reached its link
-# and named the six libc++ references - `newlocale`, `freelocale`, `uselocale`, `catopen`,
-# `catgets`, `catclose`.
+# # It is in BOTH builds, where `rune_table.c` is not, and the difference is the point
+#
+# It sat under the same guard at first, on the reasoning that the hosted build gets the sysroot's
+# real ones. **The sysroot carries the headers; the console does not export the functions.** The
+# CTS's import manifest named all six as unplaceable for the hosted build - the check refusing to
+# write one is what caught it.
+#
+# `librune.a` is different in kind: it is a *library in the sysroot's `lib` directory* that the
+# link actually resolves `_DefaultRuneLocale` from. `<xlocale.h>` is a header with nothing behind
+# it on this platform. "Is it in the sysroot" is the wrong question; "does the target export it"
+# is the right one, and it is the same question `include/__locale_dir/support/freebsd.h` answers
+# for the locale backend.
+OOPS_LIBCXX_SRCS += $(OOPS_LIBCXX_DIR)/src/locale_shim.cpp
+
 ifneq ($(OOPS_LIBCXX_HOSTED),1)
-OOPS_LIBCXX_SRCS += $(OOPS_LIBCXX_DIR)/src/rune_table.c \
-                    $(OOPS_LIBCXX_DIR)/src/locale_shim.cpp
+OOPS_LIBCXX_SRCS += $(OOPS_LIBCXX_DIR)/src/rune_table.c
 endif
 
 # `_LIBCPP_BUILDING_LIBRARY` is what libc++'s own sources are compiled with; without it they
