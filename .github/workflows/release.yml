@@ -137,7 +137,20 @@ jobs:
   release:
     name: publish latest-main
     needs: [discover, build]
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    # **`always()`, because the matrix already says each app is its own deliverable.**
+    #
+    # `fail-fast: false` above stops one app's failure from cancelling the others, and then this
+    # job's default `needs` requirement threw that away: it waits for *every* cell to succeed, so
+    # a single app that cannot build keeps every app that can out of the release. Eight of
+    # twenty-five fail today - most of them wanting the oops-mesa sibling - and they had been
+    # holding back the seventeen that build, Neverball among them, for as long as they have been
+    # failing.
+    #
+    # Publishing what was staged is the honest reading of the contract: the run is still marked
+    # failed, the broken apps are still red and still named, and the apps that built are still
+    # downloadable. A release that waits for the worst app in the repository is a release nobody
+    # can rely on.
+    if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
