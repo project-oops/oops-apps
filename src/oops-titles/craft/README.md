@@ -20,19 +20,23 @@ of the collection's ported upstream titles, tracked against a pinned commit.
 
 ## Status
 
-**The graphics are done and the storage is not.** Of Craft's twelve sources and four vendored
-libraries, all but three compile for the target; the three name two subsystems, and
-[docs/PORTING.md](docs/PORTING.md) has both with the exact header each one wants.
+**The graphics are done and the storage is not.** Of Craft's twelve sources, four vendored
+libraries and two shim sources, **14 compile and 4 do not** - and one of the four, `auth.c`, is
+excluded on purpose rather than failed. The other three name a header each, and
+[docs/PORTING.md](docs/PORTING.md) has what is behind every one.
+
+Those numbers come from `make census`, which compiles each source under the real target flags and
+reports what it died on, because the ones written here by hand had drifted.
 
 What is settled is the part that was actually in question:
 
 ```
 $ make check
 craft shadercheck: upstream/shaders
-  block    pass  224 words   56/136 regs   7/16 varying  25/32 uniform  2/2 tex
-  line     pass   22 words   20/136 regs   0/16 varying  16/32 uniform  0/2 tex
-  sky      pass   36 words   21/136 regs   2/16 varying  18/32 uniform  1/2 tex
-  text     pass   71 words   29/136 regs   2/16 varying  18/32 uniform  1/2 tex
+  block    pass  229 words   56/136 regs   7/16 varying  25/32 uniform  2/2 tex
+  line     pass   27 words   20/136 regs   0/16 varying  16/32 uniform  0/2 tex
+  sky      pass   41 words   21/136 regs   2/16 varying  18/32 uniform  1/2 tex
+  text     pass   76 words   29/136 regs   2/16 varying  18/32 uniform  1/2 tex
 craft shadercheck: 4/4 shader pairs compile for the console
 ```
 
@@ -41,9 +45,9 @@ a refusal means the draw fails rather than falling back — so whether Craft's o
 decided whether this title could render at all. They do, with room on every limit except texture
 sets, where `block` uses both.
 
-`make` builds and runs that check and nothing else. The payload's source list is in the
-Makefile, named and deliberately not armed: a title whose default target fails is one CI has to
-special-case and a reader learns to ignore.
+`make check` runs that and the source census beside it, and `make` runs the shader check alone.
+The payload's source list is in the Makefile, named and deliberately not armed: a title whose
+default target fails is one CI has to special-case and a reader learns to ignore.
 
 ## Controls
 

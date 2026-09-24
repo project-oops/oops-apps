@@ -5,14 +5,26 @@ every one of them came from a build, not an estimate.
 
 ## Where it stands
 
-**Every source compiles except three, and the three name two subsystems.**
+**Every source compiles except three, and the three name three headers between two subsystems
+that matter and one that does not.**
+
+**These counts come from `make census`**, which compiles every source under the real target flags
+and prints what each one died on. They were prose before, and prose drifts: this table said 11 of
+12 of Craft's own sources compiled, counting `auth.c` as one of them when it does not and is not
+meant to, and listed `tinycthread` among the vendored libraries that build while naming the
+`signal.h` it needs four paragraphs further down. Both were written in good faith and both were
+wrong by the time anybody read them.
 
 | | |
 |---|---|
-| Craft's own sources | 11 of 12 compile. The twelfth is `client.c` - see *sockets* below |
-| Vendored libraries | 3 of 4 compile: `lodepng`, `noise`, `tinycthread`. The fourth is SQLite |
-| The shim | 4 files, all compile |
+| Craft's own sources | **10 of 12 compile.** `client.c` wants `netdb.h` - see *sockets* below - and `auth.c` does not compile either, deliberately: see *Multiplayer* |
+| Vendored libraries | **2 of 4 compile**: `lodepng` and `noise`. `sqlite3.c` wants `fcntl.h` and `tinycthread.c` wants `signal.h` |
+| The shim | 2 sources, both compile |
 | **The shaders** | **4 of 4 pairs compile for the console** - `make check` |
+
+Counting the way the prose below does - `auth.c` excluded by choice rather than failed - that is
+**three** sources short of a complete build, and they are the three the rest of this document is
+about.
 
 `auth.c` is excluded rather than counted as a failure; *Multiplayer* below says why.
 
@@ -56,7 +68,42 @@ Two separate things, and only the first is real work:
   `SQLITE_OMIT_DATETIME_FUNCS` is the honest switch rather than a fake `localtime`.
 
 `tinycthread.c`'s `<signal.h>` is a third missing header and is one line of shim; it is listed
-here for completeness rather than as work.
+here as work rather than as a footnote, because until it is written `tinycthread.c` does not
+compile - which is what `make census` says and what the table above used to deny.
+
+## The host headers, which is not only this title's problem
+
+**`common/app.mk`'s `TARGET_CFLAGS` carries `-nostdlib` and not `-nostdlibinc`.** The first is a
+linker flag. The header search path is left alone, so a freestanding target compile falls through
+to the build machine's `/usr/include`.
+
+This title is where it shows, because this title is the one that asks for headers the SDK does
+not have. Measured both ways, the same three files:
+
+| | without `-nostdlibinc` | with it |
+|---|---|---|
+| `client.c` | `'bits/wordsize.h' file not found` | `'netdb.h' file not found` |
+| `sqlite3.c` | `'bits/wordsize.h' file not found` | `'fcntl.h' file not found` |
+| `tinycthread.c` | `'bits/wordsize.h' file not found` | `'signal.h' file not found` |
+
+`bits/wordsize.h` is a glibc internal. It is reached because clang had already *accepted* glibc's
+`netdb.h`, `fcntl.h` and `signal.h` and was following them inward - so the error names a file
+nobody wrote, three levels below the one that is actually missing.
+
+**The confusing error is the mild version.** The case with no error at all is the problem: a
+source whose headers glibc happens to satisfy compiles cleanly against declarations this target
+will never link, and nothing anywhere says so. A freestanding build that can silently reach the
+host's libc headers is not freestanding; it is a build that happens to agree with its host.
+
+The flag is set in this title's `Makefile` rather than in `common/app.mk`, because that file is
+every title's flag set and this is one title's measurement. Neverball reached the same conclusion
+independently and put `-nostdlibinc` in its own `OOPS_NB_CFLAGS` for upstream's archive - but not
+on the shim files beside it, which still compile with the host's headers in reach.
+
+**Two titles have now worked around this separately, which is the argument for fixing it once.**
+It is not done here: changing `TARGET_CFLAGS` changes every title in the collection at once,
+including ones other people are mid-way through, and it wants its own measurement of what breaks
+rather than riding along with a documentation correction.
 
 ## Multiplayer, and why `auth.c` is not compiled
 

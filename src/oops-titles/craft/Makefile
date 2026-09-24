@@ -73,7 +73,24 @@ CRAFT_DEP_SRCS := upstream/deps/lodepng/lodepng.c \
 # **`SQLITE_OMIT_LOAD_EXTENSION` and friends are not a tuning choice.** They remove the parts of
 # SQLite that need `dlopen`, a thread library and a VFS this target does not have; what is left
 # still needs a VFS, which is the gap docs/PORTING.md names.
-CRAFT_CFLAGS := -Ishim/include \
+#
+# **`-nostdlibinc`, because without it a missing header is answered by the build machine.**
+# `common/app.mk`'s `TARGET_CFLAGS` carries `-nostdlib`, which is the *linker* flag; the header
+# search path is untouched, so a freestanding target compile falls through to `/usr/include`.
+# This title is where that shows, because this title is the one that includes headers the SDK
+# does not have.
+#
+# Measured: without it, `client.c`, `sqlite3.c` and `tinycthread.c` all fail on
+# `bits/wordsize.h` - a glibc internal, reached because clang had already accepted glibc's
+# `netdb.h`, `fcntl.h` and `signal.h`. With it, each one fails naming the header it actually
+# asked for, which is the difference between a diagnosis and a symptom. Worse than the confusing
+# error is the case that does *not* error: a source that glibc's headers satisfy compiles
+# against declarations this target will never link, and nothing says so.
+#
+# It is set here rather than in `common/app.mk` because that is every title's flag set and this
+# is one title's measurement - see docs/PORTING.md, *The host headers*.
+CRAFT_CFLAGS := -nostdlibinc \
+                -Ishim/include \
                 -Iupstream/src \
                 -Iupstream/deps/lodepng \
                 -Iupstream/deps/noise \
@@ -145,3 +162,42 @@ HOST_TEST_SRCS = tools/shadercheck.c \
 HOST_TEST_LIBS = -lm
 
 include $(OOPS_APPS_ROOT)/common/app.mk
+
+# ---------------------------------------------------------------------------
+# `make census`: which of this title's sources compile for the target, today
+# ---------------------------------------------------------------------------
+#
+# **Because a count in a document is a claim and this is a measurement.** README.md and
+# docs/PORTING.md both carried per-file tallies, and both had drifted: `auth.c` was counted as
+# compiling when it does not - it is excluded on purpose - and `tinycthread.c` was listed among
+# the vendored libraries that build while the same document named the `signal.h` it needs. Two
+# numbers, both written in good faith, both wrong by the time anybody read them.
+#
+# So the numbers now come from the compiler. Every source this title would link is compiled to
+# `/dev/null` under the real target flags, and each one either passes or prints the first error
+# it hit - which for a missing subsystem is the header, and the header is the whole diagnosis.
+#
+# `check` depends on this, so `make check` answers both of this title's open questions: whether
+# the shaders still compile, and what still does not. Adding a prerequisite to a target whose
+# recipe lives in `common/app.mk` is legal make - only one rule may carry the recipe, and that
+# one does.
+#
+# **It does not fail the build.** The failures are this title's status, not a regression; the
+# gate that would catch a *change* is the census output being read, and docs/PORTING.md carries
+# the expected set. `make` stopping here would be a default target that always fails, which is
+# what `FORMATS = check-only` above exists to avoid.
+.PHONY: census
+check: census
+census:
+	@echo "craft census: $(words $(CRAFT_PAYLOAD_SRCS)) sources, under the target's own flags"
+	@ok=0; bad=0; \
+	for f in $(CRAFT_UPSTREAM_SRCS) upstream/src/auth.c $(CRAFT_DEP_SRCS) $(CRAFT_SHIM_SRCS); do \
+	    err=$$($(TARGET_CC) $(TARGET_CFLAGS) -c -o /dev/null "$$f" 2>&1 | \
+	           grep -m1 -E 'error:' | sed 's/.*error: //'); \
+	    if [ -z "$$err" ]; then \
+	        printf '  %-40s ok\n' "$$f"; ok=$$((ok+1)); \
+	    else \
+	        printf '  %-40s FAIL  %s\n' "$$f" "$$err"; bad=$$((bad+1)); \
+	    fi; \
+	done; \
+	echo "craft census: $$ok compile, $$bad do not"
