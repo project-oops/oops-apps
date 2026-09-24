@@ -1,0 +1,25 @@
+# RetroArch's origin. Read by common/app.mk with no parser - the same KEY=value shape app.env
+# has - and by common/upstream-fetch.sh, which is shared by every title.
+#
+# UPSTREAM_REV is what gets checked out, and it must be a full commit hash: a tag can be moved
+# and a branch always is, so neither is a pin. UPSTREAM_REF is there to tell a reader which
+# release that hash is.
+#
+# **`v1.22.2` is a lightweight tag**, so the hash below is the commit directly and there is no
+# peeled `^{}` line to miss. Checked rather than assumed - `git ls-remote --tags` returns exactly
+# one line for it. `armagetron-advanced/upstream.lock` is the other case and says what it costs.
+#
+# **Sorted by version and not by name.** RetroArch has over a hundred tags and a lexical sort
+# puts `v1.9.9` last, which is four years and twelve releases short of the top. `sort -V` is what
+# this was taken with.
+#
+# **This is the front end only.** RetroArch loads emulation cores as separate libraries built
+# from their own repositories, and none of them is pinned here - deliberately, because the thing
+# this title is queued for is RetroArch's *renderers*: it ships `gl1.c`, `gl2.c` and `gl3.c` as
+# separate drivers, which makes it the one program in the collection that exercises all three
+# slots. A core is what makes it useful, and is a separate question from what makes it
+# interesting here.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/libretro/RetroArch
+UPSTREAM_REV=69a4f0ea1e8aaf442ae4858f2e7f2b31a1776576
+UPSTREAM_REF=v1.22.2

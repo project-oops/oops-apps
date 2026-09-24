@@ -1,0 +1,27 @@
+# Armagetron Advanced's origin. Read by common/app.mk with no parser - the same KEY=value shape
+# app.env has - and by common/upstream-fetch.sh, which is shared by every title.
+#
+# UPSTREAM_REV is what gets checked out, and it must be a full commit hash: a tag can be moved
+# and a branch always is, so neither is a pin. UPSTREAM_REF is there to tell a reader which
+# release that hash is.
+#
+# **`v0.2.9.3.0` is an ANNOTATED tag, and the hash below is the commit rather than the tag.**
+# This is the trap Neverball's lock records, and it caught this one too: `git ls-remote --tags
+# --refs` hands you `deec1318...`, which is the tag *object* - `--refs` is exactly what strips
+# the peeled `^{}` line holding the commit. Without `--refs`:
+#
+#   deec13180b8221f2b5b200bc5c7879d934a8c59f  refs/tags/v0.2.9.3.0
+#   036daaf34f055b1efbcee6a4afc4d90a325ce569  refs/tags/v0.2.9.3.0^{}
+#
+# The second is what belongs here. `upstream-fetch.sh` would have caught a mistake - it compares
+# `rev-parse HEAD` against what it was asked for and refuses a mismatch - but the check is a
+# backstop and not a reason to skip the reading.
+#
+# **The 0.2.9 line rather than 0.4.** Upstream maintains 0.2.9 as its stable series and the 0.4
+# branch as the development one; 0.2.9.3.0 is the newest release on the stable side. A port
+# should start from what upstream calls finished, which is the same reasoning Neverball's lock
+# uses to take 1.6.0 over the 1.7.0 alphas.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/ArmagetronAd/armagetronad
+UPSTREAM_REV=036daaf34f055b1efbcee6a4afc4d90a325ce569
+UPSTREAM_REF=v0.2.9.3.0 (annotated tag deec1318; this is its commit)

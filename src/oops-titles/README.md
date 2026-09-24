@@ -7,6 +7,29 @@ done; a title is the reason for doing it.
 the one exception and only a partial one: it builds, boots and runs without any proprietary
 code, and that a user must bring their own content afterwards does not stop it being a proof.
 
+## Where each one is
+
+Every target in the survey below now has a directory, a verified pin and its own notes. **A
+scaffold is not progress** - it is somewhere for the reading to land, and what separates the rows
+is how much of that reading has been done.
+
+| | Runs | Measured | Scaffold only |
+|---|---|---|---|
+| [neverball](neverball/) | **end to end on hardware** | | |
+| [craft](craft/) | | 4/4 shaders compile; 14 of 18 sources compile, `make check` | |
+| [supertux](supertux/) | | 29/33 GL entry points, `make check`; renderer read | |
+| [extreme-tux-racer](extreme-tux-racer/) | | source list named, not armed | |
+| [armagetron-advanced](armagetron-advanced/) | | | pin + notes |
+| [supertuxkart](supertuxkart/) | | | pin + notes |
+| [retroarch](retroarch/) | | | pin + notes |
+
+Two more directories here are instruments rather than ports: [gl-cts](gl-cts/) runs Khronos'
+conformance suite and [mesa-demos](mesa-demos/) is oops-mesa's bring-up.
+
+Each scaffold's `docs/PORTING.md` opens by saying what it inherited and what nobody has checked,
+because a directory full of confident prose is how a survey's guesses turn into a project's
+assumptions.
+
 ## What a title is made of
 
 **A title is an origin, our patches, our shim and its metadata - and nothing else.** None of the
