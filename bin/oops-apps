@@ -119,8 +119,14 @@ distribute() {
         app_dir="$(app_path "$app")"
         [ -n "$app_dir" ] || app_dir="$HERE/$app"
 
-        probe_out="$(make -C "$app_dir" -n dist 2>&1)"
-        probe_rc=$?
+        # The assignment sits inside `if` because this script runs under `set -e`, where a bare
+        # `probe_out="$(failing command)"` ends the script on the spot and never reaches the `$?`
+        # that was meant to read it. A condition is the one place a failure is allowed to be an
+        # answer rather than the end.
+        probe_rc=0
+        if ! probe_out="$(make -C "$app_dir" -n dist 2>&1)"; then
+            probe_rc=1
+        fi
 
         if [ "$probe_rc" -eq 0 ]; then
             printf '=== %s: dist ===\n' "$app"
