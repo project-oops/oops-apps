@@ -15,6 +15,8 @@ OOPS_APPS=$(cd "$HERE/../../.." && pwd)
 SDK=$(cd "$OOPS_APPS/../oops-sdk" && pwd)
 LIBCXX="$OOPS_APPS/src/oops-deps/libcxx"
 UP="$HERE/upstream/framework"
+MOD="$HERE/upstream/external/openglcts/modules"
+GLS="$HERE/upstream/modules/glshared"
 OUT="${TMPDIR:-/tmp}/gl-cts-survey"
 
 rm -rf "$OUT"; mkdir -p "$OUT"
@@ -24,7 +26,20 @@ INCLUDES="-I$UP/delibs/debase -I$UP/delibs/depool -I$UP/delibs/deutil
           -I$UP/qphelper -I$UP/common -I$UP/opengl -I$UP/referencerenderer
           -I$UP/egl -I$HERE/shim/include
           -I$UP/opengl/wrapper -I$UP/egl/wrapper
+          -I$UP/opengl/simplereference -I$UP/randomshaders
           -I$UP/xexml"
+
+# Every directory under the test modules that holds a header, found rather than listed - the
+# same set `Makefile`'s `CTS_INCLUDES` builds, and for the same reason: upstream's includes are
+# flat (`esextcTestCaseBase.hpp`, not `../esextcTestCaseBase.hpp`), so a set that is merely
+# representative reports missing headers that are present.
+#
+# **This survey measures what the build compiles or it measures nothing.** It walked only
+# `framework/` until 2026-09-24, which was the whole port at the time; the 311 test sources are
+# the part with the unknown answer now.
+for d in $(find "$MOD" "$GLS" -name '*.hpp' | sed 's|/[^/]*$||' | sort -u); do
+    INCLUDES="$INCLUDES -I$d"
+done
 
 # # This is a HOSTED title, so the C library is the Mesa sysroot's
 #
@@ -92,6 +107,15 @@ BASE="-target x86_64-unknown-freebsd --sysroot=$MESA_SYSROOT
 # failed on that one line**. It is also why `common/cxxrt.cpp` declares `std::set_terminate`
 # by hand instead of including `<exception>`, which was read at the time as a quirk of that file
 # rather than as this.
+# # `-std=` has to be whatever `Makefile` sets, and there is no mechanism holding it there
+#
+# The Makefile sets `OOPS_CXX_STD = c++17` and says why. This said `c++17` while the Makefile
+# was still taking `cxx.mk`'s `c++11` default, so the survey reported the 305 test sources clean
+# and the build stopped on the first `std::make_unique`. **A survey compiled differently from
+# the build measures a configuration nothing ships**, which is the same mistake this script's
+# own sysroot comment records from 2026-09-23, made again in a different flag.
+#
+# Change one and change the other, in the same commit.
 CXXFLAGS="-nostdinc++ -fexceptions -frtti -std=c++17
           -I$LIBCXX/include -I$LIBCXX/upstream/libcxx/include
           -DDEQP_TARGET_NAME=\"OOPS\" $BASE"
@@ -108,16 +132,27 @@ ok=0; bad=0
 # and none of them is this one. Ours is what has to be written, and it goes in `shim/`, so
 # compiling upstream's here would only report that we are not Linux. Skipped rather than
 # reported, with the count printed at the end so it is visible rather than silent.
+#
+# The test modules skip the four things `Makefile`'s `CTS_MOD_EXCLUDE` excludes, so that the
+# histogram is a list of work and not a list of decisions already made. `runner/` is a separate
+# executable with its own `main`; `glcTestPackageRegistry.cpp` and `common/glcSpirvUtils.cpp`
+# are replaced by `shim/gl_cts_registry.cpp` and `shim/gl_cts_spirv_stub.cpp`, and both would
+# fail here on headers this build deliberately does not have.
 skipped=0
-for src in $(find "$UP" \( -name '*.cpp' -o -name '*.c' \) | sort); do
+for src in $(find "$UP" "$MOD" "$GLS" \( -name '*.cpp' -o -name '*.c' \) | sort); do
     name=$(basename "$src")
     case "$name" in *pch*) continue;; esac
     case "$src" in "$UP"/platform/*) skipped=$((skipped+1)); continue;; esac
+    case "$src" in
+        "$MOD"/runner/*|"$MOD"/glcTestPackageRegistry.cpp|"$MOD"/common/glcSpirvUtils.cpp \
+        |"$MOD"/gl/gl4cContextFlushControlTests.cpp)
+            skipped=$((skipped+1)); continue;;
+    esac
     if [ -n "$filter" ]; then
         case "$src" in *"$filter"*) ;; *) continue;; esac
     fi
 
-    stem=$(echo "${src#$UP/}" | tr '/' '_')
+    stem=$(echo "${src#$HERE/upstream/}" | tr '/' '_')
     case "$name" in
         *.cpp) cc="clang++ $CXXFLAGS";;
         *.c)   cc="clang $CFLAGS";;
@@ -131,7 +166,7 @@ for src in $(find "$UP" \( -name '*.cpp' -o -name '*.c' \) | sort); do
         [ -z "$why" ] && why=$(grep -m1 -E "error:" "$OUT/$stem.err" \
                                | sed 's/.*error: //' | cut -c1-64)
         [ -z "$why" ] && why="(no error line; see $OUT/$stem.err)"
-        printf '%s\t%s\n' "$why" "${src#$UP/}" >> "$OUT/failures.tsv"
+        printf '%s\t%s\n' "$why" "${src#$HERE/upstream/}" >> "$OUT/failures.tsv"
     fi
 done
 

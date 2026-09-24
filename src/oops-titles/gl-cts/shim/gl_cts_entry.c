@@ -165,6 +165,23 @@ void gl_cts_start(void)
     if (log_arg != NULL)
         s_argv[first++] = (char *)log_arg;
 
+    /*
+     * Where the tests read their shaders and reference images from.
+     *
+     * `tcuCommandLine.cpp:272` defaults `--deqp-archive-dir` to `"."` - a *relative* path, and
+     * the same trap the log filename sprang: a title here has no working directory for it to be
+     * relative to. Unlike the log this one fails late and quietly, in whichever test first opens
+     * a resource, as a `tcu::ResourceError` a long way from the cause.
+     *
+     * `/app0` is the title's own directory and is readable without the privilege step `/data`
+     * needs - `read_args_file` below opens a file there the same way. The tests name their
+     * resources `gl_cts/data/...`, so `make stage-data` puts the tree at `/app0/gl_cts`.
+     *
+     * Overridable: this is filled before `/app0/cts-args.txt` is read, and dEQP's parser takes
+     * the last occurrence, so a line in that file wins.
+     */
+    s_argv[first++] = (char *)"--deqp-archive-dir=/app0";
+
     int argc = read_args_file(first);
     if (argc == first) {
         /*

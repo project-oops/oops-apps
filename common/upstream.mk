@@ -38,10 +38,24 @@
 #
 # **Why the fetch runs while this file is being read**, rather than from a rule. A title lists
 # sources under `upstream/`, and make resolves prerequisites before it runs any recipe - so a
-# normal rule would be too late for the very build that needs it. The stamp guards it: once the
-# tree matches the lock and the patches, this costs one `test -f`. It is deliberately skipped
+# normal rule would be too late for the very build that needs it. It is deliberately skipped
 # for the targets that exist to *remove* things, so `make clean` in a fresh checkout does not
 # download 150 MB in order to delete nothing.
+#
+# **The script is called every time and decides for itself whether to fetch.** It used to be
+# called only when the stamp file was *absent*, which sounds like the same thing and is not:
+# `upstream-fetch.sh` compares the stamp's *contents* against the revision, the patch set and
+# the sparse paths the lock asks for, and that comparison could never run on a tree that had
+# already been fetched once. So a lock change on a fetched title did nothing at all - no fetch,
+# no message, no error - and the build carried on against the old revision. Widening gl-cts's
+# `UPSTREAM_SPARSE` to add `modules/glshared` on 2026-09-24 is what found it; the stamp had to
+# be deleted by hand to make the lock take effect, which is not a thing anyone should have to
+# know.
+#
+# That is the same defect the script's own stamp comment describes, one level up, and it
+# defeated the fix made there. Calling unconditionally costs one `cksum` over `patches/` and a
+# `cat` of the stamp on an up-to-date tree - no network, no `git` - and the script prints
+# nothing when there is nothing to do.
 
 ifndef OOPS_UPSTREAM_MK
 OOPS_UPSTREAM_MK := 1
@@ -58,14 +72,15 @@ ifneq ($(wildcard upstream.lock),)
 UPSTREAM_DIR ?= upstream
 UPSTREAM_STAMP := $(UPSTREAM_DIR)/.oops-upstream-stamp
 ifeq ($(filter clean upstream-clean distclean,$(MAKECMDGOALS)),)
-ifneq ($(wildcard $(UPSTREAM_STAMP)),$(UPSTREAM_STAMP))
-$(info $(APP_NAME): fetching upstream at $(UPSTREAM_REF))
-$(shell UPSTREAM_SPARSE="$(UPSTREAM_SPARSE)" $(OOPS_UPSTREAM_DIR_SELF)/upstream-fetch.sh \
+# `UPSTREAM_NAME` and `UPSTREAM_REF` are passed because the script prints the "fetching" line
+# now. It has to be the script that prints it: only the script knows whether a fetch is about to
+# happen, and the `$(info)` that used to be here was outside that decision.
+$(shell UPSTREAM_NAME="$(APP_NAME)" UPSTREAM_REF="$(UPSTREAM_REF)" \
+        UPSTREAM_SPARSE="$(UPSTREAM_SPARSE)" $(OOPS_UPSTREAM_DIR_SELF)/upstream-fetch.sh \
         "$(UPSTREAM_KIND)" "$(UPSTREAM_URL)" \
         "$(UPSTREAM_REV)" "$(UPSTREAM_DIR)" "$(CURDIR)/patches" >&2)
 ifneq ($(wildcard $(UPSTREAM_STAMP)),$(UPSTREAM_STAMP))
 $(error $(APP_NAME): upstream fetch failed - see above)
-endif
 endif
 endif
 

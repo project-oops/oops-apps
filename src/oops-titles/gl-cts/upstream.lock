@@ -29,10 +29,23 @@
 # opens its result log and exits 0, with zero cases because no test package is registered. That
 # is exactly what this line fixes, so it is in.
 #
+# `modules/glshared` is dEQP's shared GL test utilities, and it is here because four tests in
+# `external/openglcts/modules/common` include it directly - `glcShaderConstExpr`,
+# `glcShaderMacro`, `glcPixelStorageModes` and `glcAggressiveShaderOptimizations` want
+# `glsShaderExecUtil.hpp` and `glsTextureTestUtil.hpp`. Those four are registered in the GL
+# packages like any other, so leaving the directory out would not make the suite smaller, it
+# would make it *wrong* - four cases missing from a table that claims to be upstream's.
+#
 # Not wanted at all: `external/vulkancts`, `external/amber`, `external/vulkan-*` and the video
 # sample fetchers. This is the GL suite.
+#
+# Also not fetched, and this one is a gap rather than a decision: `external/glslang` and
+# `external/spirv-tools`, which upstream pulls with its own `external/fetch_sources.py` rather
+# than carrying in the tree, so no sparse path can ask for them. `glcSpirvUtils.cpp` is the only
+# file that needs them - it compiles GLSL to SPIR-V for the `GL_ARB_gl_spirv` tests - and
+# `shim/gl_cts_spirv_stub.cpp` stands in for it. See that file for what the tests report.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/KhronosGroup/VK-GL-CTS.git
 UPSTREAM_REV=067e8832315e79817ede1c4863804e440f5d1c80
 UPSTREAM_REF=opengl-cts-4.6.8.1
-UPSTREAM_SPARSE=framework external/openglcts
+UPSTREAM_SPARSE=framework external/openglcts modules/glshared

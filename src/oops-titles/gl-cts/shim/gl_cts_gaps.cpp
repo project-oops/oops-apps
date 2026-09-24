@@ -55,6 +55,72 @@ void loadPKM(CompressedTexture &, const Archive &, const char *fileName)
 } // namespace ImageIO
 } // namespace tcu
 
+/* ---------------------------------------------------------------- EGL config enumeration */
+
+/*
+ * Five `eglu` entry points, referenced by `glcConfigListEGL.cpp` and reachable from nothing.
+ *
+ * `CTS-Configs` asks the platform what framebuffer configurations it offers, and upstream asks
+ * twice - once through EGL, once through WGL - because `getDefaultConfigList` is written to run
+ * on whichever is there:
+ *
+ *     try { getConfigListEGL(...); } catch (const std::exception &e) { qpPrintf("No EGL configs enumerated: %s\n", ...); }
+ *     try { getConfigListWGL(...); } catch (const std::exception &e) { ... }
+ *
+ * **On this platform the EGL attempt throws before it reaches any of these.**
+ * `getDefaultEglConfigList` opens with a `dynamic_cast<tcu::EglPlatform&>(platform)`, and
+ * `shim/tcuOopsPlatform.cpp` is not one, so `std::bad_cast` is raised and `glcConfigListEGL.cpp:165`
+ * rethrows it as `tcu::Exception("Platform is not tcu::EglPlatform")`. The caller catches that,
+ * prints its line, and carries on to the default config. That is upstream's designed behaviour
+ * for a platform without EGL, and it is already correct here.
+ *
+ * **So why define them at all.** Because unreachable is not the same as absent, and this target
+ * punishes the difference. A payload links `--unresolved-symbols=ignore-all`, so five undefined
+ * C++ symbols produce no error; `make imports` then cannot resolve them against obSCEne's
+ * corpus - they are nobody's platform library, they are dEQP's own C++ - and the manifest is the
+ * gate the container is refused at. `oops-apps#D006` and the `.init_array` fault both say the
+ * same thing in different words: on this target a name that resolves to nothing is a jump to
+ * zero, and the only safe undefined symbol is one that is defined.
+ *
+ * They throw rather than return, because the day `tcuOopsPlatform.cpp` *does* implement
+ * `tcu::EglPlatform` the cast will start succeeding, and these will start being called. A
+ * `NotSupportedError` then says which piece is missing. A `return {}` would enumerate zero
+ * configs and look exactly like a platform that has EGL and offers nothing.
+ */
+#include "egluUtil.hpp"
+
+namespace eglu
+{
+
+static const char *const NO_EGL = "EGL is not implemented by this platform (shim/gl_cts_gaps.cpp)";
+
+eglw::EGLDisplay getAndInitDisplay(NativeDisplay &, Version *)
+{
+    TCU_THROW(NotSupportedError, NO_EGL);
+}
+
+void terminateDisplay(const eglw::Library &, eglw::EGLDisplay)
+{
+    TCU_THROW(NotSupportedError, NO_EGL);
+}
+
+std::vector<eglw::EGLConfig> getConfigs(const eglw::Library &, eglw::EGLDisplay)
+{
+    TCU_THROW(NotSupportedError, NO_EGL);
+}
+
+bool hasExtension(const eglw::Library &, eglw::EGLDisplay, const std::string &)
+{
+    TCU_THROW(NotSupportedError, NO_EGL);
+}
+
+eglw::EGLint getConfigAttribInt(const eglw::Library &, eglw::EGLDisplay, eglw::EGLConfig, eglw::EGLint)
+{
+    TCU_THROW(NotSupportedError, NO_EGL);
+}
+
+} // namespace eglu
+
 extern "C" {
 
 /* ---------------------------------------------------------------- POSIX timers */

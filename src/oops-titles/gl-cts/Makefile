@@ -51,6 +51,7 @@ CTS_CXX_ALL := $(wildcard $(UP)/delibs/decpp/*.cpp) \
                $(wildcard $(UP)/opengl/wrapper/*.cpp) \
                $(wildcard $(UP)/opengl/simplereference/*.cpp) \
                $(wildcard $(UP)/referencerenderer/*.cpp) \
+               $(wildcard $(UP)/randomshaders/*.cpp) \
                $(wildcard $(UP)/xexml/*.cpp) \
                $(UP)/platform/tcuMain.cpp
 
@@ -58,6 +59,18 @@ CTS_CXX_ALL := $(wildcard $(UP)/delibs/decpp/*.cpp) \
 #
 # **`standalone_test.c` and `rsgTest.cpp`** are dEQP's own self-test programs and each has its
 # own `main()`. `tcuMain.cpp` is the real entry point; keeping all three is a duplicate symbol.
+#
+# `rsgTest.cpp`'s line was a **no-op until 2026-09-24**: it excluded a file from a directory no
+# wildcard above collected, so it named something that was never a candidate. `randomshaders/`
+# is now in the list, which is what makes the exclusion mean anything. It went in because
+# `modules/glshared` needs it - `glsRandomShaderCase`, `glsRandomShaderProgram` and
+# `glsFragOpInteractionCase` include `rsgShader.hpp` and its siblings, and those three were the
+# only files in the whole build that would not compile once the test modules arrived.
+#
+# Adding the directory rather than dropping the three is the choice worth stating: nothing in
+# `external/openglcts` refers to them, so excluding them would have worked and would have left
+# `glshared` a different library from the one upstream builds, for a saving of 24 sources and
+# 464 KB that were already fetched.
 #
 # **`tcuImageIO.cpp`** needs libpng, which is not ported. It reads and writes reference images,
 # so an image-comparison test that wants one will not find it - but nothing else stops, and
@@ -75,15 +88,80 @@ CTS_EXCLUDE := $(UP)/delibs/dethread/standalone_test.c \
                $(UP)/delibs/deutil/deSocket.c \
                $(UP)/delibs/decpp/deSocket.cpp
 
+# # The test modules - the tests themselves
+#
+# Everything above is dEQP's machinery; this is the OpenGL CTS. `MOD` is 311 sources in twenty-two
+# directories and `GLS` is dEQP's shared GL test utilities, which is here because four tests in
+# `MOD/common` include it directly - `upstream.lock` says which.
+#
+# Wildcarded three levels deep because `glesext/` nests one level further than the rest
+# (`glesext/geometry_shader`, `glesext/tessellation_shader`, and nine more) and `common/` nests
+# `subgroups` and `meshShader`. Enumerating them would be a list to maintain against somebody
+# else's tree; this way a directory that appears in a version bump arrives with it.
+MOD := upstream/external/openglcts/modules
+GLS := upstream/modules/glshared
+
+CTS_MOD_ALL := $(wildcard $(MOD)/*.cpp) $(wildcard $(MOD)/*/*.cpp) $(wildcard $(MOD)/*/*/*.cpp) \
+               $(wildcard $(GLS)/*.cpp)
+
+# # What is left out of the test modules, and why each one
+#
+# **`runner/`** is upstream's `cts-runner`, a separate executable that drives this one repeatedly
+# across the mustpass config lists. `glcTestRunnerMain.cpp` has its own `main()` - a duplicate
+# symbol - and nothing outside `runner/` refers to anything in it. A title here has no process to
+# spawn, so the multi-config loop belongs in `/app0/cts-args.txt` and a host, not in the binary.
+#
+# **`pch.cpp`** is a precompiled-header stub: one `#include "pch.h"` and nothing else.
+#
+# **`glcTestPackageRegistry.cpp`** is replaced by `shim/gl_cts_registry.cpp`. It registers six
+# packages out of dEQP's own `modules/egl`, `modules/gles2`, `modules/gles3` and
+# `modules/gles31`, which the lock does not fetch. The shim registers the other twenty-five
+# exactly as upstream constructs them and lists the six with what each would cost.
+#
+# **`common/glcSpirvUtils.cpp`** is replaced by `shim/gl_cts_spirv_stub.cpp`. It is the only file
+# in the tree needing glslang and spirv-tools, which upstream fetches with its own script rather
+# than carrying, so no sparse path can reach them. Both files say the rest.
+#
+# **`glcTestPackageEntry.cpp` is NOT excluded** and must not be: it is the constructor that calls
+# `glcts::registerPackages()`, and it is the entire mechanism by which a package reaches the
+# registry.
+# **`gl4cContextFlushControlTests.cpp` is disabled upstream and this matches upstream.** Its two
+# lines in `modules/gl/CMakeLists.txt` are commented out, and so is
+# `gl4cTestPackages.cpp:389`'s `addChild(new gl4cts::ContextFlushControl::Tests(...))` - so no
+# package contains it and no build compiles it. It cannot compile: it calls
+# `platform.getContextFlushControlContextAttributes()` and `platform.createRenderContext()` on a
+# `glu::Platform`, and `gluPlatform.hpp` declares neither. `getContextFlushControlContextAttributes`
+# appears three times in the whole of VK-GL-CTS, all three in this file.
+#
+# It is listed here because these lists are wildcards, and a wildcard takes what upstream's
+# CMakeLists declines to. Comparing every `CMakeLists.txt` under the modules against the files
+# beside it finds exactly four disagreements: this, `pch.cpp`, and the two `main`s in `runner/`.
+# All four are named in this block, and nothing else on disk is left out of the build.
+CTS_MOD_EXCLUDE := $(wildcard $(MOD)/runner/*.cpp) \
+                   $(MOD)/pch.cpp \
+                   $(MOD)/glcTestPackageRegistry.cpp \
+                   $(MOD)/common/glcSpirvUtils.cpp \
+                   $(MOD)/gl/gl4cContextFlushControlTests.cpp
+
+CTS_MOD_SRCS := $(filter-out $(CTS_MOD_EXCLUDE),$(CTS_MOD_ALL))
+
 CTS_C_SRCS   := $(filter-out $(CTS_EXCLUDE),$(CTS_C_ALL))
-CTS_CXX_SRCS := $(filter-out $(CTS_EXCLUDE),$(CTS_CXX_ALL))
+CTS_CXX_SRCS := $(filter-out $(CTS_EXCLUDE),$(CTS_CXX_ALL)) $(CTS_MOD_SRCS)
 
 CTS_INCLUDES := \
     -I$(UP)/delibs/debase -I$(UP)/delibs/depool -I$(UP)/delibs/deutil \
     -I$(UP)/delibs/dethread -I$(UP)/delibs/decpp -I$(UP)/delibs/deimage \
     -I$(UP)/qphelper -I$(UP)/common -I$(UP)/opengl -I$(UP)/referencerenderer \
     -I$(UP)/egl -I$(UP)/opengl/wrapper -I$(UP)/egl/wrapper -I$(UP)/xexml \
+    -I$(UP)/opengl/simplereference -I$(UP)/randomshaders \
     -Ishim/include
+
+# Every directory under the test modules that holds a header, found the same way the sources
+# are. Upstream's `modules/CMakeLists.txt` and the eleven under `glesext/` each name their own
+# with `include_directories`, and the includes are flat - `esextcTestCaseBase.hpp`, not
+# `../esextcTestCaseBase.hpp` - so the set has to be complete rather than representative.
+CTS_INCLUDES += $(addprefix -I,$(patsubst %/,%,$(sort \
+    $(dir $(wildcard $(MOD)/*.hpp $(MOD)/*/*.hpp $(MOD)/*/*/*.hpp $(GLS)/*.hpp)))))
 
 # # `<fenv.h>` comes from msun's source tree, because the sysroot has none
 #
@@ -121,7 +199,8 @@ CTS_C_EXTRA := -include malloc_np.h
 # The platform layer and the generated loader table. `shim/gl_loader_table.cpp` is produced by
 # `tools/gen-gl-loader.py` from Mesa's own archive, so it is generated at build time rather than
 # committed - see the rule below.
-CTS_SHIM_CXX := shim/tcuOopsPlatform.cpp shim/gl_loader_table.cpp shim/gl_cts_gaps.cpp
+CTS_SHIM_CXX := shim/tcuOopsPlatform.cpp shim/gl_loader_table.cpp shim/gl_cts_gaps.cpp \
+                shim/gl_cts_registry.cpp shim/gl_cts_spirv_stub.cpp
 
 # # Upstream's C builds into an archive, under upstream's flags
 #
@@ -173,6 +252,20 @@ SYMBOLS_FILE := $(abspath build/imports.txt)
 TARGET_LD_SCRIPT := $(abspath local_tls.ld)
 
 OOPS_CXX_EXCEPTIONS = 1
+
+# # `c++17`, because the test modules are written in it
+#
+# `common/cxx.mk` defaults to `c++11` and the dEQP *framework* is happy there - which is why this
+# line did not exist while the framework was the whole port. The test modules are not:
+# `glcBufferObjectsTests.cpp:265` is `std::make_unique`, which is C++14, and `glcFramebufferBlitTests.cpp`
+# wants C++17 container semantics a dozen lines further on.
+#
+# **`tools/survey.sh` must use the same value, and the day it did not cost a whole build.** The
+# survey compiled all 305 test sources at `c++17` and reported two failures, so the modules were
+# taken as clean; the build then ran at `c++11` and stopped on the first `make_unique`. An
+# instrument set up differently from the thing it measures cannot report the difference - it is
+# the check arm that cannot fail, and this one confirmed something false for an hour.
+OOPS_CXX_STD = c++17
 OOPS_CXX_SRCS       = $(CTS_CXX_SRCS) $(CTS_SHIM_CXX)
 
 # # The SDK sources a hosted title has to name for itself
@@ -296,8 +389,44 @@ imports: $(BUILD)/$(APP_NAME).elf
 	  bash $(OOPS_MESA)/tools/generate-imports.sh $< $(SYMBOLS_FILE)
 
 .PHONY: survey
-# Compile every framework source one at a time and report what each failure is waiting for. The
-# same instrument as the libc++ survey behind `oops-apps#D007`, for the same reason: a port this
-# size needs a cause histogram, not a first error.
+# Compile every framework and test-module source one at a time and report what each failure is
+# waiting for. The same instrument as the libc++ survey behind `oops-apps#D007`, for the same
+# reason: a port this size needs a cause histogram, not a first error.
 survey:
 	@tools/survey.sh
+
+# # Stage the tests' resources into the packaged title
+#
+# The shaders, reference images and `.nspv` binaries the tests open at run time. They are read
+# through `tcu::Archive` relative to `--deqp-archive-dir`, which `shim/gl_cts_entry.c` sets to
+# `/app0` - the title's own directory - and the tests name them `gl_cts/data/...`, so the tree
+# lands at `/app0/gl_cts` with its shape unchanged.
+#
+# Separate from `title` for mesa-demos' reason and one of its own. `make title` is what every
+# other consumer runs and must not carry this; and a `pros restore` costs per *file* rather than
+# per byte - 1775 files took 81 minutes once - so what goes across the wire is worth counting
+# before it is sent.
+#
+# **`mustpass/` is excluded, and it is 138 MB of the 150.** Those are the case lists
+# `external/openglcts/modules/runner` reads to drive this binary repeatedly across the
+# conformance configurations - host-side input to a runner that `CTS_MOD_EXCLUDE` leaves out,
+# not a resource any test opens. Excluding it takes the staged tree from 899 files to 233 and
+# from 150 MB to 13 MB, and no test can tell the difference. Selecting *cases* stays a run-time
+# choice in `/app0/cts-args.txt`; this selects nothing.
+GL_CTS_DATA := upstream/external/openglcts/data/gl_cts
+
+.PHONY: stage-data
+stage-data:
+	@test -d $(BUILD)/title/$(TITLE_ID) || { \
+	    echo "stage-data: no packaged title at $(BUILD)/title/$(TITLE_ID) - run 'make title' first"; \
+	    exit 1; \
+	}
+	@test -d $(GL_CTS_DATA) || { \
+	    echo "stage-data: $(GL_CTS_DATA) is missing - the upstream fetch has not run"; \
+	    exit 1; \
+	}
+	@rm -rf $(BUILD)/title/$(TITLE_ID)/gl_cts
+	@cd $(GL_CTS_DATA)/.. && find gl_cts -type f -not -path 'gl_cts/data/mustpass/*' -print0 \
+	    | tar --null -cf - -T - \
+	    | tar -xf - -C $(abspath $(BUILD))/title/$(TITLE_ID)
+	@echo "stage-data: $$(find $(BUILD)/title/$(TITLE_ID)/gl_cts -type f | wc -l) files, $$(du -sh $(BUILD)/title/$(TITLE_ID)/gl_cts | cut -f1) -> /app0/gl_cts"

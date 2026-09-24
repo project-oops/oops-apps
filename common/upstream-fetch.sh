@@ -96,6 +96,11 @@ case "$REV" in
         ;;
 esac
 
+# Past the stamp check, so a fetch is definitely happening. `common/upstream.mk` used to print
+# this from an `$(info)` on the make side, where it could only be guarded by the stamp
+# *existing* - see the comment there. Printed from here it is guarded by the thing it actually
+# announces.
+echo "${UPSTREAM_NAME:-upstream}: fetching upstream at ${UPSTREAM_REF:-$REV}"
 echo "upstream: $URL @ $REV"
 rm -rf "$DIR"
 mkdir -p "$DIR"
