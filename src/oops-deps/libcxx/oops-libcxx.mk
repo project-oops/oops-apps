@@ -118,13 +118,24 @@ OOPS_LIBCXX_LDFLAGS := $(OOPS_LIBCXX_LIB)
 #
 # Re-run `tools/libcxx-survey.sh` after touching `__config_site` or oops-sdk's C library; it
 # compiles all 45 and prints what each failure is waiting for.
+#
+# # Three that compile and are deliberately absent, because libc++abi has them
+#
+# `exception.cpp`, `new_handler.cpp` and `typeinfo.cpp` define `std::terminate`,
+# `std::set_terminate`, `std::unexpected`, `std::get_new_handler`, `std::type_info::~type_info`
+# and that type's vtable - and so do libc++abi's `stdlib_exception.cpp`,
+# `stdlib_new_handler.cpp` and `stdlib_typeinfo.cpp`. Upstream's CMake picks one side; here
+# libc++abi is always the ABI library, so it wins and these three are left out.
+#
+# Nothing noticed until a title linked **both** archives for the first time. `cxx-throw` links
+# libc++abi without libc++, so the collision had no way to appear; the CTS is the first thing to
+# want the pair, and it appeared as eight `duplicate symbol: std::...` errors at the link.
 OOPS_LIBCXX_SRCS := \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/algorithm.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/any.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/bind.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/call_once.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/error_category.cpp \
-    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/exception.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/fstream.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/functional.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/hash.cpp \
@@ -135,7 +146,6 @@ OOPS_LIBCXX_SRCS := \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/memory.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/memory_resource.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/new.cpp \
-    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/new_handler.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/new_helpers.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/optional.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/ostream.cpp \
@@ -146,7 +156,6 @@ OOPS_LIBCXX_SRCS := \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/string.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/strstream.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/system_error.cpp \
-    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/typeinfo.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/valarray.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/variant.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/vector.cpp \
