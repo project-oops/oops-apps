@@ -111,6 +111,16 @@ over() {
             printf '=== %s: skipped (%s) ===\n' "$app" "$reason"
             continue
         fi
+        # An app may not have this target at all - a standalone host tool has no `check`, for
+        # instance. Skip it the way `dist` skips an app with no dist target, rather than stopping
+        # the whole run on it. Only a genuine "No rule to make target" is skipped; any other
+        # probe failure falls through to the real build, which reports it.
+        probe_rc=0
+        if ! probe_out="$(make -C "$app_dir" -n "$target" 2>&1)"; then probe_rc=1; fi
+        if [ "$probe_rc" -ne 0 ] && printf '%s' "$probe_out" | grep -qE "No rule to make target ['\`]$target'"; then
+            printf '=== %s: no %s target ===\n' "$app" "$target"
+            continue
+        fi
         printf '=== %s: %s ===\n' "$app" "$target"
         if ! make -C "$app_dir" "$target"; then
             if is_payload "$app_dir"; then
