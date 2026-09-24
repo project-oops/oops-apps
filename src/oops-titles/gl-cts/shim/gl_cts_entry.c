@@ -26,6 +26,7 @@
 #include <stddef.h>
 #include <stdio.h>
 
+#include "oops/fs.h"
 #include "oops/system.h"
 #include "oops/time.h"
 
@@ -54,14 +55,14 @@ static char *s_argv[CTS_MAX_ARGS];
  * Blank lines and lines beginning `#` are skipped, so the file can carry a note about why a
  * particular subset was chosen. That note is worth having beside the result.
  */
-static int read_args_file(void)
+static int read_args_file(int start)
 {
     FILE *f = fopen("/app0/cts-args.txt", "r");
     if (f == NULL)
-        return 0;
+        return start;
 
     size_t used = 0;
-    int    argc = 1; /* argv[0] is filled by the caller */
+    int    argc = start; /* argv[0] and the log path are filled by the caller */
 
     while (argc < CTS_MAX_ARGS) {
         char line[512];
@@ -98,24 +99,61 @@ static int read_args_file(void)
     return argc;
 }
 
+/*
+ * Where the result log goes, and why it is not a string constant.
+ *
+ * dEQP defaults to `TestResults.qpa` - a *relative* path resolved against a working directory a
+ * title here does not have - and treats failing to open it as fatal, correctly: the log is not a
+ * side effect of a run, it *is* the run's output. The first hardware run got as far as building
+ * the platform and stopped there.
+ *
+ * **An absolute `/data/homebrew/<id>/` path is not enough either**, and that was the second
+ * attempt. `oops/fs.h:88` says why: *"On target hardware, accessing /data or /mnt/usb
+ * automatically ensures sandbox escape privileges"* - the privilege is raised **by the SDK call**
+ * that resolves the directory, not by naming the path. A title that writes the path itself is
+ * refused.
+ *
+ * So the path comes from `oops_fs_storage_path`, which resolves it, ensures the directory
+ * exists, and takes care of the privilege on the way.
+ */
+static char s_log_arg[320];
+
+static const char *resolve_log_argument(void)
+{
+    char path[256];
+
+    if (oops_fs_storage_path(OOPS_STORAGE_APP_DATA, "TestResults.qpa", path, sizeof path) != 0) {
+        oops_log("gl-cts: oops_fs_storage_path refused; dEQP will have nowhere to write its log");
+        return NULL;
+    }
+
+    (void)snprintf(s_log_arg, sizeof s_log_arg, "--deqp-log-filename=%s", path);
+    return s_log_arg;
+}
+
 void gl_cts_start(void)
 {
     oops_log("gl-cts: start");
 
     s_argv[0] = (char *)"glcts";
 
-    int argc = read_args_file();
-    if (argc == 0) {
+    const char *log_arg = resolve_log_argument();
+    int         first   = 1;
+
+    if (log_arg != NULL)
+        s_argv[first++] = (char *)log_arg;
+
+    int argc = read_args_file(first);
+    if (argc == first) {
         /*
          * No argument file. Write the case list and run nothing: the harness proves itself, the
          * platform is created, the GL context is made, and the result says what a real run would
          * cover - without spending an unknown amount of time on a first attempt.
          */
-        s_argv[1] = (char *)"--deqp-runmode=stdout-caselist";
-        argc      = 2;
+        s_argv[argc++] = (char *)"--deqp-runmode=stdout-caselist";
         oops_log("gl-cts: no /app0/cts-args.txt; writing the case list and running nothing");
     } else {
-        oops_log("gl-cts: %d arguments from /app0/cts-args.txt", argc - 1);
+        oops_log("gl-cts: %d arguments from /app0/cts-args.txt", argc - first);
     }
 
     for (int i = 1; i < argc; i++)
