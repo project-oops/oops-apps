@@ -23,8 +23,15 @@ is how much of that reading has been done.
 | [supertuxkart](supertuxkart/) | | | pin + notes |
 | [retroarch](retroarch/) | | | pin + notes |
 
-Two more directories here are instruments rather than ports: [gl-cts](gl-cts/) runs Khronos'
-conformance suite and [mesa-demos](mesa-demos/) is oops-mesa's bring-up.
+One directory here is an instrument rather than a port: [mesa-demos](mesa-demos/) is oops-mesa's
+bring-up. It is the same misfiling `gl-cts` was, and it is left for the session that owns it.
+
+**`gl-cts` moved to `../oops-mesa/gl-cts` on 2026-09-24.** It ran Khronos' conformance suite
+against oops-mesa, which is not "a real program ported to run on the console" by the definition
+at the top of this file - it is the instrument that measures the driver, its `app.env` says
+`KIND=probe`, and every other probe already lived beside `mesa-dri-probe` and
+`mesa-winsys-probe`. It was the only `KIND=probe` outside `src/oops-mesa/`, and this sentence
+had been describing the problem rather than fixing it.
 
 Each scaffold's `docs/PORTING.md` opens by saying what it inherited and what nobody has checked,
 because a directory full of confident prose is how a survey's guesses turn into a project's
