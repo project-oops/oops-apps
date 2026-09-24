@@ -144,6 +144,31 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
         }
     }
 
+    /* **`/app0/gl-debug` turns on oops-gl's per-flip frame accounting**, and nothing else.
+     *
+     * The library already measures where a frame goes and prints none of it below
+     * `OOPS_LOG_DEBUG`: flushes and microseconds waiting for the GPU, the draw path's own CPU
+     * time with the triangle count behind it, the shader patching inside that, and the command
+     * buffer writes inside that again. Frame time minus the GPU wait minus the draw time is what
+     * this program spent above the library, so the six of them decompose a frame completely.
+     *
+     * That is the difference between the two answers on the table for a 29ms paint. The draw
+     * path's own note says it: "43 dwords of command buffer cannot be 4.3us, so the cost is
+     * either in preparing the texture and its descriptors, or in these writes" - batching draws
+     * fixes one of those and not the other, and the timer that separates them has never been
+     * read on this title.
+     *
+     * Behind a marker for the reason the capture below is: it is an instrument, and a default
+     * launch should not carry it. **`DEBUG` and not `TRACE`** - the per-draw kernel log lives at
+     * `TRACE` and is five hundred syscalls a frame, which is the thing that froze this title on
+     * 2026-09-23. Everything here prints once per flip. */
+    const int dbg_fd = oops_fs_open("/app0/gl-debug", 0 /* O_RDONLY */, 0);
+    if (dbg_fd >= 0) {
+        oops_fs_close(dbg_fd);
+        oops_gl_set_log_level((int)OOPS_LOG_DEBUG);
+        oops_log_info("NVRB", "oops-gl frame accounting on - see draw-us/dcb-us/patch-us per flip");
+    }
+
     const int cap_fd = oops_fs_open("/app0/capture", 0 /* O_RDONLY */, 0);
     if (cap_fd >= 0) {
         oops_fs_close(cap_fd);
