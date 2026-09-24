@@ -1,7 +1,17 @@
 # Neverputt
 
+<p align="center">
+  <img src="assets/logo.png" alt="Neverputt" width="200">
+</p>
+
 Miniature golf on the Neverball engine — [upstream](https://github.com/Neverball/neverball),
 pinned at `neverball-1.6.0`.
+
+## Screenshot
+
+<p align="center">
+  <img src="assets/demo.gif" alt="Neverputt running on Prospero, captured over JetKVM" width="600">
+</p>
 
 ## It is the second binary of the Neverball tree
 
