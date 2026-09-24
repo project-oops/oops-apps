@@ -151,6 +151,27 @@ OOPS_CTS_LIB   := $(OOPS_CTS_BUILD)/libdeqp_c.a
 # launch to discover.
 SYMBOLS_FILE := $(abspath build/imports.txt)
 
+# # The link script, and the two things `native_eboot.ld` does not give a hosted title
+#
+# The same local copy `mesa-cube` and the two Mesa probes carry, for the same two reasons, and
+# both were paid for again here before this line existed.
+#
+# **`PT_TLS`**: SELFish's `native_eboot.ld` emits no TLS segment and Mesa cannot link without one,
+# because its GL dispatch is thread-local by construction. All four copies go when
+# `REQ-20260915T0001Z-8d72` on the SELFish bus resolves.
+#
+# **`.init_array` and its `PROVIDE_HIDDEN` bounds**: a hosted title has no crt to walk them, so
+# `oops_mesa_run_init_array()` reads `__init_array_start`/`__init_array_end` - and with
+# `native_eboot.ld` those sections do not exist, the symbols resolve to nothing, and the walk
+# faults. On hardware that presented as `fault address: ...(xotext:"eboot.bin"+0x26a870)`
+# immediately after the title's first log line: a data read from the execute-only text segment,
+# because the "array" it was walking was code.
+#
+# **This title needs the constructors more than any other.** ACO's opcode table is one, and
+# `external/openglcts/modules/glcTestPackageEntry.cpp` is another - it is nothing but
+# `RegisterCTSPackages g_registerCTS;`, which is how every CTS package enters the registry.
+TARGET_LD_SCRIPT := $(abspath local_tls.ld)
+
 OOPS_CXX_EXCEPTIONS = 1
 OOPS_CXX_SRCS       = $(CTS_CXX_SRCS) $(CTS_SHIM_CXX)
 

@@ -20,10 +20,14 @@
 # `framework/` is 10 MB and is the part being ported: `delibs` (the C base libraries), `common`
 # (tcu), `opengl` (glu), `qphelper` (the `.qpa` log writer) and `referencerenderer`.
 #
-# `external/openglcts` is **177 MB** and holds the test modules and their data. It is not here
-# yet, deliberately: the framework is what has to build and run first, and a 177 MB fetch on
-# every clean checkout to compile nothing from it is a cost with no return. Add it to the line
-# below when the framework runs - changing this value re-fetches, by design.
+# `external/openglcts` is **177 MB** and holds the test modules and their data - the tests
+# themselves, and the shaders and reference images they compare against. It was left out until
+# the framework built and ran, because a 177 MB fetch on every clean checkout to compile nothing
+# from it is a cost with no return.
+#
+# **The framework runs as of 2026-09-24** - dEQP starts on the console, builds the platform,
+# opens its result log and exits 0, with zero cases because no test package is registered. That
+# is exactly what this line fixes, so it is in.
 #
 # Not wanted at all: `external/vulkancts`, `external/amber`, `external/vulkan-*` and the video
 # sample fetchers. This is the GL suite.
@@ -31,4 +35,4 @@ UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/KhronosGroup/VK-GL-CTS.git
 UPSTREAM_REV=067e8832315e79817ede1c4863804e440f5d1c80
 UPSTREAM_REF=opengl-cts-4.6.8.1
-UPSTREAM_SPARSE=framework
+UPSTREAM_SPARSE=framework external/openglcts

@@ -115,9 +115,23 @@ struct Entry
 
 ''')
 
+    out.write('''/*
+ * **`__typeof__(*(T)0)` and not plain `T`.** `glwFunctionTypes.inl`'s `glDrawArraysFunc` is a
+ * *function pointer* typedef, so `extern glw::glDrawArraysFunc glDrawArrays;` declares a pointer
+ * **variable** named `glDrawArrays` - not the function. The table below then compiles to a *read*
+ * of that variable, and the symbol it resolves to is code.
+ *
+ * That builds, links and passes every check. On hardware it is a data read from the
+ * execute-only text segment: `SYSTEM_XO_VIOLATION` inside this file's own initialiser, on the
+ * first entry it touches, before dEQP prints a line.
+ *
+ * Dereferencing the pointer type once gives the function type, so these declare functions and
+ * the casts below decay their addresses as intended.
+ */
+''')
     out.write("extern \"C\" {\n")
     for n, t in present:
-        out.write(f"extern glw::{t} {n};\n")
+        out.write(f"extern __typeof__(*(glw::{t})0) {n};\n")
     out.write("}\n\n")
 
     out.write("static const Entry s_entries[] = {\n")

@@ -131,9 +131,31 @@ static const char *resolve_log_argument(void)
     return s_log_arg;
 }
 
+/*
+ * Runs `.init_array`. Nothing else does: a title here has no crt, so namespace-scope
+ * constructors never run unless somebody calls this (oops-mesa worklog 061-062, and
+ * `oops-apps#D006` records the same thing biting `cxxrt.cpp`'s `set_terminate`).
+ *
+ * **Two separate things in this title depend on it, and both fail silently without it.**
+ *
+ * ACO's opcode table is built by a constructor, and oops-mesa found it all zeroes on hardware -
+ * an `ILLEGAL_INST` a long way from the cause.
+ *
+ * And `external/openglcts/modules/glcTestPackageEntry.cpp` is *nothing but* a constructor:
+ *
+ *     RegisterCTSPackages g_registerCTS;
+ *
+ * which is how every CTS test package enters the registry. Without this call the suite starts,
+ * opens its log, finds an empty hierarchy and reports zero cases - which looks exactly like "the
+ * test modules are not built yet" and is not.
+ */
+extern void oops_mesa_run_init_array(void);
+
 void gl_cts_start(void)
 {
     oops_log("gl-cts: start");
+
+    oops_mesa_run_init_array();
 
     s_argv[0] = (char *)"glcts";
 
