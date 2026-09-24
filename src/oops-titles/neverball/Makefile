@@ -54,9 +54,16 @@ include $(OOPS_APPS_ROOT)/common/deps.mk
 # upstream's own supported switch and is why `share/fs_stdio.c` is in the list below and
 # `fs_physfs.c` is not.
 #
+# **No `OOPS_POSIX_HOME`.** It was set to `/data/neverball` while savedata was being chased, and
+# it did nothing for this title: `OOPS_POSIX_HOME` is what `getpwuid` reports as the home
+# directory, and Neverball's `pick_home_path` (share/base_config.c:70) reads `getenv("HOME")`
+# and falls back to `fs_base_dir()` without ever calling `getpwuid`. All it achieved was an
+# empty `/data/neverball` created on the console at every launch. The write directory is
+# `/app0/.neverball`, which `config_paths` makes and `config_save` fills.
+#
 NB_CFLAGS := -DENABLE_NLS=0 -DZ_SOLO \
              -Ishim/include -Iupstream/share \
-             -DOOPS -DOOPS_POSIX_HOME=\"/data/neverball\" \
+             -DOOPS \
              $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE) $(OOPS_TTF_INCLUDE) $(OOPS_FT_INCLUDE) \
              $(OOPS_PNG_INCLUDE) $(OOPS_JPEG_INCLUDE) $(OOPS_VORBIS_INCLUDE)
 
@@ -151,9 +158,11 @@ $(OOPS_NB_LIB): $(OOPS_NB_OBJS) $(oops_makefiles)
 # `shim/nb_diag.c` is here rather than in `NB_SHARE` deliberately: it holds the format strings
 # behind the one patch this title carries, and the archive above compiles with `-w`. In
 # `PAYLOAD_SRCS` it gets `-Werror -Wformat` like the rest of our code. See `shim/include/nb_diag.h`.
+# `src/system/savedata.c` was here while the title was thought to need mounted storage for the
+# player's name. It does not - see the header of `shim/nb_start.c` - and nothing calls
+# `oops_savedata_*` any more, so it is not compiled in.
 PAYLOAD_SRCS = shim/nb_start.c \
                shim/nb_diag.c \
-               $(OOPS_SDK_DIR)/src/system/savedata.c \
                $(OOPS_POSIX_SRCS) \
                $(OOPS_SDK_DIR)/src/display.c \
                $(OOPS_SDK_DIR)/src/agc/agc_display.c \
