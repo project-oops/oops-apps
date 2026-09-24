@@ -44,6 +44,14 @@
 static void log_info(const char *m)  { oops_klog_level(OOPS_LOG_INFO,  "OOPSY", m); }
 static void log_error(const char *m) { oops_klog_level(OOPS_LOG_ERROR, "OOPSY", m); }
 
+/* Draw the current view now (surface + flip). Shared by the loop and the download progress
+ * callback, so the queue's bar advances during an otherwise-blocking fetch. */
+static void render_now(oops_display_t *disp, const oopsy_view_t *view) {
+    oops_surface_t s = oops_display_get_surface(disp);
+    if (s.pixels) oopsy_render(&s, view);
+    oops_display_flip(disp);
+}
+
 #ifdef OOPSY_HAVE_INSTALLER
 
 /* Name the specific HTTP failure, so a wall shows *which* step broke - on screen and in the log -
@@ -98,21 +106,61 @@ static int load_catalog(oopsy_catalog_t *cat, const char **msg) {
     return 1;
 }
 
-/* Download the selected title and unpack it into the homebrew folder. A title `.zip` carries a
- * top-level `<TITLE_ID>/`, so unpacking into /data/homebrew lands it where the console scans.
- * Each step is logged so a failed install says where it broke. */
-static int install(const oopsy_entry_t *e, const char **msg) {
-    oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "install: GET %s", e->url);
-    int rc = oops_http_get_to_file(e->url, DOWNLOAD_TMP);
-    oops_kprintf_level(OOPS_LOG_DEBUG, "OOPSY", "install: download rc=%d", rc);
-    if (rc != OOPS_HTTP_OK) { *msg = download_err_msg(rc); log_error(*msg); return 0; }
+/* Carried through oops_http_get_to_file_cb so its per-chunk callback can advance the job and
+ * repaint the queue while a (blocking) download runs. */
+typedef struct {
+    oopsy_job_t *job;
+    oops_display_t *disp;
+    const oopsy_view_t *view;
+    int last_pct;
+} oopsy_dl_ctx_t;
 
+/* Per chunk: record the bytes, and repaint only when the bar would actually move. Repainting on
+ * every chunk would gate the download on vsync; a percent change is smooth and cheap. */
+static void on_dl_progress(uint64_t downloaded, uint64_t total, void *ud) {
+    oopsy_dl_ctx_t *c = (oopsy_dl_ctx_t *)ud;
+    c->job->done = (unsigned)downloaded;
+    if (total) c->job->total = (unsigned)total;   /* the catalogue size is the fallback */
+    int pct = oopsy_job_pct(c->job);
+    if (pct != c->last_pct) { c->last_pct = pct; render_now(c->disp, c->view); }
+}
+
+/* Work one job to completion: download the .zip with a live bar, then unpack it into the homebrew
+ * folder (a title zip carries a top-level `<TITLE_ID>/`). Sets the job's final state; a failure
+ * here stops only this job. */
+static void process_job(oopsy_job_t *job, oops_display_t *disp, const oopsy_view_t *view) {
+    oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "install: GET %s", job->url);
+    job->state = OOPSY_JOB_DOWNLOADING;
+    job->done = 0;
+    render_now(disp, view);
+
+    (void)oops_fs_unlink(DOWNLOAD_TMP);
+    oopsy_dl_ctx_t ctx = { job, disp, view, -1 };
+    int rc = oops_http_get_to_file_cb(job->url, DOWNLOAD_TMP, on_dl_progress, &ctx);
+    oops_kprintf_level(OOPS_LOG_DEBUG, "OOPSY", "install: download rc=%d", rc);
+    if (rc != OOPS_HTTP_OK) {
+        job->state = OOPSY_JOB_FAILED;
+        job->error = download_err_msg(rc);
+        log_error(job->error);
+        render_now(disp, view);
+        return;
+    }
+
+    job->state = OOPSY_JOB_INSTALLING;
+    render_now(disp, view);
     rc = oops_zip_extract(DOWNLOAD_TMP, HOMEBREW_ROOT);
     (void)oops_fs_unlink(DOWNLOAD_TMP);
     oops_kprintf_level(OOPS_LOG_DEBUG, "OOPSY", "install: unzip rc=%d", rc);
-    if (rc != OOPS_ZIP_OK) { *msg = "Unpack failed."; log_error("install: unpack failed"); return 0; }
-    oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "install: %s installed", e->name);
-    return 1;
+    if (rc != OOPS_ZIP_OK) {
+        job->state = OOPSY_JOB_FAILED;
+        job->error = "Unpack failed.";
+        log_error("install: unpack failed");
+    } else {
+        job->state = OOPSY_JOB_DONE;
+        job->done = job->total;
+        oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "install: %s installed", job->name);
+    }
+    render_now(disp, view);
 }
 
 #else  /* the SDK does not carry oops/http.h + oops/zip.h yet */
@@ -122,10 +170,10 @@ static int load_catalog(oopsy_catalog_t *cat, const char **msg) {
     *msg = "On-device install needs the SDK HTTPS + unzip support (pending).";
     return 0;
 }
-static int install(const oopsy_entry_t *e, const char **msg) {
-    (void)e;
-    *msg = "On-device install pending SDK support.";
-    return 0;
+static void process_job(oopsy_job_t *job, oops_display_t *disp, const oopsy_view_t *view) {
+    (void)disp; (void)view;
+    job->state = OOPSY_JOB_FAILED;
+    job->error = "On-device install pending SDK support.";
 }
 
 #endif /* OOPSY_HAVE_INSTALLER */
@@ -153,18 +201,17 @@ int oopsy_daisy_start(const payload_args_t *args) {
 
     oopsy_catalog_t cat;
     cat.count = 0;
+    oopsy_queue_t queue;
+    queue.count = 0;
     oopsy_view_t view;
     view.cat = &cat;
+    view.queue = &queue;
     view.selected = 0;
     view.phase = OOPSY_LOADING;
+    view.screen = OOPSY_SCREEN_BROWSE;
     view.message = "Fetching the catalogue...";
 
-    /* Draw the loading screen once before the (blocking) fetch, so it is not a black frame. */
-    {
-        oops_surface_t s = oops_display_get_surface(disp);
-        if (s.pixels) oopsy_render(&s, &view);
-        oops_display_flip(disp);
-    }
+    render_now(disp, &view);   /* a loading frame before the blocking fetch */
 
     const char *msg = 0;
     if (load_catalog(&cat, &msg)) {
@@ -180,42 +227,34 @@ int oopsy_daisy_start(const payload_args_t *args) {
     while (running) {
         if (oops_system_close_requested()) break;
 
-        /* Pad and keyboard both map to the same OOPS_BUTTON_* bits (arrows -> UP/DOWN,
-         * Enter -> CROSS, Esc -> CIRCLE), so read the keyboard always and OR the pad on top -
-         * either drives the menu, and neither being attached is fine. */
+        /* Pad and keyboard map to the same OOPS_BUTTON_* bits, so read the keyboard always and OR
+         * the pad on top - either drives the menu. */
         oops_pad_state_t pad;
         uint32_t buttons = oops_keyboard_poll_buttons();
         if (oops_input_poll(0, &pad) == 0) buttons |= pad.buttons;
         uint32_t pressed = buttons & ~last;
-        if (pressed & OOPS_BUTTON_CIRCLE) running = 0;
-
-        if (view.phase == OOPSY_BROWSE || view.phase == OOPSY_DONE ||
-            view.phase == OOPSY_FAILED) {
-            if ((pressed & OOPS_BUTTON_UP) && view.selected > 0) view.selected--;
-            if ((pressed & OOPS_BUTTON_DOWN) && view.selected < cat.count - 1) view.selected++;
-
-            if ((pressed & OOPS_BUTTON_CROSS) && cat.count > 0) {
-                view.phase = OOPSY_INSTALLING;
-                view.message = "Installing...";
-                oops_surface_t s = oops_display_get_surface(disp);
-                if (s.pixels) oopsy_render(&s, &view);
-                oops_display_flip(disp);
-
-                const char *im = 0;
-                if (install(&cat.items[view.selected], &im)) {
-                    view.phase = OOPSY_DONE;
-                    view.message = "Installed. Launch it from the dashboard.";
-                } else {
-                    view.phase = OOPSY_FAILED;
-                    view.message = im;
-                }
-            }
-        }
         last = buttons;
 
-        oops_surface_t s = oops_display_get_surface(disp);
-        if (s.pixels) oopsy_render(&s, &view);
-        oops_display_flip(disp);
+        if (view.screen == OOPSY_SCREEN_QUEUE) {
+            if (pressed & OOPS_BUTTON_CIRCLE) view.screen = OOPSY_SCREEN_BROWSE;    /* back to list */
+        } else {
+            if (pressed & OOPS_BUTTON_CIRCLE) running = 0;                          /* exit */
+            if (pressed & OOPS_BUTTON_SQUARE) view.screen = OOPSY_SCREEN_QUEUE;     /* open queue */
+            if (view.phase == OOPSY_BROWSE && cat.count > 0) {
+                if ((pressed & OOPS_BUTTON_UP) && view.selected > 0) view.selected--;
+                if ((pressed & OOPS_BUTTON_DOWN) && view.selected < cat.count - 1) view.selected++;
+                if (pressed & OOPS_BUTTON_CROSS) oopsy_queue_add(&queue, &cat.items[view.selected]);
+            }
+        }
+
+        render_now(disp, &view);
+
+        /* Work the queue one job at a time: process_job blocks (with a live bar) until its job is
+         * done, then the loop resumes for input and the next job. */
+        int ai = oopsy_queue_active(&queue);
+        if (ai >= 0 && queue.jobs[ai].state == OOPSY_JOB_QUEUED) {
+            process_job(&queue.jobs[ai], disp, &view);
+        }
     }
 
     log_info("exiting");

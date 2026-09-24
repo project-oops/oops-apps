@@ -51,6 +51,26 @@ static const char *basename_range(const char *s, unsigned n, unsigned *out_len) 
     return fn;
 }
 
+/* The "size":N that precedes `before` in the same GitHub asset object, or 0 if none is near.
+ * The asset shape is {"name":...,"size":N,...,"browser_download_url":URL}, so the size sits a
+ * short way behind the url we anchor on - scan a bounded window back for the last one. */
+static unsigned parse_size_before(const char *json, const char *before) {
+    const char *SZ = "\"size\":";
+    unsigned n = (unsigned)obs_strlen(SZ);
+    size_t off = (size_t)(before - json);
+    const char *win = (off > 512) ? before - 512 : json;
+    const char *hit = 0;
+    for (const char *q = win; q + n <= before; q++) {
+        unsigned i = 0;
+        while (i < n && q[i] == SZ[i]) i++;
+        if (i == n) hit = q + n;
+    }
+    if (!hit) return 0;
+    unsigned v = 0;
+    while (*hit >= '0' && *hit <= '9') { v = v * 10u + (unsigned)(*hit - '0'); hit++; }
+    return v;
+}
+
 int oopsy_parse_catalog(const char *json, oopsy_catalog_t *cat) {
     cat->count = 0;
     if (!json) return 0;
@@ -60,9 +80,9 @@ int oopsy_parse_catalog(const char *json, oopsy_catalog_t *cat) {
     const char *p = json;
 
     while (cat->count < OOPSY_MAX_ENTRIES) {
-        p = obs_strstr(p, KEY);
-        if (!p) break;
-        p += KEYLEN;
+        const char *mp = obs_strstr(p, KEY);
+        if (!mp) break;
+        p = mp + KEYLEN;
 
         while (*p && *p != '"') p++;        /* to the value's opening quote */
         if (!*p) break;
@@ -99,9 +119,109 @@ int oopsy_parse_catalog(const char *json, oopsy_catalog_t *cat) {
         for (unsigned i = 0; i < ul; i++) e->url[i] = start[i];
         e->url[ul] = '\0';
 
+        e->size = parse_size_before(json, mp);
+
         cat->count++;
     }
     return cat->count;
+}
+
+/* --- The download / install queue (pure) ------------------------------------------------- */
+
+int oopsy_queue_add(oopsy_queue_t *q, const oopsy_entry_t *e) {
+    if (!q || !e) return -1;
+    for (int i = 0; i < q->count; i++) {
+        if (obs_strcmp(q->jobs[i].name, e->name) == 0) return -1;   /* already queued */
+    }
+    if (q->count >= OOPSY_MAX_JOBS) return -1;
+    oopsy_job_t *j = &q->jobs[q->count];
+    obs_strncpy(j->name, e->name, sizeof(j->name)); j->name[sizeof(j->name) - 1] = '\0';
+    obs_strncpy(j->url,  e->url,  sizeof(j->url));   j->url[sizeof(j->url)  - 1] = '\0';
+    j->state = OOPSY_JOB_QUEUED;
+    j->total = e->size;
+    j->done  = 0;
+    j->error = 0;
+    return q->count++;
+}
+
+int oopsy_queue_active(const oopsy_queue_t *q) {
+    if (!q) return -1;
+    for (int i = 0; i < q->count; i++) {
+        oopsy_job_state_t s = q->jobs[i].state;
+        if (s == OOPSY_JOB_QUEUED || s == OOPSY_JOB_DOWNLOADING || s == OOPSY_JOB_INSTALLING)
+            return i;
+    }
+    return -1;
+}
+
+int oopsy_queue_pending(const oopsy_queue_t *q) {
+    if (!q) return 0;
+    int n = 0;
+    for (int i = 0; i < q->count; i++) {
+        oopsy_job_state_t s = q->jobs[i].state;
+        if (s != OOPSY_JOB_DONE && s != OOPSY_JOB_FAILED) n++;
+    }
+    return n;
+}
+
+int oopsy_job_pct(const oopsy_job_t *j) {
+    if (!j) return 0;
+    switch (j->state) {
+        case OOPSY_JOB_QUEUED:      return 0;
+        case OOPSY_JOB_DOWNLOADING:
+            if (j->total > 0) {
+                unsigned p = (unsigned)((unsigned long long)j->done * 100ull / j->total);
+                return p > 99u ? 99 : (int)p;   /* the final step is the install */
+            }
+            return 50;                          /* size unknown: indeterminate midpoint */
+        case OOPSY_JOB_INSTALLING:  return 96;
+        case OOPSY_JOB_DONE:        return 100;
+        case OOPSY_JOB_FAILED:
+            return (j->total && j->done) ? (int)((unsigned long long)j->done * 100ull / j->total) : 0;
+    }
+    return 0;
+}
+
+/* --- The screen -------------------------------------------------------------------------- */
+
+#define TRACK 0xFF20242Au   /* progress-bar track */
+
+static int render_queue(oops_surface_t *surf, const oopsy_view_t *v, int y) {
+    int rows = 0;
+    oops_draw_text(surf, 60, y, "Downloads", ACCENT, 3); y += 46; rows++;
+
+    if (!v->queue || v->queue->count == 0) {
+        oops_draw_text(surf, 60, y, "Nothing queued yet. Press [] on a title to add it.",
+                       OOPS_COLOR_GRAY, 2);
+        y += 40; rows++;
+    } else {
+        for (int i = 0; i < v->queue->count && i < 12; i++) {
+            const oopsy_job_t *j = &v->queue->jobs[i];
+            const char *label; oops_color_t lc;
+            switch (j->state) {
+                case OOPSY_JOB_QUEUED:      label = "queued";      lc = OOPS_COLOR_GRAY;  break;
+                case OOPSY_JOB_DOWNLOADING: label = "downloading"; lc = OOPS_COLOR_WHITE; break;
+                case OOPSY_JOB_INSTALLING:  label = "installing";  lc = OOPS_COLOR_WHITE; break;
+                case OOPSY_JOB_DONE:        label = "installed";   lc = ACCENT;           break;
+                default:                    label = j->error ? j->error : "failed";
+                                            lc = OOPS_COLOR_RED;                          break;
+            }
+            oops_draw_text(surf, 60, y, j->name, OOPS_COLOR_WHITE, 2);
+            oops_draw_text(surf, 500, y, label, lc, 2);
+            y += 26;
+            int bx = 60, bw = 760, bh = 12, pct = oopsy_job_pct(j);
+            oops_draw_rect(surf, bx, y, bw, bh, TRACK);
+            int fw = bw * pct / 100;
+            if (fw > 0) {
+                oops_color_t fc = (j->state == OOPSY_JOB_FAILED) ? OOPS_COLOR_RED : ACCENT;
+                oops_draw_rect(surf, bx, y, fw, bh, fc);
+            }
+            y += bh + 18; rows++;
+        }
+    }
+    y += 12;
+    oops_draw_text(surf, 60, y, "O back", OOPS_COLOR_GRAY, 2); rows++;
+    return rows;
 }
 
 int oopsy_render(oops_surface_t *surf, const oopsy_view_t *v) {
@@ -112,18 +232,21 @@ int oopsy_render(oops_surface_t *surf, const oopsy_view_t *v) {
 
     int rows = 0, y = 60;
     oops_draw_text(surf, 60, y, "OOPSy-daisy", ACCENT, 5); y += 64; rows++;
+
+    if (v->screen == OOPSY_SCREEN_QUEUE) {
+        return rows + render_queue(surf, v, y);
+    }
+
     oops_draw_text(surf, 60, y, "Install homebrew onto this console.", OOPS_COLOR_GRAY, 2);
     y += 40; rows++;
 
     if (v->message) {
-        oops_color_t c = (v->phase == OOPSY_FAILED) ? OOPS_COLOR_RED
-                       : (v->phase == OOPSY_DONE)   ? ACCENT
-                                                    : OOPS_COLOR_WHITE;
+        oops_color_t c = (v->phase == OOPSY_FAILED) ? OOPS_COLOR_RED : OOPS_COLOR_WHITE;
         oops_draw_text(surf, 60, y, v->message, c, 2);
         y += 40; rows++;
     }
 
-    if (v->cat && v->phase != OOPSY_LOADING) {
+    if (v->cat && v->phase == OOPSY_BROWSE) {
         for (int i = 0; i < v->cat->count && i < 16; i++) {
             int sel = (i == v->selected);
             if (sel) oops_draw_text(surf, 40, y, ">", ACCENT, 2);
@@ -131,7 +254,7 @@ int oopsy_render(oops_surface_t *surf, const oopsy_view_t *v) {
             y += 26; rows++;
         }
         y += 20;
-        oops_draw_text(surf, 60, y, "X install    O exit", OOPS_COLOR_GRAY, 2); rows++;
+        oops_draw_text(surf, 60, y, "X queue    [] downloads    O exit", OOPS_COLOR_GRAY, 2); rows++;
     }
     return rows;
 }
