@@ -71,6 +71,13 @@ Each entry below was verified by cloning it and reading the source - grepping fo
 version, and looking for the asset licence in the repository. **Nothing here is from memory**:
 GL versions asserted from recollection have already been wrong twice in this project.
 
+**And that method has a blind spot, which SuperTux 2 found.** A title that ships shaders is not
+therefore a title that *runs* them: SuperTux carries `#version 100` and `#version 330` files and
+also carries a fixed-function backend that loads neither, choosing between them at run time. The
+shader files said `gl2/` and `gl3/`; the renderer says `gl1/`. So the grep above answers "what is
+in the tree", and the question is "what executes" - which means reading the backend that is
+actually selected, not only the assets beside it.
+
 | Slot | Target | Verified | Language |
 |---|---|---|---|
 | `bring-up/` | mesa-demos | 53 programs under `src/demos/`, purpose-built per GL feature, no assets | C |
@@ -78,9 +85,9 @@ GL versions asserted from recollection have already been wrong twice in this pro
 | `gl1/` | Armagetron Advanced | 23 `glBegin`, no shader calls - but exceptions, RTTI and boost, so **last** rather than second; see the comparison below | C++, 189 files |
 | `gl1/` | Extreme Tux Racer | arrays, no `glBegin`, no exceptions or RTTI, SDL **1.2**. Upstream is Subversion; unofficial git mirrors exist and one must be picked | C++, 45 files |
 | `gl2/` | **Craft** | `#version 120` - GLSL 1.20 is OpenGL 2.1 - `glCreateShader`/`glUseProgram`, 14 MB with textures | **C** |
-| `gl2/` | SuperTux 2 | ships `#version 100` *and* `#version 330`, so it belongs to both slots | C++, 476 files |
+| `gl1/` | **SuperTux 2** | **corrected 2026-09-24.** Its `GL20Context` uses no shaders at all - fixed-function `glMatrixMode`/`glEnableClientState`/`glVertexPointer`/`glColor4f`, one texture unit - and the backend is chosen at run time from `glGetString(GL_VERSION)`. `supertux/docs/PORTING.md` | C++, 476 files |
 | `gl3/` | SuperTuxKart | its README: "OpenGL >= 3.3 or OpenGL ES >= 3.0" | C++ |
-| `gl3/` | SuperTux 2 | the `#version 330` half of the same engine | C++ |
+| `gl3/` | SuperTux 2 | the `#version 330` half of the same engine, through `GL33CoreContext` | C++ |
 | `multi/` | **RetroArch** | ships `gl1.c`, `gl2.c` **and** `gl3.c` as separate drivers - one app across all three | C |
 
 ## The real sorting axis is C versus C++

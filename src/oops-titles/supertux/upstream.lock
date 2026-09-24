@@ -1,0 +1,43 @@
+# SuperTux's origin. Read by common/app.mk with no parser - the same KEY=value shape app.env
+# has - and by common/upstream-fetch.sh, which is shared by every title.
+#
+# UPSTREAM_REV is what gets checked out, and it must be a full commit hash: a tag can be moved
+# and a branch always is, so neither is a pin. UPSTREAM_REF is there to tell a reader which
+# release that hash is.
+#
+# **v0.6.3, and the reason is SDL rather than age.** This is the newest release upstream calls
+# stable, which would be enough on its own - but the decisive fact is that master has moved to
+# **SDL3**: its `gl_video_system.cpp` calls `SDL_GL_DestroyContext`, which is SDL3's spelling of
+# what SDL2 calls `SDL_GL_DeleteContext`. `src/oops-deps/` pins SDL **2**, and sdl12-compat
+# beside it, and no SDL3. So a master pin would make this title's first task "port SDL3", which
+# is a different project wearing this one's name. v0.6.3 calls `SDL_GL_DeleteContext` and is the
+# tree the dependency stack here was built for.
+#
+# That was checked rather than assumed: both spellings were grepped in both trees, and the GL 2.0
+# renderer this port targets was confirmed present at this revision with the same fixed-function
+# calls master has (see docs/PORTING.md, *The renderer*).
+#
+# **`v0.6.3` is a lightweight tag**, so `c1ddb4f2` is the commit directly and there is no peeled
+# `^{}` line to miss - the trap Neverball's lock records and Craft's confirms it checked. Checked
+# here too: `git ls-remote --tags` shows the tag once, with no `^{}` companion.
+#
+# **v0.7.0 exists as a tag and is not chosen.** It is the SDL3 line above; taking it would cost
+# the SDL3 port before a single frame.
+#
+# **UPSTREAM_SPARSE is deliberately absent.** gl-cts and libc++ use it because they want a few
+# directories out of somebody else's monorepo. This repository *is* the game: `src/` is the
+# program, `data/` is the content it will not start without - the same relationship Neverball's
+# 252 MB of levels has to its payload - and a sparse pin would be a tree that cannot ship. If the
+# fetch turns out to be painfully large for the analysis phase, the honest fix is a faster fetch,
+# not a pin that quietly excludes the game.
+#
+# **What this lock does NOT get you: the six submodules.** `common/upstream-fetch.sh` does not
+# recurse, and at this revision `.gitmodules` names `external/tinygettext`, `external/squirrel`,
+# `external/sexp-cpp`, `external/physfs`, `external/SDL_ttf` and `external/discord-sdk`. Four of
+# those are non-optional for a build. SuperTux is the first origin here that needs submodules at
+# all, so this is a decision for the collection and not something to paper over inside one title;
+# docs/PORTING.md, *The submodules*, states the two options and does not pick one.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/SuperTux/supertux
+UPSTREAM_REV=c1ddb4f28c54de77f07aa9965231a91c0ed06708
+UPSTREAM_REF=v0.6.3 (2022-02-06; master is SDL3 and v0.7.0 is that line)
