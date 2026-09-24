@@ -214,6 +214,43 @@ APP_UPPER := $(shell echo $(APP_NAME) | tr a-z- A-Z_)
 BUILD ?= build
 DIST  ?= dist
 
+# **The paths baked into every `.d` file, and what happens when they move.**
+#
+# `-MMD` records an object's prerequisites as absolute paths, so a depfile written under WSL names
+# the checkout at its WSL mount while one written under Docker names it `/w/oops-sdk/...`. Build
+# the same app both ways - which this collection does by design, `silkeh/clang` being
+# authoritative and `oops-builder` permitted - and the second `make` reads the first's depfiles,
+# needs a source at a path that does not exist here, and stops:
+#
+#     make: *** No rule to make target '/w/oops-sdk/src/math/math.c',
+#               needed by 'build/obj/oops/oops-sdk/src/math/math.o'.  Stop.
+#
+# **`-MP` does not save this.** It emits a phony target for every *header* in the list and not for
+# the source itself, which is exactly the prerequisite that fails. That is why the symptom is
+# always a `.c` and never a `.h`.
+#
+# It is neither hypothetical nor rare: on 2026-09-24 ten build directories across the collection
+# were poisoned this way, twice in one afternoon, and every affected app failed until somebody
+# deleted `build/` by hand. The diagnosis costs far more than the fix, because the error names a
+# file nobody wrote at a path nobody configured, and it appears in an app whose own sources are
+# untouched.
+#
+# So the roots that get written into depfiles are recorded beside the objects, and a build whose
+# roots differ from the recorded ones throws the objects away first. Nothing is lost by that:
+# different roots mean different `-I` paths, so every object was going to be rebuilt anyway - the
+# only casualty is a tree make has already proved it cannot read.
+#
+# The stamp lives inside `$(BUILD)`, so it is removed by `clean` along with what it describes.
+OOPS_BUILD_ROOTS := $(OOPS_SDK_DIR)|$(OOPS_APPS_ROOT)|$(SELFISH)
+OOPS_BUILD_ROOTS_STAMP := $(BUILD)/.oops-build-roots
+ifneq ($(strip $(shell cat $(OOPS_BUILD_ROOTS_STAMP) 2>/dev/null)),$(strip $(OOPS_BUILD_ROOTS)))
+ifneq ($(wildcard $(BUILD)),)
+$(info $(APP_NAME): build roots moved since this tree was compiled - clearing $(BUILD))
+endif
+$(shell rm -rf $(BUILD))
+$(shell mkdir -p $(BUILD) && echo '$(OOPS_BUILD_ROOTS)' > $(OOPS_BUILD_ROOTS_STAMP))
+endif
+
 # Toolchains and compiler flags
 #
 # **Bare `clang` is not the pin, and used to be mistaken for one.** Which compiler this
