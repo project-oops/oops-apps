@@ -55,6 +55,22 @@ include $(OOPS_FT)/oops-freetype.mk
 OOPS_MIX ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/sdl2-mixer)
 include $(OOPS_MIX)/oops-sdl2-mixer.mk
 
+# SDL2_image, for the one `IMG_Load` in `textures.cpp` that reads all 149 of this title's PNGs.
+#
+# **Three includes for one function, and in this order.** `oops-libpng.mk` reads
+# `$(OOPS_ZLIB_INCLUDE)` as it is read, so zlib is first; `oops-sdl2-image.mk` reads libpng's and
+# SDL2's for the same reason, so it is last. Each of these was already pinned and already
+# compiling - Neverball has been shipping libpng and zlib - which is why the whole of "this title
+# can read its own artwork" is three lines here and no new code anywhere.
+OOPS_ZLIB ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/zlib)
+include $(OOPS_ZLIB)/oops-zlib.mk
+
+OOPS_PNG ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libpng)
+include $(OOPS_PNG)/oops-libpng.mk
+
+OOPS_IMG ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/sdl2-image)
+include $(OOPS_IMG)/oops-sdl2-image.mk
+
 # The shared POSIX shim - `stat`, `opendir`, `getcwd` and the rest. Shared with Neverball, which
 # is why it lives in `common/` rather than here.
 include $(OOPS_APPS_ROOT)/common/posix.mk
@@ -72,14 +88,17 @@ include $(OOPS_APPS_ROOT)/common/posix.mk
 # `GLfloat` in about twenty-seven places. That was legal when ETR was written.
 ETR_CFLAGS := -DOS_LINUX=1 -Ishim/include -include GL/glext.h -Wno-c++11-narrowing \
               -DOOPS_POSIX_HOME=\"/data/extreme-tux-racer\" \
-              $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE) $(OOPS_MIX_INCLUDE) $(OOPS_FT_INCLUDE)
+              $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE) $(OOPS_MIX_INCLUDE) $(OOPS_FT_INCLUDE) \
+              $(OOPS_IMG_INCLUDE)
 
 OOPS_CXX_INCLUDE     += $(OOPS_LIBCXX_INCLUDE)
 EXTRA_TARGET_CFLAGS  += $(ETR_CFLAGS)
+# `$(OOPS_IMG_LDFLAGS)` carries libpng and zlib behind it, so they are not named again here.
 EXTRA_TARGET_LDFLAGS += $(OOPS_CXX_LDFLAGS) $(OOPS_SDL_LDFLAGS) $(OOPS_MIX_LDFLAGS) \
-                        $(OOPS_FT_LDFLAGS) $(OOPS_LIBCXX_LDFLAGS)
+                        $(OOPS_FT_LDFLAGS) $(OOPS_IMG_LDFLAGS) $(OOPS_LIBCXX_LDFLAGS)
 PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_SDL_LIB) $(OOPS_MIX_LIB) \
-                        $(OOPS_FT_LIB) $(OOPS_LIBCXX_LIB)
+                        $(OOPS_FT_LIB) $(OOPS_IMG_LIB) $(OOPS_PNG_LIB) $(OOPS_ZLIB_LIB) \
+                        $(OOPS_LIBCXX_LIB)
 
 # The C half of the payload: the shared POSIX shim and the SDK. It is C rather than C++ because
 # it implements a C ABI that upstream's headers declare.

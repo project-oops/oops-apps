@@ -1,0 +1,23 @@
+# SDL2_image's origin. Read by `common/upstream-fetch.sh`.
+#
+# **A lightweight tag**: `refs/tags/release-2.8.12` has no peeled `^{}` form, so the hash below is
+# the commit directly - like SDL_ttf's `release-2.24.0` next door, and unlike FreeType's annotated
+# `VER-2-13-3`. SDL_image's 2.x line is the SDL2 one; 3.x targets SDL3, which nothing here uses.
+#
+# Extreme Tux Racer is what wants it, and wants exactly one function: `IMG_Load`, at one call site
+# in `textures.cpp`, against 149 PNG assets. Its `.tga` and `.bmp` paths are its own screenshot
+# *writers* and never reach this.
+#
+# **Pinned rather than written**, which is this directory's rule (`README.md`, and `oops-sdk#D010`
+# behind it). One function is exactly the size at which reimplementing looks reasonable, and the
+# README already answers that: `oops_png_decode` answers "decode this file", which is what a
+# payload with a texture needs; a program written against SDL_image's API needs SDL_image, and an
+# `IMG_Load` of our own would be a second answer to a question upstream already answers - carried,
+# bumped and debugged by us forever.
+#
+# It is cheap for the same reason SDL_ttf was: the expensive half is already paid. **libpng** and
+# **zlib** are pinned next door and compile, so this is a thin layer over them.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/libsdl-org/SDL_image
+UPSTREAM_REV=12cb2e40330d256d9b1329647be8f366546d715c
+UPSTREAM_REF=release-2.8.12
