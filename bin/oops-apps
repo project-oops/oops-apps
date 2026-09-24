@@ -132,7 +132,10 @@ distribute() {
             printf '=== %s: dist ===\n' "$app"
             make -C "$app_dir" dist
             shipped=$((shipped + 1))
-        elif printf '%s' "$probe_out" | grep -q "No rule to make target"; then
+        # **`dist` specifically.** Make says "No rule to make target" about a missing
+        # prerequisite too, and matching the phrase alone read a title whose sources had not
+        # arrived as a title that ships nothing - the same confusion one layer down.
+        elif printf '%s' "$probe_out" | grep -qE "No rule to make target ['\`]dist'"; then
             printf '=== %s: no dist target, nothing to ship yet ===\n' "$app"
         else
             printf '=== %s: cannot be asked whether it ships ===\n' "$app" >&2
