@@ -54,15 +54,16 @@ Neverball carries five patches. **Neverputt carries none yet**, deliberately: th
 are in `ball/` and do not apply, and the two in `share/` are bring-up diagnostics that should be
 added when something is opaque rather than copied on the assumption they will be needed.
 
-Two known gaps, both inherited and neither yet chased:
+**Input was the open question and it is answered: it plays.** `putt/main.c:299` initialises
+`SDL_INIT_JOYSTICK` and putting is an aim-and-power interaction rather than tilt-the-floor, which
+is a different shape from anything the SDL backend had been exercised against. It needed nothing.
+
+One known gap remains, inherited and not yet chased:
 
 - **Settings do not persist.** `config_save` is called once, at `putt/main.c:386`, after the main
   loop returns — and a console title is closed or killed rather than quitted, so that line never
   runs. Neverball's patch 0002 writes the config when the player's name is entered; Neverputt has
   no name entry, so the equivalent wants a different trigger and has not been guessed at.
-- **Input is unproven.** `putt/main.c:299` initialises `SDL_INIT_JOYSTICK` and calls
-  `set_joystick()`, and putting is an aim-and-power interaction rather than tilt-the-floor. How it
-  reads on a pad is the open question about this port.
 
 ## The icon
 
