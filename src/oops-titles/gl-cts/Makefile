@@ -64,11 +64,16 @@ CTS_CXX_ALL := $(wildcard $(UP)/delibs/decpp/*.cpp) \
 # porting libpng for it is a separate piece of work.
 #
 # **`deSocket.c`** needs `<netinet6/in6.h>`, absent from the staged sysroot. It exists so a host
-# can drive tests over a wire; a title running its own cases needs none of it.
+# can drive tests over a wire; a title running its own cases needs none of it. **`deSocket.cpp`
+# goes with it** - it is `decpp`'s C++ wrapper over exactly those functions, and leaving it in
+# was the difference between "excluded" and "excluded and still referenced": fourteen
+# `deSocket_*` and `deSocketAddress_*` names came out of the import check with nowhere to
+# resolve.
 CTS_EXCLUDE := $(UP)/delibs/dethread/standalone_test.c \
                $(UP)/randomshaders/rsgTest.cpp \
                $(UP)/common/tcuImageIO.cpp \
-               $(UP)/delibs/deutil/deSocket.c
+               $(UP)/delibs/deutil/deSocket.c \
+               $(UP)/delibs/decpp/deSocket.cpp
 
 CTS_C_SRCS   := $(filter-out $(CTS_EXCLUDE),$(CTS_C_ALL))
 CTS_CXX_SRCS := $(filter-out $(CTS_EXCLUDE),$(CTS_CXX_ALL))
@@ -134,10 +139,42 @@ CTS_SHIM_CXX := shim/tcuOopsPlatform.cpp shim/gl_loader_table.cpp
 OOPS_CTS_BUILD := build/cts
 OOPS_CTS_LIB   := $(OOPS_CTS_BUILD)/libdeqp_c.a
 
+# # The import manifest, which `mkmodule` needs and `common/symbols.txt` cannot supply
+#
+# A packaged title carries a vendor segment saying which platform library resolves each imported
+# name. `common/symbols.txt` is the hand-kept list for freestanding titles; a hosted one imports
+# far more than it carries, so oops-mesa generates the manifest from obSCEne's mined corpus
+# instead. mesa-demos and mesa-cube do the same and say why at greater length.
+#
+# **`make imports` after a link, then `make title`.** Without `build/imports.txt` mkmodule builds
+# no vendor segment and the container is refused when it loads - which mesa-winsys-probe paid a
+# launch to discover.
+SYMBOLS_FILE := $(abspath build/imports.txt)
+
 OOPS_CXX_EXCEPTIONS = 1
 OOPS_CXX_SRCS       = $(CTS_CXX_SRCS) $(CTS_SHIM_CXX)
 
-PAYLOAD_SRCS        = shim/gl_cts_entry.c
+# # The SDK sources a hosted title has to name for itself
+#
+# `common/app.mk`'s `CORE_SDK_SRCS` is five files - the ones every payload needs whether it asks
+# or not. Everything else is the title's to list, and the way that failure shows up is the
+# expensive one: a payload link passes `--unresolved-symbols=ignore-all`, so a missing
+# `oops_display_open` links silently and faults on the console.
+#
+# This is `mesa-cube`'s list without the parts a test suite has no use for - no HUD, no compute,
+# no input. `display.c` and the AGC pair are how `oops_gfx_create` reaches the panel;
+# `system.c` carries `oops_klog` and `oops_log`, which every line of this title's output goes
+# through.
+PAYLOAD_SRCS        = shim/gl_cts_entry.c \
+                      $(OOPS_SDK_DIR)/src/display.c \
+                      $(OOPS_SDK_DIR)/src/agc/agc_display.c \
+                      $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
+                      $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
+                      $(OOPS_SDK_DIR)/src/memory/memory.c \
+                      $(OOPS_SDK_DIR)/src/thread/thread.c \
+                      $(OOPS_SDK_DIR)/src/system/system.c \
+                      $(OOPS_SDK_DIR)/src/system/freestd.c \
+                      $(OOPS_SDK_DIR)/src/system/syscall.c
 
 include $(OOPS_LIBCXX)/oops-libcxx.mk
 include $(OOPS_LIBCXX)/oops-libunwind.mk
@@ -223,6 +260,19 @@ MESA_GLAPI := $(OOPS_MESA)/build/mesa/src/mesa/glapi/glapi/libglapi_bridge.a
 shim/gl_loader_table.cpp: tools/gen-gl-loader.py $(MESA_GLAPI) \
                           $(UP)/opengl/wrapper/glwInitGL33.inl $(UP)/opengl/wrapper/glwInitExtGL.inl
 	@python3 tools/gen-gl-loader.py $(MESA_GLAPI) > $@
+
+$(SYMBOLS_FILE): $(BUILD)/$(APP_NAME).elf
+	@if [ ! -f "$@" ]; then \
+	  mkdir -p $(BUILD); \
+	  OOPS_APPS_SYMBOLS=$(OOPS_APPS_ROOT)/common/symbols.txt \
+	    bash $(OOPS_MESA)/tools/generate-imports.sh $< $@; \
+	fi
+
+.PHONY: imports
+imports: $(BUILD)/$(APP_NAME).elf
+	@mkdir -p $(BUILD)
+	@OOPS_APPS_SYMBOLS=$(OOPS_APPS_ROOT)/common/symbols.txt \
+	  bash $(OOPS_MESA)/tools/generate-imports.sh $< $(SYMBOLS_FILE)
 
 .PHONY: survey
 # Compile every framework source one at a time and report what each failure is waiting for. The

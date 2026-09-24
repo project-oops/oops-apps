@@ -50,11 +50,16 @@ OOPS_LIBCXX_UPSTREAM ?= $(OOPS_LIBCXX_DIR)/upstream
 # headers. A title that linked the wrong one would resolve every symbol and read the wrong
 # bytes, which is why they land in different directories rather than overwriting each other.
 #
-# The hosted build is the smaller change of the two despite being the later one: the sysroot has
-# real `xlocale.h`, `locale.h` and `runetype.h`, and `librune.a` already defines
-# `_DefaultRuneLocale`, so upstream's own FreeBSD locale backend applies and none of
+# The hosted build is the smaller change of the two: the sysroot has real `locale.h` and
+# `runetype.h`, and `librune.a` already defines `_DefaultRuneLocale`, so almost none of
 # `include/freestanding/` is wanted. See `oops-apps#D007` for what the freestanding one needed
 # instead.
+#
+# **The locale *backend* is the exception, and it belongs to both.** `include/__locale_dir/`
+# sits outside `freestanding/` on purpose: the sysroot having `<xlocale.h>` is not the same as
+# the console exporting `newlocale`, `strtod_l` and the other seventeen `_l` names, and it does
+# not. Which backend libc++ uses is a question about the *target*, not about which headers are
+# on disk - the header beside that path says so at length.
 ifeq ($(OOPS_LIBCXX_HOSTED),1)
 OOPS_LIBCXX_BUILD ?= $(OOPS_LIBCXX_DIR)/build-hosted
 OOPS_MESA_SYSROOT ?= $(abspath $(OOPS_LIBCXX_DIR)/../../../../oops-mesa/toolchain/sysroot)
@@ -67,9 +72,13 @@ endif
 # `include/` holds what libc++ needs **whatever C library is underneath**: `__config_site` and
 # `__assertion_handler`, both of which CMake would normally generate.
 #
+# `include/__locale_dir/support/freebsd.h` is also in the always-on half, and that is not an
+# oversight: it selects libc++'s *locale backend*, which is a question about what the target
+# exports rather than about which headers exist. See the file itself.
+#
 # `include/freestanding/` holds the shims that stand in for a C library this SDK does not have -
-# `locale.h`, `nl_types.h`, `runetype.h`, `inttypes.h`, the `mbstate_t` typedef, and the locale
-# backend selection. They are correct for a title built against oops-sdk's freestanding libc and
+# `locale.h`, `nl_types.h`, `runetype.h`, `inttypes.h` and the `mbstate_t` typedef. They are
+# correct for a title built against oops-sdk's freestanding libc and
 # **actively wrong for a hosted one**, where the Mesa sysroot already has the real versions:
 # putting them on a hosted title's include path shadows FreeBSD's `locale.h` and `runetype.h`
 # and breaks 128 of the CTS framework's 220 sources, with errors that name neither this
@@ -183,8 +192,18 @@ OOPS_LIBCXX_SRCS := \
 # `std::ctype<char>::classic_table()` returns. **The hosted build must not have it**: the Mesa
 # sysroot's `librune.a` defines the same symbol, from FreeBSD's own `locale/table.c`, and two
 # definitions is a duplicate-symbol link error - the good failure, but an avoidable one.
+#
+# `locale_shim.cpp` is here for the same reason and under the same guard: it defines the
+# `<locale.h>` and `<nl_types.h>` entry points that `include/freestanding/` has declared all
+# along, and the Mesa sysroot the hosted build links carries FreeBSD's real ones.
+#
+# Those headers each said "the definitions are in `locale_shim.cpp`" while no such file existed.
+# A payload link ignores unresolved symbols, so nothing said so until a title reached its link
+# and named the six libc++ references - `newlocale`, `freelocale`, `uselocale`, `catopen`,
+# `catgets`, `catclose`.
 ifneq ($(OOPS_LIBCXX_HOSTED),1)
-OOPS_LIBCXX_SRCS += $(OOPS_LIBCXX_DIR)/src/rune_table.c
+OOPS_LIBCXX_SRCS += $(OOPS_LIBCXX_DIR)/src/rune_table.c \
+                    $(OOPS_LIBCXX_DIR)/src/locale_shim.cpp
 endif
 
 # `_LIBCPP_BUILDING_LIBRARY` is what libc++'s own sources are compiled with; without it they
