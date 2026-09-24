@@ -76,6 +76,9 @@ jobs:
         run: ./bin/oops-apps check
         working-directory: OOPS/oops-apps
       - name: Stage every app and verify naming conventions
+        # `shell: bash` because the verification below uses `shopt` - the container's default
+        # `sh` is dash, which has no such builtin and failed the step with `shopt: not found`.
+        shell: bash
         run: |
           ./bin/oops-apps dist
           shopt -s nullglob
