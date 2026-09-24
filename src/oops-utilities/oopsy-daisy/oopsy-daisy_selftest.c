@@ -11,6 +11,15 @@
 #include "oops/draw.h"
 #include "oopsy-daisy.h"
 
+/* Host shims for the SDK's freestanding string helpers the pure parser calls (obs_strlen,
+ * obs_strstr). On the target these come from oops-sdk's freestd.c, which the payload links; that
+ * file also defines memcpy/memset, which collide with the host C library, so the host test maps
+ * just these two onto libc rather than linking the whole freestanding runtime. */
+size_t obs_strlen(const char *s);
+char *obs_strstr(const char *haystack, const char *needle);
+size_t obs_strlen(const char *s) { return strlen(s); }
+char *obs_strstr(const char *haystack, const char *needle) { return strstr(haystack, needle); }
+
 #define W 1280
 #define H 720
 

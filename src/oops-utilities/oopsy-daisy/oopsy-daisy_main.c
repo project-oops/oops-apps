@@ -38,7 +38,10 @@
 #define DOWNLOAD_TMP  "/data/oopsy-daisy-download.zip"
 #define HOMEBREW_ROOT "/data/homebrew"
 
-static void klog(const char *m) { oops_klog("OOPSY", m); }
+/* Lifecycle at INFO, failures at ERROR, through the SDK's levelled klog so OOPSy-daisy honours
+ * /app0/oops-log (an `OOPSY=level` line) exactly like the rest of the collection. */
+static void log_info(const char *m)  { oops_klog_level(OOPS_LOG_INFO,  "OOPSY", m); }
+static void log_error(const char *m) { oops_klog_level(OOPS_LOG_ERROR, "OOPSY", m); }
 
 #ifdef OOPSY_HAVE_INSTALLER
 
@@ -100,7 +103,7 @@ int oopsy_daisy_start(const payload_args_t *args);
 
 int oopsy_daisy_start(const payload_args_t *args) {
     if (args) sys_call_init(args);
-    klog("OOPSy-daisy entry reached");
+    log_info("entry reached");
 
     oops_time_init();
     oops_net_init();
@@ -108,7 +111,7 @@ int oopsy_daisy_start(const payload_args_t *args) {
 
     oops_display_t *disp = oops_display_open(OOPS_DISPLAY_BACKEND_AUTO, 1280, 720);
     if (!disp || !oops_display_is_ready(disp)) {
-        klog("display would not open");
+        log_error("display would not open");
         oops_net_ctl_term();
         oops_net_term();
         return -1;
@@ -180,7 +183,7 @@ int oopsy_daisy_start(const payload_args_t *args) {
         oops_display_flip(disp);
     }
 
-    klog("OOPSy-daisy exiting");
+    log_info("exiting");
     oops_input_close();
     oops_display_close(disp);
     oops_net_ctl_term();

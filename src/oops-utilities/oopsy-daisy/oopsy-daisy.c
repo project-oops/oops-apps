@@ -5,6 +5,7 @@
 
 #include "oopsy-daisy.h"
 #include "oops/draw.h"
+#include "oops/freestd.h"   /* obs_strlen, obs_strstr - the SDK's freestanding string helpers */
 
 #define BG      0xFF08090Bu
 #define ACCENT  0xFFFFD23Bu   /* daisy yellow */
@@ -30,34 +31,14 @@ int oopsy_install_path(const char *title_id, char *buf, int buf_len) {
     return need;
 }
 
-/* Self-contained string helpers, so the pure parse links in the host test (which does not pull
- * in the SDK's freestanding C sources) as well as on the target. */
-static unsigned str_len(const char *s) {
-    unsigned n = 0;
-    while (s[n]) n++;
-    return n;
-}
-
-/* Does the byte range [s, s+n) end with `suffix`? */
+/* Does the byte range [s, s+n) end with `suffix`? Length via the SDK's obs_strlen. */
 static int ends_with(const char *s, unsigned n, const char *suffix) {
-    unsigned sl = (unsigned)str_len(suffix);
+    unsigned sl = (unsigned)obs_strlen(suffix);
     if (n < sl) return 0;
     for (unsigned i = 0; i < sl; i++) {
         if (s[n - sl + i] != suffix[i]) return 0;
     }
     return 1;
-}
-
-/* A local substring search - self-contained so the parse builds without depending on a
- * particular SDK string helper being present. */
-static const char *find_sub(const char *hay, const char *needle) {
-    if (!*needle) return hay;
-    for (; *hay; hay++) {
-        unsigned i = 0;
-        while (hay[i] && needle[i] && hay[i] == needle[i]) i++;
-        if (needle[i] == '\0') return hay;
-    }
-    return (const char *)0;
 }
 
 /* The filename part of a URL byte range: everything after the last '/'. */
@@ -75,11 +56,11 @@ int oopsy_parse_catalog(const char *json, oopsy_catalog_t *cat) {
     if (!json) return 0;
 
     const char *KEY = "\"browser_download_url\"";
-    const unsigned KEYLEN = (unsigned)str_len(KEY);
+    const unsigned KEYLEN = (unsigned)obs_strlen(KEY);
     const char *p = json;
 
     while (cat->count < OOPSY_MAX_ENTRIES) {
-        p = find_sub(p, KEY);
+        p = obs_strstr(p, KEY);
         if (!p) break;
         p += KEYLEN;
 
