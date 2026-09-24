@@ -10,14 +10,23 @@
 #include "oops/display.h"
 #include "oops/draw.h"
 #include "oops/fs.h"
-#include "oops/http.h"
 #include "oops/input.h"
 #include "oops/net.h"
 #include "oops/netctl.h"
 #include "oops/syscall.h"
 #include "oops/system.h"
 #include "oops/time.h"
-#include "oops/zip.h"
+
+/* The installer half needs the SDK's HTTPS client and zip extractor - recent additions. Guard
+ * on them so OOPSy-daisy builds either way: with them it installs; without, it says the support
+ * is pending rather than failing to compile. */
+#if defined(__has_include)
+#  if __has_include(<oops/http.h>) && __has_include(<oops/zip.h>)
+#    include <oops/http.h>
+#    include <oops/zip.h>
+#    define OOPSY_HAVE_INSTALLER 1
+#  endif
+#endif
 
 #include "oopsy-daisy.h"
 
@@ -30,6 +39,8 @@
 #define HOMEBREW_ROOT "/data/homebrew"
 
 static void klog(const char *m) { oops_klog("OOPSY", m); }
+
+#ifdef OOPSY_HAVE_INSTALLER
 
 /* Fetch and parse the catalogue. Returns 1 on success, 0 on failure (with *msg set). */
 static int load_catalog(oopsy_catalog_t *cat, const char **msg) {
@@ -69,6 +80,21 @@ static int install(const oopsy_entry_t *e, const char **msg) {
     if (rc != OOPS_ZIP_OK) { *msg = "Unpack failed."; return 0; }
     return 1;
 }
+
+#else  /* the SDK does not carry oops/http.h + oops/zip.h yet */
+
+static int load_catalog(oopsy_catalog_t *cat, const char **msg) {
+    (void)cat;
+    *msg = "On-device install needs the SDK HTTPS + unzip support (pending).";
+    return 0;
+}
+static int install(const oopsy_entry_t *e, const char **msg) {
+    (void)e;
+    *msg = "On-device install pending SDK support.";
+    return 0;
+}
+
+#endif /* OOPSY_HAVE_INSTALLER */
 
 int oopsy_daisy_start(const payload_args_t *args);
 

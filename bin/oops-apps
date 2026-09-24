@@ -75,6 +75,30 @@ resolve() {
     done
 }
 
+# An app CI cannot build here: one held out with `CI_SKIP=1`, or a Mesa title when there is no
+# oops-mesa build to link against (the plain build and the `check` gate have none - those titles
+# are built in the release's own oops-mesa job). Prints the reason and returns 0 to skip; 1 to
+# build.
+ci_skip_reason() {
+    local dir="$1"
+    if grep -qE '^[[:space:]]*CI_SKIP[[:space:]]*=[[:space:]]*1' "$dir/app.env" 2>/dev/null; then
+        printf 'held out of CI (CI_SKIP=1)'
+        return 0
+    fi
+    if grep -qE 'OOPS_RENDERER[[:space:]]*[:?]?=[[:space:]]*mesa|USE_MESA[[:space:]]*[:?]?=[[:space:]]*1' \
+             "$dir/Makefile" "$dir/app.env" 2>/dev/null && [ ! -e "$HERE/../oops-mesa/build/mesa" ]; then
+        printf 'a Mesa title, and there is no oops-mesa build here'
+        return 0
+    fi
+    return 1
+}
+
+# A developer payload (KIND=payload) - built if it can be, but a build failure does not fail the
+# run: a payload mid-development is a normal state, the same way an app with no dist target is.
+is_payload() {
+    grep -qE '^[[:space:]]*KIND[[:space:]]*=[[:space:]]*payload' "$1/app.env" 2>/dev/null
+}
+
 over() {
     local target="$1"
     shift
@@ -83,8 +107,18 @@ over() {
         any=1
         app_dir="$(app_path "$app")"
         [ -n "$app_dir" ] || app_dir="$HERE/$app"
+        if reason="$(ci_skip_reason "$app_dir")"; then
+            printf '=== %s: skipped (%s) ===\n' "$app" "$reason"
+            continue
+        fi
         printf '=== %s: %s ===\n' "$app" "$target"
-        make -C "$app_dir" "$target"
+        if ! make -C "$app_dir" "$target"; then
+            if is_payload "$app_dir"; then
+                printf '=== %s: %s failed - a payload in development, not failing the run ===\n' "$app" "$target" >&2
+            else
+                exit 1
+            fi
+        fi
     done
     if [ "$any" -eq 0 ]; then
         echo "oops-apps: no apps here yet" >&2
@@ -119,6 +153,11 @@ distribute() {
         app_dir="$(app_path "$app")"
         [ -n "$app_dir" ] || app_dir="$HERE/$app"
 
+        if reason="$(ci_skip_reason "$app_dir")"; then
+            printf '=== %s: skipped (%s) ===\n' "$app" "$reason"
+            continue
+        fi
+
         # The assignment sits inside `if` because this script runs under `set -e`, where a bare
         # `probe_out="$(failing command)"` ends the script on the spot and never reaches the `$?`
         # that was meant to read it. A condition is the one place a failure is allowed to be an
@@ -130,13 +169,20 @@ distribute() {
 
         if [ "$probe_rc" -eq 0 ]; then
             printf '=== %s: dist ===\n' "$app"
-            make -C "$app_dir" dist
-            shipped=$((shipped + 1))
+            if make -C "$app_dir" dist; then
+                shipped=$((shipped + 1))
+            elif is_payload "$app_dir"; then
+                printf '=== %s: dist failed - a payload in development, not failing the run ===\n' "$app" >&2
+            else
+                failed=$((failed + 1))
+            fi
         # **`dist` specifically.** Make says "No rule to make target" about a missing
         # prerequisite too, and matching the phrase alone read a title whose sources had not
         # arrived as a title that ships nothing - the same confusion one layer down.
         elif printf '%s' "$probe_out" | grep -qE "No rule to make target ['\`]dist'"; then
             printf '=== %s: no dist target, nothing to ship yet ===\n' "$app"
+        elif is_payload "$app_dir"; then
+            printf '=== %s: cannot be asked whether it ships - a payload in development ===\n' "$app" >&2
         else
             printf '=== %s: cannot be asked whether it ships ===\n' "$app" >&2
             printf '%s\n' "$probe_out" >&2

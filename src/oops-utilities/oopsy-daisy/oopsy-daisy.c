@@ -41,6 +41,18 @@ static int ends_with(const char *s, unsigned n, const char *suffix) {
     return 1;
 }
 
+/* A local substring search - self-contained so the parse builds without depending on a
+ * particular SDK string helper being present. */
+static const char *find_sub(const char *hay, const char *needle) {
+    if (!*needle) return hay;
+    for (; *hay; hay++) {
+        unsigned i = 0;
+        while (hay[i] && needle[i] && hay[i] == needle[i]) i++;
+        if (needle[i] == '\0') return hay;
+    }
+    return (const char *)0;
+}
+
 /* The filename part of a URL byte range: everything after the last '/'. */
 static const char *basename_range(const char *s, unsigned n, unsigned *out_len) {
     const char *fn = s;
@@ -60,7 +72,7 @@ int oopsy_parse_catalog(const char *json, oopsy_catalog_t *cat) {
     const char *p = json;
 
     while (cat->count < OOPSY_MAX_ENTRIES) {
-        p = obs_strstr(p, KEY);
+        p = find_sub(p, KEY);
         if (!p) break;
         p += KEYLEN;
 
