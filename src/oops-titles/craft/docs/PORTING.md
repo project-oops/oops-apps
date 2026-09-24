@@ -71,13 +71,13 @@ Two separate things, and only the first is real work:
 here as work rather than as a footnote, because until it is written `tinycthread.c` does not
 compile - which is what `make census` says and what the table above used to deny.
 
-## The host headers, which is not only this title's problem
+## The host headers, which was not only this title's problem
 
-**`common/app.mk`'s `TARGET_CFLAGS` carries `-nostdlib` and not `-nostdlibinc`.** The first is a
-linker flag. The header search path is left alone, so a freestanding target compile falls through
-to the build machine's `/usr/include`.
+**Fixed collection-wide on 2026-09-24.** `common/app.mk`'s `TARGET_CFLAGS` carried `-nostdlib`
+and not `-nostdlibinc`. The first is a linker flag; the header search path was left alone, so a
+freestanding target compile fell through to the build machine's `/usr/include`.
 
-This title is where it shows, because this title is the one that asks for headers the SDK does
+This title is where it showed, because this title is the one that asks for headers the SDK does
 not have. Measured both ways, the same three files:
 
 | | without `-nostdlibinc` | with it |
@@ -95,10 +95,17 @@ source whose headers glibc happens to satisfy compiles cleanly against declarati
 will never link, and nothing anywhere says so. A freestanding build that can silently reach the
 host's libc headers is not freestanding; it is a build that happens to agree with its host.
 
-The flag is set in this title's `Makefile` rather than in `common/app.mk`, because that file is
-every title's flag set and this is one title's measurement. Neverball reached the same conclusion
-independently and put `-nostdlibinc` in its own `OOPS_NB_CFLAGS` for upstream's archive - but not
-on the shim files beside it, which still compile with the host's headers in reach.
+**It is set in `common/app.mk` now, on the freestanding side of the fork that already decides
+whether a title gets oops-sdk's libc headers.** Two titles had worked around this separately -
+Neverball put `-nostdlibinc` in its own `OOPS_NB_CFLAGS` for upstream's archive, though not on
+the shim sources beside it - and two independent workarounds is the argument for one fix.
+
+**Freestanding only, and that is a measurement rather than caution.** A hosted title compiles
+with `--sysroot=oops-mesa/toolchain/sysroot`, and `-nostdlibinc` suppresses the standard include
+search *inside the sysroot* too - so it removes exactly the C library such a title is meant to
+use. Swept before the change landed: the three `src/oops-mesa` apps lost 62 of 87 target
+translation units to `'stdio.h' file not found` and its neighbours, while the freestanding side
+was untouched at 509 translation units across 17 apps with zero failures.
 
 **Two titles have now worked around this separately, which is the argument for fixing it once.**
 It is not done here: changing `TARGET_CFLAGS` changes every title in the collection at once,

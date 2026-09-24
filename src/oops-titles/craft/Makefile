@@ -74,23 +74,13 @@ CRAFT_DEP_SRCS := upstream/deps/lodepng/lodepng.c \
 # SQLite that need `dlopen`, a thread library and a VFS this target does not have; what is left
 # still needs a VFS, which is the gap docs/PORTING.md names.
 #
-# **`-nostdlibinc`, because without it a missing header is answered by the build machine.**
-# `common/app.mk`'s `TARGET_CFLAGS` carries `-nostdlib`, which is the *linker* flag; the header
-# search path is untouched, so a freestanding target compile falls through to `/usr/include`.
-# This title is where that shows, because this title is the one that includes headers the SDK
-# does not have.
-#
-# Measured: without it, `client.c`, `sqlite3.c` and `tinycthread.c` all fail on
-# `bits/wordsize.h` - a glibc internal, reached because clang had already accepted glibc's
-# `netdb.h`, `fcntl.h` and `signal.h`. With it, each one fails naming the header it actually
-# asked for, which is the difference between a diagnosis and a symptom. Worse than the confusing
-# error is the case that does *not* error: a source that glibc's headers satisfy compiles
-# against declarations this target will never link, and nothing says so.
-#
-# It is set here rather than in `common/app.mk` because that is every title's flag set and this
-# is one title's measurement - see docs/PORTING.md, *The host headers*.
-CRAFT_CFLAGS := -nostdlibinc \
-                -Ishim/include \
+# **`-nostdlibinc` is no longer set here.** It moved into `common/app.mk`'s `TARGET_CFLAGS` on
+# 2026-09-24, on the freestanding side of the fork that already decides whether a title gets
+# oops-sdk's libc headers - so every freestanding title has it now and this one does not need its
+# own copy. The measurement that moved it started here: without the flag, `client.c`, `sqlite3.c`
+# and `tinycthread.c` all died on `bits/wordsize.h`, a glibc internal three levels below the
+# header each one was actually missing. docs/PORTING.md, *The host headers*, keeps the table.
+CRAFT_CFLAGS := -Ishim/include \
                 -Iupstream/src \
                 -Iupstream/deps/lodepng \
                 -Iupstream/deps/noise \

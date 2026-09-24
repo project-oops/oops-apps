@@ -240,15 +240,44 @@ include $(OOPS_APPS_ROOT)/toolchain.mk
 # sysroot, whose <time.h> and the rest are the real ones; oops-sdk's freestanding libc headers on
 # top of them collide - the sysroot's `__clock_t` is `int`, this libc's `clock_t` is `int64_t`, and
 # the redefinition breaks every target compile. So a hosted title does not get this path.
+#
+# **`-nostdlibinc` rides the same fork, and for the same reason turned around.**
+#
+# `-nostdlib` above is the *linker* flag. Without `-nostdlibinc` beside it the header search path
+# is untouched, so a freestanding target compile falls through to the build machine's
+# `/usr/include` - and a program that is not allowed to link the host's C library spends the whole
+# compile reading its headers.
+#
+# **The mild failure is a confusing error.** Craft's `client.c`, `sqlite3.c` and `tinycthread.c`
+# each want a header oops-sdk does not have, and without this flag all three died on
+# `'bits/wordsize.h' file not found` - a glibc internal, three levels below the missing header,
+# reached because clang had already accepted glibc's `netdb.h`, `fcntl.h` and `signal.h` and was
+# following them inward. With it, each one names the header it actually asked for.
+#
+# **The failure that matters makes no noise at all**: a source whose headers glibc happens to
+# satisfy compiles cleanly against declarations this target will never link, and nothing says so.
+# A freestanding build that can reach the host's libc headers is not freestanding; it is a build
+# that happens to agree with its host.
+#
+# **Freestanding only, and that is not a hedge.** A hosted title compiles with
+# `--sysroot=oops-mesa/toolchain/sysroot`, and `-nostdlibinc` suppresses the standard include
+# search *inside the sysroot* as well - so it removes precisely the C library a hosted title is
+# meant to use. Measured before this landed: the three `src/oops-mesa` apps lost 62 of 87 target
+# translation units to `'stdio.h' file not found` and friends, while every freestanding app was
+# untouched - 509 target translation units across 17 apps, zero failures. Neverball had already
+# reached this conclusion alone and put `-nostdlibinc` in its own archive flags, though not on the
+# shim sources beside it; those are covered from here.
 ifeq ($(USE_MESA),1)
 OOPS_SDK_LIBC_INCLUDE ?=
+OOPS_TARGET_NOSTDLIBINC ?=
 else
 OOPS_SDK_LIBC_INCLUDE ?= -I$(OOPS_SDK_DIR)/include/libc
+OOPS_TARGET_NOSTDLIBINC ?= -nostdlibinc
 endif
 TARGET_CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion \
                  -Wstrict-prototypes -Wmissing-prototypes -Wvla \
                  -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -fPIC \
-                 -fno-stack-protector -fvisibility=hidden \
+                 -fno-stack-protector -fvisibility=hidden $(OOPS_TARGET_NOSTDLIBINC) \
                  $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) $(EXTRA_TARGET_CFLAGS)
 
 # Standardized application telemetry & log identity macros
