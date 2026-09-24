@@ -16,9 +16,10 @@ is how much of that reading has been done.
 | | Runs | Measured | Scaffold only |
 |---|---|---|---|
 | [neverball](neverball/) | **end to end on hardware** | | |
+| [neverputt](neverputt/) | | payload links first time, 46 objects; the second binary of the Neverball tree | |
 | [craft](craft/) | | 4/4 shaders compile; 14 of 18 sources compile, `make check` | |
 | [supertux](supertux/) | | 29/33 GL entry points, `make check`; renderer read | |
-| [extreme-tux-racer](extreme-tux-racer/) | | source list named, not armed | |
+| [extreme-tux-racer](extreme-tux-racer/) | | all 45 sources compile, payload links, `make package` stages it with its 55 MB of content | |
 | [armagetron-advanced](armagetron-advanced/) | | | pin + notes |
 | [supertuxkart](supertuxkart/) | | | pin + notes |
 | [retroarch](retroarch/) | | | pin + notes |

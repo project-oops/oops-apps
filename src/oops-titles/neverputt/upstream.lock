@@ -1,0 +1,25 @@
+# Neverputt's origin, which is Neverball's - the same repository and the same pinned commit.
+#
+# Neverputt is not a separate project. It is the second binary in the Neverball tree: seven
+# sources under `putt/` and a subset of the `share/` files Neverball already builds, with its own
+# `main` at `putt/main.c:279`. Upstream's own Makefile builds both from one checkout and calls
+# them `BALL_OBJS` and `PUTT_OBJS`.
+#
+# **So why a second checkout of the same revision, rather than reaching into the sibling
+# title's?** Because a title that reads another title's working tree is a failure mode this
+# collection does not have today: `make` in `neverputt` would then depend on whether somebody had
+# run `make upstream-clean` in `neverball`, and on which revision *that* lock happens to name.
+# Each title owning its own fetch keeps `./bin/oops-apps build <title>` meaning one thing, lets
+# the two be bumped independently, and costs disk that is free. The fetch script verifies the
+# hash after checkout and after patches, so the two copies cannot silently diverge.
+#
+# Kept at the same revision as `../neverball/upstream.lock` on purpose - the two share every file
+# under `share/`, so a bump on one is a bump worth making on both. They are not required to move
+# together; they are expected to.
+#
+# **It is the commit, not the tag object.** `neverball-1.6.0` is an annotated tag, so the tag
+# itself is `e6d4df3d...` and the commit it points at is the hash below.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/Neverball/neverball
+UPSTREAM_REV=16945b8abe77fdaf0d3b6728f7cd25819bb0a707
+UPSTREAM_REF=neverball-1.6.0
