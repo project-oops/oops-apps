@@ -162,12 +162,38 @@ OOPS_CXX_INCLUDE     += $(OOPS_LIBCXX_INCLUDE) $(CTS_INCLUDES) $(CTS_DEFINES)
 # from `main` in a way the linker can follow on demand - `tcuMain.cpp` pulls in the test
 # hierarchy, which pulls in everything else by registration. Same reasoning `cxx.mk` gives for
 # its own archive.
+# **`$(OOPS_LIBCXX_LDFLAGS)` is the one to not forget.** `OOPS_CXX_LDFLAGS` is `cxx.mk`'s
+# archive - this title's own C++ objects - and is a different thing from libc++ itself.
+# `cxx-throw` lists the other three and not this one, correctly, because it links libc++abi and
+# libunwind without needing the standard library; copying that line here produced a binary with
+# 315 undefined `std::` symbols and no link error, because a hosted title is linked
+# `--unresolved-symbols=ignore-all`.
 EXTRA_TARGET_LDFLAGS += -Wl,--whole-archive $(OOPS_CTS_LIB) -Wl,--no-whole-archive \
-                        $(OOPS_CXX_LDFLAGS) $(OOPS_LIBCXXABI_LDFLAGS) $(OOPS_LIBUNWIND_LDFLAGS)
-PAYLOAD_EXTRA_DEPS   += $(OOPS_CTS_LIB) \
-                        $(OOPS_CXX_LIB) $(OOPS_LIBCXXABI_LIB) $(OOPS_LIBUNWIND_LIB)
+                        $(OOPS_CXX_LDFLAGS) $(OOPS_LIBCXX_LDFLAGS) \
+                        $(OOPS_LIBCXXABI_LDFLAGS) $(OOPS_LIBUNWIND_LDFLAGS)
+PAYLOAD_EXTRA_DEPS   += $(OOPS_CTS_LIB) $(OOPS_CXX_LIB) $(OOPS_LIBCXX_LIB) \
+                        $(OOPS_LIBCXXABI_LIB) $(OOPS_LIBUNWIND_LIB)
 
 include $(OOPS_APPS_ROOT)/common/app.mk
+
+# # `liboopsmesa_cxx` comes out of the link, because this title brings the real thing
+#
+# oops-mesa carries a two-object C++ support archive in its sysroot - `cxx_support.o` and
+# `upstream_stdexcept.o` - built when there was no C++ runtime here at all. Its own roadmap says
+# why: Mesa is compiled `-fno-exceptions`, ACO needs eight definitions, and `__cxa_pure_virtual`
+# is referenced from vtables. A handful of stand-ins was the right answer then.
+#
+# It is not the right answer for a title that links libc++ and libc++abi. Both define
+# `std::logic_error`, `std::runtime_error`, `std::domain_error` and their destructors, so the
+# link stops on a dozen duplicate symbols - and the copy to keep is libc++abi's, which is the
+# one the exception machinery in this title actually unwinds through.
+#
+# Filtered here rather than in oops-mesa, because oops-mesa is right to ship it: every other
+# Mesa title still needs it, and none of them brings a C++ runtime. This is the first that does.
+#
+# `TARGET_LDFLAGS` is recursively expanded and reads `EXTRA_TARGET_LDFLAGS` at link time, so
+# filtering after the include reaches the link line.
+EXTRA_TARGET_LDFLAGS := $(filter-out -loopsmesa_cxx,$(EXTRA_TARGET_LDFLAGS))
 
 # Upstream's flags: `-w`, and the sysroot the hosted build uses. `$(OOPS_MESA_INCLUDE)` carries
 # `--sysroot=`, which is what makes this a hosted compile rather than a freestanding one.

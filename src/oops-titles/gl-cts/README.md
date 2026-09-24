@@ -16,12 +16,27 @@ that the tests are somebody else's and the answer is not ours to arrange.
 
 ## Where it is
 
-**208 of 220 framework sources compile for the target.** Run `tools/survey.sh` for the current
-number and the cause histogram; it compiles every source one at a time and groups the failures,
-which is the only useful shape for a port this size.
+**It links.** `build/gl-cts.elf` is 33 MB and carries the dEQP framework, the platform layer and
+the GL entry-point table. 217 of 220 framework sources compile; `tools/survey.sh` prints the
+current number and the cause histogram.
 
-Nothing links yet and nothing has run. Building is not conforming, and the distinction matters
-more here than anywhere else in the collection.
+**Nothing has run.** Building is not conforming, and the distinction matters more here than
+anywhere else in the collection.
+
+### Five symbols the link leaves undefined
+
+A hosted title is linked `--unresolved-symbols=ignore-all`, because its C library is resolved at
+load — so the link succeeding is not the same as every symbol being answered. What is left, by
+`nm -u`, after the C library and platform names are set aside:
+
+| symbol | why |
+|---|---|
+| `tcu::ImageIO::loadPNG`, `loadPKM` | `tcuImageIO.cpp` is excluded; libpng is not ported. Reached only by a test that loads a reference image |
+| `std::mutex::lock`, `unlock`, `~mutex` | `_LIBCPP_HAS_THREADS` is 0, so libc++'s `mutex.cpp` is not built. `mesa-cube` has none of these, so the reference is dEQP's rather than Mesa's |
+
+Both would fault if reached. The mutex three are the argument for turning threads on in the
+hosted libc++ configuration: the sysroot has `pthread.h` and oops-mesa already implements the
+pthread surface for Mesa's own C11 threads layer.
 
 ### This is a hosted title, and getting that wrong cost a day's reading
 
@@ -70,15 +85,7 @@ a reduced binary: a suite we pruned at compile time is one we curated. That is `
 roadmap row 8 and this title does not get to reopen it — it means building the whole `glcts`,
 which will be a much larger link than anything here so far.
 
-**The link, and it is blocked on one thing that does not exist yet.** 208 objects is not an
-executable. A hosted C++ title needs **libc++, libc++abi and libunwind built against the Mesa
-sysroot**, and the only build of them is the freestanding one — against oops-sdk's libc, which
-disagrees with the sysroot about `FILE` and `clock_t`. Linking the two together would produce a
-binary that resolves every symbol and reads the wrong bytes.
-
-That build should be *smaller* than the freestanding one, not larger: the sysroot has real
-`xlocale.h`, `locale.h` and `runetype.h`, and `librune.a` already supplies `_DefaultRuneLocale`,
-so upstream's own FreeBSD locale backend applies and none of `include/freestanding/` is needed.
+**How it behaves.** `make title` packages it; nothing has run.
 
 ## The platform layer
 

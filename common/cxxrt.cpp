@@ -216,8 +216,19 @@ extern "C" void __cxa_guard_abort(uint64_t *guard)
 
 extern "C" {
 
-/* The ABI requires the address of this symbol; nothing reads its contents. */
-void *__dso_handle = &__dso_handle;
+/*
+ * The ABI requires the address of this symbol; nothing reads its contents.
+ *
+ * **Weak, because a hosted title has two of them.** oops-mesa's `src/runtime/abi.c` defines one
+ * too - it has to, because a Mesa title links that runtime whether or not it uses C++ - and a
+ * title that links both stops at `duplicate symbol: __dso_handle`. `gl-cts` is the first to do
+ * so; every C++ title before it was freestanding and every Mesa title before it was C.
+ *
+ * Weak is the right resolution rather than a tie-break: there is exactly one shared object here,
+ * so both definitions mean the same thing, and the only requirement is that *an* address exists.
+ * The strong one wins when present and this one serves when it is alone.
+ */
+__attribute__((weak)) void *__dso_handle = &__dso_handle;
 
 /*
  * **Global destructors do not run, and this is not an oversight.**

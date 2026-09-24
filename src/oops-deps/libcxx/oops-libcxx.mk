@@ -100,7 +100,19 @@ OOPS_LIBCXX_INCLUDE := \
 endif
 
 OOPS_LIBCXX_LIB := $(OOPS_LIBCXX_BUILD)/libc++.a
-OOPS_LIBCXX_LDFLAGS := $(OOPS_LIBCXX_LIB)
+# `--whole-archive`, for the reason `cxx.mk:125` and `oops-sdl.mk` both give: **`app.mk` puts
+# LDFLAGS before the sources on the link line**, so a plain archive there is searched before the
+# objects that need it exist and contributes nothing.
+#
+# This was a bare archive until 2026-09-24 and nothing noticed, because no title had linked
+# libc++ - `cxx-throw` takes libc++abi and libunwind without it. `gl-cts` is the first, and the
+# symptom was not a link error: `app.mk` passes `--unresolved-symbols=ignore-all` for a hosted
+# title, so it produced a 32 MB binary with **315 undefined symbols**, `std::basic_string::append`
+# and `std::locale::use_facet` among them. That runs until the first one is called.
+#
+# libc++abi and libunwind beside it have always been `--whole-archive`; this makes the third one
+# match.
+OOPS_LIBCXX_LDFLAGS := -Wl,--whole-archive $(OOPS_LIBCXX_LIB) -Wl,--no-whole-archive
 
 # # The sources, and why the list is explicit rather than a wildcard
 #
@@ -119,13 +131,16 @@ OOPS_LIBCXX_LDFLAGS := $(OOPS_LIBCXX_LIB)
 # Re-run `tools/libcxx-survey.sh` after touching `__config_site` or oops-sdk's C library; it
 # compiles all 45 and prints what each failure is waiting for.
 #
-# # Three that compile and are deliberately absent, because libc++abi has them
+# # `exception.cpp`, `stdexcept.cpp` and `typeinfo.cpp` stay, and libc++abi's copies go instead
 #
-# `exception.cpp`, `new_handler.cpp` and `typeinfo.cpp` define `std::terminate`,
-# `std::set_terminate`, `std::unexpected`, `std::get_new_handler`, `std::type_info::~type_info`
-# and that type's vtable - and so do libc++abi's `stdlib_exception.cpp`,
-# `stdlib_new_handler.cpp` and `stdlib_typeinfo.cpp`. Upstream's CMake picks one side; here
-# libc++abi is always the ABI library, so it wins and these three are left out.
+# libc++abi ships `stdlib_exception.cpp`, `stdlib_stdexcept.cpp` and `stdlib_typeinfo.cpp` for
+# the case where it has to work *without* libc++. With both linked they collide with these, and
+# `oops-libcxxabi.mk` excludes that family - see the reasoning there, including why keeping the
+# wrong side of the pair links cleanly and leaves every `std::runtime_error` constructor
+# undefined.
+#
+# `new_handler.cpp` is the exception: libc++abi defines `std::set_new_handler` in
+# `cxa_default_handlers.cpp`, which is not optional, so this one is genuinely absent here.
 #
 # Nothing noticed until a title linked **both** archives for the first time. `cxx-throw` links
 # libc++abi without libc++, so the collision had no way to appear; the CTS is the first thing to
@@ -136,6 +151,7 @@ OOPS_LIBCXX_SRCS := \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/bind.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/call_once.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/error_category.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/exception.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/fstream.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/functional.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/hash.cpp \
@@ -146,16 +162,18 @@ OOPS_LIBCXX_SRCS := \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/memory.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/memory_resource.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/new.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/new_handler.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/new_helpers.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/optional.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/ostream.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/print.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/random_shuffle.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/regex.cpp \
-    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/stdexcept.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/string.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/strstream.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/stdexcept.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/system_error.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/typeinfo.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/valarray.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/variant.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/vector.cpp \
@@ -198,15 +216,38 @@ ifeq ($(OOPS_LIBCXX_HOSTED),1)
 # `200809L` rather than something older because dEQP asks for at least `199309L` by name -
 # `deThreadUnix.c` stops with "You are using too old posix API!" otherwise - and 2008 is the
 # newest the staged sysroot answers to.
+
+# # `LIBCXX_BUILDING_LIBCXXABI`: how libc++ is told which ABI library it has
+#
+# libc++ and libc++abi both know how to define `std::terminate`, `std::set_terminate`,
+# `std::unexpected`, `std::type_info::~type_info` and the `std::logic_error` family. Which side
+# provides them is not a choice made at link time - it is a **compile-time** decision, and this
+# is the switch: with it set, `exception.cpp` includes `<cxxabi.h>`, `_LIBCPPABI_VERSION` becomes
+# defined, and the `#elif defined(_LIBCPPABI_VERSION)` arms compile libc++'s copies away.
+#
+# Without it, the two libraries genuinely both define them and the link stops on a dozen
+# duplicate symbols. Deleting sources from the list below to make that go away is the wrong fix
+# and was tried first: the pairs are not interchangeable - libc++abi's `stdlib_stdexcept.cpp`
+# has the *destructors* and libc++'s `stdexcept.cpp` has the *constructors* - so dropping the
+# libc++ side cleared the errors and left every `std::runtime_error(const char *)` undefined,
+# which `--unresolved-symbols=ignore-all` linked without a word.
+#
+# The include path is needed as well as the define: the `#include <cxxabi.h>` it unlocks has to
+# find libc++abi's header.
+OOPS_LIBCXXABI_UPSTREAM ?= $(OOPS_LIBCXX_DIR)/upstream
+OOPS_LIBCXX_ABI_FLAGS := -DLIBCXX_BUILDING_LIBCXXABI \
+                         -I$(OOPS_LIBCXXABI_UPSTREAM)/libcxxabi/include
 OOPS_LIBCXX_CFLAGS = -target x86_64-unknown-freebsd --sysroot=$(OOPS_MESA_SYSROOT) \
                      -D_POSIX_C_SOURCE=200809L \
                      -fexceptions -frtti -fPIC -std=c++20 -O2 -w \
                      -D_LIBCPP_BUILDING_LIBRARY -D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS \
+                     $(OOPS_LIBCXX_ABI_FLAGS) \
                      $(OOPS_LIBCXX_INCLUDE) $(OOPS_SDK_INCLUDE)
 else
 OOPS_LIBCXX_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                      -fno-exceptions -fno-rtti -fPIC -std=c++20 -O2 -w \
                      -D_LIBCPP_BUILDING_LIBRARY -D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS \
+                     $(OOPS_LIBCXX_ABI_FLAGS) \
                      $(OOPS_LIBCXX_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
 endif
 

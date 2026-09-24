@@ -55,6 +55,27 @@ endif
 OOPS_LIBCXXABI_LIB      := $(OOPS_LIBCXXABI_BUILD)/libc++abi.a
 OOPS_LIBCXXABI_SRCDIR   := $(OOPS_LIBCXXABI_UPSTREAM)/libcxxabi/src
 
+# # The `stdlib_*.cpp` family stays, and `oops-libcxx.mk` is what keeps it from colliding
+#
+# `stdlib_exception.cpp`, `stdlib_stdexcept.cpp` and `stdlib_typeinfo.cpp` hold the *destructors*
+# and `what()` of `std::logic_error`, `std::runtime_error`, `std::bad_typeid` and their kin;
+# libc++'s `exception.cpp`, `stdexcept.cpp` and `typeinfo.cpp` hold the *constructors* and
+# `__throw_runtime_error`. **The two halves are complementary, not interchangeable**, which is
+# why excluding either side is wrong - and both were tried:
+#
+#   - dropping libc++'s three cleared the duplicate-destructor errors and left every
+#     `std::runtime_error(const char *)` undefined;
+#   - dropping these three cleared them the other way and left every destructor undefined.
+#
+# Neither showed as a link failure, because a hosted title links
+# `--unresolved-symbols=ignore-all`.
+#
+# The real switch is `-DLIBCXX_BUILDING_LIBCXXABI` on libc++'s compile, which makes it include
+# `<cxxabi.h>` and compile away exactly the overlapping definitions. `oops-libcxx.mk` sets it.
+# With that in place both libraries build whole and the link is clean.
+#
+# `stdlib_new_delete.cpp` is excluded for an unrelated reason: `common/cxxrt.cpp` defines
+# `operator new` and `operator delete`.
 OOPS_LIBCXXABI_EXCLUDE := cxa_noexception.cpp stdlib_new_delete.cpp cxa_thread_atexit.cpp
 OOPS_LIBCXXABI_SRCS := $(filter-out $(addprefix $(OOPS_LIBCXXABI_SRCDIR)/,$(OOPS_LIBCXXABI_EXCLUDE)), \
                                     $(wildcard $(OOPS_LIBCXXABI_SRCDIR)/*.cpp))
