@@ -32,16 +32,23 @@
 #include "oops/fs.h"
 #include "oops/heap.h"
 #include "oops/system.h"
+#include "oops/thread.h" /* oops_thread_self, for pthread_getthreadid_np */
 #include "oops/time.h"
 
 #include <dirent.h>
 #include <errno.h>
 #include <locale.h>
+#include <pthread_np.h> /* the declaration this file's pthread_getthreadid_np answers */
 #include <pwd.h>
 #include <stddef.h>
+#include <stdint.h>
+#include <stdio.h> /* FILE, for fileno below */
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+/* For `struct timespec` and the `CLOCK_*` ids that `clock_gettime` below answers - declared in
+ * the SDK's libc header, implemented here, the same split `gettimeofday` has. */
+#include <time.h>
 #include <unistd.h>
 
 /*
@@ -345,4 +352,140 @@ int gettimeofday(struct timeval *tv, void *tz) {
     tv->tv_sec = (long)(us / 1000000u);
     tv->tv_usec = (long)(us % 1000000u);
     return 0;
+}
+
+/*
+ * `getpid`, `fileno` and `fstat` - the three a logging library reaches for.
+ *
+ * spdlog's `details/os-inl.h` wants all three: the pid for a `%P` in a pattern, and the other two
+ * to ask how large the file behind a `FILE *` has grown so a rotating sink knows when to roll.
+ *
+ * **There is one process here**, so `getpid` answers a constant. A number that never changes is
+ * the truth on this platform rather than a stand-in for one, and 1 is what every other
+ * single-process environment answers.
+ *
+ * `fileno` reaches into the SDK's `FILE`, which carries the descriptor as its first member - the
+ * same field `fdopen` fills in. `fstat` then answers size from that descriptor, which is the one
+ * thing any caller of it here asks for; mode is reported as a regular file because a descriptor
+ * that came from `fopen` is one.
+ *
+ * **`fstat` on a descriptor the SDK cannot size answers -1 rather than zero.** A rotating sink
+ * told "zero bytes" would never roll and would grow without bound; told "I do not know" it
+ * reports the failure instead, which is the outcome worth having.
+ *
+ * There is no call that sizes a descriptor, so this seeks to the end and reads the position -
+ * **and puts the position back**, because the caller did not ask for its file pointer to move
+ * and a logging sink that lost its append position would overwrite what it had written.
+ */
+int getpid(void) { return 1; }
+
+/*
+ * `isatty` and `fsync`, the other two `os-inl.h` reaches for.
+ *
+ * **Nothing here is a terminal.** A payload's `stdout` goes to the kernel log, not to a tty, so
+ * `isatty` is 0 for every descriptor - which is the answer that makes a logging library skip its
+ * colour escapes, and the right one: those escapes would land in the log as literal bytes.
+ *
+ * `fsync` has nothing to flush to. The SDK's writes are not buffered behind a descriptor the way
+ * a hosted libc's are, so success is the truthful answer rather than a stub's optimism - there is
+ * no pending state that this failing to act on could lose.
+ */
+int isatty(int fd) {
+    (void)fd;
+    return 0;
+}
+
+int fsync(int fd) {
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    return 0;
+}
+
+int fileno(FILE *stream) {
+    if (!stream) {
+        errno = EINVAL;
+        return -1;
+    }
+    return stream->fd;
+}
+
+int fstat(int fd, struct stat *out) {
+    int64_t here;
+    int64_t size;
+
+    if (!out || fd < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    here = oops_fs_tell(fd);
+    if (here < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    size = oops_fs_seek(fd, 0, OOPS_SEEK_END);
+    /* Back to where the caller was, whatever the size call said. */
+    (void)oops_fs_seek(fd, here, OOPS_SEEK_SET);
+    if (size < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    out->st_mode = S_IFREG;
+    out->st_size = size;
+    return 0;
+}
+
+/*
+ * `pthread_getthreadid_np`, FreeBSD's small-integer thread id.
+ *
+ * The target is `x86_64-unknown-freebsd`, so `__FreeBSD__` is defined and a portable program's
+ * FreeBSD branch is the one that compiles - spdlog reaches this for the thread id it puts in a
+ * log line. The handle `oops_thread_self` returns is what identifies a thread here; its low bits
+ * are stable for that thread's life and distinct between live threads, which is all a log line
+ * needs. It is not a kernel tid and nothing should treat it as one.
+ */
+int pthread_getthreadid_np(void) {
+    return (int)(uintptr_t)oops_thread_self();
+}
+
+/*
+ * `clock_gettime`, which is what a monotonic clock looks like to C++.
+ *
+ * Added for libc++'s `std::chrono::steady_clock`. Enabling `_LIBCPP_HAS_THREADS` obliges
+ * `_LIBCPP_HAS_MONOTONIC_CLOCK` - `__config` refuses the other combination, reasonably, since a
+ * timed wait needs a clock that cannot go backwards - and `steady_clock::now()` reaches here.
+ *
+ * **Every clock id answers from the same counter, and that is not a shortcut.** `oops_time_get_ns`
+ * is the platform's monotonic counter, so `CLOCK_MONOTONIC` is exactly right. `CLOCK_REALTIME` is
+ * the one being approximated: a caller wanting a wall-clock date wants
+ * `oops_time_get_epoch_seconds`, and the difference matters to a file timestamp but not to the
+ * only consumer here, which is measuring intervals. Rather than silently hand back an uptime for
+ * a date, `CLOCK_REALTIME` is offset by the epoch so the two agree to a second.
+ *
+ * An unknown clock id is `EINVAL` rather than a best guess, because a program asking for
+ * `CLOCK_PROCESS_CPUTIME_ID` and getting wall time would draw the wrong conclusion quietly.
+ */
+int clock_gettime(int clk_id, struct timespec *ts) {
+    uint64_t ns;
+
+    if (!ts) {
+        errno = EINVAL;
+        return -1;
+    }
+    ns = oops_time_get_ns();
+    switch (clk_id) {
+        case CLOCK_REALTIME:
+            /* The counter's nanoseconds, carried on top of the wall-clock second. */
+            ts->tv_sec = (time_t)oops_time_get_epoch_seconds();
+            ts->tv_nsec = (long)(ns % 1000000000u);
+            return 0;
+        case CLOCK_MONOTONIC:
+            ts->tv_sec = (time_t)(ns / 1000000000u);
+            ts->tv_nsec = (long)(ns % 1000000000u);
+            return 0;
+        default:
+            errno = EINVAL;
+            return -1;
+    }
 }

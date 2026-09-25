@@ -22,6 +22,9 @@ struct stat {
 extern "C" {
 #endif
 int stat(const char *path, struct stat *out);
+/* By descriptor. Only `st_size` and `st_mode` are filled, which is what `stat` above answers too
+ * - see `posix.c` for how the size is taken without disturbing the file pointer. */
+int fstat(int fd, struct stat *out);
 int mkdir(const char *path, mode_t mode);
 #ifdef __cplusplus
 }

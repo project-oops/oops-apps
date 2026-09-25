@@ -15,21 +15,39 @@
 #define _LIBCPP_ABI_FORCE_MICROSOFT 0
 
 /*
- * **No threads inside the standard library.** A payload does have threads - `oops/thread.h` has
- * them and SDL's backend is built on them - but libc++'s threading is a different question: with
- * it on, libc++ wants a `<__thread/support/...>` backend, `pthread_*` symbols, and thread-safe
- * `std::shared_ptr` refcounts and `std::call_once` that nothing in the queued titles uses.
+ * **Threads, through oops-sdk rather than through pthread** (2026-09-25).
  *
- * The cost of this being wrong later is visible rather than silent: a title using `std::thread`
- * or `std::mutex` fails to compile, at the line that wrote it.
+ * This was 0, and the note here said the cost of that being wrong would be visible rather than
+ * silent - "a title using `std::thread` or `std::mutex` fails to compile, at the line that wrote
+ * it". That is exactly what happened, and the note was right to expect it: `<spdlog/spdlog.h>`
+ * gave fifteen errors and eleven were `std::mutex`, `std::thread`, `std::recursive_mutex` and
+ * `std::condition_variable`. spdlog is in 123 of Ship of Harkinian's files, so that is not a
+ * title that can be asked to avoid them.
+ *
+ * What the old note got wrong is only which of the three backends to reach for. It listed
+ * `pthread_*` symbols as the price, and they are not on offer here - the platform's are
+ * `scePthread*` and are reached through `oops/thread.h`. `_LIBCPP_HAS_THREAD_API_EXTERNAL` is the
+ * arm for precisely that: libc++ includes `<__external_threading>` and asks for 36 names, and
+ * `include/__external_threading` in this directory supplies them from the SDK.
+ *
+ * Two of the 36 needed the SDK to grow: `oops_mutex_init_recursive`, because libc++ requires
+ * `std::recursive_mutex` to be a distinct type from `std::mutex`, and `oops_tls_*`, which every
+ * threaded C++ program reaches through `std::thread`'s own bookkeeping. Both are in
+ * `oops-sdk/src/thread/thread.c`.
  */
-#define _LIBCPP_HAS_THREADS 0
+#define _LIBCPP_HAS_THREADS 1
 #define _LIBCPP_HAS_THREAD_API_PTHREAD 0
-#define _LIBCPP_HAS_THREAD_API_EXTERNAL 0
+#define _LIBCPP_HAS_THREAD_API_EXTERNAL 1
 #define _LIBCPP_HAS_THREAD_API_WIN32 0
 #define _LIBCPP_HAS_THREAD_API_C11 0
 
-#define _LIBCPP_HAS_MONOTONIC_CLOCK 0
+/* **Required by threads, and libc++ enforces it** - `__config` refuses the combination with
+ * "`_LIBCPP_HAS_MONOTONIC_CLOCK` may only be false when `_LIBCPP_HAS_THREADS` is false". That is
+ * reasonable: a timed wait needs a clock that does not go backwards. `steady_clock::now()` wants
+ * `clock_gettime(CLOCK_MONOTONIC)`, which `common/posix/` now supplies over
+ * `oops_time_get_ns` - see the shim, and note that the SDK's counter is monotonic by
+ * construction where `CLOCK_REALTIME` is not. */
+#define _LIBCPP_HAS_MONOTONIC_CLOCK 1
 #define _LIBCPP_HAS_TERMINAL 0
 #define _LIBCPP_HAS_MUSL_LIBC 0
 #define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 0

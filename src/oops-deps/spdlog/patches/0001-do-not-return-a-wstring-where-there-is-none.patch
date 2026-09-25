@@ -1,0 +1,31 @@
+Do not return a wstring where there is none
+
+`utf8_to_utf16::str()` is a convenience accessor on fmt's UTF-16 helper, used on
+Windows to hand a wide filename to the wide CRT. Nothing in spdlog calls it, and
+nothing on this target could: libc++ here is built with
+`_LIBCPP_HAS_WIDE_CHARACTERS 0`, so `std::wstring` does not exist.
+
+The alternative was to turn wide characters on, and it is much the larger change
+for much the smaller reason. `oops-sdk/include/libc/wchar.h` is 76 lines of types
+and **no functions at all** - not `wcslen`, not `wmemcpy` - so enabling them
+means writing a wide-character C library, in order to satisfy one accessor that
+has no caller.
+
+Guarded rather than deleted, and guarded on the libc++ switch itself, so the
+method comes back by itself on any build that has wide strings. A port that
+shares this vendored copy and does have them loses nothing.
+
+diff --git a/include/spdlog/fmt/bundled/format.h b/include/spdlog/fmt/bundled/format.h
+index c3a1bda..b6d39c1 100644
+--- a/include/spdlog/fmt/bundled/format.h
++++ b/include/spdlog/fmt/bundled/format.h
+@@ -1296,7 +1296,9 @@ class utf8_to_utf16 {
+   }
+   inline auto size() const -> size_t { return buffer_.size() - 1; }
+   inline auto c_str() const -> const wchar_t* { return &buffer_[0]; }
++#if !defined(_LIBCPP_HAS_WIDE_CHARACTERS) || _LIBCPP_HAS_WIDE_CHARACTERS
+   inline auto str() const -> std::wstring { return {&buffer_[0], size()}; }
++#endif
+ };
+ 
+ enum class to_utf8_error_policy { abort, replace };

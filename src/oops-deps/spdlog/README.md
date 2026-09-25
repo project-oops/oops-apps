@@ -1,7 +1,8 @@
 # spdlog
 
-Pinned at `v1.16.0`, the revision `libultraship` asks for. Fetched; **not yet building**, and
-what stops it is not spdlog.
+Pinned at `v1.16.0`, the revision `libultraship` asks for. **`#include <spdlog/spdlog.h>`
+compiles** against this collection's freestanding libc++ as of 2026-09-25 — which it did not when
+this directory was created, and the distance between those two states is the interesting part.
 
 ## Why this one first
 
@@ -44,7 +45,25 @@ The other two are smaller. Wide characters are a `__config_site` switch plus wha
 support the libc side needs; `fcntl.h` is a header the POSIX shim in `common/posix/` does not yet
 provide, and spdlog reaches it only for file sinks, which a console port may not want at all.
 
-## Not vendored yet
+## What it took
 
-There is no `oops-spdlog.mk` here on purpose. A build file for something that cannot compile
-would be scaffolding, and the numbers above are more useful than a rule that fails.
+All fifteen, in the order they surfaced. Each one uncovered the next, because a missing header is
+a *fatal* error that stops the compiler before it reaches anything else — the count went 15, then
+3, then 11, and the rise was the truth appearing rather than a regression.
+
+| gap | answer | where |
+|---|---|---|
+| 11 × threading | libc++'s external threading API, mapped onto the SDK | `../libcxx/include/__external_threading`, `_LIBCPP_HAS_THREADS 1` |
+| recursive mutex, TLS | two new SDK entry points | `oops_mutex_init_recursive`, `oops_tls_*` |
+| monotonic clock (required by threads) | `clock_gettime` over `oops_time_get_ns` | `common/posix/posix.c` |
+| `fcntl.h`, `pthread_np.h` | shim headers | `common/posix/include/` |
+| `getpid`, `fileno`, `fstat`, `isatty`, `fsync` | shim functions | `common/posix/posix.c` |
+| 2 × `std::wstring` | `patches/0001` | one guarded method with no caller |
+| 3 × `std::numpunct<wchar_t>` | `-DFMT_USE_LOCALE=0` | upstream's own switch — a flag, not a patch |
+
+Everything except the patch is reusable: the next threaded C++ port gets `std::mutex` and
+`std::thread` for free, and the shim functions are ordinary POSIX that any port may want.
+
+`oops-spdlog.mk` is header-only. spdlog offers a compiled form and a tree including it in 123
+files would want one eventually; header-only is what has been measured to work, and a build file
+should describe what was tried.

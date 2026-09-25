@@ -34,6 +34,15 @@ uid_t getuid(void);
 /* `_exit` is `exit` here, and that is not an approximation: `oops-sdk`'s `exit` goes straight to
  * the platform's `SYS_exit` with no atexit list and no return, which is `_exit`'s contract. */
 static inline void _exit(int status) { exit(status); }
+
+/* One process, so a constant - see the definition in `posix.c` for why that is the truth here
+ * rather than a stand-in. */
+int getpid(void);
+/* Always 0: a payload's output is the kernel log, never a terminal, so a library asking this
+ * before emitting colour escapes gets the answer that keeps them out of the log. */
+int isatty(int fd);
+/* Nothing is buffered behind a descriptor here, so there is nothing to force out. */
+int fsync(int fd);
 #ifdef __cplusplus
 }
 #endif

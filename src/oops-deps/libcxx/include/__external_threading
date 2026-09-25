@@ -1,0 +1,313 @@
+// -*- C++ -*-
+//
+// libc++'s external threading API, mapped onto oops-sdk.
+//
+// **Why this file exists.** libc++ here was built with `_LIBCPP_HAS_THREADS 0`, so `std::mutex`,
+// `std::thread` and `std::condition_variable` did not exist at all. That is fine for a port that
+// never mentions them and fatal for one that does: compiling `<spdlog/spdlog.h>` - which 123 of
+// Ship of Harkinian's files include - gave fifteen errors, eleven of them exactly those types.
+//
+// The platform was never the problem. `oops-sdk` has the whole surface already: threads, mutexes,
+// condition variables and semaphores, all over Sony's pthread lineage. What was missing was the
+// wiring, and libc++ has a supported mechanism for it - `_LIBCPP_HAS_THREAD_API_EXTERNAL`, which
+// makes `<__thread/support/external.h>` include this file and expect the names below.
+//
+// The contract is `<__thread/support/pthread.h>` in the vendored upstream: 36 names, and the
+// signatures here are copied from it rather than remembered.
+//
+// # The one real difficulty: static initialisers
+//
+// libc++ needs `_LIBCPP_MUTEX_INITIALIZER` and `_LIBCPP_CONDVAR_INITIALIZER` to be *constant*
+// expressions, because it declares namespace-scope mutexes with them. `pthread_mutex_t` is a
+// plain struct on a hosted platform, so `PTHREAD_MUTEX_INITIALIZER` is just braces. `oops_mutex_t`
+// is a **handle** that `oops_mutex_init` fills in at run time, and a handle cannot be spelled as
+// a constant.
+//
+// So each one carries its own state word and initialises itself on first use. The state goes
+// 0 (untouched) -> 1 (a thread is initialising it) -> 2 (usable), moved with atomic builtins;
+// a thread that finds 1 spins on `oops_thread_yield` until it sees 2. The window is a handful of
+// instructions on the very first lock of a statically-declared mutex and never again.
+//
+// **Not a lazy init behind a plain flag**, which is the obvious version and is wrong: two threads
+// racing to the first lock would both see zero and both call `oops_mutex_init`, and the second
+// would overwrite the handle the first is already holding.
+
+#ifndef _LIBCPP___EXTERNAL_THREADING
+#define _LIBCPP___EXTERNAL_THREADING
+
+#include <__chrono/duration.h>
+#include <__config>
+#include <ctime>
+
+#include <oops/thread.h>
+#include <oops/time.h>
+
+#ifndef _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER
+#  pragma GCC system_header
+#endif
+
+_LIBCPP_BEGIN_NAMESPACE_STD
+
+using __libcpp_timespec_t _LIBCPP_NODEBUG = ::timespec;
+
+// ---------------------------------------------------------------------------
+// The self-initialising wrapper described above.
+// ---------------------------------------------------------------------------
+
+enum { __oops_thr_unset = 0, __oops_thr_busy = 1, __oops_thr_ready = 2 };
+
+struct __libcpp_mutex_t {
+  oops_mutex_t __m;
+  int __state;
+};
+
+struct __libcpp_recursive_mutex_t {
+  oops_mutex_t __m;
+  int __state;
+};
+
+struct __libcpp_condvar_t {
+  oops_cond_t __c;
+  int __state;
+};
+
+#define _LIBCPP_MUTEX_INITIALIZER                                                                  \
+  { {}, 0 }
+#define _LIBCPP_CONDVAR_INITIALIZER                                                                \
+  { {}, 0 }
+
+// Claims the right to initialise, or waits for whoever did. Returns true when the object is
+// usable. `__ATOMIC_ACQUIRE` on the way out pairs with the release below, so a thread that sees
+// "ready" also sees the handle the initialising thread wrote.
+template <class _Obj, class _Init>
+inline _LIBCPP_HIDE_FROM_ABI bool __oops_thr_once(_Obj* __o, int* __state, _Init __init) {
+  int __s = __atomic_load_n(__state, __ATOMIC_ACQUIRE);
+  if (__s == __oops_thr_ready)
+    return true;
+  int __expect = __oops_thr_unset;
+  if (__s == __oops_thr_unset &&
+      __atomic_compare_exchange_n(__state, &__expect, __oops_thr_busy, false, __ATOMIC_ACQ_REL,
+                                  __ATOMIC_ACQUIRE)) {
+    const bool __ok = __init(__o);
+    __atomic_store_n(__state, __ok ? __oops_thr_ready : __oops_thr_unset, __ATOMIC_RELEASE);
+    return __ok;
+  }
+  while (__atomic_load_n(__state, __ATOMIC_ACQUIRE) == __oops_thr_busy)
+    ::oops_thread_yield();
+  return __atomic_load_n(__state, __ATOMIC_ACQUIRE) == __oops_thr_ready;
+}
+
+inline _LIBCPP_HIDE_FROM_ABI bool __oops_mutex_ready(__libcpp_mutex_t* __m) {
+  return __oops_thr_once(__m, &__m->__state, [](__libcpp_mutex_t* __x) {
+    return ::oops_mutex_init(&__x->__m, "libcxx") == 0;
+  });
+}
+
+inline _LIBCPP_HIDE_FROM_ABI bool __oops_rmutex_ready(__libcpp_recursive_mutex_t* __m) {
+  return __oops_thr_once(__m, &__m->__state, [](__libcpp_recursive_mutex_t* __x) {
+    return ::oops_mutex_init_recursive(&__x->__m, "libcxx_r") == 0;
+  });
+}
+
+inline _LIBCPP_HIDE_FROM_ABI bool __oops_condvar_ready(__libcpp_condvar_t* __c) {
+  return __oops_thr_once(__c, &__c->__state, [](__libcpp_condvar_t* __x) {
+    return ::oops_cond_init(&__x->__c, "libcxx_cv") == 0;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Mutexes
+// ---------------------------------------------------------------------------
+
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_recursive_mutex_init(__libcpp_recursive_mutex_t* __m) {
+  __m->__state = __oops_thr_unset;
+  return __oops_rmutex_ready(__m) ? 0 : -1;
+}
+
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_recursive_mutex_lock(__libcpp_recursive_mutex_t* __m) {
+  return __oops_rmutex_ready(__m) ? ::oops_mutex_lock(&__m->__m) : -1;
+}
+
+inline _LIBCPP_HIDE_FROM_ABI bool __libcpp_recursive_mutex_trylock(__libcpp_recursive_mutex_t* __m) {
+  return __oops_rmutex_ready(__m) && ::oops_mutex_trylock(&__m->__m) == 0;
+}
+
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_recursive_mutex_unlock(__libcpp_recursive_mutex_t* __m) {
+  return ::oops_mutex_unlock(&__m->__m);
+}
+
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_recursive_mutex_destroy(__libcpp_recursive_mutex_t* __m) {
+  if (__atomic_load_n(&__m->__state, __ATOMIC_ACQUIRE) != __oops_thr_ready)
+    return 0; // never used, nothing to release
+  __atomic_store_n(&__m->__state, __oops_thr_unset, __ATOMIC_RELEASE);
+  return ::oops_mutex_destroy(&__m->__m);
+}
+
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_mutex_lock(__libcpp_mutex_t* __m) {
+  return __oops_mutex_ready(__m) ? ::oops_mutex_lock(&__m->__m) : -1;
+}
+
+inline _LIBCPP_HIDE_FROM_ABI bool __libcpp_mutex_trylock(__libcpp_mutex_t* __m) {
+  return __oops_mutex_ready(__m) && ::oops_mutex_trylock(&__m->__m) == 0;
+}
+
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_mutex_unlock(__libcpp_mutex_t* __m) {
+  return ::oops_mutex_unlock(&__m->__m);
+}
+
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_mutex_destroy(__libcpp_mutex_t* __m) {
+  if (__atomic_load_n(&__m->__state, __ATOMIC_ACQUIRE) != __oops_thr_ready)
+    return 0;
+  __atomic_store_n(&__m->__state, __oops_thr_unset, __ATOMIC_RELEASE);
+  return ::oops_mutex_destroy(&__m->__m);
+}
+
+// ---------------------------------------------------------------------------
+// Condition variables
+// ---------------------------------------------------------------------------
+
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_condvar_signal(__libcpp_condvar_t* __cv) {
+  return __oops_condvar_ready(__cv) ? ::oops_cond_signal(&__cv->__c) : -1;
+}
+
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_condvar_broadcast(__libcpp_condvar_t* __cv) {
+  return __oops_condvar_ready(__cv) ? ::oops_cond_broadcast(&__cv->__c) : -1;
+}
+
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_condvar_wait(__libcpp_condvar_t* __cv,
+                                                       __libcpp_mutex_t* __m) {
+  if (!__oops_condvar_ready(__cv) || !__oops_mutex_ready(__m))
+    return -1;
+  return ::oops_cond_wait(&__cv->__c, &__m->__m);
+}
+
+// **An absolute deadline arrives; the SDK takes a relative timeout.** `__ts` is a wall-clock time
+// from `system_clock`, so the wait length is that minus now, floored at zero - a deadline already
+// past is a poll rather than a wait, which is what a negative interval would otherwise become.
+inline _LIBCPP_HIDE_FROM_ABI int
+__libcpp_condvar_timedwait(__libcpp_condvar_t* __cv, __libcpp_mutex_t* __m,
+                           __libcpp_timespec_t* __ts) {
+  if (!__oops_condvar_ready(__cv) || !__oops_mutex_ready(__m))
+    return -1;
+  ::timespec __now;
+  __now.tv_sec  = 0;
+  __now.tv_nsec = 0;
+  ::clock_gettime(CLOCK_REALTIME, &__now);
+  long long __us = (long long)(__ts->tv_sec - __now.tv_sec) * 1000000LL +
+                   (long long)(__ts->tv_nsec - __now.tv_nsec) / 1000LL;
+  if (__us < 0)
+    __us = 0;
+  return ::oops_cond_timedwait(&__cv->__c, &__m->__m, (uint32_t)__us);
+}
+
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_condvar_destroy(__libcpp_condvar_t* __cv) {
+  if (__atomic_load_n(&__cv->__state, __ATOMIC_ACQUIRE) != __oops_thr_ready)
+    return 0;
+  __atomic_store_n(&__cv->__state, __oops_thr_unset, __ATOMIC_RELEASE);
+  return ::oops_cond_destroy(&__cv->__c);
+}
+
+// ---------------------------------------------------------------------------
+// Execute once
+// ---------------------------------------------------------------------------
+
+typedef int __libcpp_exec_once_flag;
+#define _LIBCPP_EXEC_ONCE_INITIALIZER 0
+
+// The same three-state handshake the mutexes use, for the same reason: two threads reaching a
+// function-local static at once must run the initialiser exactly once, and the loser must not
+// proceed until it has finished.
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_execute_once(__libcpp_exec_once_flag* __flag,
+                                                       void (*__init_routine)()) {
+  int __expect = __oops_thr_unset;
+  if (__atomic_compare_exchange_n(__flag, &__expect, __oops_thr_busy, false, __ATOMIC_ACQ_REL,
+                                  __ATOMIC_ACQUIRE)) {
+    __init_routine();
+    __atomic_store_n(__flag, __oops_thr_ready, __ATOMIC_RELEASE);
+    return 0;
+  }
+  while (__atomic_load_n(__flag, __ATOMIC_ACQUIRE) != __oops_thr_ready)
+    ::oops_thread_yield();
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Threads
+// ---------------------------------------------------------------------------
+
+typedef oops_thread_t __libcpp_thread_t;
+typedef unsigned long long __libcpp_thread_id;
+
+#define _LIBCPP_NULL_THREAD ((__libcpp_thread_t)0)
+
+inline _LIBCPP_HIDE_FROM_ABI bool __libcpp_thread_id_equal(__libcpp_thread_id __t1,
+                                                           __libcpp_thread_id __t2) {
+  return __t1 == __t2;
+}
+
+// Ordered by handle value. `std::thread::id` needs a strict weak ordering for `std::map`; which
+// order is unspecified, only that it is consistent.
+inline _LIBCPP_HIDE_FROM_ABI bool __libcpp_thread_id_less(__libcpp_thread_id __t1,
+                                                          __libcpp_thread_id __t2) {
+  return __t1 < __t2;
+}
+
+inline _LIBCPP_HIDE_FROM_ABI bool __libcpp_thread_isnull(const __libcpp_thread_t* __t) {
+  return *__t == nullptr;
+}
+
+// **Priority and stack size are the SDK's defaults, deliberately.** `std::thread` has no way to
+// ask for either, so choosing here would apply one port's needs to every thread the standard
+// library ever starts. A port that needs a bigger stack should call `oops_thread_create` itself.
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_thread_create(__libcpp_thread_t* __t,
+                                                        void* (*__func)(void*), void* __arg) {
+  *__t = ::oops_thread_create("libcxx", __func, __arg, 0, 0);
+  return *__t == nullptr ? -1 : 0;
+}
+
+inline _LIBCPP_HIDE_FROM_ABI __libcpp_thread_id __libcpp_thread_get_current_id() {
+  return (__libcpp_thread_id)(__UINTPTR_TYPE__)::oops_thread_self();
+}
+
+inline _LIBCPP_HIDE_FROM_ABI __libcpp_thread_id __libcpp_thread_get_id(const __libcpp_thread_t* __t) {
+  return (__libcpp_thread_id)(__UINTPTR_TYPE__)*__t;
+}
+
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_thread_join(__libcpp_thread_t* __t) {
+  return ::oops_thread_join(*__t, nullptr);
+}
+
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_thread_detach(__libcpp_thread_t* __t) {
+  return ::oops_thread_detach(*__t);
+}
+
+inline _LIBCPP_HIDE_FROM_ABI void __libcpp_thread_yield() { ::oops_thread_yield(); }
+
+inline _LIBCPP_HIDE_FROM_ABI void __libcpp_thread_sleep_for(const chrono::nanoseconds& __ns) {
+  const long long __us = __ns.count() / 1000;
+  ::oops_time_sleep_us((uint32_t)(__us < 0 ? 0 : __us));
+}
+
+// ---------------------------------------------------------------------------
+// Thread-local storage
+// ---------------------------------------------------------------------------
+
+typedef oops_tls_key_t __libcpp_tls_key;
+#define _LIBCPP_TLS_DESTRUCTOR_CC /* nothing */
+
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_tls_create(__libcpp_tls_key* __key,
+                                                     void (*__at_exit)(void*)) {
+  return ::oops_tls_create(__key, __at_exit);
+}
+
+inline _LIBCPP_HIDE_FROM_ABI void* __libcpp_tls_get(__libcpp_tls_key __key) {
+  return ::oops_tls_get(__key);
+}
+
+inline _LIBCPP_HIDE_FROM_ABI int __libcpp_tls_set(__libcpp_tls_key __key, void* __p) {
+  return ::oops_tls_set(__key, __p);
+}
+
+_LIBCPP_END_NAMESPACE_STD
+
+#endif // _LIBCPP___EXTERNAL_THREADING
