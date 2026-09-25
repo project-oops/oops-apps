@@ -1,0 +1,20 @@
+# Q3Rally's origin. Read by common/app.mk with no parser - the same KEY=value shape app.env has -
+# and by common/upstream-fetch.sh, which is shared by every title.
+#
+# UPSTREAM_REV is what gets checked out, and it must be a full commit hash: a tag can be moved and
+# a branch always is, so neither is a pin. UPSTREAM_REF is there to tell a reader which release
+# that hash is.
+#
+# **A lightweight tag, so the ref and the commit are the same object.** `git ls-remote --tags`
+# returned one line for `v0.7d`, not the peeled pair an annotated tag gives - which is the trap
+# Neverball's and Armagetron's locks both record. Nothing to strip here.
+#
+# **`v0.7d` rather than `main`, and the date is why that costs nothing.** Upstream's newest release
+# is 2026-06-06 and `main` is 2026-09-24 - three months, not three years - so starting from what
+# upstream calls finished is the cheap choice here rather than a sacrifice. `renderergl1` is
+# present at this tag, which is the part that matters; it was checked rather than assumed
+# (`git ls-tree v0.7d:engine/code`).
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/Q3Rally-Team/q3rally
+UPSTREAM_REV=26828942cc3ff6f0713829cb82afe4940a3fa57b
+UPSTREAM_REF=v0.7d

@@ -1,0 +1,23 @@
+# Bugdom's origin. Read by common/app.mk with no parser - the same KEY=value shape app.env has -
+# and by common/upstream-fetch.sh, which is shared by every title.
+#
+# UPSTREAM_REV must be a full commit hash: a tag can be moved and a branch always is.
+#
+# **A lightweight tag**, so the ref and the commit are the same object - `git ls-remote --tags`
+# returned one line for `1.3.4`, not the peeled pair an annotated tag gives.
+#
+# **`1.3.4` rather than `master`.** It is the newest of five release tags, and a port should start
+# from what upstream calls finished - the reasoning Neverball's lock uses to take 1.6.0 over the
+# 1.7.0 alphas. `master` is a little ahead; nothing measured so far needs it.
+#
+# **The game data is in this repository**, `Data/`, 66 MB of it - Pangea released Bugdom as
+# freeware and jorio's port ships it. So this title needs nothing from the player, which is the
+# bar `src/oops-titles/README.md` sets.
+#
+# UPSTREAM_SUBMODULES is not set: `extern/Pomme` is vendored as a submodule upstream, so the fetch
+# needs it. See docs/PORTING.md - this is the first thing to settle, and Ship of Harkinian's lock
+# is the precedent for how (`UPSTREAM_SUBMODULES=1`).
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/jorio/Bugdom
+UPSTREAM_REV=18b413f8636010b373adbd1ea4de4a660d5eefdc
+UPSTREAM_REF=1.3.4

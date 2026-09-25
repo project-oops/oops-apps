@@ -1,0 +1,21 @@
+# Bugdom 2's origin. Read by common/app.mk with no parser - the same KEY=value shape app.env has -
+# and by common/upstream-fetch.sh, which is shared by every title.
+#
+# UPSTREAM_REV must be a full commit hash: a tag can be moved and a branch always is.
+#
+# **A lightweight tag**, so the ref and the commit are the same object - one line from
+# `git ls-remote --tags`, not the peeled pair an annotated tag gives.
+#
+# **`v4.0.0` is the only tag upstream has**, so there is no newest-release judgement to make here,
+# unlike Bugdom's five.
+#
+# **The game data is in this repository**, `Data/`, 180 MB - nearly three times Bugdom's, which is
+# worth knowing before the first `pros restore`: that cost is per file rather than per byte, so it
+# is the file *count* under `Data/` that decides how long a deploy takes.
+#
+# UPSTREAM_SUBMODULES is not set and will need to be: `extern/Pomme` is a submodule, the same as
+# Bugdom's. See docs/PORTING.md.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/jorio/Bugdom2
+UPSTREAM_REV=4050d6f97bf5d8b7ac9e91b1b7d4eacf3a4af87c
+UPSTREAM_REF=v4.0.0
