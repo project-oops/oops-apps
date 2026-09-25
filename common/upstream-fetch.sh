@@ -122,10 +122,23 @@ WANT="$REV $(patch_sum) $(sparse_key) sub=${SUBMODULES:-0}"
 # tree that predates the `$GIT` wrapper is the one case the fast path did cover; that is a
 # one-time migration rather than a per-build risk, so it is `UPSTREAM_CHECK_EOL=1` on demand
 # instead of a tax on everyone forever.
+#
+# **A file upstream *asks* to be CRLF is not corruption, and counting it as such is how this check
+# stops being believed.** q3rally declares `*.sln text eol=crlf` in its own `.gitattributes`, so its
+# three MSVC solution files are CRLF in the working tree by upstream's instruction and LF in the
+# index by definition - the exact shape this was written to catch. Three false alarms on a title that
+# will never read a `.sln` teaches a reader to skip the warning, and the next one is Extreme Tux
+# Racer's fonts again.
+#
+# `git ls-files --eol` prints the attribute it applied in its third field, so the ones upstream chose
+# are distinguishable from the ones the checkout inflicted. Only the latter are counted.
 check_eol() {
-    crlf="$(cd "$DIR" && git ls-files --eol 2>/dev/null | grep -c 'i/lf[[:space:]]*w/crlf' || true)"
+    crlf="$(cd "$DIR" && git ls-files --eol 2>/dev/null \
+            | grep 'i/lf[[:space:]]*w/crlf' \
+            | grep -vc 'eol=crlf' || true)"
     [ "${crlf:-0}" -gt 0 ] || return 0
-    echo "upstream-fetch: $crlf files in $DIR have CRLF in the working tree and LF in the index." >&2
+    echo "upstream-fetch: $crlf files in $DIR have CRLF in the working tree and LF in the index," >&2
+    echo "                and upstream's .gitattributes did not ask for it." >&2
     echo "                This tree is not the revision the lock names, and a program that reads its" >&2
     echo "                own data files will fail on the extra byte - Extreme Tux Racer lost its" >&2
     echo "                fonts, music and six textures to exactly this on 2026-09-24." >&2
