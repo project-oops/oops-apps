@@ -1,0 +1,58 @@
+This target has desktop GL linked in: no loader, and no GLES
+
+Two arms in `libultraship`'s SDL/GL backends pick how OpenGL arrives, and this
+platform is a case neither of them has. Both are narrowed on `__PROSPERO__`, so
+every other platform keeps exactly what upstream gave it.
+
+**`glewInit()` - nothing to load.** `gfx_opengl.cpp:677` calls GLEW on every
+platform except Linux and OpenBSD, because elsewhere the GL entry points past
+1.1 have to be fetched from the driver at run time. Here they do not exist to be
+fetched: `oops-gl` *is* the GL, it is linked into the payload, and every name is
+an ordinary symbol the linker resolved. There is no driver to ask and no GLEW to
+ask it with. This joins the list of platforms that already skip it, for the same
+reason those two are on it.
+
+**`SDL2/SDL_opengles2.h` - the wrong GL.** `gfx_sdl2.cpp`'s `#else` arm is
+written for a Linux desktop, where SDL's GLES2 header is present. This target
+has desktop GL and no GLES at all, so that include fails at
+`GLES2/gl2platform.h` before anything else is parsed.
+
+The new arm is placed *before* the `#else` rather than folded into it: the
+existing branch means "a Unix with SDL's GLES2 headers", which stays true, and a
+platform that answers differently is a new case rather than an exception inside
+an old one. `<GL/gl.h>` is `oops-gl`'s own header, and `GL_GLEXT_PROTOTYPES` is
+kept for the same reason the branch beside it keeps it.
+
+Note what is deliberately *not* patched: the vertex-array pair at :683 stays
+inside `#if defined(__APPLE__) || defined(USE_OPENGLES)`, because this port
+genuinely does not call it. The vertex array objects `oops-gl` needs come from
+ImGui's GL3 backend, which is a different library - see `../../oops-deps/imgui`.
+
+diff --git a/libultraship/src/fast/backends/gfx_opengl.cpp b/libultraship/src/fast/backends/gfx_opengl.cpp
+index c0746d3..0eb40e3 100644
+--- a/libultraship/src/fast/backends/gfx_opengl.cpp
++++ b/libultraship/src/fast/backends/gfx_opengl.cpp
+@@ -674,7 +674,7 @@ void GfxRenderingAPIOGL::DrawTriangles(float buf_vbo[], size_t buf_vbo_len, size
+ }
+ 
+ void GfxRenderingAPIOGL::Init() {
+-#if !defined(__linux__) && !defined(__OpenBSD__)
++#if !defined(__linux__) && !defined(__OpenBSD__) && !defined(__PROSPERO__)
+     glewInit();
+ #endif
+ 
+diff --git a/libultraship/src/fast/backends/gfx_sdl2.cpp b/libultraship/src/fast/backends/gfx_sdl2.cpp
+index ea13319..8bb7f5d 100644
+--- a/libultraship/src/fast/backends/gfx_sdl2.cpp
++++ b/libultraship/src/fast/backends/gfx_sdl2.cpp
+@@ -23,6 +23,10 @@
+ #include <SDL.h>
+ #include "fast/backends/gfx_metal.h"
+ #include "ship/utils/macUtils.h"
++#elif defined(__PROSPERO__)
++#include <SDL2/SDL.h>
++#define GL_GLEXT_PROTOTYPES 1
++#include <GL/gl.h>
+ #else
+ #include <SDL2/SDL.h>
+ #define GL_GLEXT_PROTOTYPES 1
