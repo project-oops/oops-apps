@@ -43,8 +43,36 @@ wrong way, and the same mistake in the other direction is what made a texture bu
 
 **And `libultraship` already has a low-GL profile.** `gfx_opengl.cpp` selects its shader dialect
 at compile time: `#version 410 core` on Apple, `#version 300 es` under `USE_OPENGLES`, and
-otherwise `#version 130` with `varying`, `texture2D` and `gl_FragColor` — the GL 2.1-era idioms,
-which is the dialect `oops-gl`'s own GLSL compiler is aimed at. Nothing needs a core profile.
+otherwise `#version 130` with `varying`, `texture2D` and `gl_FragColor` — the GL 2.1-era idioms.
+Nothing needs a core profile.
+
+### The shaders work; the version number does not
+
+Measured on 2026-09-25 with `gl2-probe`'s `libultraship-dialect` arm. Every construct the
+renderer emits compiles and runs: `attribute`, `varying`, `texture2D`, `gl_FragColor`, two
+samplers and an interpolated colour input, drawn and read back as the exact three-factor product.
+
+**`#version 130` itself is refused.** `oops-gl` says so in its own words —
+`only GLSL 1.10, 1.20 and ES 1.00 are implemented; this shader asks for another` — and `130` is
+the one thing about that branch which is not 1.20.
+
+So the port carries **a one-line patch turning `#version 130` into `#version 120`** in
+`libultraship/src/fast/backends/gfx_opengl.cpp`. That is the minimal change: the alternative is
+claiming 1.30 in `oops-gl` while implementing none of what 1.30 added (`in`/`out`, `texture()`,
+integer operations), which would be a lie the next port discovers.
+
+The patch reaches a submodule, which works because `common/upstream-fetch.sh` checks submodules
+out *before* applying patches — an ordering chosen for exactly this and paid off within the hour.
+
+The probe arm asserts both halves, so it is also what retires the patch: if `oops-gl` ever
+implements 1.30, the arm's second half fails and whoever sees it should delete the patch rather
+than the assertion.
+
+**Worth recording how this was nearly missed.** Reading `glsl_pp.c` showed `do_version` storing
+the number without judging it, which says 130 is accepted. It is not — the gate is further in. A
+first bisect appeared to confirm the reading because every branch of it returned non-zero, and
+non-zero is a pass. One `printf` of the compiler's info log answered in a single run what five
+pass/fail runs could not.
 
 ## The family, which is the real argument
 
@@ -126,11 +154,13 @@ Fetch and pin verified. Nothing is built yet.
 
 The order of work, cheapest useful thing first:
 
-1. **`glBlitFramebuffer` in `oops-gl`**, and `glRenderbufferStorageMultisample` if multisampling
-   stays on. SDK work, unit-testable without hardware. No vertex array objects are needed for
-   this path — see the correction above.
-2. **A GLSL 130 probe arm.** The table above is a symbol-presence check and says nothing about
-   whether `oops-gl`'s compiler accepts the dialect `libultraship` emits. That question should be
-   answered by a `gl2-probe` arm, not by a failed port.
-3. **Vendor the dependencies** in `src/oops-deps/`, in the order the build needs them.
-4. **Then** the title's own sources.
+1. ~~`glBlitFramebuffer` and `glRenderbufferStorageMultisample` in `oops-gl`~~ — **done**,
+   2026-09-25, with `test_gl2_blit_framebuffer_reads_the_read_binding`. The blit needed the GL 3.0
+   read/draw binding split, which `oops-gl` did not have.
+2. ~~A shader-dialect probe arm~~ — **done**, `gl2-probe`'s `libultraship-dialect`. It found the
+   `#version 130` refusal above, which no amount of reading the front end had.
+3. **The `#version 120` patch**, as `patches/0001-*`. One line, and the arm that justifies it
+   already exists.
+4. **Vendor the dependencies** in `src/oops-deps/`, in the order the build needs them — nine to
+   go, `make survey` counts them.
+5. **Then** the title's own sources.

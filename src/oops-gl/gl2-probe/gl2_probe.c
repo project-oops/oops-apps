@@ -1113,7 +1113,6 @@ static int check_fragment_only_program(void) {
 /* -------------------------------------------------------------------------
  * Texturing
  * ------------------------------------------------------------------------- */
-
 /* A 2x2 texture of one colour on the given unit, with no filtering, and **no `glEnable`** - a
  * sampler's declared type names its target and GL 2.0 removed the enable's part in this. */
 static GLuint make_flat_texture(GLenum unit, uint32_t abgr) {
@@ -1128,6 +1127,104 @@ static GLuint make_flat_texture(GLenum unit, uint32_t abgr) {
     return id;
 }
 
+/*
+ * **The dialect libultraship emits**, which is the shader half of the Ship of Harkinian port.
+ *
+ * `gfx_opengl.cpp` picks its GLSL dialect at compile time: `#version 410 core` on Apple,
+ * `#version 300 es` under `USE_OPENGLES`, and otherwise `#version 130` with `varying`,
+ * `texture2D` and `gl_FragColor` - the GLSL 1.20-era spellings. Six ports share that renderer
+ * (Shipwright, 2ship2harkinian, Starship, SpaghettiKart, PaperBoat, Ghostship) and none of them
+ * calls GL directly, so whether this dialect compiles is the question for all of them at once.
+ *
+ * **The answer is that the constructs work and the version number does not**, which is why this
+ * arm asserts both halves.
+ *
+ * Reading the front end suggested 130 would be accepted: `do_version` in `glsl_pp.c` records the
+ * number and does not gate on it. The gate is further in, and it says so plainly once asked -
+ * `only GLSL 1.10, 1.20 and ES 1.00 are implemented; this shader asks for another`. Everything
+ * else the renderer emits is 1.20: `attribute`, `varying`, `texture2D`, `gl_FragColor`, two
+ * samplers and an interpolated colour input.
+ *
+ * So the port carries a one-line patch turning its `#version 130` into `#version 120`, and this
+ * arm is what justifies it and what will retire it. The first half proves the shaders work at
+ * 120; the second proves 130 is still refused. **If oops-gl ever implements 1.30 the second half
+ * fails**, and whoever sees that should delete the patch rather than the assertion.
+ *
+ * The shape is Fast3D's rather than a minimal shader: two texture units, a per-vertex colour
+ * carried through a varying, and the multiply-and-clamp the combiner ends with. Two *different*
+ * texel colours and a colour input that is not white, so a shader that samples the wrong unit,
+ * drops the input, or returns its first argument gives a different pixel.
+ */
+static int check_libultraship_dialect(void) {
+    reset_view();
+    /* Unit 0 white, unit 1 half-green and quarter-blue. The literal is 0xAABBGGRR. */
+    GLuint t0 = make_flat_texture(GL_TEXTURE0, 0xffffffffu); /* 1.0, 1.0, 1.0  */
+    GLuint t1 = make_flat_texture(GL_TEXTURE1, 0xff4080ffu); /* 1.0, 0.5, 0.25 */
+    /* Back to unit 0 before drawing: `make_flat_texture` leaves the last unit it touched
+     * selected, as `check_sampler_unit_selection` also has to undo. */
+    glActiveTexture(GL_TEXTURE0);
+
+    const GLuint p = use_program(
+        "#version 120\n"
+        "attribute vec3 pos;\n"
+        "attribute vec4 aInput1;\n"
+        "varying vec2 vTexCoord0;\n"
+        "varying vec2 vTexCoord1;\n"
+        "varying vec4 vInput1;\n"
+        "void main() {\n"
+        "  vTexCoord0 = pos.xy * 0.5 + vec2(0.5);\n"
+        "  vTexCoord1 = vTexCoord0;\n"
+        "  vInput1 = aInput1;\n"
+        "  gl_Position = vec4(pos, 1.0);\n"
+        "}\n",
+        "#version 120\n"
+        "uniform sampler2D uTex0;\n"
+        "uniform sampler2D uTex1;\n"
+        "varying vec2 vTexCoord0;\n"
+        "varying vec2 vTexCoord1;\n"
+        "varying vec4 vInput1;\n"
+        "void main() {\n"
+        "  vec4 texel0 = texture2D(uTex0, vTexCoord0);\n"
+        "  vec4 texel1 = texture2D(uTex1, vTexCoord1);\n"
+        "  vec3 c = clamp(texel0.rgb * texel1.rgb * vInput1.rgb, 0.0, 1.0);\n"
+        "  gl_FragColor = vec4(c, texel0.a);\n"
+        "}\n");
+    int ok = (p != 0u);
+    if (ok) {
+        /* Both samplers named, so a program that reads unit 0 twice does not pass. */
+        glUniform1i(glGetUniformLocation(p, "uTex0"), 0);
+        glUniform1i(glGetUniformLocation(p, "uTex1"), 1);
+
+        /* The colour input at (1.0, 1.0, 0.5): the blue channel is then the product of three
+         * different numbers and no pair of them alone gives it. */
+        static const float corner[4][4] = {
+            {1.0f, 1.0f, 0.5f, 1.0f}, {1.0f, 1.0f, 0.5f, 1.0f},
+            {1.0f, 1.0f, 0.5f, 1.0f}, {1.0f, 1.0f, 0.5f, 1.0f},
+        };
+        attrib_rect2(glGetAttribLocation(p, "pos"), glGetAttribLocation(p, "aInput1"),
+                     -0.8f, -0.8f, 0.8f, 0.8f, corner);
+
+        const uint32_t *s = scan_frame();
+        /* R = 1.0  * 1.0  * 1.0 = 1.000 -> 255
+         * G = 1.0  * 0.5  * 1.0 = 0.500 -> 128
+         * B = 1.0  * 0.25 * 0.5 = 0.125 ->  32 */
+        ok = near_rgb(SCAN_PX(s, MID_X, MID_Y), 255, 128, 32, 4);
+    }
+
+    /* **And 130 is refused**, which is the fact the title's patch exists for. Asserted rather
+     * than assumed: the front end's `#version` handler stores the number without judging it, so
+     * reading that alone says the opposite of what the compiler does. */
+    GLuint v130 = make_shader(GL_FRAGMENT_SHADER,
+                              "#version 130\n"
+                              "varying vec2 uv;\n"
+                              "void main() { gl_FragColor = vec4(uv, 0.0, 1.0); }\n");
+    ok = ok && v130 == 0u;
+
+    glDeleteTextures(1, &t0);
+    glDeleteTextures(1, &t1);
+    glActiveTexture(GL_TEXTURE0);
+    return ok && glGetError() == GL_NO_ERROR;
+}
 static int check_texture_sampler(void) {
     reset_view();
     GLuint tex = make_flat_texture(GL_TEXTURE0, 0xff00ff00u); /* R=0 G=255 B=0 A=255 */
@@ -3539,6 +3636,7 @@ static const gl2_probe_case_t g_cases[] = {
     {"short-circuit", check_short_circuit},
     {"constructors", check_constructors},
     {"glsl-120", check_glsl_120},
+    {"libultraship-dialect", check_libultraship_dialect},
 
     /* What still applies around a program */
     {"depth-test", check_depth_test_applies},
