@@ -127,29 +127,35 @@ The order to vendor them in is **measured from what the sources actually include
 order CMake fetches them — the two disagree sharply, and the CMake order would have started with
 the wrong one.
 
-| library | files including it | status |
-|---|---|---|
-| **spdlog** | **123** | the blocker: nothing compiles without it. C++, wants `<format>`-era library support |
-| nlohmann/json | 42 | header-only C++ |
-| tinyxml2 | 40 | one `.cpp` |
-| prism-processor | 3 | shader template processor |
-| libgfxd | 1 | F3D display-list decoder, C |
-| stb | 1 | header-only |
-| thread-pool | 1 | header-only C++ |
-| StormLib | archive layer | MPQ — `OtrArchive.h` reads `.otr` |
-| libzip → zlib | archive layer | `O2rArchive.h` reads `.o2r`; zlib **already vendored** |
-| SDL | — | **already vendored** (`src/oops-deps/sdl2`) |
-| single-header-metal-cpp | — | Apple only, not needed |
+| library | files including it | vendored at | built |
+|---|---|---|---|
+| **spdlog** | **123** | [`oops-deps/spdlog`](../../oops-deps/spdlog) | header-only |
+| nlohmann/json | 42 | [`oops-deps/nlohmann-json`](../../oops-deps/nlohmann-json) | header-only |
+| tinyxml2 | 40 | [`oops-deps/tinyxml2`](../../oops-deps/tinyxml2) | `libtinyxml2.a` |
+| prism-processor | 3 | [`oops-deps/prism-processor`](../../oops-deps/prism-processor) | `libprism.a`, 6 sources |
+| libgfxd | 1 | [`oops-deps/libgfxd`](../../oops-deps/libgfxd) | `libgfxd.a` |
+| stb | 1 | [`oops-deps/stb`](../../oops-deps/stb) | `libstb.a` |
+| thread-pool | 1 | [`oops-deps/thread-pool`](../../oops-deps/thread-pool) | header-only |
+| StormLib | archive layer | [`oops-deps/stormlib`](../../oops-deps/stormlib) | `libstorm.a`, 231 sources |
+| libzip | archive layer | [`oops-deps/libzip`](../../oops-deps/libzip) | `libzip.a`, 114 sources |
+| zlib | — | [`oops-deps/zlib`](../../oops-deps/zlib) | `libz.a`, already vendored |
+| SDL | — | [`oops-deps/sdl2`](../../oops-deps/sdl2) | already vendored |
+| single-header-metal-cpp | — | — | Apple only, not needed |
 
-**spdlog first is the uncomfortable answer**, because it is the largest of them and the one that
-leans hardest on the C++20 standard library rather than on anything this SDK controls. It is also
-unavoidable: 123 of the tree's files include it, so nothing else can be compiled and checked
-until it is there. Starting with the small header-only ones would produce three vendored
-directories and no way to tell whether any of them works.
+The archive pair is the ROM-reading path, reached through
+`libultraship/include/ship/resource/archive/` rather than by direct include — which is why a grep
+for their headers in the sources finds nothing. `OtrArchive.h` reads `.otr` through StormLib and
+`O2rArchive.h` reads `.o2r` through libzip; neither is optional.
 
-The two archive libraries are reached through `libultraship/include/ship/resource/archive/`
-rather than by direct include, which is why a grep for their headers in the sources finds
-nothing. They are the ROM-reading path and are not optional.
+**spdlog first was the uncomfortable answer**, because it is the largest of them and the one that
+leans hardest on the C++20 standard library rather than on anything this SDK controls. It was also
+unavoidable: 123 of the tree's files include it, so nothing else could be compiled and checked
+until it was there. Starting with the small header-only ones would have produced three vendored
+directories and no way to tell whether any of them worked.
+
+It paid for itself twice over. Making spdlog compile meant giving libc++ a threading API, and
+`oops-deps/libcxx/include/__external_threading` is what every threaded C++ port after this one
+stands on — prism-processor's `std::variant` and `std::string` are already using it.
 
 ## Submodules
 
@@ -165,7 +171,8 @@ exist at `9.2.3`; the asset pipeline here is the older `ZAPDTR` + `OTRExporter` 
 
 ## State
 
-Fetch and pin verified. Nothing is built yet.
+Every third-party library this title needs is vendored, pinned and building. Nothing of the
+title's own code is compiled yet.
 
 The order of work, cheapest useful thing first:
 
@@ -177,13 +184,17 @@ The order of work, cheapest useful thing first:
 3. ~~The `#version 120` patch~~ — **done**, `patches/0001-ask-for-the-glsl-this-target-implements.patch`.
    One line, verified end to end: the fetch applies it *inside the `libultraship` submodule*,
    which works because submodules are checked out before patches run.
-4. **A threaded libc++.** `spdlog` is pinned and fetched in
-   [`../../oops-deps/spdlog/`](../../oops-deps/spdlog/README.md), and compiling its header found
-   the real blocker: `_LIBCPP_HAS_THREADS 0`, so `std::mutex`, `std::thread` and
-   `std::condition_variable` do not exist — and 11 of the 15 errors are that. `oops-sdk` already
-   has the whole API (`oops_thread_*`, `oops_mutex_*`, `oops_sem_*`); libc++ has
-   `_LIBCPP_HAS_THREAD_API_EXTERNAL` for exactly this. **That is an `oops-deps/libcxx` job, not a
-   title one**, and every threaded C++ port after this one needs it too.
-5. Then the rest of the nine, in the measured order — `nlohmann/json`, `tinyxml2`, and so on.
-6. **Then** the archive pair, `StormLib` and `libzip`, which is the ROM-reading path.
-7. **Then** the title's own sources.
+4. ~~**A threaded libc++.**~~ — **done**. Compiling spdlog's header found the real blocker:
+   `_LIBCPP_HAS_THREADS 0`, so `std::mutex`, `std::thread` and `std::condition_variable` did not
+   exist, and 11 of the 15 errors were that. `oops-sdk` already had the whole API
+   (`oops_thread_*`, `oops_mutex_*`, `oops_sem_*`), and libc++ has
+   `_LIBCPP_HAS_THREAD_API_EXTERNAL` for exactly this. It is an `oops-deps/libcxx` job rather than
+   a title one, and every threaded C++ port after this one gets it.
+5. ~~The rest of the nine, in the measured order~~ — **done**. All ten are in the table above and
+   all ten build.
+6. ~~The archive pair, `StormLib` and `libzip`~~ — **done**. The ROM-reading path is there:
+   `SFileOpenArchive`/`SFileReadFile` and `zip_open`/`zip_fread` are all defined, and each archive
+   was checked with `nm --undefined-only` rather than by the build succeeding — which for StormLib
+   is how 201 missing sources were caught.
+7. **The title's own sources.** 669 C++ files across `soh/soh`, `libultraship/src`, `ZAPDTR` and
+   `OTRExporter`, and an entry point. This is where the work is now.
