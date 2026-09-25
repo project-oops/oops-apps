@@ -14,9 +14,12 @@
 #define INSTALL_SUBDIR_SHARE "data"
 
 /* Squirrel reads `_SQ64` to size its integers and pointers; upstream derives it from the pointer
- * size CMake measured. This target is 64-bit, so it is set rather than measured. */
+ * size CMake measured. This target is 64-bit, so it is set rather than measured - and the Makefile
+ * passes it too, because Squirrel's own sources never include this file. */
 #define SIZEOF_VOID_P 8
+#ifndef _SQ64
 #define _SQ64
+#endif
 
 /* tinygettext's iconv wrapper. SDL's `SDL_iconv` is `const`-correct, so the `const` form. */
 #define HAVE_ICONV_CONST

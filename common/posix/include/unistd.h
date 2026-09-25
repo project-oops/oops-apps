@@ -22,6 +22,10 @@
 
 #define F_OK 0
 #define R_OK 4
+/* Named by PhysFS, which asks `access(dir, W_OK)` of a write directory and `X_OK` of a path it
+ * might execute. `access` answers existence for every mode - see `posix.c`. */
+#define W_OK 2
+#define X_OK 1
 
 /* **Guarded, because `stdio.h` declares these too.** Both headers are expected to carry them and a
  * program may include either first; the values are universal, so a redefinition would be harmless
@@ -78,6 +82,10 @@ int getpid(void);
 int isatty(int fd);
 /* Nothing is buffered behind a descriptor here, so there is nothing to force out. */
 int fsync(int fd);
+/* **Always fails with `EINVAL`**, which is POSIX's answer for "not a symbolic link" - and there
+ * are none on this filesystem. PhysFS and OpenAL Soft both try `/proc/self/exe` to find their own
+ * binary, and both fall back when this fails. */
+ssize_t readlink(const char *path, char *buf, size_t size);
 #ifdef __cplusplus
 }
 #endif

@@ -20,89 +20,18 @@ shoulders at 9 and 10. The three additions are harmless in the menus, which is w
 one flat table workable - no menu screen binds space, `t` or `p`.
 
 diff --git a/winsys.cpp b/winsys.cpp
-index ab60089..2f595bb 100644
+index b14015d..2f595bb 100644
 --- a/winsys.cpp
 +++ b/winsys.cpp
-@@ -17,6 +17,9 @@ GNU General Public License for more details.
- 
- #include "winsys.h"
- #include "ogl.h"
-+#include "gui.h"   /* DrawFrameX, AutoYPosN - for ShowProgress */
-+#include "spx.h"   /* Int_StrN */
-+#include "common.h"
- #include "audio.h"
- #include "game_ctrl.h"
- #include "font.h"
-@@ -71,6 +74,9 @@ CWinsys::CWinsys () {
- 	numJoysticks = 0;
+@@ -75,6 +75,7 @@ CWinsys::CWinsys () {
  	joystick_active = false;
  
-+	progress_ready = false;
+ 	progress_ready = false;
 +	last_hat = SDL_HAT_CENTERED;
-+
+ 
   	resolution[0] = MakeRes (0, 0);
  	resolution[1] = MakeRes (800, 600);
- 	resolution[2] = MakeRes (1024, 768);
-@@ -292,6 +298,58 @@ void CWinsys::KeyRepeat (bool repeat) {
- void CWinsys::SetFonttype () {
-     const char* font = (param.use_papercut_font > 0 ? "pc20" : "bold");
-     FT.SetFont (font);
-+    // The one call that happens exactly once, immediately after `FT.LoadFontlist`, so it is where
-+    // "there is now a font to draw progress with" becomes true. Nothing at the call site changes.
-+    progress_ready = true;
-+}
-+
-+// **What is loading, and how far through it is.** See the note in winsys.h for why this exists.
-+//
-+// Two rates, deliberately. The log line is printed for every call, because a log that skips is
-+// useless for finding where a load stopped. The *screen* is redrawn at most every 120 ms: a
-+// redraw here is a full frame - and on this target a frame of text rebuilds the font atlas - so
-+// drawing one per texture would make the load it is reporting on measurably slower.
-+void CWinsys::ShowProgress (const string &what, int done, int total) {
-+    static Uint32 last_draw = 0;
-+
-+    if (total > 0) printf ("loading: %s  %d/%d\n", what.c_str(), done, total);
-+    else printf ("loading: %s\n", what.c_str());
-+
-+    if (!progress_ready) return;
-+
-+    const Uint32 now = SDL_GetTicks ();
-+    const bool last_step = (total > 0 && done >= total);
-+    if (!last_step && last_draw != 0 && now - last_draw < 120) return;
-+    last_draw = now;
-+
-+    ClearRenderContext ();
-+    set_gl_options (GUI);
-+    SetupGuiDisplay ();
-+
-+    Tex.Draw (TEXLOGO, CENTER, 40, 0.7);
-+
-+    FT.SetColor (colDYell);
-+    FT.AutoSizeN (4);
-+    FT.DrawString (CENTER, AutoYPosN (58), what);
-+
-+    if (total > 0) {
-+        FT.SetColor (colWhite);
-+        FT.AutoSizeN (3);
-+        FT.DrawString (CENTER, AutoYPosN (66), Int_StrN (done) + " / " + Int_StrN (total));
-+
-+        // The bar itself, in ETR's own widget colours: an empty frame with a filled part on top.
-+        const int w = (int)(param.x_resolution * 0.5);
-+        const int h = 18;
-+        const int x = (param.x_resolution - w) / 2;
-+        const int y = AutoYPosN (74);
-+        int fill = (int)((double)w * (double)done / (double)total);
-+        if (fill < 0) fill = 0;
-+        if (fill > w) fill = w;
-+        DrawFrameX (x, y, w, h, 3, colMBackgr, colWhite, 1.0);
-+        if (fill > 0) DrawFrameX (x, y, fill, h, 0, colDYell, colDYell, 1.0);
-+    }
-+
-+    SwapBuffers ();
- }
- 
- void CWinsys::CloseJoystick () {
-@@ -368,6 +426,78 @@ void CWinsys::SetModeFuncs (
+@@ -425,6 +426,78 @@ void CWinsys::SetModeFuncs (
      modefuncs[mode].keyb_spec = keyb_spec;
  }
  
@@ -181,7 +110,7 @@ index ab60089..2f595bb 100644
  void CWinsys::IdleFunc () {}
  
  bool CWinsys::ModePending () {
-@@ -432,16 +562,27 @@ void CWinsys::PollEvent () {
+@@ -489,16 +562,27 @@ void CWinsys::PollEvent () {
  				}
  				break; 
  
@@ -213,7 +142,7 @@ index ab60089..2f595bb 100644
  				if (SDL_WINDOWEVENT_RESIZED == event.window.event) {
  					param.x_resolution = event.window.data1;
 diff --git a/winsys.h b/winsys.h
-index 22b969a..12c0dd0 100644
+index 690fb77..12c0dd0 100644
 --- a/winsys.h
 +++ b/winsys.h
 @@ -73,6 +73,12 @@ private:
@@ -229,23 +158,3 @@ index 22b969a..12c0dd0 100644
  	void ChangeMode ();
  	void CallLoopFunction ();
  public:
-@@ -92,6 +98,19 @@ public:
- 	void ShowCursor (bool visible) {SDL_ShowCursor (visible);}
- 	void SwapBuffers ();
- 	void Delay (unsigned int ms);
-+
-+	// **Loading progress, which ETR 0.6 does not have.**
-+	//
-+	// Every load here is synchronous with the screen frozen on whatever was last drawn: the
-+	// splash screen at startup, and "Loading resources, please wait ..." when a course is
-+	// chosen. On a desktop that is a second and nobody notices. On this console it is long
-+	// enough that a player cannot tell loading from a hang - which is exactly what happened,
-+	// and the report was "seems stuck".
-+	//
-+	// `progress_ready` is false until the fonts are loaded, because before that there is
-+	// nothing to draw text with; `ShowProgress` still reports to the log in that window.
-+	bool progress_ready;
-+	void ShowProgress (const string &what, int done, int total);
- 	void Quit ();
- 	void InitJoystick ();
- 	void CloseJoystick ();

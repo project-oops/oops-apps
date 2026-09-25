@@ -1,0 +1,68 @@
+Put the current-context thread_locals behind a macro
+
+OpenAL Soft keeps two `thread_local`s in `ALCcontext`: the context a thread
+made current with `alcSetThreadContext`, and a guard object whose destructor
+releases it when the thread ends. They back one extension,
+ALC_EXT_thread_local_context, and `GetContextRef` reads the first on every AL
+call.
+
+A `thread_local` here compiles to `__tls_get_addr` calls and, for the guard,
+`__cxa_thread_atexit`. libkernel exports the first, but whether a payload's
+module carries a TLS segment the loader sets up has never been measured - and
+if it does not, every AL call faults, not just the extension's.
+
+So both become `ALSOFT_THREAD_LOCAL`, which is `thread_local` unless the build
+says otherwise, and `oops-openal-soft.mk` defines it empty. Each is then one
+process-wide variable: `alcSetThreadContext` sets a context for every thread
+rather than the caller's, and `alcMakeContextCurrent` - what SuperTux and
+SuperTuxKart call - is unaffected, because it was always process-wide.
+
+Drop this patch, and the define, once thread_local is measured on hardware.
+
+diff --git a/alc/context.cpp b/alc/context.cpp
+index e02c549..c7494f6 100644
+--- a/alc/context.cpp
++++ b/alc/context.cpp
+@@ -90,7 +90,7 @@ constexpr ALchar alExtList[] =
+ std::atomic<bool> ALCcontext::sGlobalContextLock{false};
+ std::atomic<ALCcontext*> ALCcontext::sGlobalContext{nullptr};
+ 
+-thread_local ALCcontext *ALCcontext::sLocalContext{nullptr};
++ALSOFT_THREAD_LOCAL ALCcontext *ALCcontext::sLocalContext{nullptr};
+ ALCcontext::ThreadCtx::~ThreadCtx()
+ {
+     if(ALCcontext *ctx{ALCcontext::sLocalContext})
+@@ -100,7 +100,7 @@ ALCcontext::ThreadCtx::~ThreadCtx()
+             result ? "" : ", leak detected");
+     }
+ }
+-thread_local ALCcontext::ThreadCtx ALCcontext::sThreadContext;
++ALSOFT_THREAD_LOCAL ALCcontext::ThreadCtx ALCcontext::sThreadContext;
+ 
+ ALeffect ALCcontext::sDefaultEffect;
+ 
+diff --git a/alc/context.h b/alc/context.h
+index e8efdbf..73f3d00 100644
+--- a/alc/context.h
++++ b/alc/context.h
+@@ -155,7 +155,10 @@ struct ALCcontext : public al::intrusive_ref<ALCcontext>, ContextBase {
+ 
+ private:
+     /* Thread-local current context. */
+-    static thread_local ALCcontext *sLocalContext;
++#ifndef ALSOFT_THREAD_LOCAL
++#define ALSOFT_THREAD_LOCAL thread_local
++#endif
++    static ALSOFT_THREAD_LOCAL ALCcontext *sLocalContext;
+ 
+     /* Thread-local context handling. This handles attempting to release the
+      * context which may have been left current when the thread is destroyed.
+@@ -165,7 +168,7 @@ private:
+         ~ThreadCtx();
+         void set(ALCcontext *ctx) const noexcept { sLocalContext = ctx; }
+     };
+-    static thread_local ThreadCtx sThreadContext;
++    static ALSOFT_THREAD_LOCAL ThreadCtx sThreadContext;
+ 
+ public:
+     /* HACK: MinGW generates bad code when accessing an extern thread_local

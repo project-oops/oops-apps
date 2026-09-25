@@ -153,9 +153,26 @@ OOPS_CXX_LDFLAGS := -Wl,--whole-archive $(OOPS_CXX_LIB) -Wl,--no-whole-archive
 # `common/deps.mk` names an object after its source, so a removed source leaves an object that
 # nothing lists and `ar` is handed the list rather than the directory.
 OOPS_CXX_OBJS := $(call oops_objs,$(OOPS_CXX_BUILD)/obj,$(OOPS_CXX_RT_SRC) $(OOPS_CXX_SRCS))
-$(call oops_ar_check,$(OOPS_CXX_OBJS))
 -include $(OOPS_CXX_OBJS:.o=.d)
 $(call oops_obj_rules,$(OOPS_CXX_BUILD)/obj,TARGET_CXX,OOPS_CXX_FLAGS,$(OOPS_CXX_RT_SRC) $(OOPS_CXX_SRCS))
+
+# # `OOPS_CXX_LINK_OBJECTS = 1`: the objects go on the link line, and there is no archive
+#
+# **For a title whose sources share file names**, which one archive cannot hold - see
+# `oops_ar_check` in `common/deps.mk`. SuperTux is the first: `object/camera.cpp`,
+# `scripting/camera.cpp` and `worldmap/camera.cpp` are three different classes, and thirty names
+# collide like that across its 500 sources. Upstream's CMake never archives them, so it never
+# noticed.
+#
+# Nothing else changes, because nothing else can: the archive is linked `--whole-archive`, so
+# every member reaches the link whether anything refers to it or not - exactly what an object
+# named on the command line does. `OOPS_CXX_LIB` becomes the object list, so a title's
+# `PAYLOAD_EXTRA_DEPS += $(OOPS_CXX_LIB)` still relinks when one of them changes.
+ifeq ($(OOPS_CXX_LINK_OBJECTS),1)
+OOPS_CXX_LIB     := $(OOPS_CXX_OBJS)
+OOPS_CXX_LDFLAGS := $(OOPS_CXX_OBJS)
+else
+$(call oops_ar_check,$(OOPS_CXX_OBJS))
 
 # `$(oops_makefiles)` is this file's view of them: `app.mk` is included by the title *after* this
 # one, so it is not in the list yet and a change to it does not rebuild the archive. The flags
@@ -166,6 +183,7 @@ $(OOPS_CXX_LIB): $(OOPS_CXX_OBJS) $(oops_makefiles)
 	@ar_tool=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
 	 "$$ar_tool" rcs $@ $(OOPS_CXX_OBJS)
 	@echo "cxx: $@ ($(words $(OOPS_CXX_OBJS)) objects)"
+endif
 
 .PHONY: cxx-clean
 cxx-clean:

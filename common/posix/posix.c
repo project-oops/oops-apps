@@ -51,6 +51,7 @@
 #include <string.h>
 #include <strings.h> /* the declarations this file's strcasecmp pair answers */
 #include <sys/stat.h>
+#include <sys/sysctl.h> /* the declaration this file's sysctl answers */
 #include <sys/time.h>
 /* For `struct timespec` and the `CLOCK_*` ids that `clock_gettime` below answers - declared in
  * the SDK's libc header, implemented here, the same split `gettimeofday` has. */
@@ -803,6 +804,54 @@ int fileno(FILE *stream) {
 
 int fstat(int fd, struct stat *out) {
     int64_t here;
+/*
+ * **`fcntl` fails with `ENOSYS`.** Nothing here records a descriptor's flags to report, and the
+ * one caller so far asks only to decide whether to `fsync` - PhysFS's flush does
+ * `if ((fcntl(fd, F_GETFL) & O_ACCMODE) != O_RDONLY) fsync(fd)`. A failure reads as "not
+ * read-only", so it calls `fsync` above, which is correct for any descriptor. An invented flag
+ * word would be a guess another caller could believe.
+ *
+ * Declared again here because oops-sdk's `include/libc/fcntl.h` now precedes this shim's
+ * `include/fcntl.h` on the payload's path and declares `open` without `fcntl` - so the
+ * shim's declaration is not the one a payload build sees.
+ */
+int fcntl(int fd, int cmd, ...);
+int fcntl(int fd, int cmd, ...) {
+    (void)fd;
+    (void)cmd;
+    errno = ENOSYS;
+    return -1;
+}
+
+/* `stat`: there are no symbolic links here - see `<sys/stat.h>`. */
+int lstat(const char *path, struct stat *out) { return stat(path, out); }
+
+/* No symbolic links, so nothing is one - see `<unistd.h>`. */
+ssize_t readlink(const char *path, char *buf, size_t size) {
+    (void)path;
+    (void)buf;
+    (void)size;
+    errno = EINVAL;
+    return -1;
+}
+
+/*
+ * **`sysctl` answers nothing.** The kernel's MIB is not a payload's to query, and the caller so
+ * far - OpenAL Soft asking `kern.proc.pathname` for its own executable's path - has a fallback
+ * for exactly this failure. `ENOENT` is what FreeBSD gives for a name it does not have.
+ */
+int sysctl(const int *name, unsigned int namelen, void *oldp, size_t *oldlenp,
+           const void *newp, size_t newlen) {
+    (void)name;
+    (void)namelen;
+    (void)oldp;
+    (void)oldlenp;
+    (void)newp;
+    (void)newlen;
+    errno = ENOENT;
+    return -1;
+}
+
     int64_t size;
 
     if (!out || fd < 0) {

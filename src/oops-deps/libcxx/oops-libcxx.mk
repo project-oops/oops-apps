@@ -63,6 +63,11 @@ OOPS_LIBCXX_UPSTREAM ?= $(OOPS_LIBCXX_DIR)/upstream
 ifeq ($(OOPS_LIBCXX_HOSTED),1)
 OOPS_LIBCXX_BUILD ?= $(OOPS_LIBCXX_DIR)/build-hosted
 OOPS_MESA_SYSROOT ?= $(abspath $(OOPS_LIBCXX_DIR)/../../../../oops-mesa/toolchain/sysroot)
+else ifeq ($(OOPS_CXX_EXCEPTIONS),1)
+# **A second freestanding archive for a title that throws** - see *The exceptions variant* below.
+# Its own directory, because the two are compiled differently and a title of either kind must
+# not pick up the other's objects.
+OOPS_LIBCXX_BUILD ?= $(OOPS_LIBCXX_DIR)/build-eh
 else
 OOPS_LIBCXX_BUILD ?= $(OOPS_LIBCXX_DIR)/build
 endif
@@ -101,13 +106,20 @@ OOPS_LIBCXX_INCLUDE := \
     -I$(OOPS_LIBCXX_UPSTREAM)/libcxx/src \
     -I$(OOPS_LIBCXX_UPSTREAM)/libcxxabi/include
 else
+# **`include/freestanding` last, after libc++'s own headers.** Its files are C-library headers,
+# and libc++ requires the C library behind it: libc++ ships its own `<inttypes.h>` and
+# `<locale.h>`, each of which defines a marker and `#include_next`s the C library's, and
+# `<cinttypes>` checks the marker. With this directory first, the shim was found instead of
+# libc++'s wrapper and `<cinttypes>` stopped the build - "didn't find libc++'s <inttypes.h>".
+# Extreme Tux Racer never includes `<cinttypes>`; OpenAL Soft is the first consumer that does.
+# `common/cxx.mk` makes the same argument about oops-sdk's libc one layer further out.
 OOPS_LIBCXX_INCLUDE := \
     -nostdinc++ -nostdlibinc \
     -I$(OOPS_LIBCXX_DIR)/include \
-    -I$(OOPS_LIBCXX_DIR)/include/freestanding \
     -I$(OOPS_LIBCXX_UPSTREAM)/libcxx/include \
     -I$(OOPS_LIBCXX_UPSTREAM)/libcxx/src \
-    -I$(OOPS_LIBCXX_UPSTREAM)/libcxxabi/include
+    -I$(OOPS_LIBCXX_UPSTREAM)/libcxxabi/include \
+    -I$(OOPS_LIBCXX_DIR)/include/freestanding
 endif
 # **`libcxxabi/include` is on the consumer's path, not just libc++'s own.** It is one header,
 # `cxxabi.h`, and it is a public part of the C++ runtime this collection ships: `abi::__cxa_demangle`
@@ -167,6 +179,7 @@ OOPS_LIBCXX_SRCS := \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/any.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/bind.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/call_once.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/chrono.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/error_category.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/exception.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/fstream.cpp \
@@ -288,10 +301,35 @@ OOPS_LIBCXX_CFLAGS = -target x86_64-unknown-freebsd --sysroot=$(OOPS_MESA_SYSROO
                      $(OOPS_LIBCXX_ABI_FLAGS) \
                      $(OOPS_LIBCXX_INCLUDE) $(OOPS_SDK_INCLUDE)
 else
+# # The exceptions variant: `OOPS_CXX_EXCEPTIONS = 1`
+#
+# **A freestanding title that throws links libc++abi, so its libc++ has to be built knowing
+# that** - the `LIBCXX_BUILDING_LIBCXXABI` switch above, which used to be set only for the hosted
+# build. Without it both libraries define `std::terminate`, the `std::exception` family and the
+# rest, and SuperTux's first link stopped on exactly those duplicates. `cxx-throw` never met this
+# because it links libc++abi and libunwind but not libc++ - it throws `int`s and structs of its
+# own, and needs no `std::` class at all.
+#
+# `-fexceptions -frtti` with it, so that `std::vector::at` and friends throw rather than abort,
+# and `catch (const std::exception&)` can match what the library throws.
+#
+# The default stays `-fno-exceptions -fno-rtti` with libc++'s own copies of those definitions,
+# because a title that does not throw - Extreme Tux Racer - links no libc++abi to provide them.
+ifeq ($(OOPS_CXX_EXCEPTIONS),1)
+OOPS_LIBCXXABI_UPSTREAM ?= $(OOPS_LIBCXX_DIR)/upstream
+OOPS_LIBCXX_EH_FLAGS := -fexceptions -frtti -DLIBCXX_BUILDING_LIBCXXABI \
+                        -I$(OOPS_LIBCXXABI_UPSTREAM)/libcxxabi/include
+else
+OOPS_LIBCXX_EH_FLAGS := -fno-exceptions -fno-rtti
+endif
+# **`_POSIX_TIMERS`, for `chrono.cpp`.** It uses `clock_gettime(CLOCK_MONOTONIC)` for
+# `steady_clock` only when `<unistd.h>` says POSIX timers exist, and a freestanding build sees no
+# `<unistd.h>` - so it stopped on "Monotonic clock not implemented on this platform". The clock
+# is there: oops-sdk's `<time.h>` declares it and `src/time/time.c` defines it. OpenAL Soft's mixer
+# timing is the first caller of `steady_clock` here.
 OOPS_LIBCXX_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
-                     -fno-exceptions -fno-rtti -fPIC -std=c++20 -O2 -w \
+                     $(OOPS_LIBCXX_EH_FLAGS) -fPIC -std=c++20 -O2 -w -D_POSIX_TIMERS=200809L \
                      -D_LIBCPP_BUILDING_LIBRARY -D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS \
-                     $(OOPS_LIBCXX_ABI_FLAGS) \
                      $(OOPS_LIBCXX_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
 endif
 

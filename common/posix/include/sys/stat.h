@@ -11,8 +11,12 @@
 #define S_IFMT   0170000u
 #define S_IFDIR  0040000u
 #define S_IFREG  0100000u
+#define S_IFLNK  0120000u
 #define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
 #define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
+/* Never true: `stat` below reports a file or a directory and nothing else. Named because PhysFS
+ * asks it of every path it stats. */
+#define S_ISLNK(m) (((m) & S_IFMT) == S_IFLNK)
 
 /* **The permission bits, which this platform does not enforce but programs still name.** A
  * caller passes them to `open` as the mode for a file it may create - StormLib's
@@ -50,6 +54,9 @@ struct stat {
 extern "C" {
 #endif
 int stat(const char *path, struct stat *out);
+/* **`stat` itself**, because there are no symbolic links on the console's filesystem for the
+ * difference to be about. PhysFS calls it when told not to follow links. */
+int lstat(const char *path, struct stat *out);
 /* By descriptor. Only `st_size` and `st_mode` are filled, which is what `stat` above answers too
  * - see `posix.c` for how the size is taken without disturbing the file pointer. */
 int fstat(int fd, struct stat *out);

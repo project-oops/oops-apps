@@ -15,7 +15,7 @@ cases a patch.
 |---|---|---|---|
 | [`sdl2`](sdl2/) | `release-2.30.9` | 7 backend files, 181-line patch | everything |
 | [`sdl12-compat`](sdl12-compat/) | `release-1.2.76` | 79-line patch | an SDL 1.2 title |
-| [`sdl2-image`](sdl2-image/) | `release-2.8.12` | a `.mk` | ETR |
+| [`sdl2-image`](sdl2-image/) | `release-2.8.12` | a `.mk` | ETR, SuperTux (PNG and JPEG) |
 | [`sdl2-mixer`](sdl2-mixer/) | `release-2.8.2` | a `.mk` | ETR |
 | [`sdl2-ttf`](sdl2-ttf/) | `release-2.24.0` | a `.mk` | Neverball |
 | [`freetype`](freetype/) | `VER-2-13-3` | a `.mk` | ETR, and SDL2_ttf beneath |
@@ -24,9 +24,11 @@ cases a patch.
 | [`zlib`](zlib/) | `v1.3.1` | a `.mk` | libpng |
 | [`libvorbis`](libvorbis/) | `v1.3.7` | a `.mk` | Neverball |
 | [`libogg`](libogg/) | `v1.3.5` | a generated header | libvorbis |
-| [`libjpeg-turbo`](libjpeg-turbo/) | `3.1.4` | 2 config headers | Neverball |
+| [`libjpeg-turbo`](libjpeg-turbo/) | `3.1.4` | 2 config headers | Neverball, and SDL2_image beneath |
+| [`openal-soft`](openal-soft/) | `1.23.1` | 2 config headers, a thread-local patch | SuperTux, SuperTuxKart |
+| [`glm`](glm/) | `0.9.9.8` | a `.mk` | SuperTux |
 
-All twelve compile freestanding for `x86_64-unknown-freebsd` against `oops-sdk`'s libc, with
+All of these compile freestanding for `x86_64-unknown-freebsd` against `oops-sdk`'s libc, with
 `-nostdlibinc` so the build machine's headers cannot leak in.
 
 ## Four things that keep recurring

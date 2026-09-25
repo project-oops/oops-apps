@@ -1,5 +1,5 @@
 /*
- * `<SDL_opengles2.h>`, answered with oops-gl's own headers.
+ * `<SDL_opengles2.h>`, answered with oops-gl's own header.
  *
  * Upstream's `video/gl.hpp` includes this and nothing else when `USE_OPENGLES2` is set. SDL's
  * copy would bring the Khronos ES 2.0 prototypes, which are a second declaration of every entry
@@ -15,7 +15,8 @@
 #ifndef STX_SHIM_SDL_OPENGLES2_H
 #define STX_SHIM_SDL_OPENGLES2_H
 
+/* `GL/gl.h` alone: oops-sdk declares its shader, framebuffer and buffer entry points there and
+ * ships no separate `glext.h`. `tools/glcheck.c` reads the same file. */
 #include <GL/gl.h>
-#include <GL/glext.h>
 
 #endif /* STX_SHIM_SDL_OPENGLES2_H */

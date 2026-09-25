@@ -65,6 +65,11 @@ include $(OOPS_MIX)/oops-sdl2-mixer.mk
 OOPS_PNG ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libpng)
 include $(OOPS_PNG)/oops-libpng.mk
 
+# libjpeg because SDL2_image decodes JPEG for every title that shares it - SuperTux's backgrounds
+# are JPEGs - and its link names the decoder whether or not this title ever loads one.
+OOPS_JPEG ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libjpeg-turbo)
+include $(OOPS_JPEG)/oops-libjpeg.mk
+
 OOPS_IMG ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/sdl2-image)
 include $(OOPS_IMG)/oops-sdl2-image.mk
 
@@ -101,11 +106,11 @@ ETR_CFLAGS := -DOS_LINUX=1 -Ishim/include -include GL/glext.h -Wno-c++11-narrowi
 
 OOPS_CXX_INCLUDE     += $(OOPS_LIBCXX_INCLUDE)
 EXTRA_TARGET_CFLAGS  += $(ETR_CFLAGS)
-# `$(OOPS_IMG_LDFLAGS)` carries libpng and zlib behind it, so they are not named again here.
+# `$(OOPS_IMG_LDFLAGS)` carries libpng, zlib and libjpeg behind it, so they are not named again here.
 EXTRA_TARGET_LDFLAGS += $(OOPS_CXX_LDFLAGS) $(OOPS_SDL_LDFLAGS) $(OOPS_MIX_LDFLAGS) \
                         $(OOPS_FT_LDFLAGS) $(OOPS_IMG_LDFLAGS) $(OOPS_LIBCXX_LDFLAGS)
 PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_SDL_LIB) $(OOPS_MIX_LIB) \
-                        $(OOPS_FT_LIB) $(OOPS_IMG_LIB) $(OOPS_PNG_LIB) $(OOPS_ZLIB_LIB) \
+                        $(OOPS_FT_LIB) $(OOPS_IMG_LIB) $(OOPS_PNG_LIB) $(OOPS_ZLIB_LIB) $(OOPS_JPEG_LIB) \
                         $(OOPS_LIBCXX_LIB)
 
 OOPS_RENDERER = gl1

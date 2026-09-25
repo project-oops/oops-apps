@@ -328,3 +328,103 @@ const oops_cxx_terminate_installer s_install_terminate;
 
 } /* namespace */
 #endif /* OOPS_CXX_EXCEPTIONS */
+
+/* ------------------------------------------------------ complex multiplication */
+
+/*
+ * **`__muldc3` and `__mulsc3`, which clang emits for `std::complex<double>` and `<float>`
+ * multiplication** and which normally come from compiler-rt's builtins library. A payload links
+ * `-nostdlib`, so nothing supplies them; OpenAL Soft's FFT-based effects (convolution, frequency
+ * shifter, pitch shifter) are the first code here to multiply complex numbers.
+ *
+ * The algorithm is C99's own, Annex G.5.1: multiply naively, and only if *both* parts come out
+ * NaN check whether an infinity was involved and recompute so that "infinity times non-zero" is
+ * an infinity rather than NaN. That recovery is the whole reason a library function exists
+ * instead of four multiplies - `-ffast-math`'s shortcut skips it.
+ *
+ * Real arithmetic only, so neither can be lowered into a call to itself - the failure
+ * `__builtin_` wrappers have had here. The sign copy is done on the bits for the same reason.
+ */
+namespace {
+
+template <typename T> struct oops_cx_bits;
+template <> struct oops_cx_bits<double> { typedef uint64_t type; static const int shift = 63; };
+template <> struct oops_cx_bits<float> { typedef uint32_t type; static const int shift = 31; };
+
+template <typename T> bool oops_cx_isnan(T x) { return x != x; }
+template <typename T> bool oops_cx_isinf(T x) { return x == x && (x - x) != (x - x); }
+
+/* `magnitude` with the sign of `sign`, on the representation. */
+template <typename T> T oops_cx_copysign(T magnitude, T sign)
+{
+    typedef typename oops_cx_bits<T>::type U;
+    const U mask = (U)1 << oops_cx_bits<T>::shift;
+    U m, s;
+    __builtin_memcpy(&m, &magnitude, sizeof m);
+    __builtin_memcpy(&s, &sign, sizeof s);
+    m = (m & ~mask) | (s & mask);
+    T out;
+    __builtin_memcpy(&out, &m, sizeof out);
+    return out;
+}
+
+template <typename T> void oops_cx_mul(T a, T b, T c, T d, T *re, T *im)
+{
+    const T ac = a * c, bd = b * d, ad = a * d, bc = b * c;
+    T x = ac - bd;
+    T y = ad + bc;
+    if (oops_cx_isnan(x) && oops_cx_isnan(y)) {
+        bool recalc = false;
+        if (oops_cx_isinf(a) || oops_cx_isinf(b)) {
+            a = oops_cx_copysign(oops_cx_isinf(a) ? (T)1 : (T)0, a);
+            b = oops_cx_copysign(oops_cx_isinf(b) ? (T)1 : (T)0, b);
+            if (oops_cx_isnan(c)) c = oops_cx_copysign((T)0, c);
+            if (oops_cx_isnan(d)) d = oops_cx_copysign((T)0, d);
+            recalc = true;
+        }
+        if (oops_cx_isinf(c) || oops_cx_isinf(d)) {
+            c = oops_cx_copysign(oops_cx_isinf(c) ? (T)1 : (T)0, c);
+            d = oops_cx_copysign(oops_cx_isinf(d) ? (T)1 : (T)0, d);
+            if (oops_cx_isnan(a)) a = oops_cx_copysign((T)0, a);
+            if (oops_cx_isnan(b)) b = oops_cx_copysign((T)0, b);
+            recalc = true;
+        }
+        if (!recalc && (oops_cx_isinf(ac) || oops_cx_isinf(bd) ||
+                        oops_cx_isinf(ad) || oops_cx_isinf(bc))) {
+            if (oops_cx_isnan(a)) a = oops_cx_copysign((T)0, a);
+            if (oops_cx_isnan(b)) b = oops_cx_copysign((T)0, b);
+            if (oops_cx_isnan(c)) c = oops_cx_copysign((T)0, c);
+            if (oops_cx_isnan(d)) d = oops_cx_copysign((T)0, d);
+            recalc = true;
+        }
+        if (recalc) {
+            const T inf = __builtin_inf();
+            x = inf * (a * c - b * d);
+            y = inf * (a * d + b * c);
+        }
+    }
+    *re = x;
+    *im = y;
+}
+
+} /* namespace */
+
+extern "C" double _Complex __muldc3(double a, double b, double c, double d)
+{
+    double re, im;
+    oops_cx_mul(a, b, c, d, &re, &im);
+    double _Complex z;
+    __real__ z = re;
+    __imag__ z = im;
+    return z;
+}
+
+extern "C" float _Complex __mulsc3(float a, float b, float c, float d)
+{
+    float re, im;
+    oops_cx_mul(a, b, c, d, &re, &im);
+    float _Complex z;
+    __real__ z = re;
+    __imag__ z = im;
+    return z;
+}
