@@ -1,0 +1,40 @@
+Ask for the GLSL this target implements
+
+`gfx_opengl.cpp` picks its shader dialect at compile time. On this target the
+non-Apple, non-GLES branch is taken, and everything it emits is GLSL 1.10-era -
+`varying` inputs, `texture2D`, `gl_FragColor`. The only thing about it that is
+not is the version directive, which says 130.
+
+oops-gl refuses that, in its own words:
+
+    only GLSL 1.10, 1.20 and ES 1.00 are implemented; this shader asks for another
+
+So the number is wrong for this target and nothing else is. `gl2-probe`'s
+`libultraship-dialect` arm is the measurement: it compiles, links and draws this
+exact shape at 120 - two samplers, three varyings, an interpolated colour input
+and the combiner's multiply-and-clamp - and reads back the expected pixel; and it
+asserts separately that 130 is still refused.
+
+**That second assertion is what retires this patch.** If oops-gl ever implements
+GLSL 1.30, the arm fails on it, and whoever sees that should delete this file
+rather than the assertion.
+
+Only the fragment shader is touched. `BuildVsShader` already asks for
+`#version 110` with `attribute` and `varying`, which is accepted as it stands.
+
+120 rather than 110 because 1.20 is a superset and costs nothing here: it is what
+the rest of the collection's shader work targets, and a combiner that grows an
+implicit conversion should not need this patch edited again.
+
+diff --git a/libultraship/src/fast/backends/gfx_opengl.cpp b/libultraship/src/fast/backends/gfx_opengl.cpp
+--- a/libultraship/src/fast/backends/gfx_opengl.cpp
++++ b/libultraship/src/fast/backends/gfx_opengl.cpp
+@@ -291,7 +291,7 @@
+         { "texture", "texture" },
+         { "vOutColor", "vOutColor" },
+ #else
+-        { "GLSL_VERSION", "#version 130" },
++        { "GLSL_VERSION", "#version 120" },
+         { "attr", "varying" },
+         { "opengles", false },
+         { "core_opengl", false },

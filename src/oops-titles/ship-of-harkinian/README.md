@@ -123,18 +123,33 @@ before this — is 45 sources.
 
 Twelve third-party libraries, of which the collection already pins three:
 
-| library | status |
-|---|---|
-| SDL | **already vendored** (`src/oops-deps/sdl2`) |
-| libzip → zlib | zlib **already vendored**; libzip is new |
-| stb | header-only |
-| nlohmann/json, thread-pool | header-only C++ |
-| tinyxml2 | small, C++ |
-| spdlog | C++, wants `<format>`-era library support |
-| StormLib | MPQ archives — this is what reads `.otr` |
-| libgfxd | F3D display-list decoder, C |
-| prism-processor | shader template processor |
-| single-header-metal-cpp | Apple only, not needed |
+The order to vendor them in is **measured from what the sources actually include**, not from the
+order CMake fetches them — the two disagree sharply, and the CMake order would have started with
+the wrong one.
+
+| library | files including it | status |
+|---|---|---|
+| **spdlog** | **123** | the blocker: nothing compiles without it. C++, wants `<format>`-era library support |
+| nlohmann/json | 42 | header-only C++ |
+| tinyxml2 | 40 | one `.cpp` |
+| prism-processor | 3 | shader template processor |
+| libgfxd | 1 | F3D display-list decoder, C |
+| stb | 1 | header-only |
+| thread-pool | 1 | header-only C++ |
+| StormLib | archive layer | MPQ — `OtrArchive.h` reads `.otr` |
+| libzip → zlib | archive layer | `O2rArchive.h` reads `.o2r`; zlib **already vendored** |
+| SDL | — | **already vendored** (`src/oops-deps/sdl2`) |
+| single-header-metal-cpp | — | Apple only, not needed |
+
+**spdlog first is the uncomfortable answer**, because it is the largest of them and the one that
+leans hardest on the C++20 standard library rather than on anything this SDK controls. It is also
+unavoidable: 123 of the tree's files include it, so nothing else can be compiled and checked
+until it is there. Starting with the small header-only ones would produce three vendored
+directories and no way to tell whether any of them works.
+
+The two archive libraries are reached through `libultraship/include/ship/resource/archive/`
+rather than by direct include, which is why a grep for their headers in the sources finds
+nothing. They are the ROM-reading path and are not optional.
 
 ## Submodules
 
@@ -159,8 +174,10 @@ The order of work, cheapest useful thing first:
    read/draw binding split, which `oops-gl` did not have.
 2. ~~A shader-dialect probe arm~~ — **done**, `gl2-probe`'s `libultraship-dialect`. It found the
    `#version 130` refusal above, which no amount of reading the front end had.
-3. **The `#version 120` patch**, as `patches/0001-*`. One line, and the arm that justifies it
-   already exists.
-4. **Vendor the dependencies** in `src/oops-deps/`, in the order the build needs them — nine to
-   go, `make survey` counts them.
-5. **Then** the title's own sources.
+3. ~~The `#version 120` patch~~ — **done**, `patches/0001-ask-for-the-glsl-this-target-implements.patch`.
+   One line, verified end to end: the fetch applies it *inside the `libultraship` submodule*,
+   which works because submodules are checked out before patches run.
+4. **Vendor `spdlog`**, then `nlohmann/json` and `tinyxml2` — the order above, and the first is
+   the one that unblocks compiling anything at all.
+5. **Then** the archive pair, `StormLib` and `libzip`, which is the ROM-reading path.
+6. **Then** the title's own sources.
