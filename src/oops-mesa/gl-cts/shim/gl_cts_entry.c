@@ -425,8 +425,13 @@ void gl_cts_start(void)
      * path - the title directory under `/data/homebrew` - because that is what the loader
      * mounted as `/app0` in the first place.
      *
-     * Overridable either way: this is filled before the file's own arguments are appended, and
-     * dEQP's parser keeps the last occurrence of an option, so a line in `cts-args.txt` wins.
+     * **Not overridable from `cts-args.txt`, and the comment here used to claim it was.** dEQP
+     * refuses a repeated option rather than taking the last one: it prints "Command line option
+     * '--deqp-case' specified multiple times", dumps its usage and exits without running a case.
+     * Measured on hardware 2026-09-25 by putting eight `--deqp-case` lines in the file.
+     *
+     * So this argument and the log filename above are fixed for the run, and a `cts-args.txt`
+     * that names either of them stops the run instead of changing it. `cts-args.txt` says so.
      */
     s_argv[first++] = app0_after ? (char *)"--deqp-archive-dir=/app0"
                                  : (char *)"--deqp-archive-dir=/data/homebrew/" OOPS_APP_ID;

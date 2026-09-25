@@ -19,15 +19,21 @@ So the lookup has to exist at link time, and that is a table.
 function the GL 3.3 core loader and the extension loader will ask for. Taking them from the
 generated files rather than from a list here means a CTS bump changes the set automatically.
 
-**The addresses come from the link**, out of `nm` on Mesa's `libglapi_bridge.a`. Only names that
-archive actually defines get an entry; everything else is absent from the table and `get()`
-returns null for it.
+**The addresses come from the link**, out of `nm` on Mesa's `libglapi_bridge.a`. Names that
+archive defines get the real entry point; the rest get a stub that names itself and throws
+`tcu::NotSupportedError`.
 
-That intersection is the point. A loader that returned a plausible pointer for a function the
-driver does not have would produce a test that calls it and faults, and dEQP is written to
-handle a null - `glu::ContextInfo` checks before use, and a test whose entry point is missing
-reports `NotSupported` rather than crashing. **Null is the honest answer and the suite knows
-what to do with it.**
+That intersection is the point, and **the refusal has to be a call that fails cleanly rather
+than a null**. This file used to return `nullptr` for a name the driver does not have, on the
+reasoning that "dEQP is written to handle a null - `glu::ContextInfo` checks before use". That
+was never checked and it is false: on 2026-09-25 `KHR-GL46.info.vendor` created a 4.6 context,
+presented a frame, then called a null slot and took the console's whole payload chain down with
+`rip: 0000000000000000`. `KHR-GL30` had been safe only because the entry points it needs are all
+present.
+
+A stub that throws `NotSupportedError` is what the suite actually knows how to read: the case is
+recorded NotSupported with the entry point named, and the run continues. It cannot fault, which
+a null can and did.
 
 # Why the declarations use upstream's own typedefs
 
@@ -100,7 +106,13 @@ def main():
 #include "glwFunctions.hpp"
 #include "glwFunctionLoader.hpp"
 
+/* `TCU_THROW(NotSupportedError, ...)` for the absent entry points below, and `oops_klog` so the
+ * name reaches the system log even if something swallows the exception. */
+#include "tcuDefs.hpp"
+#include "oops/system.h"
+
 #include <string.h>
+#include <string>
 
 namespace
 {
@@ -134,23 +146,77 @@ struct Entry
         out.write(f"extern __typeof__(*(glw::{t})0) {n};\n")
     out.write("}\n\n")
 
+    out.write(f'''/* ---------------------------------------------------------------- the absent ones
+
+ * **An absent entry point is a named refusal, never a null.**
+ *
+ * This table used to return `nullptr` for the {len(missing)} of {len(wanted)} entry points Mesa's archive does
+ * not define, on the stated grounds that "dEQP is written to handle a null - `glu::ContextInfo`
+ * checks before use". That was asserted here and never checked, and it is false.
+ *
+ * `KHR-GL46.info.vendor` took the console down on 2026-09-25: a 4.6 context was created, a frame
+ * was presented, and then the process called straight through a null table slot -
+ *
+ *     reason: page fault (user read instruction, page not present)
+ *     fault address: 0000000000000000
+ *     rip: 0000000000000000
+ *
+ * - which killed the payload chain and the machine with it. `KHR-GL30` had been safe only
+ * because every entry point it happens to need is present; the null design was never safe, it
+ * was untested.
+ *
+ * So every requested name now resolves to a real function. A name this build cannot serve gets a
+ * stub that says which one it was and throws `tcu::NotSupportedError`, which is dEQP's own
+ * vocabulary for "this build cannot do that": the case is recorded NotSupported, the run carries
+ * on to the next one, and the log names the entry point. That is the answer the suite is built
+ * to read, and it cannot fault.
+ *
+ * The stubs take no arguments and are cast to the caller's type. On SysV x86-64 a call with
+ * arguments into a function that ignores them is harmless - the arguments sit in caller-saved
+ * registers and any stack ones are the caller's to clean - and none of these ever returns
+ * normally, so no return value is ever read.
+ */
+static void absent(const char *name)
+{{
+    oops_klog("OOPS-GL", name);
+    TCU_THROW(NotSupportedError,
+              (std::string("this build has no ") + name +
+               " - it is not defined by the Mesa archive this title links")
+                  .c_str());
+}}
+
+''')
+    for n in missing:
+        out.write(f'static void absent_{n}(void) {{ absent("{n}"); }}\n')
+    out.write('static void absent_unknown(void) '
+              '{ absent("an entry point this generator did not know about"); }\n\n')
+
     out.write("static const Entry s_entries[] = {\n")
     for n, _ in present:
         out.write(f'    {{"{n}", reinterpret_cast<glw::GenericFuncType>({n})}},\n')
+    for n in missing:
+        out.write(f'    {{"{n}", reinterpret_cast<glw::GenericFuncType>(absent_{n})}},\n')
     out.write("};\n\n")
 
-    out.write(f'''/* Linear search over {len(present)} entries. dEQP calls this once per function at context
- * creation and never again, so the whole cost is one pass at start-up; a sorted table and a
- * bisect would be faster to no purpose and would add an ordering nothing checks. */
+    out.write(f'''/* Linear search over {len(present) + len(missing)} entries - {len(present)} real, {len(missing)} refusing. dEQP calls this once per
+ * function at context creation and never again, so the whole cost is one pass at start-up; a
+ * sorted table and a bisect would be faster to no purpose and would add an ordering nothing
+ * checks. */
 namespace oops
 {{
 
+/*
+ * **Never returns null.** A name in the table resolves to the entry point or to its refusing
+ * stub; a name that is not in the table at all - one upstream asks for that the generator did
+ * not know about, which a CTS bump can produce - gets the same treatment rather than a null,
+ * because the caller that crashed the console on 2026-09-25 did not check for one.
+ */
 glw::GenericFuncType glLoaderGet(const char *name)
 {{
     for (unsigned i = 0; i < sizeof(s_entries) / sizeof(s_entries[0]); ++i)
         if (strcmp(s_entries[i].name, name) == 0)
             return s_entries[i].func;
-    return nullptr;
+    return reinterpret_cast<glw::GenericFuncType>(absent_unknown);
 }}
 
 unsigned glLoaderCount(void)
@@ -164,7 +230,8 @@ unsigned glLoaderCount(void)
     print(f"// {len(present)} of {len(wanted)} requested entry points are in this build.",
           file=sys.stderr)
     if missing:
-        print(f"// absent, so get() returns null and the suite reports NotSupported:",
+        print(f"// absent: each gets a stub that names itself and throws NotSupportedError, so a "
+              f"case that calls one is recorded NotSupported instead of faulting:",
               file=sys.stderr)
         for n in missing:
             print(f"//   {n}", file=sys.stderr)

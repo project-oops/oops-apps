@@ -23,4 +23,38 @@
 #
 # Each is a real pass/fail about this driver. Expect failures: that is the point of running
 # somebody else's tests, and a failure here is a finding rather than a fault in the run.
---deqp-case=KHR-GL30.get_uniform_tests.*
+#
+# Group names are taken from the `TestCaseGroup(...)` constructors in the sources rather than
+# guessed - `get_uniform_tests` turned out to hold exactly one case, which is not much of a
+# subset, and the only way to know that was to look.
+#
+# **One `--deqp-case`, comma separated.** Repeating the option is refused - dEQP answers
+# "Command line option '--deqp-case' specified multiple times", prints its usage and exits
+# without running anything. Its own help is where the comma form is documented: *"Test case(s)
+# to run, supports wildcards (e.g. dEQP-GLES2.info.*) and commas to separate multiple"*.
+#
+# The same applies to every option here, which matters for the two the entry point already
+# passes: putting `--deqp-log-filename` or `--deqp-archive-dir` in this file will not override
+# them, it will stop the run.
+# **Narrowed to the one case that hangs the GPU**, to tell two different bugs apart.
+#
+# 2026-09-25: the eight groups above ran 20 cases, all passing, and then
+# `KHR-GL30.transform_feedback.draw_xfb_stream_test` submitted an IB that never retired -
+# "submission 221 did not retire; fence still 0x11111111", the wait answering -60 (ETIMEDOUT),
+# and amdgpu declaring the context lost and guilty of a hard recovery.
+#
+# A hang that only appears after nineteen prior cases is a different fault from one that hangs on
+# its own: the first is state left behind by something earlier, the second is that case's own
+# submission. Running it alone is the one arm that separates them, and it answers in seconds.
+#
+# **`KHR-GL46.info` asks whether a 4.6 context can be created at all.**
+#
+# `GL_VERSION` reads `4.6 (Compatibility Profile)` because radeonsi derives it from caps and
+# nothing in the build clamps it (D014). That is the driver's arithmetic about the hardware, not
+# evidence that a 4.6 context works - and "3.3" in the prose is the scope of what has been run,
+# not a ceiling anything imposes.
+#
+# This settles which it is. dEQP asks the platform for the context the package needs, so
+# `KHR-GL46.*` either gets a 4.6 context and runs, or is refused and says so. Either answer is
+# worth more than the version string.
+--deqp-case=KHR-GL46.info.*
