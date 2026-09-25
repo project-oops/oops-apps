@@ -13,16 +13,35 @@
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
+# **`OOPS_SDK_DIR` early, because this file names files under it before `app.mk` is included.**
+# `app.mk` defines it at its line 11, which is too late for an immediately-expanded (`:=`) list
+# down the file - the symptom is a rule wanting `/src/thread/thread.c`, rooted at nothing.
+# `HOST_TEST_SRCS` below gets away with naming it because it is recursive (`=`) and resolves later.
+# The `?=` matches app.mk's own default, so including app.mk afterwards changes nothing.
+OOPS_SDK ?= $(abspath $(OOPS_APPS_ROOT)/../oops-sdk)
+OOPS_SDK_DIR := $(abspath $(OOPS_SDK))
+
+# **`gl2`, because Craft draws everything through shaders.** There is no fixed-function path in
+# it: the four shader pairs `make check` compiles are the whole renderer, so `gl1` would link a
+# back end that cannot run any of them.
+#
+# This was absent while the title was `check-only`, and absent did not mean `gl1` - it meant the
+# *payload* got no GL sources at all, while `HOST_TEST_SRCS` below still named `$(OOPS_GL_SRCS)`
+# for the shader checker. `common/app.mk`'s host/payload guard is what caught it, reporting 22
+# shared sources the self-test would link and the payload would not.
+OOPS_RENDERER = gl2
+
 # **First, because this file names files under `upstream/` while it is being read.** The fetch
 # is normally done by `common/app.mk` at the bottom, which is too late for the wildcard below.
 # `common/upstream.mk` says the rest; it is guarded, so `app.mk`'s own include costs nothing.
 include $(OOPS_APPS_ROOT)/common/upstream.mk
 
-# **`check-only` until the two subsystems below land.** The payload's source list is real and is
-# named here because that is what says what the title is made of - but `make` builds the shader
-# check and stops, rather than failing on a link everybody already knows will not happen.
-# docs/PORTING.md has the gap list, per file, with the header each one wants.
-FORMATS = check-only
+# **An ELF, as of 2026-09-25.** This was `check-only` while two subsystems were missing: sockets
+# for `client.c` and a platform layer for SQLite. Both landed - `common/posix` grew BSD sockets
+# over `oops/net.h`, and `common/sqlite` is a VFS and a mutex implementation over the SDK - so
+# `make census` now reports 18 of 19 sources compiling, the one exception being `auth.c`, which
+# this build excludes on purpose.
+FORMATS = elf
 
 # --- the POSIX shim --------------------------------------------------------
 #
@@ -30,6 +49,16 @@ FORMATS = check-only
 # `getcwd` - which Craft reaches through SQLite rather than directly. Shared with Neverball and
 # Extreme Tux Racer, which is why it lives in `common/`.
 include $(OOPS_APPS_ROOT)/common/posix.mk
+
+# SQLite's platform layer. Craft vendors `sqlite3.c` itself in `upstream/deps/sqlite`; this
+# supplies the part that is about *this machine* - a VFS over `oops/fs.h` and a mutex
+# implementation over `oops/thread.h` - and the defines that remove SQLite's unix backend.
+#
+# **`db.c` drives one connection from two threads**, a writer on `db_worker_run` and reads on the
+# main thread, and its own locking covers 8 of the 21 functions that call SQLite. So the mutexes
+# have to be real; `SQLITE_THREADSAFE=0`, which this Makefile used to set, was a data race.
+OOPS_SQLITE_TEMP_DIR := /data/craft
+include $(OOPS_APPS_ROOT)/common/sqlite.mk
 
 # --- what the port replaces ------------------------------------------------
 #
@@ -39,7 +68,7 @@ include $(OOPS_APPS_ROOT)/common/posix.mk
 # on the path *before* anything else so that `#include <GLFW/glfw3.h>` finds ours.
 #
 # The surface is measured, not chosen: it is every `glfw*` token in Craft's own sources.
-CRAFT_SHIM_SRCS := shim/glfw_shim.c shim/craft_offline.c
+CRAFT_SHIM_SRCS := shim/glfw_shim.c shim/craft_offline.c shim/craft_start.c $(OOPS_SQLITE_SRCS)
 
 # --- what upstream brings --------------------------------------------------
 #
@@ -87,10 +116,9 @@ CRAFT_CFLAGS := -Ishim/include \
                 -Iupstream/deps/sqlite \
                 -Iupstream/deps/tinycthread \
                 -DOOPS_POSIX_HOME=\"/data/craft\" \
-                -DSQLITE_OMIT_LOAD_EXTENSION=1 \
-                -DSQLITE_THREADSAFE=0 \
-                -DSQLITE_OMIT_WAL=1 \
-                $(OOPS_POSIX_INCLUDE)
+                -DCRAFT_DATA_DIR=\"/app0\" \
+                -DDB_PATH=\"/data/craft/craft.db\" \
+                $(OOPS_POSIX_INCLUDE) $(OOPS_SQLITE_INCLUDE) $(OOPS_SQLITE_DEFS)
 
 # **Upstream's code, under upstream's warnings.** `common/app.mk` compiles at `-Werror` with
 # `-Wconversion`, `-Wsign-conversion`, `-Wstrict-prototypes` and the rest, which is right for
@@ -109,7 +137,9 @@ CRAFT_UPSTREAM_WARNINGS := -Wno-strict-prototypes -Wno-missing-prototypes -Wno-c
                            -Wno-sign-conversion -Wno-shorten-64-to-32 -Wno-comment \
                            -Wno-unused-parameter -Wno-unused-but-set-variable \
                            -Wno-shadow -Wno-sign-compare -Wno-char-subscripts \
-                           -Wno-string-concatenation -Wno-cast-function-type-mismatch
+                           -Wno-string-concatenation -Wno-cast-function-type-mismatch \
+                           -Wno-null-pointer-subtraction -Wno-unused-const-variable \
+                           -Wno-unused-function
 
 EXTRA_TARGET_CFLAGS += $(CRAFT_CFLAGS) $(CRAFT_UPSTREAM_WARNINGS)
 
@@ -121,11 +151,27 @@ EXTRA_TARGET_CFLAGS += $(CRAFT_CFLAGS) $(CRAFT_UPSTREAM_WARNINGS)
 # The lists above are still worth having: they are what says what this title is made of, and
 # they are what the measurement in README.md was taken against.
 #
-# **Turning it on is this one line**, once `docs/PORTING.md`'s two gaps are closed:
-#
-#   PAYLOAD_SRCS := $(CRAFT_SHIM_SRCS) $(CRAFT_UPSTREAM_SRCS) $(CRAFT_DEP_SRCS) $(OOPS_POSIX_SRCS)
+# **Armed.** `common/app.mk` builds an ELF whenever `PAYLOAD_SRCS` is non-empty, and the two gaps
+# that kept this list unassigned - `docs/PORTING.md`'s sockets and SQLite platform layer - are
+# closed. `CRAFT_SHIM_SRCS` carries `common/sqlite`'s VFS along with the GLFW shim.
 CRAFT_PAYLOAD_SRCS := $(CRAFT_SHIM_SRCS) $(CRAFT_UPSTREAM_SRCS) $(CRAFT_DEP_SRCS) \
                       $(OOPS_POSIX_SRCS)
+PAYLOAD_SRCS := $(CRAFT_PAYLOAD_SRCS)
+
+# **The SDK subsystems this title uses, declared rather than listed as source files.**
+#
+# `CORE_SDK_SRCS` in `common/app.mk` is what every payload gets - system, heap, filesystem, time -
+# and nothing above that. Craft needs more, and naming the capability lets the SDK decide which
+# files back it:
+#
+#   display keyboard mouse input   the GLFW shim's window, and its three input devices
+#   thread                         `tinycthread` runs the world database on a worker
+#   net                            `client.c` opens a TCP connection; `common/posix`'s sockets
+#                                  and `gethostbyname` sit on it
+#   draw suspend                   what every title on this renderer needs
+#
+# There is no `audio`: Craft has no sound.
+OOPS_FEATURES := display input keyboard mouse thread net draw suspend
 
 # ---------------------------------------------------------------------------
 # `make check`: every shader Craft ships, compiled for the console.

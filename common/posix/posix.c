@@ -31,6 +31,7 @@
  */
 #include "oops/fs.h"
 #include "oops/heap.h"
+#include "oops/net.h" /* the socket and resolver calls the BSD-socket shims below map onto */
 #include "oops/system.h"
 #include "oops/thread.h" /* oops_thread_self, for pthread_getthreadid_np */
 #include "oops/time.h"
@@ -39,6 +40,8 @@
 #include <dlfcn.h> /* Dl_info, for the dladdr below */
 #include <errno.h>
 #include <locale.h>
+#include <netdb.h>      /* struct hostent and h_errno, which this file defines */
+#include <netinet/in.h> /* sockaddr_in, htons/ntohs */
 #include <pthread_np.h> /* the declaration this file's pthread_getthreadid_np answers */
 #include <pwd.h>
 #include <sched.h> /* the declaration this file's sched_yield answers */
@@ -547,6 +550,160 @@ int ftruncate(int fd, off_t length) {
  * *checks* would be told its file is now private when it is exactly as readable as before, and
  * that is the kind of answer someone eventually relies on.
  */
+/* ---------------------------------------------------------------------------
+ * Sockets, over `oops/net.h`. See `sys/socket.h` and `netdb.h` for what is and is not here.
+ * ------------------------------------------------------------------------- */
+
+int h_errno = 0;
+
+int socket(int domain, int type, int protocol) {
+    if (domain != AF_INET) {
+        /* Refused rather than quietly treated as IPv4 - a caller asking for AF_INET6 and getting
+         * an IPv4 socket would fail later, somewhere else. */
+        errno = EAFNOSUPPORT;
+        return -1;
+    }
+    return oops_socket(domain, type, protocol);
+}
+
+/*
+ * `oops_connect` names the peer as dotted-quad text, so the 32-bit address is formatted back into
+ * a string here. `oops_net_inet_ntop` takes **network byte order** - `oops-sdk/src/net/net.c:71`
+ * says so where `pton` builds it - which is what `sin_addr.s_addr` already holds, so it passes
+ * straight through with no swap. Getting that backwards would connect to a reversed address,
+ * which looks like a routing problem rather than a bug.
+ */
+int connect(int sock, const struct sockaddr *addr, socklen_t addrlen) {
+    const struct sockaddr_in *in = (const struct sockaddr_in *)(const void *)addr;
+    char ip[16];
+
+    if (addr == NULL || addrlen < (socklen_t)sizeof(*in) || in->sin_family != AF_INET) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (oops_net_inet_ntop(in->sin_addr.s_addr, ip, sizeof(ip)) != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    return oops_connect(sock, ip, ntohs(in->sin_port));
+}
+
+ssize_t send(int sock, const void *buf, size_t len, int flags) {
+    return (ssize_t)oops_send(sock, buf, len, flags);
+}
+
+ssize_t recv(int sock, void *buf, size_t len, int flags) {
+    return (ssize_t)oops_recv(sock, buf, len, flags);
+}
+
+/*
+ * **`shutdown` closes the socket outright, which is more than it was asked to do.**
+ *
+ * POSIX's version half-closes: `SHUT_WR` sends a FIN and leaves the read side open, which is how a
+ * protocol says "I am done sending, tell me what you have". The SDK has no such call. Doing
+ * nothing and reporting success would leave a caller waiting for an end-of-stream that never
+ * comes, which is a hang; closing is at least an end of stream, and the difference is named here
+ * so a protocol that relies on half-close knows where to look.
+ *
+ * Nothing in this tree calls it. It exists because `sys/socket.h` declares it, and a declaration
+ * with no definition is a fault rather than a link error on this target.
+ */
+int shutdown(int sock, int how) {
+    (void)how;
+    if (sock < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    oops_close(sock);
+    return 0;
+}
+
+/*
+ * One static `hostent` with one address, which is what the interface promises and no more - see
+ * `netdb.h` for why that is not thread-safe and why there is no second address to fall back to.
+ */
+struct hostent *gethostbyname(const char *name) {
+    static struct hostent ent;
+    static struct in_addr addr;
+    static char *addr_list[2];
+    static char namebuf[256];
+    char ip[16];
+
+    if (name == NULL) {
+        h_errno = HOST_NOT_FOUND;
+        return NULL;
+    }
+    if (oops_net_resolve(name, ip, sizeof(ip)) != 0) {
+        h_errno = HOST_NOT_FOUND;
+        return NULL;
+    }
+    {
+        uint32_t packed = 0;
+        if (oops_net_inet_pton(ip, &packed) != 0) {
+            /* Resolution succeeded and the result did not parse, which is the SDK contradicting
+             * itself rather than the host being unknown. */
+            h_errno = NO_RECOVERY;
+            return NULL;
+        }
+        addr.s_addr = packed; /* network byte order, as `pton` builds it */
+    }
+
+    /* Bounded, and always terminated - `strncpy` alone does not terminate when the source fills
+     * the buffer, and `h_name` is handed to callers that will print it. */
+    {
+        size_t n = strlen(name);
+        if (n >= sizeof(namebuf)) {
+            n = sizeof(namebuf) - 1u;
+        }
+        memcpy(namebuf, name, n);
+        namebuf[n] = '\0';
+    }
+    addr_list[0] = (char *)&addr;
+    addr_list[1] = NULL;
+
+    ent.h_name = namebuf;
+    ent.h_aliases = NULL;
+    ent.h_addrtype = AF_INET;
+    ent.h_length = (int)sizeof(struct in_addr);
+    ent.h_addr_list = addr_list;
+    h_errno = 0;
+    return &ent;
+}
+
+/*
+ * `usleep`, which is `oops_time_sleep_us` under its POSIX name.
+ *
+ * POSIX's version fails with `EINVAL` for a value of a million or more and expects the caller to
+ * use `sleep` instead. That rule exists because `useconds_t` was once 32 bits on systems where a
+ * second's worth of microseconds was close to the limit; it is not a property of anything here,
+ * and a caller asking to sleep two seconds means it. So this sleeps, and the divergence is named
+ * rather than left to be discovered - tinycthread's `thrd_sleep` passes whatever it was given.
+ */
+int usleep(useconds_t microseconds) {
+    if (microseconds > 0u) {
+        oops_time_sleep_us((uint32_t)microseconds);
+    }
+    return 0;
+}
+
+/*
+ * `sleep`, in whole seconds.
+ *
+ * Returns 0 always. POSIX's return is "seconds left over if a signal cut the sleep short", and
+ * nothing on this platform can cut one short, so the sleep completes and there is never a
+ * remainder - the same reasoning as `nanosleep`'s `rem` above.
+ *
+ * Slept in one-second steps rather than as one multiplication, so that a caller asking for an
+ * hour cannot overflow the 32-bit microsecond count that `oops_time_sleep_us` takes.
+ */
+unsigned int sleep(unsigned int seconds) {
+    unsigned int i;
+    for (i = 0; i < seconds; i++) {
+        oops_time_sleep_us(1000000u);
+    }
+    return 0;
+}
+
 /*
  * `nanosleep`, over the SDK's microsecond sleep.
  *

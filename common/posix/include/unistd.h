@@ -60,6 +60,12 @@ int close(int fd);
 /* The new offset, or -1. `off_t` is 64-bit here, so there is no `lseek64` to be a different
  * function - a port naming it wants a `#define` to this one, which is what StormLib's patch does. */
 off_t lseek(int fd, off_t offset, int whence);
+
+/* Always 0. Unlike POSIX's, this accepts a value of a million or more rather than failing with
+ * `EINVAL` - see the definition in `posix.c` for why that rule does not apply here. */
+int usleep(useconds_t microseconds);
+/* Always 0: the return is "seconds left if a signal interrupted this", and nothing here can. */
+unsigned int sleep(unsigned int seconds);
 /* **Always fails with `ENOSYS`.** The SDK's filesystem cannot resize a file, and there is no
  * honest way to report otherwise - see `posix.c`. */
 int ftruncate(int fd, off_t length);

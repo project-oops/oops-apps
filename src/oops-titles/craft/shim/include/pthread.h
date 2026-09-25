@@ -49,6 +49,8 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>  /* fprintf, for the pthread_exit message below */
+#include <stdlib.h> /* abort, likewise */
 
 #ifdef __cplusplus
 extern "C" {
@@ -58,10 +60,31 @@ typedef oops_thread_t pthread_t;
 typedef oops_mutex_t pthread_mutex_t;
 typedef oops_cond_t pthread_cond_t;
 
-/* Attribute objects exist so that a caller can pass NULL, which is all tinycthread does. */
+/* Thread and condition attributes exist so that a caller can pass NULL, which is all tinycthread
+ * does with those two. */
 typedef struct { int unused; } pthread_attr_t;
-typedef struct { int unused; } pthread_mutexattr_t;
 typedef struct { int unused; } pthread_condattr_t;
+
+/*
+ * **The mutex attribute carries its type, and that one is not ignorable.**
+ *
+ * The others above are accepted and dropped because tinycthread passes NULL. This one it fills
+ * in: `mtx_init` builds an attribute, and when the caller asked for `mtx_recursive` it calls
+ * `pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE)` (`tinycthread.c:64-71`). Dropping
+ * that would hand back an ordinary mutex, and an ordinary mutex here **deadlocks** the second
+ * time the owning thread locks it - a hang with no message, on whichever thread happened to
+ * re-enter. `oops-sdk` has `oops_mutex_init_recursive`, so there is nothing to invent.
+ *
+ * `PTHREAD_MUTEX_RECURSIVE` is 2, which is FreeBSD's value - the platform underneath. glibc uses
+ * 1 for the same name, so a program that hard-codes the number rather than the macro is wrong
+ * here; nothing in this tree does.
+ */
+#define PTHREAD_MUTEX_NORMAL    0
+#define PTHREAD_MUTEX_ERRORCHECK 1
+#define PTHREAD_MUTEX_RECURSIVE 2
+#define PTHREAD_MUTEX_DEFAULT   PTHREAD_MUTEX_NORMAL
+
+typedef struct { int type; } pthread_mutexattr_t;
 
 /* The one attribute constant tinycthread names, for `pthread_attr_setdetachstate`. */
 #define PTHREAD_CREATE_JOINABLE 0
@@ -100,28 +123,84 @@ static inline pthread_t pthread_self(void) { return oops_thread_self(); }
 
 static inline int pthread_equal(pthread_t a, pthread_t b) { return oops_thread_equal(a, b); }
 
-/* POSIX's `pthread_exit` does not return. oops-sdk has no such call, so this returns from the
- * thread's entry the ordinary way - which is what tinycthread's `thrd_exit` wants anyway. */
 static inline void pthread_yield(void) { oops_thread_yield(); }
 
+/*
+ * **`pthread_exit` ends the process, which is wrong, and is the least-bad wrong available.**
+ *
+ * POSIX says it ends the *calling thread* and hands a value to whoever joins it. `oops-sdk` has
+ * no such call: a thread here ends by returning from its entry function, and there is no way to
+ * unwind one from the middle. So a faithful implementation is not on the table.
+ *
+ * The three options were:
+ *
+ *   - **Return normally.** Then `thrd_exit(1)` carries on executing the caller's code, which is
+ *     the one outcome nobody could debug.
+ *   - **Declare and never define.** A payload link does not report an unresolved symbol, so a
+ *     future call becomes a jump to address zero with no message. The thread-local functions
+ *     below take that risk deliberately because their *type* is what tinycthread needs; this one
+ *     is a call site in compiled code, which is a different thing.
+ *   - **End the process, loudly.** Wrong semantics, but it stops at the point of the mistake and
+ *     says so, and `abort` on this platform writes to the kernel log.
+ *
+ * Nothing reaches it: `thrd_exit` is tinycthread's only caller and Craft never calls `thrd_exit`.
+ * It exists so that if that ever changes, the failure has a name.
+ */
+static inline void pthread_exit(void *retval) {
+    (void)retval;
+    fprintf(stderr, "craft: pthread_exit - this target cannot end one thread; aborting\n");
+    abort();
+}
+
 /* ---------------------------------------------------------------------------
- * Thread-local storage: the type and the declarations, no definitions.
- * See the note at the top of the file.
+ * Thread-local storage, over oops-sdk's `oops_tls_*`.
+ *
+ * **These used to be declared and not defined**, on the reasoning that the *type* was what
+ * tinycthread needed - it typedefs `tss_t` from `pthread_key_t` unconditionally - and that Craft
+ * calls none of the functions. The first half is still true and the second half was the wrong
+ * question: tinycthread *compiles* `tss_create` and friends whether or not Craft calls them, so
+ * the references are in the payload either way. The link found all four.
+ *
+ * They are real now because `oops-sdk` grew `oops_tls_*` (for libc++'s `thread_local`), so there
+ * is a per-thread key to map onto rather than something to invent.
  * ------------------------------------------------------------------------- */
 
-typedef unsigned int pthread_key_t;
+typedef oops_tls_key_t pthread_key_t;
 
-int pthread_key_create(pthread_key_t *key, void (*destructor)(void *));
-int pthread_key_delete(pthread_key_t key);
-void *pthread_getspecific(pthread_key_t key);
-int pthread_setspecific(pthread_key_t key, const void *value);
+static inline int pthread_key_create(pthread_key_t *key, void (*destructor)(void *)) {
+    return oops_tls_create(key, destructor);
+}
+static inline int pthread_key_delete(pthread_key_t key) { return oops_tls_delete(key); }
+static inline void *pthread_getspecific(pthread_key_t key) { return oops_tls_get(key); }
+static inline int pthread_setspecific(pthread_key_t key, const void *value) {
+    return oops_tls_set(key, value);
+}
 
 /* ---------------------------------------------------------------------------
  * Mutexes
  * ------------------------------------------------------------------------- */
 
+static inline int pthread_mutexattr_init(pthread_mutexattr_t *attr) {
+    if (attr) attr->type = PTHREAD_MUTEX_DEFAULT;
+    return 0;
+}
+static inline int pthread_mutexattr_settype(pthread_mutexattr_t *attr, int type) {
+    if (!attr) return -1;
+    attr->type = type;
+    return 0;
+}
+static inline int pthread_mutexattr_destroy(pthread_mutexattr_t *attr) {
+    (void)attr; /* it owns nothing */
+    return 0;
+}
+
+/* Honours `PTHREAD_MUTEX_RECURSIVE`; see the note beside `pthread_mutexattr_t` for why ignoring
+ * it would be a deadlock rather than a missing feature. A NULL attribute is the default kind,
+ * which is what POSIX says. */
 static inline int pthread_mutex_init(pthread_mutex_t *m, const pthread_mutexattr_t *attr) {
-    (void)attr;
+    if (attr && attr->type == PTHREAD_MUTEX_RECURSIVE) {
+        return oops_mutex_init_recursive(m, "craft");
+    }
     return oops_mutex_init(m, "craft");
 }
 static inline int pthread_mutex_destroy(pthread_mutex_t *m) { return oops_mutex_destroy(m); }

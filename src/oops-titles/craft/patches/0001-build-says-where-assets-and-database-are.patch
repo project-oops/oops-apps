@@ -1,0 +1,100 @@
+Let the build say where the assets and the database are
+
+Craft opens its shaders and textures by relative path - `load_file("shaders/...")`
+and `load_png_texture("textures/...")` - and its database as `craft.db`. That is
+right for a program started from its own directory, and there is no such thing
+here: a payload is called rather than spawned, the package is mounted read-only
+at `/app0`, and the one writable place is elsewhere again.
+
+**Both are made overridable rather than changed.** `CRAFT_DATA_DIR` is empty
+unless the build sets it, and `craft_data_path` then returns the path it was
+given, byte for byte - so every platform that has a working directory behaves
+exactly as before. `DB_PATH` gains an `#ifndef` for the same reason. This port
+passes `-DCRAFT_DATA_DIR=\"/app0\"` and a `DB_PATH` under `/data`.
+
+The prefix is applied in `util.c`'s two loaders rather than at the eight call
+sites in `main.c`, because that is where the filesystem is actually touched: a
+future asset loaded through either function is covered without another patch,
+and the two `fprintf` diagnostics now report the path that was really opened
+rather than the one that was asked for.
+
+An absolute path is passed through unprefixed, so a caller that already knows
+where it is keeps working.
+
+diff --git a/src/config.h b/src/config.h
+index 599bbc1..30524b8 100644
+--- a/src/config.h
++++ b/src/config.h
+@@ -9,7 +9,15 @@
+ #define VSYNC 1
+ #define SCROLL_THRESHOLD 0.1
+ #define MAX_MESSAGES 4
++#ifndef DB_PATH
+ #define DB_PATH "craft.db"
++#endif
++
++/* Where the shaders and textures live, prefixed to a relative asset path by util.c. Empty by
++   default, which is exactly the behaviour every platform with a working directory had before. */
++#ifndef CRAFT_DATA_DIR
++#define CRAFT_DATA_DIR ""
++#endif
+ #define USE_CACHE 1
+ #define DAY_LENGTH 600
+ #define INVERT_MOUSE 0
+diff --git a/src/util.c b/src/util.c
+index 9e1d0b1..439ff2b 100644
+--- a/src/util.c
++++ b/src/util.c
+@@ -1,11 +1,24 @@
+ #include <math.h>
+ #include <stdio.h>
+ #include <stdlib.h>
++#include <string.h>
+ #include <errno.h>
++#include "config.h"
+ #include "lodepng.h"
+ #include "matrix.h"
+ #include "util.h"
+ 
++/* Resolve an asset path against CRAFT_DATA_DIR, which is empty unless the build sets it - so on
++   every platform that has a working directory this is what it always was. */
++static void craft_data_path(const char *path, char *out, size_t n) {
++    if (CRAFT_DATA_DIR[0] == '\0' || path[0] == '/') {
++        snprintf(out, n, "%s", path);
++    }
++    else {
++        snprintf(out, n, "%s/%s", CRAFT_DATA_DIR, path);
++    }
++}
++
+ int rand_int(int n) {
+     int result;
+     while (n <= (result = rand() / (RAND_MAX / n)));
+@@ -28,9 +41,11 @@ void update_fps(FPS *fps) {
+ }
+ 
+ char *load_file(const char *path) {
+-    FILE *file = fopen(path, "rb");
++    char resolved[512];
++    craft_data_path(path, resolved, sizeof(resolved));
++    FILE *file = fopen(resolved, "rb");
+     if (!file) {
+-        fprintf(stderr, "fopen %s failed: %d %s\n", path, errno, strerror(errno));
++        fprintf(stderr, "fopen %s failed: %d %s\n", resolved, errno, strerror(errno));
+         exit(1);
+     }
+     fseek(file, 0, SEEK_END);
+@@ -137,9 +152,11 @@ void load_png_texture(const char *file_name) {
+     unsigned int error;
+     unsigned char *data;
+     unsigned int width, height;
+-    error = lodepng_decode32_file(&data, &width, &height, file_name);
++    char resolved[512];
++    craft_data_path(file_name, resolved, sizeof(resolved));
++    error = lodepng_decode32_file(&data, &width, &height, resolved);
+     if (error) {
+-        fprintf(stderr, "load_png_texture %s failed, error %u: %s\n", file_name, error, lodepng_error_text(error));
++        fprintf(stderr, "load_png_texture %s failed, error %u: %s\n", resolved, error, lodepng_error_text(error));
+         exit(1);
+     }
+     flip_image_vertical(data, width, height);
