@@ -185,8 +185,14 @@ exist at `9.2.3`; the asset pipeline here is the older `ZAPDTR` + `OTRExporter` 
 
 ## State
 
-Every third-party library this title needs is vendored, pinned and building. Nothing of the
-title's own code is compiled yet.
+Every third-party library this title needs is vendored, pinned and building, and **the whole of
+`libultraship/src` compiles — 138 of 138 sources.** That is the runtime the game sits on.
+
+`make compile-survey` is how that is measured, and it measures it with the build's own flags
+rather than a script's. It says what it does not prove, too: `-fsyntax-only` does not link, and a
+payload link does not report an unresolved symbol, so a clean survey is not a working port. The
+four vertex-array entry points in the table above are exactly that kind of hole — every file that
+calls them compiles today.
 
 The order of work, cheapest useful thing first:
 
@@ -210,5 +216,15 @@ The order of work, cheapest useful thing first:
    `SFileOpenArchive`/`SFileReadFile` and `zip_open`/`zip_fread` are all defined, and each archive
    was checked with `nm --undefined-only` rather than by the build succeeding — which for StormLib
    is how 201 missing sources were caught.
-7. **The title's own sources.** 669 C++ files across `soh/soh`, `libultraship/src`, `ZAPDTR` and
-   `OTRExporter`, and an entry point. This is where the work is now.
+7. ~~`libultraship/src`, the runtime~~ — **done**, 138 of 138. It took the `SDL2/` header prefix,
+   ImGui, the generated CVAR names, `install_config.h`, `dlfcn.h`, `nanosleep`, `cxxabi.h` on the
+   consumer's include path, and `patches/0002` for the two arms that decide how GL arrives. Each
+   one was named by a survey rather than guessed at.
+8. **`soh/soh`, the game.** 401 C++ files and 11 C. Then `ZAPDTR` and `OTRExporter`, which are the
+   asset pipeline and are linked in.
+9. **Vertex array objects in `oops-gl`**, for ImGui's GL3 backend — four entry points and six
+   enums. The only piece here that is genuinely hard: a VAO captures attribute state rather than
+   wrapping a handle, and `gl_vertex_attrib_t` currently folds the array state together with
+   `current[4]`, which the specification puts on the *other* side of the VAO boundary. The
+   element-array-buffer binding belongs to the object too.
+10. **An entry point**, and the shim that gives libultraship its window.
