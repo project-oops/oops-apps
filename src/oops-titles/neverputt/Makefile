@@ -66,6 +66,7 @@ include $(OOPS_APPS_ROOT)/common/deps.mk
 # tree rather than of the binary.
 NP_CFLAGS := -DENABLE_NLS=0 -DZ_SOLO \
              -Ishim/include -Iupstream/share \
+             -I$(OOPS_APPS_ROOT)/common \
              -DOOPS \
              $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE) $(OOPS_TTF_INCLUDE) $(OOPS_FT_INCLUDE) \
              $(OOPS_PNG_INCLUDE) $(OOPS_JPEG_INCLUDE) $(OOPS_VORBIS_INCLUDE)
@@ -139,33 +140,17 @@ $(OOPS_NP_LIB): $(OOPS_NP_OBJS) $(oops_makefiles)
 	@a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $(OOPS_NP_OBJS)
 	@echo "neverputt: $@ ($(words $(OOPS_NP_OBJS)) objects)"
 
-# **The SDK sources are named, not requested by feature.** `OOPS_FEATURES` is a newer mechanism
-# landing in `common/app.mk` in parallel with this title, and it is inert until the SDK ships the
-# table it reads - so a Makefile written against it links here, where the working tree has that
-# change, and fails in CI, where `app.mk` is the committed version. That is exactly what happened
-# to the first version of this file: `make elf` was clean locally and the CI link listed thirty
-# undefined symbols, `oops_thread_*`, `oops_sem_*`, `oops_system_*` and the rest.
+# **The feature table, not a list of SDK sources.** A title says what it needs and
+# `common/app.mk` supplies it through `CORE_SDK_SRCS`. Declaring both is a link failure on
+# duplicate symbols, so this carries only the declaration.
 #
-# So this is the same explicit list `../neverball/Makefile` carries. When the feature table lands,
-# both titles convert together and this comment goes with them.
+# `thread` is here for `common/haptics.c`, whose decay thread sleeps between ticks. There is no
+# `time` feature - the clock and `oops_time_sleep_ms` come with `base`, which every payload has.
+OOPS_FEATURES := display input keyboard mouse audio suspend thread draw
+
 PAYLOAD_SRCS = shim/np_start.c \
-               $(OOPS_POSIX_SRCS) \
-               $(OOPS_SDK_DIR)/src/display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
-               $(OOPS_SDK_DIR)/src/input/input.c \
-               $(OOPS_SDK_DIR)/src/input/keyboard.c \
-               $(OOPS_SDK_DIR)/src/input/mouse.c \
-               $(OOPS_SDK_DIR)/src/audio/audio.c \
-               $(OOPS_SDK_DIR)/src/memory/memory.c \
-               $(OOPS_SDK_DIR)/src/system/system.c \
-               $(OOPS_SDK_DIR)/src/system/suspend.c \
-               $(OOPS_SDK_DIR)/src/system/freestd.c \
-               $(OOPS_SDK_DIR)/src/system/syscall.c \
-               $(OOPS_SDK_DIR)/src/system/sysmodule.c \
-               $(OOPS_SDK_DIR)/src/thread/thread.c \
-               $(OOPS_SDK_DIR)/src/draw/draw.c
+               $(OOPS_APPS_ROOT)/common/haptics.c \
+               $(OOPS_POSIX_SRCS)
 
 ENTRY_POINT := np_start
 

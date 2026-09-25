@@ -1,0 +1,40 @@
+Save the configuration when the options screen is left.
+
+Upstream calls `config_save` from exactly one place - `putt/main.c:386`, after the main
+loop returns. On a desktop that is sound: quitting is how a game ends, so every setting
+is written on the way out.
+
+A console title does not end that way. It is closed from the dashboard or killed, `main`
+never returns, and every volume and graphics choice the player made in the options screen
+is lost with it.
+
+Leaving the options screen is the narrowest place that catches all of them at once, and -
+unlike saving from a close handler - it does not have to be right about how much time the
+system's kill timer allows. Neverball carries the same change in the same place; it also
+saves when the player's name is entered, which Neverputt has no screen for, so this is the
+whole of it here.
+
+This is the title's first patch. It stayed at none deliberately until something was
+opaque or broken, and settings evaporating every launch is the latter.
+
+diff --git a/putt/st_conf.c b/putt/st_conf.c
+index fa01b57..e7ca09d 100644
+--- a/putt/st_conf.c
++++ b/putt/st_conf.c
+@@ -49,6 +49,16 @@ static int conf_action(int i)
+     switch (i)
+     {
+     case CONF_BACK:
++        /* **The settings are written here, not only at exit.** Upstream calls `config_save`
++         * from one place - `putt/main.c:386`, after the main loop returns - which is right on a
++         * desktop, where quitting is how a game ends. A console title is closed from the
++         * dashboard or killed, so `main` never returns and every choice made in this screen is
++         * lost with it.
++         *
++         * Neverball fixes the same thing in the same place. It also saves when the player's
++         * name is entered, which Neverputt has no screen for - so this is the whole of it
++         * here. */
++        config_save();
+         goto_state(&st_title);
+         break;
+ 

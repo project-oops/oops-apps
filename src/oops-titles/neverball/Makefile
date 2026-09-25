@@ -63,6 +63,7 @@ include $(OOPS_APPS_ROOT)/common/deps.mk
 #
 NB_CFLAGS := -DENABLE_NLS=0 -DZ_SOLO \
              -Ishim/include -Iupstream/share \
+             -I$(OOPS_APPS_ROOT)/common \
              -DOOPS \
              $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE) $(OOPS_TTF_INCLUDE) $(OOPS_FT_INCLUDE) \
              $(OOPS_PNG_INCLUDE) $(OOPS_JPEG_INCLUDE) $(OOPS_VORBIS_INCLUDE)
@@ -89,8 +90,13 @@ PAYLOAD_EXTRA_DEPS   += $(OOPS_SDL_LIB) $(OOPS_TTF_LIB) $(OOPS_FT_LIB) \
 # than in `BALL_OBJS` itself, which is why reading only that variable left them out: the physics
 # solver is chosen at line 337 and the tilt backend at 351-356, where `tilt_null.c` is the arm
 # for a build with no Wiimote and no accelerometer. Ours is that arm.
+# **`tilt_null` is not here, and that is the motion-control feature.** Upstream picks a tilt
+# backend out of `tilt_wii.c`, `tilt_loop.c` and `tilt_null.c` at its Makefile:349-357, and the
+# null one is the arm for a build with no sensor. This port has a sensor - the pad's IMU - so it
+# supplies a fourth arm, `shim/nb_tilt_dualsense.c`, in PAYLOAD_SRCS below. Choosing a backend is
+# what this switch is for, so the feature costs no patch at all.
 NB_SHARE := lang st_common vec3 base_image image solid_base solid_vary solid_draw solid_all \
-            solid_sim_sol tilt_null hmd_null hmd_common \
+            solid_sim_sol hmd_null hmd_common \
             mtrl part geom ball gui font theme base_config config video glext binary state \
             audio text common list queue cmd array dir fbo glsl fs_common fs_stdio fs_png \
             fs_jpg fs_rwops fs_ov log
@@ -161,25 +167,19 @@ $(OOPS_NB_LIB): $(OOPS_NB_OBJS) $(oops_makefiles)
 # `src/system/savedata.c` was here while the title was thought to need mounted storage for the
 # player's name. It does not - see the header of `shim/nb_start.c` - and nothing calls
 # `oops_savedata_*` any more, so it is not compiled in.
+# **The feature table, not a list of SDK sources.** A title says what it needs and
+# `common/app.mk` supplies it through `CORE_SDK_SRCS`. Declaring both is a link failure on
+# duplicate symbols, so the list that used to be here is gone rather than kept beside it.
+#
+# `thread` is here for `common/haptics.c`, whose decay thread sleeps between ticks. There is no
+# `time` feature - the clock and `oops_time_sleep_ms` come with `base`, which every payload has.
+OOPS_FEATURES := display input keyboard mouse audio suspend thread draw
+
 PAYLOAD_SRCS = shim/nb_start.c \
                shim/nb_diag.c \
-               $(OOPS_POSIX_SRCS) \
-               $(OOPS_SDK_DIR)/src/display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
-               $(OOPS_SDK_DIR)/src/input/input.c \
-               $(OOPS_SDK_DIR)/src/input/keyboard.c \
-               $(OOPS_SDK_DIR)/src/input/mouse.c \
-               $(OOPS_SDK_DIR)/src/audio/audio.c \
-               $(OOPS_SDK_DIR)/src/memory/memory.c \
-               $(OOPS_SDK_DIR)/src/system/system.c \
-               $(OOPS_SDK_DIR)/src/system/suspend.c \
-               $(OOPS_SDK_DIR)/src/system/freestd.c \
-               $(OOPS_SDK_DIR)/src/system/syscall.c \
-               $(OOPS_SDK_DIR)/src/system/sysmodule.c \
-               $(OOPS_SDK_DIR)/src/thread/thread.c \
-               $(OOPS_SDK_DIR)/src/draw/draw.c
+               shim/nb_tilt_dualsense.c \
+               $(OOPS_APPS_ROOT)/common/haptics.c \
+               $(OOPS_POSIX_SRCS)
 
 ENTRY_POINT := nb_start
 
@@ -214,6 +214,12 @@ package: title
 	@echo "neverball: copying $$(du -sh upstream/data | cut -f1) of data into the package"
 	@rm -rf build/title/$(TITLE_ID)/data
 	@cp -r upstream/data build/title/$(TITLE_ID)/data
+	@# **The controls card's artwork, copied in here rather than into `upstream/data`.** The
+	@# help screen loads it by path like any other GUI image, but it is ours and shared with
+	@# every other port - so it goes into the *packaged* data and upstream's tree stays exactly
+	@# as upstream ships it. See `common/assets/controls/`.
+	@cp $(OOPS_APPS_ROOT)/common/assets/controls/controller.png \
+	    build/title/$(TITLE_ID)/data/gui/oops-controller.png
 	@echo "neverball: package is build/title/$(TITLE_ID) ($$(du -sh build/title/$(TITLE_ID) | cut -f1))"
 
 data-clean:

@@ -1,0 +1,161 @@
+Make the Controls help page a pad reference card.
+
+Upstream's Controls page lists key names, which is the right page for a desktop and the
+wrong one for a console: there is no keyboard in the room, and the one thing a player
+genuinely cannot work out for themselves is which of the four face buttons changes the
+camera.
+
+So it becomes a reference card - the shared controller wireframe from
+`common/assets/controls`, with the bindings beside it. Read-only on purpose: rebinding is
+a much bigger screen than this port needs, and the actions on the right do not change
+when a future upstream renumbers a button.
+
+**The page already existed**, which is why this is a patch to one function rather than a
+new state and a new menu entry. `PAGE_CONTROLS` is in upstream's help screen, reachable
+from the title screen at any time, and it already had the tab.
+
+The bindings are the `CONFIG_JOYSTICK_*` ones the play state actually tests
+(`ball/st_play.c:548-566` for the shoulders and `:92` for the camera), so a card that
+disagrees with the game is not possible.
+
+The artwork ships in the *packaged* data as `gui/oops-controller.png` - copied there by
+this title's `package` rule - so upstream's own `data/` stays exactly as upstream ships
+it.
+
+The page also says motion tilt exists and where to turn it on, because a feature that is
+off by default and mentioned nowhere is a feature that is not there.
+
+diff --git a/ball/st_help.c b/ball/st_help.c
+index 936eb8b..6b6190f 100644
+--- a/ball/st_help.c
++++ b/ball/st_help.c
+@@ -173,65 +173,85 @@ static int page_rules(int id)
+     return id;
+ }
+ 
++/*
++ * **The pad, not the keyboard.**
++ *
++ * Upstream lists key names here, which is the right page for a desktop and the wrong one for a
++ * console: there is no keyboard in the room, and the one thing a player genuinely cannot work
++ * out for themselves is which of the four face buttons changes the camera.
++ *
++ * So this is a reference card - the shared controller wireframe from `common/assets/controls`,
++ * with the bindings beside it. It is read-only on purpose. Rebinding is a bigger screen than
++ * this port needs, and the names on the left are the *actions*, which do not change when a
++ * future upstream renumbers a button.
++ *
++ * The bindings are read from the same `CONFIG_JOYSTICK_*` values the play state tests
++ * (`ball/st_play.c:548-566`, `:92`), rather than written out as prose, so a card that disagrees
++ * with the game is not possible.
++ */
++static void help_binding(int id, const char *action, const char *button)
++{
++    int kd;
++
++    if ((kd = gui_harray(id)))
++    {
++        gui_label(kd, button, GUI_SML, gui_yel, gui_yel);
++        gui_label(kd, action, GUI_SML, gui_wht, gui_wht);
++    }
++}
++
+ static int page_controls(int id)
+ {
+-    const char *s_rotate  = _("Left and right mouse buttons rotate the view.\\"
+-                              "Hold Shift for faster view rotation.");
+-    const char *s_exit    = _("Exit / Pause");
+-    const char *s_camera1 = _("Chase Camera");
+-    const char *s_camera2 = _("Lazy Camera");
+-    const char *s_camera3 = _("Manual Camera");
+-    const char *s_shot    = _("Screenshot");
+-
+-    /*
+-     * SDL_GetKeyName overwrites some of its results, that's why we
+-     * don't cache the pointers anymore.
+-     */
+-
+-    const SDL_Keycode k_exit = KEY_EXIT;
+-    const SDL_Keycode k_cam1 = config_get_d(CONFIG_KEY_CAMERA_1);
+-    const SDL_Keycode k_cam2 = config_get_d(CONFIG_KEY_CAMERA_2);
+-    const SDL_Keycode k_cam3 = config_get_d(CONFIG_KEY_CAMERA_3);
+-    const SDL_Keycode k_shot = KEY_SCREENSHOT;
+-
+-    int jd, kd;
++    int w = video.device_w;
++    int h = video.device_h;
++
++    int jd, kd, ld;
+ 
+     gui_space(id);
+ 
+-    if ((jd = gui_vstack(id)))
++    if ((jd = gui_hstack(id)))
+     {
+-        if ((kd = gui_harray(jd)))
+-        {
+-            gui_label(kd, s_exit,   GUI_SML, gui_wht, gui_wht);
+-            gui_label(kd, SDL_GetKeyName(k_exit), GUI_SML, gui_yel, gui_yel);
+-        }
+-        if ((kd = gui_harray(jd)))
+-        {
+-            gui_label(kd, s_camera1, GUI_SML, gui_wht, gui_wht);
+-            gui_label(kd, SDL_GetKeyName(k_cam1), GUI_SML, gui_yel, gui_yel);
+-        }
+-        if ((kd = gui_harray(jd)))
+-        {
+-            gui_label(kd, s_camera2, GUI_SML, gui_wht, gui_wht);
+-            gui_label(kd, SDL_GetKeyName(k_cam2), GUI_SML, gui_yel, gui_yel);
+-        }
+-        if ((kd = gui_harray(jd)))
++        gui_filler(jd);
++
++        /* The bindings, right of the picture. */
++        if ((kd = gui_vstack(jd)))
+         {
+-            gui_label(kd, s_camera3, GUI_SML, gui_wht, gui_wht);
+-            gui_label(kd, SDL_GetKeyName(k_cam3), GUI_SML, gui_yel, gui_yel);
++            gui_filler(kd);
++
++            help_binding(kd, _("Tilt the floor"),   _("Left Stick"));
++            help_binding(kd, _("Rotate the view"),  _("L1 / R1"));
++            help_binding(kd, _("Rotate faster"),    _("Hold L2"));
++            help_binding(kd, _("Change camera"),    _("Square"));
++            help_binding(kd, _("Confirm / Look"),   _("Cross"));
++            help_binding(kd, _("Back"),             _("Circle"));
++            help_binding(kd, _("Pause"),            _("Options"));
++
++            gui_set_rect(kd, GUI_ALL);
++            gui_filler(kd);
+         }
+-        if ((kd = gui_harray(jd)))
++
++        gui_space(jd);
++
++        /* The wireframe. Shipped by the port into the packaged data as
++           `gui/oops-controller.png` - see the `package` rule in this title's Makefile - rather
++           than added to upstream's own `data/`, which stays exactly as upstream ships it. */
++        if ((ld = gui_vstack(jd)))
+         {
+-            gui_label(kd, s_shot, GUI_SML, gui_wht, gui_wht);
+-            gui_label(kd, SDL_GetKeyName(k_shot), GUI_SML, gui_yel, gui_yel);
++            gui_space(ld);
++            gui_image(ld, "gui/oops-controller.png", 7 * w / 16, 7 * h / 16);
++            gui_filler(ld);
+         }
+ 
+-        gui_set_rect(jd, GUI_ALL);
++        gui_filler(jd);
+     }
+ 
+     gui_space(id);
+ 
+-    gui_multi(id, s_rotate, GUI_SML, gui_wht, gui_wht);
++    /* **Said here because there is nowhere else a player would look.** Motion tilt is off until
++       it is switched on, and a feature nobody can find is a feature that is not there. */
++    gui_multi(id, _("Motion control: tilt the pad itself to tilt the floor.\\"
++                    "Turn it on in Options. Press Options to re-centre while playing."),
++              GUI_SML, gui_wht, gui_wht);
+ 
+     return id;
+ }

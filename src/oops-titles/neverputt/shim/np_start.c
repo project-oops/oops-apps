@@ -34,6 +34,8 @@
 #include "oops/syscall.h"
 #include "oops/system.h"
 
+#include "haptics.h"
+
 int main(int argc, char **argv);
 
 /* Declared before it is defined because this file is held to the repository's own warning set -
@@ -49,5 +51,15 @@ __attribute__((visibility("default"))) int np_start(const payload_args_t *args) 
 
     oops_log_info("NVPT", "entry");
 
-    return main(1, argv);
+    /* **Rumble is started and stopped here, so only the one *bump* is a patch.** The decay
+     * thread has to outlive every collision and be stopped before the process ends, and both of
+     * those are "around `main`" - which is what this shim is. A failure to start is not fatal:
+     * every haptics call becomes a no-op and the game plays without rumble. */
+    oops_haptics_init();
+
+    {
+        const int rc = main(1, argv);
+        oops_haptics_quit();
+        return rc;
+    }
 }

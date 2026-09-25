@@ -37,6 +37,7 @@
 #include "oops/syscall.h"
 #include "oops/system.h"
 
+#include "haptics.h"
 #include "nb_diag.h"
 
 int main(int argc, char **argv);
@@ -54,11 +55,22 @@ __attribute__((visibility("default"))) int nb_start(const payload_args_t *args) 
 
     oops_log_info("NVRB", "entry");
 
+    /* **Rumble is started and stopped here, so only the one *bump* is a patch.** The decay
+     * thread has to outlive every collision and has to be stopped before the process ends, and
+     * both of those are "around `main`", which is exactly what this shim is. Patching
+     * `ball/main.c` for them would be two more hunks to rebase for no gain - see
+     * `common/haptics.h`. A failure to start is not fatal: every haptics call is then a no-op
+     * and the game plays without rumble. */
+    oops_haptics_init();
+
     /* **The summary belongs here and not in a patch.** The shim already wraps `main`, so the
        point after it returns is ours to use - and `ball/main.c` stays untouched, which is one
        fewer hunk to rebase onto the next upstream revision. */
     {
         const int rc = main(1, argv);
+        /* Before the report, because a pad still buzzing while the log is written is the exact
+           thing `oops_haptics_quit` exists for. */
+        oops_haptics_quit();
         nb_diag_report();
         return rc;
     }

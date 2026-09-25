@@ -1,0 +1,46 @@
+Feel the bounce: rumble the pad where the bounce sound is mixed.
+
+The same change Neverball carries as its patch 0007, in the other binary of the same
+tree. `sol_step` returns the bounce strength, upstream turns it into the volume the bump
+is mixed at, and this passes the same number to the pad - so the speaker and the motors
+agree by construction rather than by two separate intensity calculations kept in step.
+
+The patch is one call and one include because everything hard about rumble is on the
+other side of it. `oops_input_set_rumble` sets a *state*, so a bump needs something to
+turn it off afterwards; that is the decay thread in `common/haptics.c`, shared by every
+port, started and stopped by the shim around `main`.
+
+diff --git a/putt/game.c b/putt/game.c
+index 2cd6e1c..ee8292b 100644
+--- a/putt/game.c
++++ b/putt/game.c
+@@ -32,6 +32,10 @@
+ #include "solid_sim.h"
+ #include "solid_all.h"
+ 
++/* Pad rumble on a bounce - the port's, shared with every other title here rather than written
++   per game. `common/` is on the include path for this build. */
++#include "haptics.h"
++
+ /*---------------------------------------------------------------------------*/
+ 
+ static struct s_full file;
+@@ -554,7 +558,17 @@ int game_step(const float g[3], float dt)
+         /* Mix the sound of a ball bounce. */
+ 
+         if (b > 0.5f)
+-            audio_play(AUD_BUMP, (b - 0.5f) * 2.0f);
++        {
++            const float k = (b - 0.5f) * 2.0f;
++
++            audio_play(AUD_BUMP, k);
++
++            /* **The same event, felt as well as heard.** `k` is the strength the sound is
++             * already mixed at, so the pad and the speaker agree by construction. Turning the
++             * motors off again belongs to `common/haptics.h`, whose decay thread the shim
++             * starts - see Neverball's patch 0007, which is this change in the other binary. */
++            oops_haptics_bump(k);
++        }
+     }
+ 
+     game_update_view(dt);

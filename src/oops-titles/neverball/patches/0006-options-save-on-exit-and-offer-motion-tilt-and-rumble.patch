@@ -1,0 +1,112 @@
+Options: save on the way out, and offer motion tilt and rumble.
+
+Three changes to one screen, because they are one screen's worth of work.
+
+**Saving.** Upstream calls `config_save` from exactly one place - `ball/main.c:602`, after
+the main loop returns. On a desktop that is sound: quitting is how a game ends. A console
+title is closed from the dashboard or killed, `main` never returns, and every volume,
+camera and graphics choice made here is lost with it. Patch 0002 already covers the
+player's name, which is a separate screen; this covers the rest. Leaving the options
+screen is the narrowest place that catches all of them at once, and - unlike saving from
+a close handler - it does not have to be right about how much time the system's kill
+timer allows.
+
+**Motion tilt**, which is off until it is switched on here. The backend is not a patch at
+all: Neverball has had a tilt-sensor interface since it supported the Wiimote, upstream's
+own Makefile picks one of three backends, and this port supplies a fourth in
+`shim/nb_tilt_dualsense.c`. All that is needed here is the switch. It is shown only when
+a pad with a usable IMU answered at start-up, because an option that is present and does
+nothing reads as a broken port rather than as an absent sensor.
+
+**Rumble**, from `common/haptics.h`, shared with every other port. Off is a real
+preference - somebody plays late with the pad on a desk - and a game with no way to stop
+it buzzing is a game they turn off.
+
+Both toggles re-enter the screen so the label redraws, which is the pattern the video
+options already use.
+
+The two new tokens are appended to the enum rather than inserted, so every existing one
+keeps its value.
+
+diff --git a/ball/st_conf.c b/ball/st_conf.c
+index dfe1b41..df037c2 100644
+--- a/ball/st_conf.c
++++ b/ball/st_conf.c
+@@ -33,6 +33,11 @@
+ #include "st_ball.h"
+ #include "st_shared.h"
+ 
++/* The port's own two options. `nb_tilt.h` is this title's (`shim/include`), `haptics.h` is
++   shared with every other port (`common/`); both are on the include path for this build. */
++#include "nb_tilt.h"
++#include "haptics.h"
++
+ extern const char TITLE[];
+ extern const char ICON[];
+ 
+@@ -46,7 +51,11 @@ enum
+     CONF_SOUND_VOLUME,
+     CONF_MUSIC_VOLUME,
+     CONF_PLAYER,
+-    CONF_BALL
++    CONF_BALL,
++    /* The port's two. Appended rather than inserted, so every existing token keeps its value -
++       a saved GUI id or a translation catalogue keyed on these does not shift under them. */
++    CONF_TILT,
++    CONF_RUMBLE
+ };
+ 
+ static int mouse_id[11];
+@@ -87,9 +96,32 @@ static int conf_action(int tok, int val)
+     switch (tok)
+     {
+     case GUI_BACK:
++        /* **The settings are written here, not only at exit.** Upstream calls `config_save`
++         * from one place - `ball/main.c:602`, after the main loop returns - which is right on a
++         * desktop, where quitting is how a game ends. A console title is closed from the
++         * dashboard or killed, so `main` never returns and every volume, camera and graphics
++         * choice made in this screen is lost with it.
++         *
++         * Leaving the options screen is the narrowest place that covers all of them: it is
++         * where the player has finished changing things, it costs one file write on a screen
++         * reached rarely, and it needs nothing to be right about how long the system's kill
++         * timer gives us - which is why this is here rather than in a close handler. */
++        config_save();
+         goto_state(&st_title);
+         break;
+ 
++    case CONF_TILT:
++        /* Re-enters the screen so the toggle redraws with its new label. The backend re-centres
++           on the way on, so wherever the pad is being held becomes level. */
++        nb_tilt_set_enabled(val);
++        goto_state(&st_conf);
++        break;
++
++    case CONF_RUMBLE:
++        oops_haptics_set_enabled(val);
++        goto_state(&st_conf);
++        break;
++
+     case CONF_VIDEO:
+         goto_state(&st_video);
+         break;
+@@ -171,6 +203,19 @@ static int conf_gui(void)
+ 
+         gui_space(id);
+ 
++        /* **The port's two, and the tilt one only when there is a pad that can do it.** An
++         * option that is present and does nothing is worse than an absent one: the player turns
++         * it on, nothing changes, and the conclusion is that the port is broken rather than that
++         * their controller has no usable motion sensor. See `shim/nb_tilt.h`. */
++        if (nb_tilt_available())
++            conf_toggle(id, _("Motion Tilt"), CONF_TILT,
++                        nb_tilt_enabled(), _("On"), 1, _("Off"), 0);
++
++        conf_toggle(id, _("Rumble"), CONF_RUMBLE,
++                    oops_haptics_enabled(), _("On"), 1, _("Off"), 0);
++
++        gui_space(id);
++
+         name_id = conf_state(id, _("Player Name"), " ", CONF_PLAYER);
+         ball_id = conf_state(id, _("Ball Model"), " ", CONF_BALL);
+         lang_id = conf_state(id, _("Language"), " ", CONF_LANGUAGE);

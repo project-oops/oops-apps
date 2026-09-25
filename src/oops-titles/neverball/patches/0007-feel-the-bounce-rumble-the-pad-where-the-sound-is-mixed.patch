@@ -1,0 +1,47 @@
+Feel the bounce: rumble the pad where the bounce sound is mixed.
+
+A ball game on a console with no haptic feedback is missing an obvious beat, and the
+event to hang it on already exists - `sol_step` returns the bounce strength, upstream
+turns it into `k` and mixes the sound at that volume, and this passes the same `k` to the
+pad. Deriving a separate intensity here would let a hard hit sound loud and feel soft;
+sharing `k` makes the speaker and the motors agree by construction.
+
+The patch is one call and one include, because everything hard about rumble is on the
+other side of it. `oops_input_set_rumble` sets a *state* - the motors run until they are
+told otherwise - so a bump needs something to turn it off afterwards, and that is a decay
+thread in `common/haptics.c`, shared by every port rather than written per title. The
+thread is started and stopped by the shim around `main`, so neither of those is a patch
+either.
+
+`common/` is on the include path for this build, which is why the header resolves.
+
+diff --git a/ball/game_server.c b/ball/game_server.c
+index 4eb1102..6d7dd19 100644
+--- a/ball/game_server.c
++++ b/ball/game_server.c
+@@ -29,6 +29,10 @@
+ #include "game_server.h"
+ #include "game_proxy.h"
+ 
++/* Pad rumble on a bounce - the port's, shared with every other title here rather than written
++   per game. `common/` is on the include path for this build. */
++#include "haptics.h"
++
+ #include "cmd.h"
+ 
+ /*---------------------------------------------------------------------------*/
+@@ -817,6 +821,14 @@ static int game_step(const float g[3], float dt, int bt)
+             {
+                 float k = (b - 0.5f) * 2.0f;
+ 
++                /* **The same event, felt as well as heard.** `k` is the bounce strength the
++                 * sound is already mixed at, so the pad and the speaker agree by construction -
++                 * deriving a separate intensity here would let a hard hit look loud and feel
++                 * soft. Turning the motors off again is not this file's problem: see
++                 * `common/haptics.h`, whose decay thread owns that and is started by the
++                 * shim. */
++                oops_haptics_bump(k);
++
+                 if (got_orig)
+                 {
+                     if      (vary.uv->r > grow_orig) audio_play(AUD_BUMPL, k);
