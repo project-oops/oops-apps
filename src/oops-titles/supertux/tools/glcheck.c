@@ -79,16 +79,20 @@ static const stx_source_t SOURCES[] = {
  * moves - in *either* direction. Closing one of these should fail here, because the thing that
  * then needs updating is the port's status rather than this list.
  *
- * All four are the same feature. `GLTextureRenderer` renders the lightmap into a texture, and
- * `GLVideoSystem` creates it unconditionally - outside any test of which backend is in use - so
- * this is not a GL33Core luxury the GL 2.0 path avoids. docs/PORTING.md, *The one real gap*, has
- * what it would take and the cheaper alternative oops-gl already supports.
+ * **Empty since 2026-09-25**, and this comment is what the list used to say: the four framebuffer
+ * entry points were the port's one real gap. `GLTextureRenderer` renders the lightmap into a
+ * texture and `GLVideoSystem` creates it unconditionally - outside any test of which backend is
+ * in use - so it was not a GL33Core luxury the GL 2.0 path could avoid.
+ *
+ * oops-gl has them now, and draws into a texture on the console: `gl2-probe`'s `fbo/texture`,
+ * measured the same day. This tool failing is how that was noticed here, which is the direction
+ * a baseline is *also* for - it reported four gaps closed and refused to stay quiet about it.
+ *
+ * An empty list means every entry point the GL 2.0 path calls is present. It is still a
+ * baseline: a new call in an upstream bump, or an entry point that goes away, fails this.
  */
 static const char *const KNOWN_GAPS[] = {
-    "glBindFramebuffer",
-    "glDeleteFramebuffers",
-    "glFramebufferTexture2D",
-    "glGenFramebuffers",
+    NULL, /* the array is never empty in C; the loop below skips a NULL */
 };
 
 #define MAX_NAMES 512
@@ -345,6 +349,7 @@ int main(int argc, char **argv) {
         gap20++;
         int known = 0;
         for (size_t k = 0; k < sizeof(KNOWN_GAPS) / sizeof(KNOWN_GAPS[0]); k++) {
+            if (KNOWN_GAPS[k] == NULL) continue;
             if (strcmp(KNOWN_GAPS[k], e->name) == 0) { known = 1; break; }
         }
         if (!known) unexpected++;
@@ -355,6 +360,7 @@ int main(int argc, char **argv) {
     /* The other direction: a gap the baseline still names but oops-gl now has. Quiet success
      * here would leave the list - and the port's status beside it - slowly becoming fiction. */
     for (size_t k = 0; k < sizeof(KNOWN_GAPS) / sizeof(KNOWN_GAPS[0]); k++) {
+        if (KNOWN_GAPS[k] == NULL) continue;
         const stx_entry_t *e = lookup(KNOWN_GAPS[k], strlen(KNOWN_GAPS[k]));
         if (e && e->gl20 && e->have) {
             printf("    %-28s <- now present; drop it from KNOWN_GAPS\n", KNOWN_GAPS[k]);
@@ -402,7 +408,10 @@ int main(int argc, char **argv) {
                " update KNOWN_GAPS and docs/PORTING.md\n", unexpected, closed);
         return 1;
     }
-    printf("supertux glcheck: %d known gap(s), all of them the framebuffer object - unchanged\n",
-           gap20);
+    if (gap20 == 0) {
+        printf("supertux glcheck: every entry point the GL 2.0 path calls is in oops-gl\n");
+    } else {
+        printf("supertux glcheck: %d known gap(s) - unchanged\n", gap20);
+    }
     return 0;
 }

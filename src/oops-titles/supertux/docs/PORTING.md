@@ -73,13 +73,26 @@ Three columns, because "absent" on its own would overstate the work by half:
 - **absent but only in a file this port does not compile** - `glFenceSync`,
   `glClientWaitSync`. See below; they are upstream's dead code.
 
-## The one real gap: framebuffer objects
+## The gap that was: framebuffer objects
 
 Four entry points, one feature:
 
 ```
 glGenFramebuffers  glBindFramebuffer  glFramebufferTexture2D  glDeleteFramebuffers
 ```
+
+**oops-gl has all four, and draws into a texture on the console** - `gl2-probe`'s `fbo/texture`,
+measured 2026-09-25. So the lightmap pass needs no patch and no copy: `GLTextureRenderer` can
+render through a framebuffer object the way it was written to.
+
+What follows is the reasoning from when it was a gap, kept because the trade it describes is
+still the one to measure if the lightmap ever costs too much, and because the alternative it
+names still works.
+
+**One thing to check before assuming the pass runs**: `GLTextureRenderer` attaches a colour
+texture, which is supported, and oops-gl refuses a framebuffer with a **depth or stencil
+attachment** on the console. If SuperTux's lightmap pass asks for one, `glCheckFramebufferStatus`
+answers `GL_FRAMEBUFFER_UNSUPPORTED` and the copy-to-texture route below is the answer again.
 
 `GLFramebuffer` wraps them and `GLTextureRenderer` renders the **lightmap** through one.
 **It is not a GL33Core luxury.** `GLVideoSystem::apply_config` creates the lightmap outside any
