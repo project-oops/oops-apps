@@ -57,6 +57,17 @@ SOH_DEPS := sdl2 zlib libzip stb nlohmann-json thread-pool tinyxml2 spdlog \
 # Reproducing that as twenty-two `-D` flags would mean quoting each value through make and the
 # shell; one force-include of a generated header is the same thing with the quoting done once, in
 # C, where it belongs.
+# --- what the build selects ---------------------------------------------------
+#
+# `ENABLE_OPENGL` is how libultraship picks a renderer. Its CMake sets one of `ENABLE_OPENGL`,
+# `ENABLE_DX11`, `ENABLE_DX12` or the Metal path, and `Gui.cpp` includes the matching ImGui
+# backend behind that `#ifdef`. Without it the file compiles right up to
+# `ImGui_ImplSDL2_InitForOpenGL` and then does not know what that is - which reads like a missing
+# header and is really an unselected renderer.
+#
+# There is one renderer on this target, so this is not a choice so much as a statement.
+SOH_DEFS := -DENABLE_OPENGL
+
 SOH_GEN_DIR := $(CURDIR)/build/gen
 SOH_CVARS_H := $(SOH_GEN_DIR)/ship/cvars_generated.h
 SOH_GEN_INCLUDE := -I$(SOH_GEN_DIR) -I$(CURDIR)/shim/include \

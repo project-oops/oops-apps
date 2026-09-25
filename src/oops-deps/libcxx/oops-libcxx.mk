@@ -98,15 +98,23 @@ OOPS_LIBCXX_INCLUDE := \
     -nostdinc++ \
     -I$(OOPS_LIBCXX_DIR)/include \
     -I$(OOPS_LIBCXX_UPSTREAM)/libcxx/include \
-    -I$(OOPS_LIBCXX_UPSTREAM)/libcxx/src
+    -I$(OOPS_LIBCXX_UPSTREAM)/libcxx/src \
+    -I$(OOPS_LIBCXX_UPSTREAM)/libcxxabi/include
 else
 OOPS_LIBCXX_INCLUDE := \
     -nostdinc++ -nostdlibinc \
     -I$(OOPS_LIBCXX_DIR)/include \
     -I$(OOPS_LIBCXX_DIR)/include/freestanding \
     -I$(OOPS_LIBCXX_UPSTREAM)/libcxx/include \
-    -I$(OOPS_LIBCXX_UPSTREAM)/libcxx/src
+    -I$(OOPS_LIBCXX_UPSTREAM)/libcxx/src \
+    -I$(OOPS_LIBCXX_UPSTREAM)/libcxxabi/include
 endif
+# **`libcxxabi/include` is on the consumer's path, not just libc++'s own.** It is one header,
+# `cxxabi.h`, and it is a public part of the C++ runtime this collection ships: `abi::__cxa_demangle`
+# turns a mangled name into a readable one, which is what a program writes in a crash or a warning.
+# The flags that build libc++ already added this path (see `OOPS_LIBCXX_CFLAGS` below, where
+# `exception.cpp` needs it); a program that links the same runtime and calls into it needs it too,
+# and libultraship's `FileDropMgr.cpp` is the first here that does.
 
 OOPS_LIBCXX_LIB := $(OOPS_LIBCXX_BUILD)/libc++.a
 # `--whole-archive`, for the reason `cxx.mk:125` and `oops-sdl.mk` both give: **`app.mk` puts
