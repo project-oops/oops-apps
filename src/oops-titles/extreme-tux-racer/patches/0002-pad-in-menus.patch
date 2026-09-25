@@ -1,0 +1,120 @@
+diff --git a/winsys.cpp b/winsys.cpp
+index b14015d..19f89d0 100644
+--- a/winsys.cpp
++++ b/winsys.cpp
+@@ -75,6 +75,7 @@ CWinsys::CWinsys () {
+ 	joystick_active = false;
+ 
+ 	progress_ready = false;
++	last_hat = SDL_HAT_CENTERED;
+ 
+  	resolution[0] = MakeRes (0, 0);
+ 	resolution[1] = MakeRes (800, 600);
+@@ -425,6 +426,59 @@ void CWinsys::SetModeFuncs (
+     modefuncs[mode].keyb_spec = keyb_spec;
+ }
+ 
++// **The pad, as the keys the menus already understand.**
++//
++// Every menu screen in ETR registers a `keyb` handler and NULL for the joystick, so rather than
++// teaching seventeen screens about a controller, one translation here covers all of them: a pad
++// press arrives at exactly the handler the same keypress would, and no screen's own code changes.
++//
++// The mapping is the console's convention rather than SDL's button order:
++//   cross -> Return, circle -> Escape, triangle -> Tab, square -> Backspace
++// and the D-pad hat to the four arrows. `PROSPERO_BTN_*` in the SDL backend puts cross at 0 and
++// circle at 1, which is SDL_GameController order.
++unsigned int CWinsys::PadButtonKey (int button) {
++	switch (button) {
++		case 0: return SDLK_RETURN;     // cross
++		case 1: return SDLK_ESCAPE;     // circle
++		case 2: return SDLK_TAB;        // triangle
++		case 3: return SDLK_BACKSPACE;  // square
++		default: return 0;
++	}
++}
++
++void CWinsys::PadAsKey (unsigned int key, bool release) {
++	int x, y;
++	if (key == 0) return;
++	if (modefuncs[g_game.mode].keyb) {
++		SDL_GetMouseState (&x, &y);
++		(modefuncs[g_game.mode].keyb) (key, key >= 256, release, x, y);
++	} else if (modefuncs[g_game.mode].keyb_spec) {
++		SDL_Keysym sym;
++		memset (&sym, 0, sizeof (sym));
++		sym.sym = (SDL_Keycode)key;
++		(modefuncs[g_game.mode].keyb_spec) (sym, release);
++	}
++}
++
++// A hat reports a direction, not a transition, so the previous value is what says which arrows
++// were released and which were pressed. Without that a held direction would repeat forever and a
++// released one would never come up.
++void CWinsys::PadHat (int value) {
++	static const struct { int bit; unsigned int key; } dirs[] = {
++		{SDL_HAT_UP,    SDLK_UP},
++		{SDL_HAT_DOWN,  SDLK_DOWN},
++		{SDL_HAT_LEFT,  SDLK_LEFT},
++		{SDL_HAT_RIGHT, SDLK_RIGHT},
++	};
++	for (int i = 0; i < 4; i++) {
++		const bool was = (last_hat & dirs[i].bit) != 0;
++		const bool now = (value & dirs[i].bit) != 0;
++		if (now && !was) PadAsKey (dirs[i].key, false);
++		else if (was && !now) PadAsKey (dirs[i].key, true);
++	}
++	last_hat = value;
++}
++
+ void CWinsys::IdleFunc () {}
+ 
+ bool CWinsys::ModePending () {
+@@ -489,16 +543,27 @@ void CWinsys::PollEvent () {
+ 				}
+ 				break; 
+ 
+-				case SDL_JOYBUTTONDOWN:  
+-				case SDL_JOYBUTTONUP:  
++				case SDL_JOYBUTTONDOWN:
++				case SDL_JOYBUTTONUP:
+ 				if (joystick_active) {
+ 					if (modefuncs[g_game.mode].jbutt) {
+-						(modefuncs[g_game.mode].jbutt) 
++						(modefuncs[g_game.mode].jbutt)
+ 							(event.jbutton.button, event.jbutton.state);
++					} else {
++						PadAsKey (PadButtonKey (event.jbutton.button),
++								  event.type == SDL_JOYBUTTONUP);
+ 					}
+ 				}
+ 				break;
+ 
++				// **The D-pad, which ETR has no case for at all.** Upstream reads the joystick
++				// only in `racing.cpp`; every one of the other seventeen screens registers NULL
++				// for `jaxis` and `jbutt`, so a pad does nothing in any menu - including the one
++				// the game starts on. On a console that is the only controller a player has.
++				case SDL_JOYHATMOTION:
++				if (joystick_active) PadHat (event.jhat.value);
++				break;
++
+ 				case SDL_WINDOWEVENT:
+ 				if (SDL_WINDOWEVENT_RESIZED == event.window.event) {
+ 					param.x_resolution = event.window.data1;
+diff --git a/winsys.h b/winsys.h
+index 690fb77..12c0dd0 100644
+--- a/winsys.h
++++ b/winsys.h
+@@ -73,6 +73,12 @@ private:
+ 	TGameMode new_mode;
+ 	void IdleFunc ();
+ 	void PollEvent ();
++
++	// The pad, translated into the keys every menu screen already handles - see winsys.cpp.
++	int last_hat;
++	unsigned int PadButtonKey (int button);
++	void PadAsKey (unsigned int key, bool release);
++	void PadHat (int value);
+ 	void ChangeMode ();
+ 	void CallLoopFunction ();
+ public:

@@ -27,5 +27,16 @@ extern "C" __attribute__((visibility("default"))) int etr_start(const payload_ar
     (void)args;
 
     oops_klog("ETXR", "entry");
+
+    /*
+     * **Before `main`, because a payload has no crt to do it.** ETR is built of global objects -
+     * `Course`, `Tex`, `FT`, `Winsys` and a dozen more - and their constructors run from
+     * `.init_array`, which nothing walks unless the title asks. The failure is invisible until a
+     * constructor stores something that is not zero: `CCourse`'s sets `curr_course = -1`, and with
+     * it left at 0 the game loaded no course at all and faulted on a NaN four layers later.
+     * `oops/system.h` has the whole account.
+     */
+    oops_run_init_array();
+
     return main(1, argv);
 }

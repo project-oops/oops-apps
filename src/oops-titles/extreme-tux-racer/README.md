@@ -16,8 +16,10 @@ as a better C, with **0 `throw` and 0 `dynamic_cast`** — measured, not assumed
   entirely from a shim, so `patches/` stays empty and the title survives an upstream bump.
 - **Every gap measured, not estimated** — the shared C++ runtime (12 symbols), a nine-function
   POSIX shim, the SDL2 include prefix, and a three-line entry point are all done.
-- **One dependency left**: a C++ standard library, and really just `std::string` plus a handful of
-  iostream uses.
+- **The whole stack is in place**: `src/oops-deps/libcxx` answers the `std::string` and iostream
+  uses that were this title's last gap, and SDL2, SDL2_image, SDL2_mixer, freetype, libpng and zlib
+  are pinned beside it. `make package` builds the runnable title — the payload plus ETR's 55 MB of
+  content, which goes *inside* the package because upstream reads it from `argv[0]`'s directory.
 
 GPL v2; 55 MB of upstream data, none of it committed here (fetched via `upstream.lock`).
 

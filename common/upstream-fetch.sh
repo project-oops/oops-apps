@@ -87,16 +87,27 @@ sparse_key() {
 # without them has to fetch again, or the lock change is another no-op that reports success.
 WANT="$REV $(patch_sum) $(sparse_key) sub=${SUBMODULES:-0}"
 
-# **The checkout is verified, not assumed - after a checkout and after patches, which are the
-# only two moments it can change.**
+# **The tree is verified after `git apply`, which is the only step that can reintroduce CRLF.**
 #
 # `git ls-files --eol` compares the index against the working tree; `i/lf w/crlf` means git rewrote
-# the file on checkout and the tree is no longer the revision the lock names. The `$GIT` wrapper
-# below stops that happening, and this catches what it cannot: a repository that sets
-# `core.autocrlf` itself, and a patch that reintroduces CRLF.
+# the file and the tree is no longer the revision the lock names.
 #
 # Why it is fatal rather than a warning: a CRLF data file does not fail to build, it fails at run
 # time, somewhere unrelated, on hardware. See the note above `$GIT`.
+#
+# **It is not run after the checkout, because the checkout cannot produce CRLF.** `$GIT` is
+# `git -c core.autocrlf=false -c core.eol=lf`, and `-c` overrides both the machine's global config
+# and the repository's own - which is the whole point of the wrapper, and covers the two causes
+# named in its note. Checking the result of a command that was just forced to produce it is not
+# evidence of anything, and on gl-cts it is not cheap either: **over an hour**, because `--eol`
+# classifies a file by reading it and that tree is 8202 files and 209 MB across the WSL drvfs
+# boundary. It blocked a build at 01:02 on 2026-09-25 having proved nothing; gl-cts has no
+# `patches/` at all, so there was no step after the checkout that could have changed a byte.
+#
+# `git apply` is different and is still checked below: it honours the repository's own eol
+# settings and is not routed through `$GIT`'s `-c` overrides in the way a checkout is, so a patch
+# genuinely can put CRLF into a tree that landed clean. That is the call that earned its keep -
+# Extreme Tux Racer lost its fonts, music and six textures to CRLF on 2026-09-24.
 #
 # **It used to run on the stamp-matched fast path too, and that is not affordable.** `--eol`
 # classifies a file by *reading it*, so the cost is the tree's bytes rather than its file count,
@@ -241,7 +252,8 @@ if ! (
     fi
 fi
 
-check_eol
+# No `check_eol` here. The checkout above went through `$GIT`, which forces LF; see the note on
+# `check_eol` for why verifying that costs an hour on gl-cts and proves nothing.
 
 GOT="$(cd "$DIR" && git rev-parse HEAD)"
 if [ "$GOT" != "$REV" ]; then

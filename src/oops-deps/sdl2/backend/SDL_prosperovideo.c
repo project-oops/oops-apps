@@ -77,6 +77,12 @@ static int PROSPERO_VideoInit(_THIS)
     data->keyboard_ready = (oops_keyboard_init() == 0);
     data->mouse_ready = (oops_mouse_init() == 0);
 
+    /* These two flags gate the pump in `PROSPERO_PumpEvents`, so they decide whether a title sees
+       any key or mouse event at all - and until they were printed, a title that received nothing
+       looked identical to a title whose events were being dropped somewhere above. */
+    oops_log_info("INPUT", "SDL video init: keyboard_ready=%d mouse_ready=%d", data->keyboard_ready,
+                  data->mouse_ready);
+
     SDL_zero(mode);
     mode.format = SDL_PIXELFORMAT_ARGB8888;
     mode.w = (int)oops_display_get_width(data->display);

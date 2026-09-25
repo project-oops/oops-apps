@@ -43,21 +43,12 @@ Being three years stale is a real cost, accepted knowingly and recorded in `upst
 with an `#if defined(OS_LINUX)` chain, so `-DOS_LINUX=1` plus `-Ishim/include` satisfies the whole
 platform layer from the shim. A `patches/` that stays empty is a title that will survive a bump.
 
-## What is left: one dependency
+## The C++ standard library, which was the last gap
 
-Compiling all 45 sources reports exactly one missing header, every time:
-
-```
-etr sources: 45  compiled: 0  failed: 45
-=== distinct missing headers ===
-     45 'map' file not found
-```
-
-**A C++ standard library.** `bh.h` includes `<string>`, `<map>`, `<list>` and `<iostream>`, and
-the target has none of them — `cxx.mk` passes `-nostdinc++` deliberately rather than letting the
-build machine's Linux libstdc++ be found by accident.
-
-The surface that has to work is smaller than four headers suggests:
+`bh.h` includes `<string>`, `<map>`, `<list>` and `<iostream>`, and the target has none of them of
+its own — `cxx.mk` passes `-nostdinc++` deliberately rather than letting the build machine's Linux
+libstdc++ be found by accident. `src/oops-deps/libcxx` is what answers that, and the surface ETR
+actually asks of it is smaller than four headers suggests:
 
 | | Uses | Note |
 |---|---|---|
@@ -66,15 +57,29 @@ The surface that has to work is smaller than four headers suggests:
 | `ostringstream`, `istringstream` | 5, 14 | in 4 files |
 | `ofstream`, `cout`, `endl` | 1, 4, 5 | in the same 4 files |
 
-So: `std::string`, and about 29 uses of iostreams across four files. A libc++ with localisation
-disabled gives `string` and not iostreams — whether those 29 uses are worth the rest of libc++ is
-the question to answer before pinning anything.
-
 **Counting `std::string` was where this nearly went wrong.** A grep for the qualified name
 returns 0; four files say `using namespace std;` and write `string` bare, 661 times. Any grep for
 a qualified C++ name has to be checked against the unqualified one.
 
-## After that
+`SDL2_image`, `SDL2_mixer` and `freetype` — named by ETR's own `Makefile`, needed to *run* rather
+than to compile — are pinned in `src/oops-deps/` beside it. All 45 sources compile and the payload
+links: `make package` is the runnable result.
 
-`SDL2_image`, `SDL2_mixer` and `freetype` — three more pinned upstreams, named by ETR's own
-`Makefile`. They are needed to *run*, not to compile, so they come after the standard library.
+## Where the data has to be, which upstream decides
+
+`game_config.cpp:313` sets `data_dir = prog_dir + "/data"`, and `prog_dir` is `argv[0]` with its
+last three characters cut off — `InitConfig` assumes it was handed a path ending in `etr`. So
+`shim/etr_start.cpp` passing `/app0/etr` puts the data directory at `/app0/data`, which is inside
+the title package. That is why `make package` copies `upstream/data` into the package rather than
+restoring it beside one, and it is why this still needs no patch to ETR.
+
+The config directory is the other half and is separate on purpose: `getpwuid(getuid())->pw_dir` is
+`OOPS_POSIX_HOME`, `/data/extreme-tux-racer`, which survives a re-deploy of the title and is
+writable. ETR `mkdir`s it itself on first run.
+
+## What SDL's own renderer does here, which is worth watching
+
+`winsys.cpp` creates a window, then an `SDL_Renderer` (`:148`) to clear the screen black, and only
+then a GL context (`:277`). `SDL_VIDEO_RENDER_OGL` is on in `SDL_config_prospero.h`, so that
+renderer is SDL's *OpenGL* renderer sharing oops-gl with everything ETR draws afterwards — one
+program with two clients of the same context, which nothing else here does.

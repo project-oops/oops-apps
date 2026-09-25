@@ -1,0 +1,98 @@
+diff --git a/ft_font.cpp b/ft_font.cpp
+index 6a62c29..4d5b41e 100644
+--- a/ft_font.cpp
++++ b/ft_font.cpp
+@@ -595,7 +595,8 @@ FTGLTextureFont::FTGLTextureFont (const char* fontFilePath)
+     glyphWidth(0),
+     padding(3),
+     xOffset(0),
+-    yOffset(0)
++    yOffset(0),
++    builtRes(0)
+ {
+     remGlyphs = numGlyphs = face.GlyphCount();
+ }
+@@ -609,7 +610,8 @@ FTGLTextureFont::FTGLTextureFont (const unsigned char *pBufferBytes, size_t buff
+     glyphWidth(0),
+     padding(3),
+     xOffset(0),
+-    yOffset(0)
++    yOffset(0),
++    builtRes(0)
+ {
+     remGlyphs = numGlyphs = face.GlyphCount();
+ }
+@@ -654,8 +656,25 @@ FTGlyph* FTGLTextureFont::MakeGlyph (unsigned int glyphIndex) {
+ void FTGLTextureFont::CalculateTextureSize() {
+     if (!maximumGLTextureSize) {
+         glGetIntegerv (GL_MAX_TEXTURE_SIZE, (GLint*)&maximumGLTextureSize);
++
++        /*
++         * **Capped well below what the hardware allows, because the atlas is rebuilt often.**
++         *
++         * The size below is an upper bound on one atlas, and FTGL allocates another whenever one
++         * fills - so a smaller number costs at most an extra texture, while a larger one costs a
++         * full re-upload every time the size changes. `GL_MAX_TEXTURE_SIZE` here is 2048, and
++         * `remGlyphs * glyphWidth` for a whole face saturates it: every atlas was 2048x1024, or
++         * 2 MiB of GL_ALPHA, zeroed and uploaded.
++         *
++         * The guard in `FaceSize` removes the rebuilds that ask for the size already loaded. It
++         * cannot remove the rest: a menu draws its heading at one size and its items at another,
++         * so the sizes genuinely alternate within a frame and each switch is a real rebuild. 512
++         * makes that switch cost about 128 KiB instead of 2 MiB, which is the difference between
++         * a frame and sixteen of them. ETR draws ASCII, so one atlas still holds the face.
++         */
++        if (maximumGLTextureSize > 512) maximumGLTextureSize = 512;
+     }
+-    
++
+     textureWidth = NextPowerOf2 ((remGlyphs * glyphWidth) +  (padding * 2));
+     textureWidth = textureWidth > maximumGLTextureSize ? maximumGLTextureSize : textureWidth;
+     int h = static_cast<int> ((textureWidth -  (padding * 2)) / glyphWidth);
+@@ -686,12 +705,33 @@ GLuint FTGLTextureFont::CreateTexture() {
+     return textID;
+ }
+ 
++/*
++ * **Asking for the size it is already at does nothing.** Without this guard it does a great deal:
++ * every texture atlas is deleted, freetype re-rasterises the glyph container, and the next glyph
++ * drawn builds a fresh atlas - `CreateTexture` allocates `textureWidth * textureHeight` bytes,
++ * zeroes them and uploads the lot. `maximumGLTextureSize` here is 2048, so that is a 2 MiB upload
++ * per rebuild.
++ *
++ * `font.cpp` calls `FaceSize` from eleven places - before every `DrawString` *and* before every
++ * text-width measurement - so a menu screen with a dozen strings rebuilt the atlas a dozen times
++ * per frame, each time to exactly the size it already was. Measured on this console: menus ran
++ * below one frame a second and input appeared seconds after it was pressed, because the frames
++ * were where the queue was draining.
++ *
++ * This is FTGL's own behaviour in later versions and the reason it is here is that the upstream
++ * this title pins predates it.
++ */
+ bool FTGLTextureFont::FaceSize (const unsigned int size, const unsigned int res) {
++    if (!textureIDList.empty() && FTFont::FaceSize() == size && builtRes == res) {
++        return true;
++    }
++
+     if (!textureIDList.empty()) {
+         glDeleteTextures (textureIDList.size(), (const GLuint*)&textureIDList[0]);
+         textureIDList.clear();
+         remGlyphs = numGlyphs = face.GlyphCount();
+     }
++    builtRes = res;
+     return FTFont::FaceSize (size, res);
+ }
+ 
+diff --git a/ft_font.h b/ft_font.h
+index 814b1a6..c73cc40 100644
+--- a/ft_font.h
++++ b/ft_font.h
+@@ -660,6 +660,8 @@ class FTGL_EXPORT FTGLTextureFont : public FTFont {
+         unsigned int padding;
+         unsigned int numGlyphs;
+         unsigned int remGlyphs;
++        // The size the current atlas was built at - see FaceSize in ft_font.cpp.
++        unsigned int builtRes;
+         int xOffset;
+         int yOffset;
+ };

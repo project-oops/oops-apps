@@ -31,6 +31,7 @@
  */
 #include "oops/fs.h"
 #include "oops/heap.h"
+#include "oops/system.h"
 #include "oops/time.h"
 
 #include <dirent.h>
@@ -45,14 +46,24 @@
 
 /*
  * Where this title may write, and where `getpwuid` points a program that asks for a home
- * directory. A title sets it from its Makefile; `/data` is the writable area on this console, so
- * the default is a directory under it named for the payload.
+ * directory. A title sets it from its Makefile.
  *
  * It is a define rather than a call because a payload has one of these for its whole life, and
  * because the title that owns the directory is the one that should name it.
+ *
+ * **It defaults to `/app0`, and the default used to be `/data/oops-title`, which cannot work.**
+ * `/data` is outside a title's sandbox: with the SDK's `fs` channel turned up, Extreme Tux Racer's
+ * first syscall of the run is `open("/data")` and it fails, so nothing under it can be created or
+ * written and a title loses every setting without a word. `/app0` is inside the sandbox and is
+ * writable - Neverball's shim measured that while looking for somewhere else to put its config.
+ *
+ * `/app0` is the package, so what a title writes there does not survive a redeploy. That is the
+ * right default anyway: a home that is wrong-but-writable loses data on a re-restore, and a home
+ * that is unreachable loses it every single launch. A title needing real persistence mounts
+ * savedata and points `HOME` at the mount, which is what Neverball does.
  */
 #ifndef OOPS_POSIX_HOME
-#define OOPS_POSIX_HOME "/data/oops-title"
+#define OOPS_POSIX_HOME "/app0"
 #endif
 
 int stat(const char *path, struct stat *out) {
@@ -146,10 +157,60 @@ int chdir(const char *path) {
 
 uid_t getuid(void) { return 0; }
 
+/*
+ * **The home directory this shim invents has to exist**, and creating it is this file's job rather
+ * than the title's, because nothing else knows it was invented here.
+ *
+ * A program that asks for a home directory asks in order to write in it, and they all do the same
+ * next thing: `mkdir(<home>/.something)`. `mkdir` creates one level - POSIX says so, `oops_fs_mkdir`
+ * agrees - so with `<home>` absent that call fails on the missing parent and the program concludes
+ * it has nowhere to write. Extreme Tux Racer's first hardware run said `CSPList::Save - unable to
+ * open` for exactly this reason: `/data/extreme-tux-racer` had never been created, so
+ * `mkdir("/data/extreme-tux-racer/.etr")` could not succeed and no setting was ever saved. Nothing
+ * in the log named the directory, which is what makes this worth doing here - the symptom appears
+ * two layers above the cause.
+ *
+ * Every component is created, not only the last, so a title may name a home more than one level
+ * deep. The result is deliberately not reported: a title with nowhere to write still runs, and the
+ * write that then fails is the right place to hear about it.
+ */
+static void ensure_home_exists(void) {
+    static int done = 0;
+    char path[256];
+    size_t n = 0;
+
+    if (done) return;
+    done = 1;
+
+    for (const char *s = OOPS_POSIX_HOME; *s && n + 1 < sizeof path; s++) {
+        path[n++] = *s;
+        /* A separator inside the path ends a component; the leading `/` of an absolute path is
+           not one, and a trailing `/` would name the component just created. */
+        if (*s == '/' && n > 1 && s[1] != '\0') {
+            path[n - 1] = '\0';
+            if (!oops_fs_exists(path)) oops_fs_mkdir(path, 0777);
+            path[n - 1] = '/';
+        }
+    }
+    path[n] = '\0';
+    if (n > 0 && !oops_fs_exists(path)) oops_fs_mkdir(path, 0777);
+
+    /*
+     * **It says so either way, and that is the point.** A line only on success is an arm that
+     * cannot fail: it cannot tell "the directory is there" from "this code is not in the payload
+     * you are running", and on this console those are hard to distinguish by other means - the
+     * target's file listing is served over a channel that has been caught returning a stale read.
+     * So the outcome is reported, with the path, at info.
+     */
+    oops_kprintf("posix", "home %s: %s", OOPS_POSIX_HOME,
+                 oops_fs_exists(path) ? "ready" : "COULD NOT BE CREATED - nothing will persist");
+}
+
 struct passwd *getpwuid(uid_t uid) {
     static struct passwd pw;
 
     (void)uid;
+    ensure_home_exists();
     pw.pw_name = "player";
     pw.pw_dir = OOPS_POSIX_HOME;
     return &pw;

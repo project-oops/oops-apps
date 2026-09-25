@@ -1,0 +1,103 @@
+diff --git a/course.cpp b/course.cpp
+--- a/course.cpp
++++ b/course.cpp
+@@ -1021,17 +1021,55 @@
+ //				from phys_sim:
+ // ********************************************************************
+ 
++/*
++ * Said once per run, not once per frame: a NaN position repeats every frame for as long as the
++ * player state stays broken, and a log that scrolls is a log nobody reads. The coordinates are
++ * printed because *which* of them is bad, and what the other one was, is the first thing the next
++ * person debugging this will want.
++ */
++static void TrackNonFinite (const char *which, double x, double z) {
++	static bool told = false;
++	if (told) return;
++	told = true;
++	printf ("course: a non-finite %s reached GetIndicesForPoint - pos=(%f,%f), clamped to 0\n",
++			which, x, z);
++}
++
+ void CCourse::GetIndicesForPoint 
+ 		(double x, double z, int *x0, int *y0, int *x1, int *y1){
+ 
+ 	double xidx = x / width * ((double) nx - 1.);
+ 	double yidx = -z / length *  ((double) ny - 1.);
+ 
+-    if (xidx < 0) xidx = 0;
+-    else if  (xidx > nx-1) xidx = nx-1;
+-
+-    if (yidx < 0) yidx = 0;
+-    else if  (yidx > ny-1) yidx = ny-1;
++    /*
++     * **These two clamps exist to bound an array index, and as written they do not.**
++     *
++     * `xidx < 0` and `xidx > nx-1` are both false when `xidx` is a NaN, so a NaN passes through
++     * untouched, `(int)NaN` is `0x80000000` on x86 - the "integer indefinite" result of
++     * `cvttsd2si` - and `elevation[x + nx*y]` addresses memory two gigabytes from the array.
++     * Every caller inherits it: `FindYCoord`, `FindCourseNormal` and `GetTerrainIdx` all index
++     * `elevation`, `nmls` or `terrain` with what this returns. Measured on hardware 2026-09-24:
++     * a fault at 0xfffffffc00000000 from `CControl::Init`, and a second at 0xfffffe96039a82f0
++     * from `add_track_mark` once the first was fixed.
++     *
++     * A NaN reaches here because upstream's other guards have the same shape - `NormVector`
++     * returns early only when the squared length is `<= 0`, `add_track_mark` gives up only when
++     * the magnitude `== 0` - and a NaN satisfies neither, so it travels unchallenged. Both are
++     * corrected alongside this; this one is the backstop, because it is the last place before
++     * the subscript.
++     *
++     * Rewritten so the only way out is an index inside the grid: anything not greater than zero,
++     * including a NaN - which is not greater than anything - starts at 0.
++     */
++    if (!(xidx > 0.0)) {
++        if (xidx != xidx) TrackNonFinite ("x", x, z);
++        xidx = 0;
++    } else if (xidx > nx-1) xidx = nx-1;
++
++    if (!(yidx > 0.0)) {
++        if (yidx != yidx) TrackNonFinite ("z", x, z);
++        yidx = 0;
++    } else if (yidx > ny-1) yidx = ny-1;
+ 
+     *x0 = (int)(xidx);              // floor(xidx) 
+     *x1 = (int)(xidx + 0.9999);     // ceil(xidx) 
+diff --git a/mathlib.cpp b/mathlib.cpp
+--- a/mathlib.cpp
++++ b/mathlib.cpp
+@@ -38,7 +38,11 @@
+ 
+ double NormVector (TVector3 *v) {
+ 	double denom = (v->x * v->x + v->y * v->y + v->z * v->z);
+-	if (denom <= 0.0) return 0.0;
++	/* `!(denom > 0)` rather than `denom <= 0`, so a NaN takes the early return too. Every caller
++	   tests the returned length against zero to decide whether the vector was usable, and with the
++	   original comparison a NaN vector reported a NaN length - which is not zero, so all of those
++	   tests passed and the NaN travelled on. */
++	if (!(denom > 0.0)) return 0.0;
+ 	denom = sqrt (denom);
+ 	*v = ScaleVector (1.0 / denom, *v);
+ 	return denom;
+@@ -46,7 +50,7 @@
+ 
+ double NormVectorN (TVector3 &v) {
+ 	double denom = (v.x * v.x + v.y * v.y + v.z * v.z);
+-	if (denom <= 0.0) return 0.0;
++	if (!(denom > 0.0)) return 0.0;   /* see NormVector */
+ 	denom = sqrt (denom);
+ 	v = ScaleVector (1.0 / denom, v);
+ 	return denom;
+diff --git a/track_marks.cpp b/track_marks.cpp
+--- a/track_marks.cpp
++++ b/track_marks.cpp
+@@ -266,7 +266,9 @@
+ 
+     width_vector = CrossProduct (ctrl->cdirection, MakeVector (0, 1, 0));
+     magnitude = NormVector (&width_vector);
+-    if  (magnitude == 0) {
++    /* `!(magnitude > 0)`: a zero-length direction and a NaN one are both reasons not to lay a
++       track mark, and only the first of them is `== 0`. */
++    if  (!(magnitude > 0)) {
+ 		break_track_marks();
+ 		return;
+     }

@@ -35,6 +35,7 @@
 #include "joystick/SDL_joystick_c.h"
 
 #include "oops/input.h"
+#include "oops/system.h" /* oops_log_info - see PROSPERO_JoystickGetCount */
 
 #define PROSPERO_PAD_PORT 0
 
@@ -118,17 +119,39 @@ static int PROSPERO_JoystickInit(void)
      * The keyboard is not lost - `PROSPERO_PumpKeyboard` is where it belongs.
      */
     oops_input_set_keyboard_as_pad(0);
+
+    /* Said explicitly, because `oops_input_init` returns early and silently when something already
+       called it - so its own line is not proof that this driver ran, and its absence is not proof
+       that it did not. This one is. */
+    oops_log_info("INPUT", "SDL joystick driver initialised");
     return 0;
 }
 
+/*
+ * **This is the quietest failure in the whole input path, so it says what it answered.**
+ *
+ * A title asks `SDL_NumJoysticks()` once, at startup, and takes its no-controller branch if the
+ * answer is zero - Extreme Tux Racer's `InitJoystick` sets `joystick = NULL` and returns without
+ * printing anything at all. Nothing downstream of that ever mentions a pad again, so "the buttons
+ * do nothing" arrives with no evidence attached and three layers to search.
+ *
+ * Logged once rather than per call: SDL asks this repeatedly and the answer is what matters, not
+ * how often it was wanted. `oops_input_poll`'s own return is included because "the poll failed"
+ * and "the poll worked and there is no pad" are different problems.
+ */
 static int PROSPERO_JoystickGetCount(void)
 {
+    static int told = 0;
     oops_pad_state_t st;
+    const int rc = oops_input_poll(PROSPERO_PAD_PORT, &st);
+    const int count = (rc == 0 && st.connected) ? 1 : 0;
 
-    if (oops_input_poll(PROSPERO_PAD_PORT, &st) != 0) {
-        return 0;
+    if (!told) {
+        told = 1;
+        oops_log_info("INPUT", "SDL_NumJoysticks -> %d (poll rc=%d, connected=%d)", count, rc,
+                      (rc == 0) ? (int)st.connected : -1);
     }
-    return st.connected ? 1 : 0;
+    return count;
 }
 
 static void PROSPERO_JoystickDetect(void)
