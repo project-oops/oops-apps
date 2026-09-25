@@ -1,0 +1,11 @@
+# StormLib's origin, pinned to the revision `libultraship` asks for.
+#
+# MPQ archives - Blizzard's container format, which Harbour Masters adopted for `.otr`. This is
+# half of the ROM-reading path: `libultraship/include/ship/resource/archive/OtrArchive.h` is built
+# on it, and `O2rArchive.h` on libzip next door for the newer `.o2r`.
+#
+# A lightweight tag, so the ref and the commit are the same object.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/ladislav-zezula/StormLib
+UPSTREAM_REV=28c9b4be3f23c6b3a5ff55cacac7dbe5b9cdc4fc
+UPSTREAM_REF=v9.25

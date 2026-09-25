@@ -31,6 +31,13 @@
 #define O_EXCL     0x0800
 /* No exec on this platform, so nothing to close across one. */
 #define O_CLOEXEC  0x0000
+/* **A Linux-ism, and zero is its correct value here.** `O_LARGEFILE` asks a 32-bit `off_t`
+ * platform to allow files above 2 GB; FreeBSD's `off_t` is 64-bit and always has been, so the
+ * flag does not exist there and asking for it is already the default. StormLib names it
+ * unconditionally on every non-Windows platform (`FileStream.cpp:117`). */
+#ifndef O_LARGEFILE
+#define O_LARGEFILE 0x0000
+#endif
 
 #define F_GETFL 3
 #define F_SETFL 4

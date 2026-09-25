@@ -1,0 +1,11 @@
+# libzip's origin, pinned to the revision `libultraship` asks for.
+#
+# The other half of the ROM-reading path:
+# `libultraship/include/ship/resource/archive/O2rArchive.h` reads `.o2r`, which is a zip. Needs
+# zlib, which this collection already vendors at `../zlib`.
+#
+# A lightweight tag, so the ref and the commit are the same object.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/nih-at/libzip
+UPSTREAM_REV=6f8a0cdd24a0dc6cce9dac4a7679da784ab124ea
+UPSTREAM_REF=v1.11.4

@@ -1,0 +1,55 @@
+Treat this target as the BSD-like platform it is
+
+`-target x86_64-unknown-freebsd` defines `__FreeBSD__`, so `StormPort.h` takes its
+Linux/BSD branch - and that branch is right about almost everything and wrong
+about two things. Both are corrected here rather than worked around outside,
+because the file's job is to say what the platform has.
+
+**mmap: claimed, absent.** The branch includes `<sys/mman.h>` and defines
+`STORMLIB_HAS_MMAP` for every BSD-derived platform. There is no mmap here, so the
+include fails and all thirty sources stop at it.
+
+Faking it would be worse than declining. The obvious shim - read the file into a
+buffer, return the pointer - turns a memory-mapped read into a full load, and
+Ocarina of Time's `.otr` is hundreds of megabytes. Nothing is lost by saying no:
+the path is guarded (`FileStream.cpp:572` is an `#elif` whose `#else` at :605
+returns "File mapping is not supported") and libultraship never asks for it -
+`OtrArchive.cpp:71` calls `SFileOpenArchive` with `MPQ_OPEN_READ_ONLY` and no
+`STREAM_PROVIDER_MAP`, so archives come through the ordinary file stream.
+
+**The 64-bit calls: absent, and present.** The branch expects Linux's large-file
+names - `stat64`, `fstat64`, `lseek64`, `ftruncate64`, `off64_t` - which exist
+because Linux once had a 32-bit `off_t`. FreeBSD never did, so it has the plain
+names and no aliases, and `FileStream.cpp` stops on an incomplete `struct
+stat64`.
+
+StormLib already handles exactly this for macOS, four lines lower, for exactly
+the same reason - "64-bit calls are supplied by normal calls on Mac". This joins
+that condition rather than adding a second copy of it, and picks up its
+`O_LARGEFILE 0` while it is there.
+
+Both are guarded on `__PROSPERO__`, so every other platform keeps what upstream
+gave it, and the conditions still read as upstream's.
+
+diff --git a/src/StormPort.h b/src/StormPort.h
+index aa2c9f5..741e460 100644
+--- a/src/StormPort.h
++++ b/src/StormPort.h
+@@ -306,7 +306,7 @@
+   #endif
+ 
+   // Platforms with mmap support
+-  #if defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
++  #if (defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)) && !defined(__PROSPERO__)
+     #include <sys/mman.h>
+     #define STORMLIB_HAS_MMAP
+   #endif
+@@ -387,7 +387,7 @@
+ #endif // !STORMLIB_WINDOWS
+ 
+ // 64-bit calls are supplied by "normal" calls on Mac
+-#if defined(STORMLIB_MAC)
++#if defined(STORMLIB_MAC) || defined(__PROSPERO__)
+   #define stat64  stat
+   #define fstat64 fstat
+   #define lseek64 lseek

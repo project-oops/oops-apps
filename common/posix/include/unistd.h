@@ -23,6 +23,20 @@
 #define F_OK 0
 #define R_OK 4
 
+/* **Guarded, because `stdio.h` declares these too.** Both headers are expected to carry them and a
+ * program may include either first; the values are universal, so a redefinition would be harmless
+ * and a *conflicting* one impossible - but clang warns on the redefinition regardless, and a
+ * warning here becomes an error under a port's own `-Werror`. */
+#ifndef SEEK_SET
+#define SEEK_SET 0
+#endif
+#ifndef SEEK_CUR
+#define SEEK_CUR 1
+#endif
+#ifndef SEEK_END
+#define SEEK_END 2
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -41,6 +55,12 @@ static inline void _exit(int status) { exit(status); }
 ssize_t read(int fd, void *buf, size_t count);
 ssize_t write(int fd, const void *buf, size_t count);
 int close(int fd);
+/* The new offset, or -1. `off_t` is 64-bit here, so there is no `lseek64` to be a different
+ * function - a port naming it wants a `#define` to this one, which is what StormLib's patch does. */
+off_t lseek(int fd, off_t offset, int whence);
+/* **Always fails with `ENOSYS`.** The SDK's filesystem cannot resize a file, and there is no
+ * honest way to report otherwise - see `posix.c`. */
+int ftruncate(int fd, off_t length);
 
 /* One process, so a constant - see the definition in `posix.c` for why that is the truth here
  * rather than a stand-in. */

@@ -44,6 +44,7 @@
 #include <stdint.h>
 #include <stdio.h> /* FILE, for fileno below */
 #include <string.h>
+#include <strings.h> /* the declarations this file's strcasecmp pair answers */
 #include <sys/stat.h>
 #include <sys/time.h>
 /* For `struct timespec` and the `CLOCK_*` ids that `clock_gettime` below answers - declared in
@@ -380,6 +381,47 @@ int gettimeofday(struct timeval *tv, void *tz) {
 int getpid(void) { return 1; }
 
 /*
+ * `strcasecmp` and `strncasecmp`.
+ *
+ * POSIX puts these in `<strings.h>` rather than `<string.h>`, and neither existed here. StormLib
+ * asked first, through the `_stricmp` aliases in its `StormPort.h`.
+ *
+ * **ASCII case folding only, which is what callers of these actually mean.** A locale-aware
+ * `tolower` would fold differently in a Turkish locale - dotted and dotless i - and every use of
+ * this function here is comparing a file name or an extension against a literal, where that
+ * would be a bug rather than a feature. The comparison is on `unsigned char`, because `char` is
+ * signed on this target and a byte above 127 would otherwise compare as negative.
+ */
+static int oops_ascii_lower(unsigned char c) {
+    return (c >= 'A' && c <= 'Z') ? (c - 'A' + 'a') : c;
+}
+
+int strcasecmp(const char *a, const char *b) {
+    if (!a || !b) return a == b ? 0 : (a ? 1 : -1);
+    for (;;) {
+        const int ca = oops_ascii_lower((unsigned char)*a);
+        const int cb = oops_ascii_lower((unsigned char)*b);
+        if (ca != cb) return ca - cb;
+        if (ca == 0) return 0;
+        a++;
+        b++;
+    }
+}
+
+int strncasecmp(const char *a, const char *b, size_t n) {
+    if (!a || !b) return a == b ? 0 : (a ? 1 : -1);
+    while (n--) {
+        const int ca = oops_ascii_lower((unsigned char)*a);
+        const int cb = oops_ascii_lower((unsigned char)*b);
+        if (ca != cb) return ca - cb;
+        if (ca == 0) return 0;
+        a++;
+        b++;
+    }
+    return 0;
+}
+
+/*
  * `read`, `write` and `close` on a descriptor.
  *
  * The SDK's `oops_fs_*` are these under other names, so this is a rename and a return type -
@@ -430,6 +472,50 @@ int close(int fd) {
         return -1;
     }
     return oops_fs_close(fd) == 0 ? 0 : -1;
+}
+
+off_t lseek(int fd, off_t offset, int whence) {
+    int64_t pos;
+
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    /* `SEEK_SET`/`CUR`/`END` are 0/1/2 and so are `OOPS_SEEK_*`, but the mapping is written out
+     * rather than relied on: two enumerations agreeing today is not the same as one of them
+     * being defined in terms of the other. */
+    switch (whence) {
+        case SEEK_SET: pos = oops_fs_seek(fd, offset, OOPS_SEEK_SET); break;
+        case SEEK_CUR: pos = oops_fs_seek(fd, offset, OOPS_SEEK_CUR); break;
+        case SEEK_END: pos = oops_fs_seek(fd, offset, OOPS_SEEK_END); break;
+        default:
+            errno = EINVAL;
+            return -1;
+    }
+    if (pos < 0) {
+        errno = EIO;
+        return -1;
+    }
+    return (off_t)pos;
+}
+
+/*
+ * **`ftruncate` fails, and that is the honest answer.** The SDK's filesystem has no call that
+ * shortens or extends a file, so there is nothing to call. Returning 0 would be the flattering
+ * version: a caller that asked to truncate and was told it succeeded then writes on the
+ * assumption the file is the length it asked for.
+ *
+ * Nothing here needs it. StormLib names it only on the archive-*writing* path, and this port
+ * reads.
+ */
+int ftruncate(int fd, off_t length) {
+    (void)length;
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    errno = ENOSYS;
+    return -1;
 }
 
 /*
