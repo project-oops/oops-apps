@@ -50,13 +50,43 @@ static void haptics_send(int level_milli) {
     const int heavy = (level_milli * 255) / 1000;
     const int light = (level_milli * 255) / 1000 / 3;
 
-    oops_input_set_rumble(0u, (unsigned char)light, (unsigned char)heavy);
+    const int rc = oops_input_set_rumble(0u, (unsigned char)light, (unsigned char)heavy);
+
+    /*
+     * **The first real pulse reports itself, once, at info.**
+     *
+     * Rumble was silent on the first hardware run and the log could not say why: the bump call
+     * is in the build and `scePadSetVibration` is in `common/symbols.txt`, so "no rumble" could
+     * equally have been the game never asking, the SDK refusing, or the motors being told a
+     * level of zero. Those need telling apart before anything is changed, and none of them is
+     * visible without a line.
+     *
+     * Once, and only for a non-zero level: this runs on a 16ms thread and the zero at start-up
+     * is not interesting. `rc` is what `oops_input_set_rumble` returned - it answers -1 when
+     * there is no pad handle or the vibration import did not resolve, and nothing has ever
+     * checked it.
+     */
+    if (level_milli > 0) {
+        static int told;
+        if (!told) {
+            told = 1;
+            oops_log_info("HAPTIC", "first pulse: level=%d small=%d large=%d rc=%d",
+                          level_milli, light, heavy, rc);
+        }
+    }
 }
 
 static void *haptics_loop(void *arg) {
     (void)arg;
 
     int last_sent = -1;
+
+    /* **Says the thread body actually ran.** `oops_thread_create` returning a handle is not the
+     * same as the thread being scheduled, and on the first hardware run there was no rumble and
+     * no way to tell "the game never asked" from "the thread never ticked" from "the SDK
+     * refused". Three one-shot lines - this, the one in `oops_haptics_bump` and the one in
+     * `haptics_send` - separate all three, and cost one log line each per run. */
+    oops_log_info("HAPTIC", "decay thread running");
 
     while (haptics_running) {
         int level = haptics_level;
@@ -137,6 +167,15 @@ void oops_haptics_bump(float strength) {
     if (strength > 1.0f) strength = 1.0f;
 
     const int level = (int)(strength * 1000.0f);
+
+    /* The first time the game asks for anything - see the thread's line. */
+    {
+        static int told;
+        if (!told) {
+            told = 1;
+            oops_log_info("HAPTIC", "first bump from the game: level=%d", level);
+        }
+    }
 
     /* **Raised, never replaced.** A ball rattling down a slope fires a stream of small bounces,
        and letting the newest one set the level would cut off the big hit that started them. */

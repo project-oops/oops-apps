@@ -7,29 +7,32 @@ camera.
 
 So it becomes a reference card - the shared controller wireframe from
 `common/assets/controls`, with the bindings beside it. Read-only on purpose: rebinding is
-a much bigger screen than this port needs, and the actions on the right do not change
-when a future upstream renumbers a button.
+a much bigger screen than this port needs, and the actions on the left do not change when
+a future upstream renumbers a button.
 
 **The page already existed**, which is why this is a patch to one function rather than a
 new state and a new menu entry. `PAGE_CONTROLS` is in upstream's help screen, reachable
 from the title screen at any time, and it already had the tab.
 
-The bindings are the `CONFIG_JOYSTICK_*` ones the play state actually tests
-(`ball/st_play.c:548-566` for the shoulders and `:92` for the camera), so a card that
-disagrees with the game is not possible.
+The buttons named here are the ones patch 0009 sets, which are this pad's rather than the
+DualShock 3 order upstream assumes - so "Hold L3" for fast rotation is not a typo, it is
+where a trigger-less index had to go.
 
 The artwork ships in the *packaged* data as `gui/oops-controller.png` - copied there by
 this title's `package` rule - so upstream's own `data/` stays exactly as upstream ships
 it.
 
-The page also says motion tilt exists and where to turn it on, because a feature that is
-off by default and mentioned nowhere is a feature that is not there.
+The page also says motion tilt exists, where to turn it on, and how to re-centre it,
+because a feature that is off by default and mentioned nowhere is a feature that is not
+there - and because the first thing a player tries when the floor sits tipped is putting
+the pad flat on a table, which cannot work: the level reference is the port's, not the
+sensor's, so only a deliberate click can clear it.
 
 diff --git a/ball/st_help.c b/ball/st_help.c
-index 936eb8b..6b6190f 100644
+index 936eb8b..acd2da6 100644
 --- a/ball/st_help.c
 +++ b/ball/st_help.c
-@@ -173,65 +173,85 @@ static int page_rules(int id)
+@@ -173,65 +173,86 @@ static int page_rules(int id)
      return id;
  }
  
@@ -119,7 +122,7 @@ index 936eb8b..6b6190f 100644
 +
 +            help_binding(kd, _("Tilt the floor"),   _("Left Stick"));
 +            help_binding(kd, _("Rotate the view"),  _("L1 / R1"));
-+            help_binding(kd, _("Rotate faster"),    _("Hold L2"));
++            help_binding(kd, _("Rotate faster"),    _("Hold L3"));
 +            help_binding(kd, _("Change camera"),    _("Square"));
 +            help_binding(kd, _("Confirm / Look"),   _("Cross"));
 +            help_binding(kd, _("Back"),             _("Circle"));
@@ -154,7 +157,8 @@ index 936eb8b..6b6190f 100644
 +    /* **Said here because there is nowhere else a player would look.** Motion tilt is off until
 +       it is switched on, and a feature nobody can find is a feature that is not there. */
 +    gui_multi(id, _("Motion control: tilt the pad itself to tilt the floor.\\"
-+                    "Turn it on in Options. Press Options to re-centre while playing."),
++                    "Turn it on in Options. Click the touchpad to make the way you are\\"
++                    "holding the pad the new level."),
 +              GUI_SML, gui_wht, gui_wht);
  
      return id;

@@ -18,7 +18,13 @@ int nb_tilt_available(void);
 int nb_tilt_enabled(void);
 
 /* Turn it on or off. Re-centres on the way on, so whatever way the pad is being held becomes
-   level, and writes the choice to `/app0/oops-input` so it survives the launch. */
+   level, and writes the choice to `/app0/oops-tilt` so it survives the launch.
+
+   **That file, not a `tilt=` line in `/app0/oops-input`.** The config file also holds the gain,
+   the deadzone and the axis knobs, so rewriting it to change one value would mean parsing and
+   re-emitting the rest, with a truncated file as the price of getting it wrong. `tilt_init`
+   reads the state file first and falls back to the config's `tilt=` key, so a preset still
+   works and the remembered choice only ever overrides it. */
 void nb_tilt_set_enabled(int on);
 
 /* Re-centre without changing the mode: the current pad attitude becomes level. Worth a button

@@ -36,6 +36,7 @@
  * sensitivity - and the defaults below are the standard aerospace conversion rather than a
  * measurement. Changing one costs a `pros restore` of a 40-byte file, not a rebuild.
  */
+#include "oops/fs.h"
 #include "oops/input.h"
 #include "oops/system.h"
 
@@ -55,13 +56,39 @@
    the graphics file. */
 #define NB_TILT_CONF "/app0/oops-input"
 
+/* Where the on/off choice is remembered - see `nb_tilt_set_enabled` for why it is its own file
+   and not a line in the one above. */
+#define NB_TILT_STATE "/app0/oops-tilt"
+
 static int   tilt_have;      /* a pad answered at init */
 static int   tilt_on;        /* the player turned it on */
-static int   tilt_swap;      /* pitch and roll the other way round */
+/*
+ * **Pitch and roll go to the other axis, and this is measured rather than derived.**
+ *
+ * The first hardware session reported it exactly: tilting the pad forwards, raising the rear,
+ * tilted the board sideways and raised its right edge; tilting the pad right, raising its left,
+ * tilted the board backwards and raised its front. That is the two axes swapped - the pad's
+ * pitch driving the board's roll and vice versa - which is the one thing the file header said
+ * could not be settled by reading and would need a session with a pad. It did, and this is the
+ * answer.
+ *
+ * Still a knob, because the *signs* are a separate question from the order and one of them may
+ * yet be wrong in a way that only feels wrong rather than looking it.
+ */
+static int   tilt_swap = 1;
 static float tilt_sign_x = -1.0f; /* `game_set_x` negates; match it */
 static float tilt_sign_z = 1.0f;
-static float tilt_gain = 1.6f;    /* degrees of floor per degree of pad */
-static float tilt_dead = 1.5f;    /* degrees of pad ignored around level */
+/* **Degrees of floor per degree of pad, and 1.6 was far too much.**
+ *
+ * The floor clamps at `ANGLE_BOUND`, twenty degrees, so a gain of 1.6 put the floor hard over
+ * at twelve and a half degrees of wrist - which is inside the range a hand wanders through while
+ * simply holding a controller. Reported as "too aggressive" on the first hardware run, and it
+ * was. At 0.7 the floor reaches its limit at about twenty-eight degrees of pad, which is a
+ * deliberate movement rather than a twitch. */
+static float tilt_gain = 0.7f;
+/* Degrees of pad ignored around level. Raised with the gain: a wider dead band is what stops the
+ * ball drifting while the player thinks the pad is still. */
+static float tilt_dead = 2.5f;
 
 /* The attitude that counts as level, as a conjugated quaternion. `oops_input_reset_orientation`
  * exists and zeroes the pad's own reference, but it cannot be called from a menu without also
@@ -110,11 +137,11 @@ static int conf_b(const char *key, int def) {
 void tilt_init(void) {
     oops_pad_state_t pad;
 
-    tilt_swap = conf_b("tilt-swap", 0);
+    tilt_swap = conf_b("tilt-swap", 1);
     tilt_sign_x = conf_b("tilt-invert-x", 0) ? 1.0f : -1.0f;
     tilt_sign_z = conf_b("tilt-invert-z", 0) ? -1.0f : 1.0f;
-    tilt_gain = conf_f("tilt-gain", 1.6f);
-    tilt_dead = conf_f("tilt-deadzone", 1.5f);
+    tilt_gain = conf_f("tilt-gain", 0.7f);
+    tilt_dead = conf_f("tilt-deadzone", 2.5f);
 
     /* **The pad has to answer, and its IMU has to be saying something.** A quaternion of all
      * zeroes is not a rotation, and a controller that reports one has no usable orientation -
@@ -129,9 +156,17 @@ void tilt_init(void) {
         if (w * w + x * x + y * y + z * z > 0.5f) tilt_have = 1;
     }
 
-    /* Off unless the player asked for it - see `nb_tilt_enabled`. The file can preselect it, so
-       somebody who likes it does not turn it on every launch. */
+    /* Off unless the player asked for it - see `nb_tilt_enabled`. Last session's choice wins,
+       then a `tilt=` preset in the config, then off. */
     tilt_on = tilt_have && conf_b("tilt", 0);
+    {
+        void *saved = (void *)0;
+        size_t n = 0;
+        if (oops_fs_read_all(NB_TILT_STATE, &saved, &n) == 0 && saved) {
+            if (n >= 1u) tilt_on = tilt_have && (*(const char *)saved == '1');
+            oops_fs_free_data(saved);
+        }
+    }
     if (tilt_on) nb_tilt_recentre();
 
     oops_log_info("TILT", "motion tilt: pad=%d enabled=%d gain=%d/100 deadzone=%d/100",
@@ -169,6 +204,34 @@ static void tilt_angles(float *out_pitch, float *out_roll) {
     *out_roll = 0.0f;
 
     if (oops_input_poll(0u, &pad) != 0 || !pad.connected) return;
+
+    /*
+     * **The touchpad re-centres, and there has to be something that does.**
+     *
+     * Level is whatever the pad was doing when motion was switched on, so a player who turns it
+     * on while slouched and then sits up finds the floor permanently tipped - and *putting the
+     * pad flat on a table does not fix it*, which was the first thing tried on hardware and the
+     * most reasonable thing to try. The reference is ours, not the sensor's, so only we can
+     * clear it.
+     *
+     * The touchpad click because Neverball binds nothing to it: Options is the pause menu, the
+     * face buttons are the camera and the menus, and the shoulders rotate the view. Edge
+     * triggered, so holding it does not re-centre sixty times a second - which would make the
+     * floor follow the pad instead of reading its angle.
+     */
+    {
+        static int touch_was_down;
+        const int touch_down = (pad.buttons & OOPS_BUTTON_TOUCHPAD) ? 1 : 0;
+
+        if (touch_down && !touch_was_down) {
+            ref_x = pad.orientation[0];
+            ref_y = pad.orientation[1];
+            ref_z = pad.orientation[2];
+            ref_w = pad.orientation[3];
+            oops_log_info("TILT", "re-centred");
+        }
+        touch_was_down = touch_down;
+    }
 
     const float qx = pad.orientation[0], qy = pad.orientation[1];
     const float qz = pad.orientation[2], qw = pad.orientation[3];
@@ -254,6 +317,29 @@ void nb_tilt_set_enabled(int on) {
         return;
     }
     tilt_on = on ? 1 : 0;
+
+    /*
+     * **Written down, because `nb_tilt.h` said it was and it was not.**
+     *
+     * The header promised this survived the launch from the day it was written; nothing did the
+     * writing, so the first hardware session had to turn motion tilt on again every single run.
+     * That is the same class of mistake as the Controls page telling a player to press Options
+     * to re-centre when nothing was bound to it - a comment describing an intention as though it
+     * were behaviour.
+     *
+     * Its own one-byte file rather than a `tilt=` line in `/app0/oops-input`: that file also
+     * holds the gain, the deadzone and the axis knobs, and rewriting it from here to change one
+     * value would mean parsing and re-emitting the rest, with a truncated file as the cost of
+     * getting it wrong. `tilt_init` reads this first and falls back to the `tilt=` key, so a
+     * preset in the config still works and this only ever overrides it.
+     */
+    {
+        const char v = tilt_on ? '1' : '0';
+        if (oops_fs_write_all(NB_TILT_STATE, &v, 1u) != 0) {
+            oops_log_warn("TILT", "could not write %s - the choice will not survive the launch",
+                          NB_TILT_STATE);
+        }
+    }
 
     /* **Whatever way the pad is being held becomes level**, at the moment it is switched on. A
        player reaches for this while slouched, and a fixed reference would start them with the

@@ -1,0 +1,78 @@
+Do not abort when the ball model is changed.
+
+Changing the ball model killed the title: `assertion failed: i >= 0 && i < a->elem_num,
+share/array.c:143`, and an assert here is `abort` - the game is gone, with one line of log
+and no menu to return to.
+
+`set_curr_ball` indexes the scanned list with `curr_ball` and nothing checks it first.
+There are two ways for that index to be wrong, and neither is reachable on a desktop,
+which is why upstream has no guard:
+
+  - `init_balls` assigns `curr_ball` only when a scanned path matches the configured one.
+    A scan that comes back shorter than the last one - or empty, if `fs_dir_scan` fails -
+    leaves the previous index in a file-scope static.
+  - `ball_action`'s wrap tests `++curr_ball == array_len(balls)`, which steps straight over
+    the end rather than clamping if the index was already past it.
+
+So the index is checked before it indexes. An out-of-range one is reported and reset to
+the first model; an empty list is reported and the change refused, because an empty list
+means the ball `.sol` files are missing from the packaged data and that is a build problem
+this screen would otherwise hide.
+
+**This does not say what made the index wrong on hardware.** The console has
+`basic-ball-solid.sol` and the filter needs only one of the three, so the list should not
+be empty - the log line will say which case it actually is on the next run. The crash is
+worth removing either way: a menu that aborts the game is worse than any answer it could
+give.
+
+diff --git a/ball/st_ball.c b/ball/st_ball.c
+index 145609c..b606810 100644
+--- a/ball/st_ball.c
++++ b/ball/st_ball.c
+@@ -24,6 +24,7 @@
+ #include "audio.h"
+ #include "geom.h"
+ #include "video.h"
++#include "log.h" /* log_printf - see set_curr_ball */
+ #include "demo.h"
+ 
+ #include "game_server.h"
+@@ -108,6 +109,38 @@ static void free_balls(void)
+ 
+ static void set_curr_ball(void)
+ {
++    /*
++     * **The index is checked before it indexes.** `array_get` asserts, and an assert on a
++     * console is `abort` - the game is gone, with one line of log and no menu to go back to.
++     * Changing the ball model did exactly that.
++     *
++     * Two ways in. `init_balls` only assigns `curr_ball` when a scanned path matches the
++     * configured one, so a scan that comes back shorter than last time - or empty, if
++     * `fs_dir_scan` fails - leaves a stale index behind; and `ball_action`'s wrap tests
++     * `== array_len(balls)`, which steps straight over the end if `curr_ball` was already past
++     * it. Neither is reachable on a desktop where the scan always succeeds, which is why
++     * upstream has no guard.
++     *
++     * Reported rather than silently clamped, because an empty list means the ball `.sol` files
++     * are missing from the packaged data, and that is a build problem this screen would
++     * otherwise hide.
++     */
++    const int n = balls ? array_len(balls) : 0;
++
++    if (n <= 0)
++    {
++        log_printf("ball: no ball models found - the list is empty, "
++                   "so the model cannot be changed\n");
++        return;
++    }
++
++    if (curr_ball >= n || curr_ball < 0)
++    {
++        log_printf("ball: index %d is outside the %d model(s) found; using the first\n",
++                   curr_ball, n);
++        curr_ball = 0;
++    }
++
+     sprintf(ball_file, "%s/%s",
+             DIR_ITEM_GET(balls, curr_ball)->path,
+             base_name(DIR_ITEM_GET(balls, curr_ball)->path));
