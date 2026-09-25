@@ -109,6 +109,20 @@ CRAFT_DEP_SRCS := upstream/deps/lodepng/lodepng.c \
 # own copy. The measurement that moved it started here: without the flag, `client.c`, `sqlite3.c`
 # and `tinycthread.c` all died on `bits/wordsize.h`, a glibc internal three levels below the
 # header each one was actually missing. docs/PORTING.md, *The host headers*, keeps the table.
+#
+# # `CRAFT_DATA_DIR` is the real path, not `/app0`, and that is measured
+#
+# `/app0` is the conventional answer and it does not work for a homebrew title launched this way.
+# The payload can open neither `/app0` nor anything under it - `oops_fs_opendir("/app0")` fails and
+# so does `oops_fs_open("/app0/textures/texture.png")` - while its own eboot was loaded from
+# `/data/homebrew/CRFT00001` and the assets are demonstrably there. `/user/app/CRFT00001` is a
+# payload-less stub holding a `mount.lnk` that correctly names that directory, so the link is right
+# and the mount simply is not live for the process.
+#
+# So the prefix is the directory itself. The title id is written out rather than `$(TITLE_ID)`:
+# that variable is defined by `common/app.mk`, which is included at the bottom of this file, and an
+# immediately-expanded (`:=`) list up here would silently get `/data/homebrew/` with nothing after
+# the slash - which is what happened on the first attempt.
 CRAFT_CFLAGS := -Ishim/include \
                 -Iupstream/src \
                 -Iupstream/deps/lodepng \
@@ -116,7 +130,7 @@ CRAFT_CFLAGS := -Ishim/include \
                 -Iupstream/deps/sqlite \
                 -Iupstream/deps/tinycthread \
                 -DOOPS_POSIX_HOME=\"/data/craft\" \
-                -DCRAFT_DATA_DIR=\"/app0\" \
+                -DCRAFT_DATA_DIR=\"/data/homebrew/CRFT00001\" \
                 -DDB_PATH=\"/data/craft/craft.db\" \
                 $(OOPS_POSIX_INCLUDE) $(OOPS_SQLITE_INCLUDE) $(OOPS_SQLITE_DEFS)
 
@@ -158,19 +172,18 @@ CRAFT_PAYLOAD_SRCS := $(CRAFT_SHIM_SRCS) $(CRAFT_UPSTREAM_SRCS) $(CRAFT_DEP_SRCS
                       $(OOPS_POSIX_SRCS)
 PAYLOAD_SRCS := $(CRAFT_PAYLOAD_SRCS)
 
-# **The SDK subsystems this title uses, named as source files.**
+# The SDK subsystems this title uses, declared as capabilities via OOPS_FEATURES.
+OOPS_FEATURES := display input keyboard mouse thread net
+
+# **And named as files as well, because `OOPS_FEATURES` links nothing today.** `common/app.mk:120`
+# prints "the SDK feature table (OOPS_FEATURES_AVAILABLE) is not available yet - ignoring it for
+# now" and moves on, so a title relying on the declaration above gets no display, no input, no
+# threads and no sockets - the link then fails on 20-odd `oops_*` symbols, or worse, would have
+# faulted on the console if the link guard were not there.
 #
-# `CORE_SDK_SRCS` in `common/app.mk` is what every payload gets - system, heap, filesystem, time -
-# and nothing above that. Craft needs the window, its three input devices, threads for
-# `tinycthread`'s database worker, and sockets for `client.c`.
-#
-# **`OOPS_FEATURES` is the better spelling and is not usable yet.** Declaring a capability and
-# letting the SDK decide which files back it is what that mechanism is for, and `app.mk` supports
-# it - but the table it needs, `OOPS_FEATURES_AVAILABLE`, lives in `oops-sdk.mk` and is not
-# committed, so `app.mk` prints "ignoring it for now" and links nothing. A title that relied on it
-# built only against a working tree that happened to have the migration in flight. These lists are
-# what makes this title reproducible from committed state; swap them for
-# `OOPS_FEATURES := display input keyboard mouse thread net` when that table lands.
+# The two lists coexist on purpose: the feature declaration is the intended spelling and is already
+# correct, so when `oops-sdk.mk` commits its table this block is what gets deleted, not rewritten.
+# Nothing is compiled twice in the meantime, precisely because the declaration is inert.
 CRAFT_SDK_SRCS := $(OOPS_SDK_DIR)/src/display.c \
                   $(OOPS_SDK_DIR)/src/agc/agc_display.c \
                   $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \

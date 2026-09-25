@@ -81,52 +81,6 @@ __attribute__((visibility("default"))) int craft_start(const payload_args_t *arg
 
     oops_log_info("CRFT", "entry");
 
-    /*
-     * **What `/app0` actually contains, dumped rather than reasoned about.**
-     *
-     * `oops_fs_open("/app0/oops-log")` succeeds - it is how the log level above got raised - and
-     * `fopen("/app0/textures/texture.png")` fails, with the two files sitting in the same
-     * directory on the console. Four rounds of reading the SDK could not explain that, so this
-     * asks the running process what it sees: every entry of `/app0`, then the same for
-     * `/app0/textures`, then a direct open of the file that failed.
-     *
-     * Temporary, and it earns its place while the answer is unknown: `load_png_texture` calls
-     * `exit(1)`, so without this the run ends before anything else can be learned.
-     */
-    {
-        oops_dir_t *d = oops_fs_opendir("/app0");
-        if (d == NULL) {
-            oops_log_error("CRFT", "probe: /app0 will not open as a directory");
-        } else {
-            oops_dirent_t e;
-            while (oops_fs_readdir(d, &e) == 1) {
-                oops_log_info("CRFT", "probe: /app0 entry '%s' dir=%d", e.name, e.is_directory);
-            }
-            oops_fs_closedir(d);
-        }
-
-        d = oops_fs_opendir("/app0/textures");
-        if (d == NULL) {
-            oops_log_error("CRFT", "probe: /app0/textures will not open as a directory");
-        } else {
-            oops_dirent_t e;
-            while (oops_fs_readdir(d, &e) == 1) {
-                oops_log_info("CRFT", "probe: /app0/textures entry '%s'", e.name);
-            }
-            oops_fs_closedir(d);
-        }
-
-        {
-            const int fd = oops_fs_open("/app0/textures/texture.png", OOPS_O_RDONLY, 0);
-            oops_log_info("CRFT", "probe: oops_fs_open(/app0/textures/texture.png) = %d", fd);
-            if (fd >= 0) {
-                oops_log_info("CRFT", "probe: size = %lld",
-                              (long long)oops_fs_seek(fd, 0, OOPS_SEEK_END));
-                oops_fs_close(fd);
-            }
-        }
-    }
-
     /* The database's directory. `/app0` is read-only, so this is where Craft's world goes; it
      * matches `OOPS_SQLITE_TEMP_DIR` and the `DB_PATH` the Makefile sets. */
     (void)oops_fs_mkdir("/data/craft", 0755);

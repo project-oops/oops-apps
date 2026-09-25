@@ -103,11 +103,22 @@ void glfwTerminate(void) {
 }
 
 /* **The requested size is ignored and the display's own is returned**, which the header says
- * and Craft copes with: it reads the size back rather than assuming it got what it asked for. */
+ * and Craft copes with: it reads the size back rather than assuming it got what it asked for.
+ *
+ * **But it must still be asked for by number, not as zero.** This passed `0, 0` on the reasoning
+ * that the display knows its own size, and `agc_display_open_adopting` refuses a zero dimension
+ * outright - `last_error = -3`, before the first of its 33 log points, so the refusal is silent.
+ * The display then reports 0x0, `glContextCreate` falls back to its built-in 1920x1080, and the
+ * only symptom is `no framebuffer to run the GPU clear test against` from the GL self-test several
+ * layers away. That cost five hardware runs to find.
+ *
+ * `OOPS_DISPLAY_DEFAULT_*` is what the SDK's own `oops_gfx_create` substitutes for a zero, so this
+ * is the same answer in the same words rather than a number invented here. */
 GLFWwindow *glfwCreateWindow(int width, int height, const char *title, GLFWmonitor *monitor,
                              GLFWwindow *share) {
     (void)width; (void)height; (void)title; (void)monitor; (void)share;
-    s_window.display = oops_display_open(OOPS_DISPLAY_BACKEND_AUTO, 0, 0);
+    s_window.display = oops_display_open(OOPS_DISPLAY_BACKEND_AUTO, OOPS_DISPLAY_DEFAULT_WIDTH,
+                                         OOPS_DISPLAY_DEFAULT_HEIGHT);
     if (!s_window.display) return (GLFWwindow *)0;
     s_window.width = (int)oops_display_get_width(s_window.display);
     s_window.height = (int)oops_display_get_height(s_window.display);
