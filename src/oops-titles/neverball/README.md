@@ -25,7 +25,7 @@ release.
 
 ## On a console
 
-Four things this port adds that upstream has no reason to. Each is here rather than in a patch
+Six things this port adds that upstream has no reason to. Each is here rather than in a patch
 wherever that was possible, because a patch is rebased onto every upstream revision forever.
 
 - **Motion tilt** — tilt the pad to tilt the floor. **Off until you turn it on**, in Options; the
@@ -42,7 +42,18 @@ wherever that was possible, because a patch is rebased onto every upstream revis
   [`common/assets/controls/`](../../../common/assets/controls/), and the bindings are read from
   the same configuration the play state tests, so the card cannot disagree with the game.
 - **Settings persist.** Upstream saves once, after the main loop returns; a console title is
-  closed from the dashboard and never gets there.
+  closed from the dashboard and never gets there. Motion tilt's own on/off is remembered
+  separately, in `/app0/oops-tilt`.
+- **The pad's button indices** — `patches/0009`. Upstream's defaults describe a DualShock 3, and
+  this platform's SDL backend reports `SDL_GameControllerButton` order. `start` was the right
+  stick click, so **Options never opened the pause menu**, and `l1`/`r1` were Create and the home
+  button, so **view rotation had never worked at all**. Cross through triangle are 0..3 in both
+  orders, which is why the menus worked and hid the rest.
+- **Changing the ball model no longer aborts the game** — `patches/0010`. `set_curr_ball`
+  indexed the scanned list without checking, and on this platform an assert is `abort`.
+
+Two knobs live in `/app0/oops-input` and take effect without a rebuild: `tilt-swap`,
+`tilt-invert-x`, `tilt-invert-z`, `tilt-gain`, `tilt-deadzone`, and `rumble=on|off`.
 
 ## Docs
 

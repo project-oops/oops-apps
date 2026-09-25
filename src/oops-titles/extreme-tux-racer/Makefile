@@ -1,15 +1,12 @@
 # Extreme Tux Racer, through oops-sdk.
 #
 #   make elf      the plain-ELF payload a homebrew loader runs
-#   make title    complete title package (.zip)
+#   make title    complete title package (.zip) - the payload and sce_sys, no content
+#   make package  the title package **with ETR's 55 MB of data**, which is what runs
 #
-# **This does not build yet, and the reason is one dependency.** ETR's 45 sources compile against
-# everything here *except* a C++ standard library: `bh.h` includes <string>, <map>, <list> and
-# <iostream>, and nothing on this target provides them. Every other gap is closed - measured, not
-# assumed. See README.md for the numbers.
-#
-# The Makefile is written now rather than when that lands, because it is what says what the title
-# is made of, and because the pieces it names are all real and all tested.
+# All 45 of ETR's sources and the whole stack under them - libc++, SDL2, SDL2_image, SDL2_mixer,
+# freetype, libpng, zlib - compile and link here, and `make package` is the runnable result. The
+# C++ standard library that was this title's last gap is `src/oops-deps/libcxx`.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
@@ -86,8 +83,19 @@ include $(OOPS_APPS_ROOT)/common/posix.mk
 #
 # `-Wno-c++11-narrowing` is for upstream's own braced initialisers, which narrow `double` to
 # `GLfloat` in about twenty-seven places. That was legal when ETR was written.
+#
+# **`OOPS_POSIX_HOME` is `/app0`, and it was `/data/extreme-tux-racer` until hardware said no.**
+# `/data` is outside the app's sandbox: measured on 2026-09-24 with the SDK's `fs` channel, the very
+# first thing this title does is `open("/data")` and it fails, so a directory under it can be
+# neither created nor written and every setting was silently lost. `/app0` is inside the sandbox and
+# is writable - Neverball's shim measured that separately, and its notes say so. It also puts the
+# config beside the data ETR already reads from `/app0//data`, which is where upstream expects both.
+#
+# The cost is honest and worth stating: `/app0` is the package, so `make package` plus a restore
+# replaces it, and settings do not survive a redeploy. A savedata mount is the arrangement that
+# would - Neverball has one - and it is a bigger change than this title needs to start rendering.
 ETR_CFLAGS := -DOS_LINUX=1 -Ishim/include -include GL/glext.h -Wno-c++11-narrowing \
-              -DOOPS_POSIX_HOME=\"/data/extreme-tux-racer\" \
+              -DOOPS_POSIX_HOME=\"/app0\" \
               $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE) $(OOPS_MIX_INCLUDE) $(OOPS_FT_INCLUDE) \
               $(OOPS_IMG_INCLUDE)
 
@@ -100,33 +108,45 @@ PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_SDL_LIB) $(OOPS_MIX_LIB) \
                         $(OOPS_FT_LIB) $(OOPS_IMG_LIB) $(OOPS_PNG_LIB) $(OOPS_ZLIB_LIB) \
                         $(OOPS_LIBCXX_LIB)
 
-# The C half of the payload: the shared POSIX shim and the SDK. It is C rather than C++ because
-# it implements a C ABI that upstream's headers declare.
-#
-# `gl_glu.c` is named here rather than being part of `$(OOPS_GL_SRCS)`, which is the same place
-# glut-demo names it: GLU is a separate library from GL, and a title that never calls it should
-# not carry the mipmap builder. ETR calls `gluBuild2DMipmaps` - `textures.cpp` builds every one
-# of its textures that way, which is how texture loading was written when ETR was.
-PAYLOAD_SRCS = $(OOPS_POSIX_SRCS) \
-               $(OOPS_GL_SRCS) \
-               $(OOPS_SDK_DIR)/src/gl/gl_glu.c \
-               $(OOPS_SDK_DIR)/src/display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
-               $(OOPS_SDK_DIR)/src/input/input.c \
-               $(OOPS_SDK_DIR)/src/input/keyboard.c \
-               $(OOPS_SDK_DIR)/src/input/mouse.c \
-               $(OOPS_SDK_DIR)/src/audio/audio.c \
-               $(OOPS_SDK_DIR)/src/memory/memory.c \
-               $(OOPS_SDK_DIR)/src/system/system.c \
-               $(OOPS_SDK_DIR)/src/system/suspend.c \
-               $(OOPS_SDK_DIR)/src/system/freestd.c \
-               $(OOPS_SDK_DIR)/src/system/syscall.c \
-               $(OOPS_SDK_DIR)/src/system/sysmodule.c \
-               $(OOPS_SDK_DIR)/src/thread/thread.c \
-               $(OOPS_SDK_DIR)/src/draw/draw.c
+OOPS_RENDERER = gl1
+OOPS_FEATURES := glu display input keyboard mouse audio suspend thread draw
+
+PAYLOAD_SRCS = $(OOPS_POSIX_SRCS)
 
 ENTRY_POINT := etr_start
 
 include $(OOPS_APPS_ROOT)/common/app.mk
+
+# --- the data -------------------------------------------------------------
+#
+# **`make package` is the one to run**, not `make title`: a title package built by `app.mk` holds
+# the payload and `sce_sys/`, and a *port* also ships the program's own content. ETR's is 55 MB in
+# 432 files - 283 PNGs, 93 course and object lists, the music and the fonts - and it reaches none
+# of its own menus without them.
+#
+# **Where it has to land is decided by upstream, not by us.** `game_config.cpp:313` sets
+# `data_dir = prog_dir + "/data"`, and `prog_dir` is `argv[0]` with its last three characters cut
+# off - so `shim/etr_start.cpp`'s `/app0/etr` makes the data directory `/app0/data`. That is why
+# this copies into the package rather than restoring beside it, and it is also why no patch is
+# needed to tell ETR where its content is.
+#
+# There is no host-side compile step here, which is the one way this is cheaper than Neverball:
+# ETR's data ships in the form the game reads.
+#
+# This is the **second** title to need this, Neverball's `package` being the first, and its comment
+# says `app.mk` "has no hook for that and should not grow one for a single title". Two is still not
+# three: a third port that ships content is the one that should make this shared rather than
+# copied, and at that point both of these become one `TITLE_DATA_DIR` line.
+.PHONY: package
+package: title
+	@test -d upstream/data || { echo "extreme-tux-racer: no upstream/data - run make first" >&2; exit 1; }
+	@echo "extreme-tux-racer: copying $$(du -sh upstream/data | cut -f1) of data into the package"
+	@rm -rf build/title/$(TITLE_ID)/data
+	@cp -r upstream/data build/title/$(TITLE_ID)/data
+	@# **The controls card's artwork, copied in here rather than into `upstream/data`.** The
+	@# help screen loads it by name out of the texture directory, but it is ours and shared
+	@# with every other port - so it goes into the *packaged* data and upstream's tree stays
+	@# exactly as upstream ships it. See `common/assets/controls/`.
+	@cp $(OOPS_APPS_ROOT)/common/assets/controls/controller.png \
+	    build/title/$(TITLE_ID)/data/textures/oops-controller.png
+	@echo "extreme-tux-racer: package is build/title/$(TITLE_ID) ($$(du -sh build/title/$(TITLE_ID) | cut -f1))"

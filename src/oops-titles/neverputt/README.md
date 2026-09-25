@@ -68,7 +68,7 @@ added when something is opaque rather than copied on the assumption they will be
 `SDL_INIT_JOYSTICK` and putting is an aim-and-power interaction rather than tilt-the-floor, which
 is a different shape from anything the SDL backend had been exercised against. It needed nothing.
 
-Two patches, both of which Neverball carries too:
+Three patches, all of which Neverball carries too:
 
 - **`0001` — settings persist.** Upstream calls `config_save` once, at `putt/main.c:386`, after
   the main loop returns, and a console title is closed from the dashboard rather than quitted, so
@@ -77,6 +77,11 @@ Two patches, both of which Neverball carries too:
 - **`0002` — rumble on a bounce.** The bounce strength the sound is already mixed at goes to the
   pad as well, so the speaker and the motors agree by construction. The decay lives in
   `common/haptics.c`, shared with every port; the shim starts and stops it around `main`.
+- **`0003` — the pad's button indices.** `share/config.c` is shared with Neverball, so its
+  DualShock 3 defaults were wrong here too: `putt/main.c:157` pauses on
+  `CONFIG_JOYSTICK_BUTTON_START`, which was index 8 — the right stick click — so **Options never
+  opened the pause menu**. This platform reports `SDL_GameControllerButton` order, where Options
+  is 6.
 
 ## Still to do
 

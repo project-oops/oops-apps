@@ -1,0 +1,123 @@
+Show the pad's controls, on the help screen that already exists.
+
+A console port has a problem a desktop build does not: nothing on screen says what the
+buttons do. Upstream's help screen lists thirteen key names, which is the right page for a
+desktop and the wrong one here - there is no keyboard in the room, and the one thing a
+player cannot work out for themselves is which button charges a jump.
+
+**The screen already existed**, which is why this is a patch to one function rather than a
+new game mode, a new entry in `TGameMode` and a new set of mode functions. `HELP` is in
+upstream's enum and reachable from the menus; only what it draws changes.
+
+The wireframe is the shared one from `common/assets/controls`, loaded straight to a GL id
+with `CTexture::LoadTexture` rather than added to `data/textures/textures.lst` - the
+picture is ours and shared with every title here, so it ships in the *packaged* data
+(`make package` copies it) and upstream's own data stays as upstream ships it. A load
+failure draws the list without the picture rather than refusing to open the screen.
+
+The strings are English here rather than `Trans.Text` indices. Upstream's 44-56 *are* the
+key list, so reusing them would print keyboard help beside a picture of a pad, and adding
+new indices means editing thirteen translation files of somebody else's data for a screen
+that exists because this platform has no keyboard. It is the same trade the existing
+"Press any key to return to the main menu" line already makes.
+
+diff --git a/help.cpp b/help.cpp
+index 1c9353c..2d9ab36 100644
+--- a/help.cpp
++++ b/help.cpp
+@@ -26,6 +26,19 @@ GNU General Public License for more details.
+ 
+ static int xleft1, xleft2, ytop;
+ static TVector2 cursor_pos = {0, 0};
++
++// **The pad wireframe, loaded here rather than added to `textures.lst`.**
++//
++// `CTexture::LoadTextureList` reads that file out of upstream's own data directory, so putting
++// this there would mean editing a list this port has no other reason to touch - and the picture
++// is not upstream's, it is `oops-apps/common/assets/controls/controller.png`, shared with every
++// title here. `LoadTexture` hands back a GL id and `DrawDirect` takes one, so a screen can own a
++// texture without the manager knowing about it.
++//
++// Zero until the first `HelpInit`, and loaded once: this screen is entered and left repeatedly
++// and re-uploading a megabyte of texture each time would be a visible stall on the way in.
++static GLuint pad_texid = 0;
++static GLuint pad_w = 0, pad_h = 0;
+ 				  
+ void HelpKeys (unsigned int key, bool special, bool release, int x, int y) {
+ 	if (key == SDLK_ESCAPE) Winsys.SetMode (GAME_TYPE_SELECT);
+@@ -51,9 +64,17 @@ void HelpInit (void) {
+ 	init_ui_snow (); 
+ 	Music.Play (param.credits_music, -1);
+ 
+-	xleft1 = 40; 
++	xleft1 = 40;
+ 	xleft2 = (int)(param.x_resolution / 2) + 20;
+ 	ytop = AutoYPosN (15);
++
++	if (pad_texid == 0) {
++		// Failure is not fatal and is not reported here: `LoadTexture` says so itself, and a
++		// help screen that refuses to open because a picture is missing is worse than one that
++		// shows the list without it. `pad_texid` stays 0 and the draw below skips.
++		pad_texid = (GLuint) Tex.LoadTexture (param.tex_dir.c_str(),
++		                                      "oops-controller.png", &pad_w, &pad_h);
++	}
+ }
+ 
+ void HelpLoop (double timestep ){
+@@ -72,22 +93,42 @@ void HelpLoop (double timestep ){
+ 	FT.SetColor (colWhite);
+ 	FT.DrawString (xleft1, AutoYPosN (5), Trans.Text (57));
+ 
++	// **The pad, not the keyboard.**
++	//
++	// Upstream lists thirteen key names here, which is the right page for a desktop and the
++	// wrong one for a console: there is no keyboard in the room, and the one thing a player
++	// cannot work out for themselves is which button charges a jump.
++	//
++	// The strings are written out rather than taken from `Trans.Text`. Upstream's indices 44-56
++	// are *the key list* - "1, 2, 3 - change view mode" and the rest - so reusing them would
++	// print keyboard help beside a picture of a pad. Adding new indices means editing
++	// `data/translations/*.lst` for every language, which is thirteen files of somebody else's
++	// data to carry forever for a screen that exists because this platform has no keyboard.
++	// English-only here is the honest trade, and it is the same trade the "Press any key"
++	// line below already makes.
++	//
++	// The bindings are the ones `CWinsys::PadButtonKey` maps and `racing.cpp` acts on, so a
++	// card that disagrees with the game is not possible without changing both.
+ 	FT.AutoSizeN (3);
+ 	int offs = FT.AutoDistanceN (2);
+-	FT.DrawString (xleft1, ytop, Trans.Text(44));
+-	FT.DrawString (xleft1, ytop + offs, Trans.Text(45));
+-	FT.DrawString (xleft1, ytop + offs * 2, Trans.Text(46));
+-	FT.DrawString (xleft1, ytop + offs * 3, Trans.Text(47));
+-	FT.DrawString (xleft1, ytop + offs * 4, Trans.Text(48));
+-	FT.DrawString (xleft1, ytop + offs * 5, Trans.Text(49));
+-	FT.DrawString (xleft1, ytop + offs * 6, Trans.Text(50));
+-	FT.DrawString (xleft1, ytop + offs * 7, Trans.Text(51));
+-	FT.DrawString (xleft1, ytop + offs * 8,Trans.Text(52));
+-	FT.DrawString (xleft1, ytop + offs * 9, Trans.Text(53));
+-	FT.DrawString (xleft1, ytop + offs * 10, Trans.Text(54));
+-	FT.DrawString (xleft1, ytop + offs * 11, Trans.Text(55));
+-	FT.DrawString (xleft1, ytop + offs * 12, Trans.Text(56));
+-		
++	int y = ytop;
++
++	FT.DrawString (xleft1, y, "D-pad up / down   Paddle / brake");      y += offs;
++	FT.DrawString (xleft1, y, "D-pad left/right  Turn");                y += offs;
++	FT.DrawString (xleft1, y, "R1                Charge a jump");       y += offs;
++	FT.DrawString (xleft1, y, "L1                Trick (while airborne)"); y += offs;
++	FT.DrawString (xleft1, y, "Options           Pause");               y += offs;
++	FT.DrawString (xleft1, y, "Cross             Select");              y += offs;
++	FT.DrawString (xleft1, y, "Circle            Back / quit the race"); y += offs;
++
++	// The wireframe, right of the list. Skipped rather than substituted if it did not load -
++	// see `pad_texid` - because the list above is the part that matters.
++	if (pad_texid != 0 && pad_w > 0 && pad_h > 0) {
++		const int draw_w = (int)(param.x_resolution * 0.34);
++		const int draw_h = (int)(draw_w * (double)pad_h / (double)pad_w);
++		Tex.DrawDirect (pad_texid, xleft2, ytop - draw_h / 3, draw_w, draw_h);
++	}
++
+ 	FT.DrawString (CENTER, AutoYPosN (90), "Press any key to return to the main menu");
+     Winsys.SwapBuffers();
+ 
