@@ -75,8 +75,14 @@ ifeq ($(filter clean upstream-clean distclean,$(MAKECMDGOALS)),)
 # `UPSTREAM_NAME` and `UPSTREAM_REF` are passed because the script prints the "fetching" line
 # now. It has to be the script that prints it: only the script knows whether a fetch is about to
 # happen, and the `$(info)` that used to be here was outside that decision.
+# **`UPSTREAM_SUBMODULES` is passed for the same reason `UPSTREAM_SPARSE` is.** The script records
+# it in the stamp, so a lock that asks for submodules against a script that was never told about
+# them produces a stamp mismatch on *every* read of this file - which is a re-fetch on every
+# `make`, and on a machine whose container has no `git`, a hard failure on every `make`. Adding a
+# key to the script without adding it here is that bug, and it is how this line was found.
 $(shell UPSTREAM_NAME="$(APP_NAME)" UPSTREAM_REF="$(UPSTREAM_REF)" \
-        UPSTREAM_SPARSE="$(UPSTREAM_SPARSE)" $(OOPS_UPSTREAM_DIR_SELF)/upstream-fetch.sh \
+        UPSTREAM_SPARSE="$(UPSTREAM_SPARSE)" UPSTREAM_SUBMODULES="$(UPSTREAM_SUBMODULES)" \
+        $(OOPS_UPSTREAM_DIR_SELF)/upstream-fetch.sh \
         "$(UPSTREAM_KIND)" "$(UPSTREAM_URL)" \
         "$(UPSTREAM_REV)" "$(UPSTREAM_DIR)" "$(CURDIR)/patches" >&2)
 ifneq ($(wildcard $(UPSTREAM_STAMP)),$(UPSTREAM_STAMP))
