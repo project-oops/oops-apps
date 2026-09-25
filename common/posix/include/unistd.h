@@ -35,6 +35,13 @@ uid_t getuid(void);
  * the platform's `SYS_exit` with no atexit list and no return, which is `_exit`'s contract. */
 static inline void _exit(int status) { exit(status); }
 
+/* Descriptor I/O, over the SDK's `oops_fs_*`. A count, or -1 with `errno` - which is `EIO` for
+ * any platform refusal, because the SDK answers a sign rather than a reason and guessing between
+ * `EBADF` and `ENOSPC` would be inventing detail. */
+ssize_t read(int fd, void *buf, size_t count);
+ssize_t write(int fd, const void *buf, size_t count);
+int close(int fd);
+
 /* One process, so a constant - see the definition in `posix.c` for why that is the truth here
  * rather than a stand-in. */
 int getpid(void);

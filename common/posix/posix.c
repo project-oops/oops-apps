@@ -380,6 +380,59 @@ int gettimeofday(struct timeval *tv, void *tz) {
 int getpid(void) { return 1; }
 
 /*
+ * `read`, `write` and `close` on a descriptor.
+ *
+ * The SDK's `oops_fs_*` are these under other names, so this is a rename and a return type -
+ * `ssize_t` where the SDK answers `int64_t`, which is the same width here.
+ *
+ * Added for libgfxd, whose display-list decoder reads and writes through descriptors the caller
+ * hands it. They are general enough that anything doing file I/O the POSIX way will want them,
+ * which is the argument for this shim over a per-title one.
+ *
+ * **`errno` is set from the sign, not from a code.** `oops_fs_read` answers a count or a negative
+ * number and does not say which failure it was, so guessing between `EIO`, `EBADF` and `ENOSPC`
+ * would be inventing detail. `EIO` is the honest catch-all for "the platform refused and did not
+ * say why".
+ */
+ssize_t read(int fd, void *buf, size_t count) {
+    int64_t n;
+
+    if (fd < 0 || (!buf && count)) {
+        errno = EINVAL;
+        return -1;
+    }
+    n = oops_fs_read(fd, buf, count);
+    if (n < 0) {
+        errno = EIO;
+        return -1;
+    }
+    return (ssize_t)n;
+}
+
+ssize_t write(int fd, const void *buf, size_t count) {
+    int64_t n;
+
+    if (fd < 0 || (!buf && count)) {
+        errno = EINVAL;
+        return -1;
+    }
+    n = oops_fs_write(fd, buf, count);
+    if (n < 0) {
+        errno = EIO;
+        return -1;
+    }
+    return (ssize_t)n;
+}
+
+int close(int fd) {
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    return oops_fs_close(fd) == 0 ? 0 : -1;
+}
+
+/*
  * `isatty` and `fsync`, the other two `os-inl.h` reaches for.
  *
  * **Nothing here is a terminal.** A payload's `stdout` goes to the kernel log, not to a tty, so

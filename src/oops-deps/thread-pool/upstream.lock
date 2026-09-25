@@ -1,0 +1,11 @@
+# bshoshany/thread-pool's origin, pinned to the revision `libultraship` asks for.
+#
+# Header-only C++, one include in the whole of Ship of Harkinian - `BS_thread_pool.hpp`. It is
+# here because the tree includes it, not because it is load-bearing.
+#
+# A lightweight tag: `git ls-remote` returned one line, not the peeled pair an annotated tag gives,
+# so the ref and the commit are the same object.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/bshoshany/thread-pool
+UPSTREAM_REV=097aa718f25d44315cadb80b407144ad455ee4f9
+UPSTREAM_REF=v4.1.0

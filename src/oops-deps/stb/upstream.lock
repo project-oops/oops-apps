@@ -1,0 +1,16 @@
+# stb's origin.
+#
+# **libultraship does not vendor the repository, it downloads one file** -
+# `cmake/dependencies/common.cmake:55` fetches `stb_image.h` at commit `0bc88af4` by raw URL and
+# writes a two-line `stb_impl.c` beside it. That is the whole of its use: decoding PNG and JPEG
+# for textures.
+#
+# Pinned to the same commit, fetched as a repository rather than a raw URL, because a lock file
+# and `upstream-fetch.sh` is how everything else here is pinned and a bare download has no hash to
+# verify. Sparse, so only the one header lands: stb is a monorepo of thirty unrelated single-file
+# libraries and the rest is not wanted.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/nothings/stb
+UPSTREAM_REV=0bc88af4de5fb022db643c2d8e549a0927749354
+UPSTREAM_REF=0bc88af4 (the commit libultraship names)
+UPSTREAM_SPARSE=stb_image.h
