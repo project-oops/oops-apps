@@ -68,12 +68,28 @@ added when something is opaque rather than copied on the assumption they will be
 `SDL_INIT_JOYSTICK` and putting is an aim-and-power interaction rather than tilt-the-floor, which
 is a different shape from anything the SDL backend had been exercised against. It needed nothing.
 
-One known gap remains, inherited and not yet chased:
+Two patches, both of which Neverball carries too:
 
-- **Settings do not persist.** `config_save` is called once, at `putt/main.c:386`, after the main
-  loop returns — and a console title is closed or killed rather than quitted, so that line never
-  runs. Neverball's patch 0002 writes the config when the player's name is entered; Neverputt has
-  no name entry, so the equivalent wants a different trigger and has not been guessed at.
+- **`0001` — settings persist.** Upstream calls `config_save` once, at `putt/main.c:386`, after
+  the main loop returns, and a console title is closed from the dashboard rather than quitted, so
+  that line never ran. Saving when the options screen is left catches every setting at once and,
+  unlike a close handler, does not have to be right about how long the kill timer allows.
+- **`0002` — rumble on a bounce.** The bounce strength the sound is already mixed at goes to the
+  pad as well, so the speaker and the motors agree by construction. The decay lives in
+  `common/haptics.c`, shared with every port; the shim starts and stops it around `main`.
+
+## Still to do
+
+- **No controls reference card.** Neverball has one, on the `Controls` page its help screen
+  already had. Neverputt has **no help screen at all** — `putt/st_all.c` has no `st_help` — so a
+  card here is a new GUI state and a new title-screen entry rather than a patch to one function.
+  The artwork and the convention are ready in [`common/assets/controls/`](../../../common/assets/controls/);
+  only the screen is missing.
+- **No motion tilt**, and it would mean more here than in Neverball. Upstream's tilt interface is
+  Neverball's alone (`ball/main.c:270`); Neverputt has no equivalent hook, so aiming a putt by
+  tilting the pad would be a real change to its input handling rather than a backend swap.
+- **No rumble on the stroke itself**, only on bounces. Hitting the ball is the moment that most
+  wants feedback, and `putt/game.c` has the stroke separate from the collision path.
 
 ## The icon
 
