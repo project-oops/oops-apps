@@ -1,0 +1,18 @@
+# nlohmann/json's origin, pinned to the revision `libultraship` asks for (`GIT_TAG v3.12.0`).
+#
+# **The hash is the commit, not the tag.** `v3.12.0` is an *annotated* tag, so
+# `git ls-remote refs/tags/v3.12.0` answers `65ee6845...` - the tag object - and the commit it
+# points at is below. The fetch script compares `rev-parse HEAD` against what the lock names and
+# refuses the mismatch, which is how Neverball's pin was caught making the same mistake.
+#
+# Header-only: 42 of Ship of Harkinian's files include it, and none of them links anything.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/nlohmann/json
+UPSTREAM_REV=55f93686c01528224f448c19128836e7df245f72
+UPSTREAM_REF=v3.12.0
+
+# **Sparse, because the tree is mostly tests.** The repository carries a large corpus of JSON
+# conformance data that nothing here reads; `single_include` is the one amalgamated header a
+# consumer needs and `include` is the split form it is generated from. Same commit, fewer paths -
+# the pin is unaffected.
+UPSTREAM_SPARSE=single_include include

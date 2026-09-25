@@ -1,0 +1,10 @@
+# tinyxml2's origin, pinned to the revision `libultraship` asks for (`GIT_TAG 11.0.0`).
+#
+# A lightweight tag - `git ls-remote` returned one line rather than the peeled pair an annotated
+# tag gives - so the ref and the commit are the same object, unlike nlohmann/json's next door.
+#
+# One `.cpp` and one `.h`, included by 40 of Ship of Harkinian's files.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/leethomason/tinyxml2
+UPSTREAM_REV=9148bdf719e997d1f474be6bcc7943881046dba1
+UPSTREAM_REF=11.0.0
