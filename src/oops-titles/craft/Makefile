@@ -200,6 +200,36 @@ HOST_TEST_LIBS = -lm
 include $(OOPS_APPS_ROOT)/common/app.mk
 
 # ---------------------------------------------------------------------------
+# `make stage-data`: the assets, into the packaged title
+#
+#   make title stage-data
+#
+# **Craft does not start without these.** `main` loads four textures and four shader pairs before
+# it draws anything, and `load_png_texture` calls `exit(1)` when one is missing - so a title
+# packaged without them is not a degraded Craft, it is a title that closes immediately.
+#
+# It is a separate target because `title` belongs to `common/app.mk` and has no post-staging hook;
+# `mesa-demos` has the same split for the same reason. That makes it forgettable, so `restore`
+# below depends on it and refuses to send a title that has not been staged. A hook in `app.mk`
+# would be the better answer and is worth adding when that file is not being edited elsewhere.
+# ---------------------------------------------------------------------------
+CRAFT_TITLE_DIR = $(BUILD)/title/$(TITLE_ID)
+
+.PHONY: stage-data
+stage-data:
+	@test -d $(CRAFT_TITLE_DIR) || { \
+	    echo "stage-data: no packaged title at $(CRAFT_TITLE_DIR) - run 'make title' first"; \
+	    exit 1; \
+	}
+	@mkdir -p $(CRAFT_TITLE_DIR)/textures $(CRAFT_TITLE_DIR)/shaders
+	@cp upstream/textures/*.png $(CRAFT_TITLE_DIR)/textures/
+	@cp upstream/shaders/*.glsl $(CRAFT_TITLE_DIR)/shaders/
+	@t=$$(ls $(CRAFT_TITLE_DIR)/textures | wc -l); s=$$(ls $(CRAFT_TITLE_DIR)/shaders | wc -l); \
+	 printf 'stage-data: %s textures, %s shaders -> %s\n' "$$t" "$$s" "$(CRAFT_TITLE_DIR)"; \
+	 test "$$t" -eq 4 || { echo "stage-data: expected 4 textures"; exit 1; }; \
+	 test "$$s" -eq 8 || { echo "stage-data: expected 8 shaders"; exit 1; }
+
+# ---------------------------------------------------------------------------
 # `make census`: which of this title's sources compile for the target, today
 # ---------------------------------------------------------------------------
 #
