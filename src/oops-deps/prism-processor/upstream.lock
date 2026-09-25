@@ -1,0 +1,14 @@
+# KiritoDv/prism-processor's origin, pinned to the revision `libultraship` asks for.
+
+# The shader template processor. `gfx_opengl.cpp:23` includes `<prism/processor.h>` and uses it to
+# expand the F3D combiner into GLSL at run time, so it is on the rendering path rather than beside
+# it - the backend has no shaders without it.
+#
+# **No `UPSTREAM_REF`, because the repository has no tags.** `git ls-remote --tags` returns
+# nothing at all, so there is no name to record beside the hash; `libultraship`'s own
+# `cmake/dependencies/common.cmake:111` pins the same bare commit. It is reachable from `main`,
+# which is where a reader should look, but naming a branch here would be worse than naming
+# nothing: a branch moves, and the lock would then read as if it recorded something stable.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/KiritoDv/prism-processor
+UPSTREAM_REV=bbcbc7e3f890a5806b579361e7aa0336acd547e7

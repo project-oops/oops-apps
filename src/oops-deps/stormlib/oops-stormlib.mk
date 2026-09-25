@@ -108,12 +108,19 @@ $(foreach e,$(OOPS_STORMLIB_EXPECT),\
 # `BZ_STRICT_ANSI` is upstream's own `add_definitions`, and it earns its place here: it stops
 # bzip2 reaching for `<sys/stat.h>` open-mode machinery it only needs for its command-line tool.
 OOPS_STORMLIB_DEFS := -D__SYS_ZLIB -D_7ZIP_ST -DBZ_STRICT_ANSI -D__PROSPERO__=1
-OOPS_STORMLIB_BASE = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
-                     -nostdlibinc -fPIC -O2 -w \
-                     $(OOPS_STORMLIB_INCLUDE) $(OOPS_STORMLIB_DEFS) $(OOPS_ZLIB_INCLUDE) \
-                     $(OOPS_POSIX_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
-OOPS_STORMLIB_CFLAGS   = $(OOPS_STORMLIB_BASE) -std=gnu11
-OOPS_STORMLIB_CXXFLAGS = $(OOPS_STORMLIB_BASE) -std=c++17 -nostdinc++ $(OOPS_LIBCXX_INCLUDE)
+OOPS_STORMLIB_TARGET = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
+                       -fPIC -O2 -w
+OOPS_STORMLIB_OWN    = $(OOPS_STORMLIB_INCLUDE) $(OOPS_STORMLIB_DEFS) $(OOPS_ZLIB_INCLUDE)
+OOPS_STORMLIB_CFLAGS = $(OOPS_STORMLIB_TARGET) -nostdlibinc -std=gnu11 $(OOPS_STORMLIB_OWN) \
+                       $(OOPS_POSIX_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
+# **`$(OOPS_LIBCXX_INCLUDE)` comes before the C headers.** libc++ ships its own `<math.h>` and
+# `<stdlib.h>` wrapping the C library's, and `<cmath>` stops with an explicit error if it reaches
+# the C one first. StormLib's C++ is C-with-classes and includes neither, so the wrong order built
+# perfectly well here and would have failed for the next consumer - prism-processor is where it
+# actually showed up. It also carries `-nostdinc++ -nostdlibinc`, so those are not repeated.
+OOPS_STORMLIB_CXXFLAGS = $(OOPS_STORMLIB_TARGET) -std=c++17 $(OOPS_STORMLIB_OWN) \
+                         $(OOPS_LIBCXX_INCLUDE) \
+                         $(OOPS_POSIX_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
 
 # Objects are named by a counter rather than by basename: `src/lzma/C/LzFind.c` and a future
 # `src/LzFind.c` would collide in one flat build directory, and a silently-overwritten object is
