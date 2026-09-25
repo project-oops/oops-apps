@@ -17,14 +17,18 @@ GDScript files, their scenes and 728 MB of assets, and **no engine source at all
 
 ## Why it is scaffolded rather than queued
 
-There is nothing here to compile against `oops-sdk`. Porting this title means porting Godot, with
-this repository as its first payload — an engine job rather than a title one, and the honest
-comparison is with `oops-mesa` rather than with the other titles in this directory.
+There is nothing here to compile against `oops-sdk` — this title is data for an engine. Godot on this
+target is the work, and it is **a platform directory, not an engine rewrite**: Godot keeps everything
+platform-specific in `platform/<name>/`, which is 10,609 lines for the whole Linux/BSD layer and 586
+for the headless one, against roughly 470,000 lines of engine reused untouched.
 
-The version is the interesting part, and it is easy to get backwards. Godot 4 renders through Vulkan
-or a GL 3.3-core Compatibility path. **Godot 3.x keeps a `drivers/gles2/` renderer**, and `oops-gl`
-already has a GL 2.0 path that Craft and SuperTux's 2D port target. That gap is narrow enough to be
-worth an argument — which is why the scaffold exists instead of a deletion.
+Godot does not use SDL for windowing, so a `platform/oops` binds straight to `oops_display_*`,
+`oops_input_*` and `oops_audio_*` — one layer fewer than the SDL titles here need, and no SDL3
+problem at all.
 
-[`docs/PORTING.md`](docs/PORTING.md) has the split, the renderer comparison, and why Godot's own
-`platform/<name>/` layout cuts both ways.
+**Sequenced behind `oops-mesa` rather than declined.** Godot 4's Compatibility renderer wants GL 3.3
+core, which is inside `oops-mesa`'s destination of 4.6 — so waiting costs nothing and buys the current
+Godot catalogue instead of the legacy one.
+
+[`docs/PORTING.md`](docs/PORTING.md) has the measurements, the GLES2 census for the legacy path, and
+the one unknown left: whether Godot's SCons build cross-compiles to this target.

@@ -12,47 +12,61 @@
 | upstream tags | none; the newest commit is 2020-04-27 |
 | platforms upstream ships | Linux only |
 
-So there is nothing here to compile against `oops-sdk`. A port of this title is a port of Godot,
-with this repository as its first payload.
+So this title is not the work. Godot on this target is the work, and this repository is then data the
+engine loads.
 
-## That is a different kind of job from every other title here
+## Godot support is a platform directory, not an engine rewrite
 
-Every other port in `src/oops-titles` is a program that draws through GL and reads files. This one
-is a *project file* for an engine. The work splits in two and only the second half is small:
+This document said the opposite in its first version, and the measurement says otherwise. Godot
+isolates everything platform-specific into `platform/<name>/`, and that is the only part a new
+target replaces:
 
-1. **Godot 3.x on this target.** An engine of roughly two million lines of C++ including its
-   bundled third-party code, with its own platform abstraction.
-2. **This title on that engine.** Once the engine runs, a GDScript project is data - the engine
-   loads it. There is nothing to port in step 2.
+| Godot 3.7 | lines |
+|---|---|
+| `core` | 110,083 |
+| `scene` | 208,996 |
+| `servers` | 83,635 |
+| `drivers` | 65,453 |
+| **reused untouched** | **~470,000** |
+| `platform/x11` — the whole Linux/BSD layer | **10,609** |
+| `platform/server` — the headless layer, i.e. the floor | **586** |
 
-## Why Godot 3 is a more interesting question than Godot 4 would be
+A few thousand lines against most of half a million. That is the order of a large title port —
+`libultraship` is 138 sources — rather than the order of `oops-mesa`.
 
-The version matters and it is easy to get backwards. **Godot 4's** renderers are Forward+ and Mobile
-(both Vulkan) and Compatibility (OpenGL ES 3.0 / GL 3.3 core). **Godot 3.x** keeps a `drivers/gles2/`
-renderer — GL ES 2.0, shader-based but ES2-level.
+## Why `scons platform=x11` is not the answer, and why that is fine
 
-`oops-gl` has a GL 2.0 path (`OOPS_RENDERER = gl2`) that SuperTux's 2D port and Craft already
-target. GLES2 and desktop GL 2.0 are close relatives, not the same thing - ES2 has no fixed
-function, different precision qualifiers, a narrower texture-format set - but that gap is the kind
-`oops-gl` has closed before, and it is far narrower than GL 3.3 core would be.
+The x11 layer binds straight to the host: `X11/Xlib.h`, `GL/glx.h`, `alsa/asoundlib.h`,
+`pulse/pulseaudio.h`, `libudev.h`, `dlfcn.h`. None of those exist here.
 
-That is the case for looking at Godot 3 rather than dismissing the engine outright. It is not a
-case for doing it: see [`../README.md`](../README.md) and the survey notes, and the argument written
-up alongside this scaffold.
+But **Godot does not use SDL for windowing** — it implements display, input and audio per platform.
+So a `platform/oops` binds directly to `oops_display_*`, `oops_input_*` and `oops_audio_*`, which is
+one layer *fewer* than every SDL title in this directory needs, and sidesteps the SDL3 problem that
+blocks Bugdom entirely. `platform/server` at 586 lines is the skeleton to start from: add display,
+input and audio to a headless target.
 
-## Godot is designed to be ported, which cuts both ways
+## Target Godot 4, not 3.x
 
-`platform/<name>/` is the engine's own extension point: an OS implementation, a display/window
-driver, an audio driver and a main entry, per platform. Console ports exist and are built exactly
-this way. So the shape of the work is known and the engine does not have to be fought.
+The renderer question mostly dissolves once `oops-mesa` is accounted for. Godot 4's Compatibility
+renderer wants **GL 3.3 core**, comfortably inside `oops-mesa`'s destination of 4.6. So the engine
+work reaches the *current* Godot catalogue rather than the legacy one, and there is no reason to aim
+at 3.x.
 
-Against that: it is still an engine port. Everything this collection has learned about one title -
-a shim, a patch, a source list - does not transfer, because the thing being ported is not a title.
-The honest comparison is not "Godot versus Bugdom" but "Godot versus `oops-mesa`", which is the
-other large engine-shaped investment already underway.
+For the record, the legacy path is also close. Censused against `oops-gl`, Godot 3.7's `drivers/gles2`
+names 126 GL entry points and 93 are already defined. Of the 33 gaps, **27 are header-only
+declarations** in Godot's own GL glue that nothing calls. Of the 6 real call sites, three are
+`ARB_debug_output` (guarded by `GLAD_GL_ARB_debug_output` and a verbose-stdout check), one is
+Apple-only, one is multisample FBO. **The single real gap is `glBindVertexArray`** — the same vertex
+array object work ImGui already wants for Ship of Harkinian.
+
+## What has not been measured
+
+**Whether Godot's SCons build cross-compiles to `x86_64-unknown-freebsd`** with this collection's
+clang and `oops-deps/libcxx`. That is the one remaining unknown that could be expensive, and it is
+cheap to answer. Godot disables exceptions and RTTI by default, which is favourable.
 
 ## Status
 
-**Scaffolded, not queued.** The lock and this note exist so the decision is recorded next to the
-other candidates from the same survey rather than living in a chat log. Nothing should be spent here
-until the Godot question is settled on its own terms.
+**Scaffolded, and sequenced behind `oops-mesa` rather than declined.** Waiting costs nothing and buys
+the better target: when `oops-mesa` serves GL 3.3, Godot 4's Compatibility renderer is in range and
+this becomes a platform directory plus a build. Nothing should be spent here before then.
