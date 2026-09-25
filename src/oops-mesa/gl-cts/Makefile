@@ -268,27 +268,9 @@ OOPS_CXX_EXCEPTIONS = 1
 OOPS_CXX_STD = c++17
 OOPS_CXX_SRCS       = $(CTS_CXX_SRCS) $(CTS_SHIM_CXX)
 
-# # The SDK sources a hosted title has to name for itself
-#
-# `common/app.mk`'s `CORE_SDK_SRCS` is five files - the ones every payload needs whether it asks
-# or not. Everything else is the title's to list, and the way that failure shows up is the
-# expensive one: a payload link passes `--unresolved-symbols=ignore-all`, so a missing
-# `oops_display_open` links silently and faults on the console.
-#
-# This is `mesa-cube`'s list without the parts a test suite has no use for - no HUD, no compute,
-# no input. `display.c` and the AGC pair are how `oops_gfx_create` reaches the panel;
-# `system.c` carries `oops_klog` and `oops_log`, which every line of this title's output goes
-# through.
-PAYLOAD_SRCS        = shim/gl_cts_entry.c \
-                      $(OOPS_SDK_DIR)/src/display.c \
-                      $(OOPS_SDK_DIR)/src/agc/agc_display.c \
-                      $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
-                      $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
-                      $(OOPS_SDK_DIR)/src/memory/memory.c \
-                      $(OOPS_SDK_DIR)/src/thread/thread.c \
-                      $(OOPS_SDK_DIR)/src/system/system.c \
-                      $(OOPS_SDK_DIR)/src/system/freestd.c \
-                      $(OOPS_SDK_DIR)/src/system/syscall.c
+OOPS_FEATURES := display thread
+
+PAYLOAD_SRCS        = shim/gl_cts_entry.c
 
 include $(OOPS_LIBCXX)/oops-libcxx.mk
 include $(OOPS_LIBCXX)/oops-libunwind.mk
@@ -296,6 +278,28 @@ include $(OOPS_LIBCXX)/oops-libcxxabi.mk
 include $(OOPS_APPS_ROOT)/common/cxx.mk
 
 OOPS_CXX_INCLUDE     += $(OOPS_LIBCXX_INCLUDE) $(CTS_INCLUDES) $(CTS_DEFINES)
+
+# # `-ftls-model=initial-exec`, because dEQP's GL dispatch is thread-local
+#
+# `glwWrapper.cpp` keeps the current function table in a `__thread` variable:
+#
+#     DE_THREAD_LOCAL const glw::Functions *s_functions = nullptr;
+#
+# Compiled general-dynamic - the default for `-fPIC` - writing it goes through `__tls_get_addr`,
+# and on this platform that call reaches libkernel and faults. Measured on hardware 2026-09-25:
+# SIGSEGV reading address 0x8, `rip` inside `libkernel.sprx`, called from
+# `glw::setCurrentThreadFunctions+0x19` under `deqp::Context::createRenderContext` - the first
+# thing a test package does after the GL context exists.
+#
+# **oops-mesa already carries this flag for the same reason.** Its meson command line is
+# `-ftls-model=initial-exec`, which is why Mesa's own thread-local dispatch works in `mesa-cube`;
+# this title's C++ was the part that did not have it. `initial-exec` resolves a thread-local
+# through the thread pointer at a link-time offset, so nothing is called at all.
+#
+# It goes on the C++ rather than in `EXTRA_TARGET_CFLAGS` for the reason the `CTS_DEFINES` note
+# below gives: that variable also reaches oops-mesa's runtime shim, and this title has no business
+# changing how somebody else's sources are built.
+OOPS_CXX_INCLUDE     += -ftls-model=initial-exec
 
 # # `CTS_DEFINES` is deliberately NOT in `EXTRA_TARGET_CFLAGS`
 #
