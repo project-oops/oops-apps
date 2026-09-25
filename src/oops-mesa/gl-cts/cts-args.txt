@@ -1,0 +1,26 @@
+# Arguments for the CTS run, one per line. Staged to /app0 by `make stage-args`.
+#
+# **This file is the whole point of the run-time subset.** oops-mesa's roadmap row 8 asks for "a
+# bounded, named subset", and a subset fixed at build time would be one this project curated
+# rather than one it ran. Editing this file and restoring it changes what executes; the binary
+# does not change and does not need rebuilding.
+#
+# `shim/gl_cts_entry.c` reads it before anything touches /data, because reaching /data escapes the
+# sandbox and /app0 stops resolving after that.
+
+# The first subset that exercises the driver rather than describing it.
+#
+# `KHR-GL30.info.*` (the default with no file) asks the driver what it is: six cases, all passing
+# as of 2026-09-25, and not conformance in any useful sense - nothing in it touches a shader, a
+# texture or a buffer.
+#
+# These three do, and are bounded enough to come back through klog while the .qpa is still empty
+# (oops-sdk REQ-20260925T1936Z-6c8d):
+#
+#   get_uniform_tests   uniform getters - shader compile, link, and readback of every type
+#   buffer_objects      buffer creation, upload, mapping and draw
+#   clip_distance       gl_ClipDistance, which is a vertex-shader output the rasteriser must honour
+#
+# Each is a real pass/fail about this driver. Expect failures: that is the point of running
+# somebody else's tests, and a failure here is a finding rather than a fault in the run.
+--deqp-case=KHR-GL30.get_uniform_tests.*

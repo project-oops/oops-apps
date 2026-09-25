@@ -270,8 +270,7 @@ OOPS_CXX_SRCS       = $(CTS_CXX_SRCS) $(CTS_SHIM_CXX)
 
 OOPS_FEATURES := display thread
 
-PAYLOAD_SRCS        = shim/gl_cts_entry.c \
-                      shim/gl_cts_open.c
+PAYLOAD_SRCS        = shim/gl_cts_entry.c
 
 include $(OOPS_LIBCXX)/oops-libcxx.mk
 include $(OOPS_LIBCXX)/oops-libunwind.mk
