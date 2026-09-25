@@ -134,12 +134,22 @@ include $(OOPS_THREADPOOL)/oops-thread-pool.mk
 include $(OOPS_APPS_ROOT)/common/posix.mk
 include $(OOPS_APPS_ROOT)/common/rt.mk
 
-# The port's own headers. `upstream/` is on the list because `soh/soh` includes `libultraship/...`
-# by that path, and `upstream/soh` because libultraship includes back into it.
+# The port's own headers, taken from `soh/CMakeLists.txt`'s `target_include_directories` and
+# `libultraship/src/CMakeLists.txt` rather than inferred.
+#
+# **Inferring them cost a survey.** A first pass guessed `upstream/` and `upstream/soh`, and 340 of
+# `soh/soh`'s 401 sources failed on `z64.h`, `z64item.h`, `variables.h` and `global.h` - every one
+# of which is in `soh/include/`, which was not on the list. That reads as a port with a vast gap
+# and is a harness with a missing `-I`. The rule this keeps re-teaching: read the build system's
+# own list, do not reconstruct it.
 SOH_OWN_INCLUDE := -I$(CURDIR)/upstream \
                    -I$(CURDIR)/upstream/libultraship/src \
                    -I$(CURDIR)/upstream/libultraship/include \
-                   -I$(CURDIR)/upstream/soh
+                   -I$(CURDIR)/upstream/soh \
+                   -I$(CURDIR)/upstream/soh/include \
+                   -I$(CURDIR)/upstream/soh/src \
+                   -I$(CURDIR)/upstream/soh/assets \
+                   -I$(CURDIR)/upstream/ZAPDTR/ZAPD/resource/type
 
 SOH_INCLUDE := $(SOH_OWN_INCLUDE) $(SOH_GEN_INCLUDE) $(SOH_DEFS) \
                $(OOPS_SPDLOG_INCLUDE) $(OOPS_JSON_INCLUDE) $(OOPS_TINYXML2_INCLUDE) \
