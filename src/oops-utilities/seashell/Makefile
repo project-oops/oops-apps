@@ -17,40 +17,20 @@ SKIN_SRCS = skins/skin_registry.c \
             skins/skin_amber.c \
             skins/skin_revolution.c
 
+OOPS_FEATURES := display draw png input keyboard savedata pkg net
+
 # Host test sources
 HOST_TEST_SRCS = home_selftest.c home.c $(SKIN_SRCS) \
-                 $(OOPS_SDK_DIR)/src/draw/draw.c \
-                 $(OOPS_SDK_DIR)/src/draw/png.c \
-                 $(OOPS_SDK_DIR)/src/input/keyboard.c \
+                 $(OOPS_FEATURE_draw_SRCS) \
+                 $(OOPS_FEATURE_png_SRCS) \
+                 $(OOPS_FEATURE_keyboard_SRCS) \
                  $(OOPS_SDK_DIR)/src/memory/heap.c \
                  $(OOPS_SDK_DIR)/src/system/system.c \
                  $(OOPS_SDK_DIR)/src/system/fs.c \
                  $(OOPS_SDK_DIR)/src/system/freestd.c
 
 # Target payload sources
-PAYLOAD_SRCS = home.c home_main.c $(SKIN_SRCS) \
-               $(OOPS_SDK_DIR)/src/display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_display.c $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
-               $(OOPS_SDK_DIR)/src/gnm/gnm_display.c \
-               $(OOPS_SDK_DIR)/src/input/input.c \
-               $(OOPS_SDK_DIR)/src/input/keyboard.c \
-               $(OOPS_SDK_DIR)/src/memory/memory.c \
-               $(OOPS_SDK_DIR)/src/memory/heap.c \
-               $(OOPS_SDK_DIR)/src/system/system.c \
-               $(OOPS_SDK_DIR)/src/system/fs.c \
-               $(OOPS_SDK_DIR)/src/system/savedata.c \
-               $(OOPS_SDK_DIR)/src/system/pkg.c \
-               $(OOPS_SDK_DIR)/src/system/sysmodule.c \
-               $(OOPS_SDK_DIR)/src/system/freestd.c \
-               $(OOPS_SDK_DIR)/src/system/syscall.c \
-               $(OOPS_SDK_DIR)/src/system/offsets.c \
-               $(OOPS_SDK_DIR)/src/net/net.c \
-               $(OOPS_SDK_DIR)/src/net/dns.c \
-               $(OOPS_SDK_DIR)/src/net/netctl.c \
-               $(OOPS_SDK_DIR)/src/time/time.c \
-               $(OOPS_SDK_DIR)/src/draw/draw.c \
-               $(OOPS_SDK_DIR)/src/draw/png.c
+PAYLOAD_SRCS = home.c home_main.c $(SKIN_SRCS)
 
 ENTRY_POINT := seashell_start
 

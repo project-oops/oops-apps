@@ -13,15 +13,12 @@ OOPS_APPS_ROOT ?= $(abspath ../../..)
 HOST_TEST_SRCS = tracer_selftest.c trace_decode.c hook.c shader_dump.c tracer.c
 EXTRA_CFLAGS += -DTRACER_SELFTEST
 
+OOPS_FEATURES := inject
+
 # Target payload sources
 PAYLOAD_SRCS = tracer.c \
                hook.c \
-               shader_dump.c \
-               $(OOPS_SDK_DIR)/src/system/system.c \
-               $(OOPS_SDK_DIR)/src/system/fs.c \
-               $(OOPS_SDK_DIR)/src/system/freestd.c \
-               $(OOPS_SDK_DIR)/src/system/syscall.c \
-               $(OOPS_SDK_DIR)/src/system/krw.c
+               shader_dump.c
 
 ENTRY_POINT := tracer_start
 

@@ -24,8 +24,10 @@
  * want of a caller frame. Every other Mesa title here ends the same way.
  */
 #include <errno.h>
+#include <fcntl.h>  /* the raw open/write arm of the write probe */
 #include <stddef.h>
 #include <stdio.h>
+#include <unistd.h> /* write, fsync, read, close - same */
 
 #include "oops/fs.h"
 #include "oops/system.h"
@@ -204,6 +206,176 @@ static const char *resolve_log_argument(void)
  */
 extern void oops_mesa_run_init_array(void);
 
+/*
+ * Does writing a file work at all here?
+ *
+ * The suite ran 6/6 on hardware and `/data/GCTS00001/TestResults.qpa` came back **0 bytes**. The
+ * log opened - dEQP printed "Writing test log into ..." and the file exists on the console with
+ * the right name and mode - and `qpTestLog.c` writes it with plain `fopen`/`fprintf`/`fflush`/
+ * `fclose` (lines 330, 375, 249, 413). `tcu::TestLog` is a stack object inside `tcuMain.cpp`'s
+ * try block, so its destructor ran and closed the file before `main` returned, which it did:
+ * "dEQP returned 0" is printed after.
+ *
+ * So the bytes went somewhere that is not that file, and **nothing in this title has ever
+ * successfully written one**. The only other file operation is reading `/app0/cts-args.txt`,
+ * which has returned NULL on every run because the sandbox escape takes `/app0` away first - so
+ * that is not evidence of a working `fopen` either.
+ *
+ * Three candidates, and they need different fixes, which is why this measures instead of
+ * guessing:
+ *
+ *   - writes are discarded (`fwrite` reports success, nothing lands)
+ *   - writes are buffered and the flush does not reach the disk (`fflush`/`fclose` are stubs)
+ *   - the file this process writes is not the file the host sees (namespace, after the escape)
+ *
+ * The first two are told apart by the return values below. The third is told apart by the
+ * read-back: this writes a known string, closes, reopens and reads it in the *same* process. If
+ * the read-back succeeds and the host still sees 0 bytes, the process and the host are looking at
+ * different files, and the log path is the thing to change rather than the libc.
+ */
+static void report_file_write(void)
+{
+    char path[256];
+
+    if (oops_fs_storage_path(OOPS_STORAGE_APP_DATA, "writetest.txt", path, sizeof path) != 0) {
+        oops_log("gl-cts: writetest - storage path refused");
+        return;
+    }
+
+    static const char payload[] = "oops-gl-cts write probe\n";
+    const size_t      want      = sizeof payload - 1u;
+
+    errno    = 0;
+    FILE *f  = fopen(path, "wb");
+    if (f == NULL) {
+        oops_log("gl-cts: writetest - fopen(%s) failed, errno %d", path, errno);
+        return;
+    }
+
+    errno           = 0;
+    const size_t wr = fwrite(payload, 1, want, f);
+    const int    ew = errno;
+
+    errno         = 0;
+    const int fl  = fflush(f);
+    const int efl = errno;
+
+    errno         = 0;
+    const int cl  = fclose(f);
+    const int ecl = errno;
+
+    oops_log("gl-cts: writetest %s: fwrite %u/%u errno %d, fflush %d errno %d, fclose %d errno %d",
+             path, (unsigned)wr, (unsigned)want, ew, fl, efl, cl, ecl);
+
+    /* Read it back in this same process. Distinguishes a broken libc from a namespace split. */
+    errno    = 0;
+    FILE *rf = fopen(path, "rb");
+    if (rf == NULL) {
+        oops_log("gl-cts: writetest - reopen failed, errno %d (the bytes did not land)", errno);
+        return;
+    }
+
+    char         buf[64];
+    const size_t rd = fread(buf, 1, sizeof buf - 1u, rf);
+    fclose(rf);
+    buf[rd] = '\0';
+
+    if (rd == want)
+        oops_log("gl-cts: writetest - read back %u bytes, so this process can write and read a "
+                 "file; if the host sees 0 they are not the same file",
+                 (unsigned)rd);
+    else
+        oops_log("gl-cts: writetest - read back %u bytes, expected %u", (unsigned)rd,
+                 (unsigned)want);
+
+    /*
+     * The same thing again with no stdio in the way.
+     *
+     * Measured 2026-09-25: the stdio arm above reports complete success at every step - `fwrite`
+     * 24/24, `fflush` 0, `fclose` 0, errno never set - and reading the file back *in this same
+     * process* gives 0 bytes. The file is created; the bytes are not. Because the read-back is in
+     * the same process and at the same path, this is not a namespace split.
+     *
+     * What is left is whether the FILE layer ever issues a `write(2)`, or whether `write(2)`
+     * itself reports a count it did not deliver. Those are different repairs - one is the C
+     * library's buffering, the other is the platform's file write after a sandbox escape - and a
+     * raw `open`/`write`/`fsync` separates them in one run. `fsync` is included because a
+     * successful `write` that never reaches storage would show up only there.
+     */
+    char rawpath[256];
+
+    if (oops_fs_storage_path(OOPS_STORAGE_APP_DATA, "writeraw.txt", rawpath, sizeof rawpath) != 0) {
+        oops_log("gl-cts: writeraw - storage path refused");
+        return;
+    }
+
+    errno     = 0;
+    const int fd = open(rawpath, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd < 0) {
+        oops_log("gl-cts: writeraw - open failed, errno %d", errno);
+        return;
+    }
+
+    errno              = 0;
+    const ssize_t wrote = write(fd, payload, want);
+    const int     ewr   = errno;
+
+    errno            = 0;
+    const int synced = fsync(fd);
+    const int esy    = errno;
+
+    errno           = 0;
+    const int closed = close(fd);
+    const int ecl2   = errno;
+
+    oops_log("gl-cts: writeraw %s: write %d/%u errno %d, fsync %d errno %d, close %d errno %d",
+             rawpath, (int)wrote, (unsigned)want, ewr, synced, esy, closed, ecl2);
+
+    errno         = 0;
+    const int rfd = open(rawpath, O_RDONLY);
+    if (rfd < 0) {
+        oops_log("gl-cts: writeraw - reopen failed, errno %d", errno);
+        return;
+    }
+
+    char          rbuf[64];
+    const ssize_t got = read(rfd, rbuf, sizeof rbuf);
+    close(rfd);
+
+    oops_log("gl-cts: writeraw - read back %d bytes, expected %u%s", (int)got, (unsigned)want,
+             (got == (ssize_t)want) ? " - so the syscalls work and stdio is the problem"
+                                    : " - so write(2) itself reports what it did not do");
+
+    /*
+     * And the same thing through the SDK's own file layer, which is the supported way to write a
+     * file here and the one a finding should be stated in terms of.
+     *
+     * `oops_fs_write_all` is `write(2)` underneath (`oops-sdk/src/system/fs.c:108`), so this is
+     * not a third mechanism - it is the same syscall reached through the API that oops-sdk
+     * guarantees, with whatever open flags and retry loop it applies. If this works and stdio
+     * does not, gl-cts has an immediate fix (route the `.qpa` through it) and the finding is
+     * "dEQP uses stdio and stdio does not write here". If this fails too, the write path itself
+     * is the finding and it belongs to oops-sdk.
+     */
+    char sdkpath[256];
+
+    if (oops_fs_storage_path(OOPS_STORAGE_APP_DATA, "writesdk.txt", sdkpath, sizeof sdkpath) != 0) {
+        oops_log("gl-cts: writesdk - storage path refused");
+        return;
+    }
+
+    const int wrc = oops_fs_write_all(sdkpath, payload, want);
+
+    void  *back = NULL;
+    size_t bsz  = 0;
+    const int rrc = oops_fs_read_all(sdkpath, &back, &bsz);
+    if (back != NULL)
+        oops_fs_free_data(back);
+
+    oops_log("gl-cts: writesdk %s: oops_fs_write_all %d, oops_fs_read_all %d, read back %u/%u",
+             sdkpath, wrc, rrc, (unsigned)bsz, (unsigned)want);
+}
+
 void gl_cts_start(void)
 {
     oops_log("gl-cts: start");
@@ -297,6 +469,9 @@ void gl_cts_start(void)
     const int rc = oops_cts_run_main(argc, s_argv);
 
     oops_log("gl-cts: dEQP returned %d", rc);
+
+    report_file_write();
+
     oops_log("gl-cts: done");
 
     for (;;) {

@@ -38,7 +38,19 @@ extern "C" {
  *
  * A caller that does not check is a caller that dereferences null and faults *at the point of
  * the bug*, which is the better of the two failures available here.
+ *
+ * **Yielded to the standard library when it is present.** A title that links the full `libc++.a`
+ * (not just `libc++abi.a`) gets libc++'s own `operator new`/`delete`, which live in libc++'s
+ * `__lcxx_override` section and carry a guard asserting every replaceable form resolves *inside*
+ * that section. Defining these here as well makes cxx's `operator new` win at a `.text` address
+ * outside `__lcxx_override`, so libc++'s `nothrow` form fails that guard and traps (`ud2`) on the
+ * first allocation - which is exactly what oopsy-daisy hit as the first title to link libc++.
+ * A title in that situation sets `-DOOPS_CXX_EXTERNAL_NEW_DELETE`, and libc++'s definitions take
+ * over; allocation still lands on the SDK heap, because oops-sdk's `malloc`/`free` are
+ * `oops_malloc`/`oops_free` (src/system/libc.c). The `oops-libcxxabi.mk` exclusion of
+ * `stdlib_new_delete.cpp` stays as-is; this is the same reasoning one layer up, for libc++ itself.
  */
+#ifndef OOPS_CXX_EXTERNAL_NEW_DELETE
 
 void *operator new(size_t size)
 {
@@ -108,6 +120,8 @@ void operator delete[](void *p, size_t) noexcept
 {
     operator delete(p);
 }
+
+#endif /* OOPS_CXX_EXTERNAL_NEW_DELETE */
 
 /* ==========================================================================================
  * Everything from here to the `__dso_handle` block is **libc++abi's job when libc++abi is

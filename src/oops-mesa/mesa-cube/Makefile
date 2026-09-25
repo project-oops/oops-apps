@@ -42,22 +42,10 @@ OOPS_RENDERER = mesa
 # USE_MESA) - they include only `<string.h>`/`<sys/types.h>`-level headers, which the sysroot
 # provides. `hud.c` draws through fixed-function GL, which Mesa's compatibility context runs
 # alongside this title's own 3.3 shaders.
+OOPS_FEATURES := display thread input hud
+
 PAYLOAD_SRCS = mesa_cube_main.c \
-               $(OOPS_SDK_DIR)/src/display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
-               $(OOPS_SDK_DIR)/src/memory/memory.c \
-               $(OOPS_SDK_DIR)/src/thread/thread.c \
-               $(OOPS_SDK_DIR)/src/time/time.c \
-               $(OOPS_SDK_DIR)/src/system/system.c \
-               $(OOPS_SDK_DIR)/src/system/freestd.c \
-               $(OOPS_SDK_DIR)/src/system/syscall.c \
-               $(OOPS_SDK_DIR)/src/system/fs.c \
-               $(OOPS_SDK_DIR)/src/math/math.c \
-               $(OOPS_SDK_DIR)/src/input/input.c \
-               $(OOPS_SDK_DIR)/src/hud/hud.c \
-               $(OOPS_APPS_ROOT)/common/cube_hud.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_compute.c
+               $(OOPS_APPS_ROOT)/common/cube_hud.c
 
 ENTRY_POINT := mesa_cube_start
 

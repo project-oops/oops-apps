@@ -41,33 +41,12 @@ HOST_TEST_SRCS = gl1_cube_selftest.c \
                  $(OOPS_SDK_DIR)/src/system/freestd.c
 HOST_TEST_LIBS = -lm
 
+OOPS_FEATURES := display hud glu input keyboard mouse audio audiodec videodec draw
+
 # Target payload sources
 PAYLOAD_SRCS = gl1_cube_main.c \
                $(OOPS_APPS_ROOT)/common/obj_loader.c \
-               $(OOPS_APPS_ROOT)/common/cube_hud.c \
-               $(OOPS_SDK_DIR)/src/hud/hud.c \
-               $(OOPS_SDK_DIR)/src/display.c \
-               $(OOPS_SDK_DIR)/src/gl/gl_glu.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
-               $(OOPS_SDK_DIR)/src/gnm/gnm_display.c \
-               $(OOPS_SDK_DIR)/src/input/input.c \
-               $(OOPS_SDK_DIR)/src/input/keyboard.c \
-               $(OOPS_SDK_DIR)/src/input/mouse.c \
-               $(OOPS_SDK_DIR)/src/audio/audio.c \
-               $(OOPS_SDK_DIR)/src/audio/audiodec.c \
-               $(OOPS_SDK_DIR)/src/videodec/videodec.c \
-               $(OOPS_SDK_DIR)/src/memory/memory.c \
-               $(OOPS_SDK_DIR)/src/memory/heap.c \
-               $(OOPS_SDK_DIR)/src/time/time.c \
-               $(OOPS_SDK_DIR)/src/system/system.c \
-               $(OOPS_SDK_DIR)/src/system/freestd.c \
-               $(OOPS_SDK_DIR)/src/system/syscall.c \
-               $(OOPS_SDK_DIR)/src/system/sysmodule.c \
-               $(OOPS_SDK_DIR)/src/system/krw.c \
-               $(OOPS_SDK_DIR)/src/system/fs.c \
-               $(OOPS_SDK_DIR)/src/draw/draw.c
+               $(OOPS_APPS_ROOT)/common/cube_hud.c
 
 ENTRY_POINT := gl1_cube_start
 

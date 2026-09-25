@@ -131,11 +131,22 @@ int oops_haptics_init(void) {
     haptics_level = 0;
     haptics_running = 1;
 
-    /* **A default priority and a small stack.** The loop holds two ints and calls two SDK
-     * functions, so 64 KiB is generous; and it must not outrank the game - a rumble tick that
-     * preempts the physics would trade a felt bump for a dropped frame. 0 is the SDK's own
-     * default priority. */
-    haptics_thread = oops_thread_create("oops-haptics", haptics_loop, (void *)0, 0, 64u * 1024u);
+    /* **Both zero: the platform's own priority and the platform's own stack.**
+     *
+     * The first version asked for 64 KiB, reasoning that a loop holding two ints needs no more.
+     * That is the wrong thing to reason about. `oops_thread_create` only calls
+     * `scePthreadAttrSetstacksize` when a size is given, and it ignores what that call returns -
+     * so a size below the platform's minimum is a thread that is created, hands back a handle,
+     * and then dies on its first real stack use with nothing said. Which is indistinguishable,
+     * from outside, from the thread never being scheduled at all.
+     *
+     * SDL's backend passes the same zero (`SDL_prosperothread.c:52`) and its threads work. A
+     * default that is known to run beats a number chosen from a guess about a loop's needs.
+     *
+     * Priority zero is separately correct rather than merely safe: `oops_thread_create` treats
+     * it as "do not set one", so this inherits the caller's and cannot outrank the physics.
+     */
+    haptics_thread = oops_thread_create("oops-haptics", haptics_loop, (void *)0, 0, 0);
 
     if (!haptics_thread) {
         /* **Every entry point becomes a no-op rather than a direct call.** Setting the motors

@@ -25,18 +25,9 @@ OOPS_APPS_ROOT ?= $(abspath ../../..)
 # The renderer this title links (common/app.mk): the hosted Mesa stack (oops-mesa D002).
 OOPS_RENDERER = mesa
 
-PAYLOAD_SRCS = mesa_dri_probe_main.c \
-               $(OOPS_SDK_DIR)/src/display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
-               $(OOPS_SDK_DIR)/src/memory/memory.c \
-               $(OOPS_SDK_DIR)/src/thread/thread.c \
-               $(OOPS_SDK_DIR)/src/time/time.c \
-               $(OOPS_SDK_DIR)/src/system/system.c \
-               $(OOPS_SDK_DIR)/src/system/freestd.c \
-               $(OOPS_SDK_DIR)/src/system/syscall.c \
-               $(OOPS_SDK_DIR)/src/system/fs.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_compute.c
+OOPS_FEATURES := display thread
+
+PAYLOAD_SRCS = mesa_dri_probe_main.c
 
 ENTRY_POINT := mesa_dri_probe_start
 

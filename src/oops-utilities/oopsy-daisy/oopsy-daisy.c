@@ -1,5 +1,5 @@
 /*
- * OOPSy-daisy: the pure parts - catalogue parsing, the install path, and the screen.
+ * OOPSy-DAISY: the pure parts - catalogue parsing, the install path, and the screen.
  * Shared by the console payload and the host self-test.
  */
 
@@ -182,6 +182,120 @@ int oopsy_job_pct(const oopsy_job_t *j) {
     return 0;
 }
 
+/* --- JSON serialisation for the webview bridge (pure) ------------------------------------- */
+
+/* Append one char, guarding the cap (one byte reserved for the trailing NUL). Returns -1 on
+ * overflow so the callers can bail without writing past the buffer. */
+static int json_putc(char *buf, int cap, int *pos, char c) {
+    if (*pos >= cap - 1) return -1;
+    buf[(*pos)++] = c;
+    return 0;
+}
+
+/* Append a literal fragment verbatim - the structural punctuation and the fixed keys, which are
+ * already valid JSON and must not be escaped. */
+static int json_puts(char *buf, int cap, int *pos, const char *s) {
+    for (; *s; s++) {
+        if (json_putc(buf, cap, pos, *s)) return -1;
+    }
+    return 0;
+}
+
+/* Append `s` as a JSON *string value*, escaping the characters a value may not carry raw. App
+ * names are `[a-z0-9-]` and the error strings are fixed English, so this rarely does anything - but
+ * a value that reached the page unescaped would break the parse, so it is escaped defensively. */
+static int json_putesc(char *buf, int cap, int *pos, const char *s) {
+    static const char hex[] = "0123456789abcdef";
+    for (; *s; s++) {
+        unsigned char c = (unsigned char)*s;
+        if (c == '"' || c == '\\') {
+            if (json_putc(buf, cap, pos, '\\')) return -1;
+            if (json_putc(buf, cap, pos, (char)c)) return -1;
+        } else if (c == '\n') {
+            if (json_putc(buf, cap, pos, '\\') || json_putc(buf, cap, pos, 'n')) return -1;
+        } else if (c == '\r') {
+            if (json_putc(buf, cap, pos, '\\') || json_putc(buf, cap, pos, 'r')) return -1;
+        } else if (c == '\t') {
+            if (json_putc(buf, cap, pos, '\\') || json_putc(buf, cap, pos, 't')) return -1;
+        } else if (c < 0x20) {
+            if (json_putc(buf, cap, pos, '\\') || json_putc(buf, cap, pos, 'u') ||
+                json_putc(buf, cap, pos, '0') || json_putc(buf, cap, pos, '0') ||
+                json_putc(buf, cap, pos, hex[(c >> 4) & 0xf]) ||
+                json_putc(buf, cap, pos, hex[c & 0xf])) return -1;
+        } else {
+            if (json_putc(buf, cap, pos, (char)c)) return -1;
+        }
+    }
+    return 0;
+}
+
+/* Append a non-negative integer in decimal. `pct` is 0..100 and `size` fits in an unsigned, so an
+ * unsigned argument covers both without a sign to worry about. */
+static int json_putu(char *buf, int cap, int *pos, unsigned v) {
+    char tmp[12];
+    int n = 0;
+    if (v == 0) tmp[n++] = '0';
+    while (v) { tmp[n++] = (char)('0' + (v % 10u)); v /= 10u; }
+    while (n--) { if (json_putc(buf, cap, pos, tmp[n])) return -1; }
+    return 0;
+}
+
+static const char *job_state_name(oopsy_job_state_t s) {
+    switch (s) {
+        case OOPSY_JOB_QUEUED:      return "queued";
+        case OOPSY_JOB_DOWNLOADING: return "downloading";
+        case OOPSY_JOB_INSTALLING:  return "installing";
+        case OOPSY_JOB_DONE:        return "done";
+        case OOPSY_JOB_FAILED:      return "failed";
+    }
+    return "queued";
+}
+
+int oopsy_catalog_json(const oopsy_catalog_t *cat, char *buf, int cap) {
+    if (!buf || cap < 3) return -1;
+    int pos = 0;
+    if (json_putc(buf, cap, &pos, '[')) return -1;
+    if (cat) {
+        for (int i = 0; i < cat->count; i++) {
+            if (i && json_putc(buf, cap, &pos, ',')) return -1;
+            if (json_puts(buf, cap, &pos, "{\"name\":\"")) return -1;
+            if (json_putesc(buf, cap, &pos, cat->items[i].name)) return -1;
+            if (json_puts(buf, cap, &pos, "\",\"size\":")) return -1;
+            if (json_putu(buf, cap, &pos, cat->items[i].size)) return -1;
+            if (json_putc(buf, cap, &pos, '}')) return -1;
+        }
+    }
+    if (json_putc(buf, cap, &pos, ']')) return -1;
+    buf[pos] = '\0';
+    return pos;
+}
+
+int oopsy_queue_json(const oopsy_queue_t *q, char *buf, int cap) {
+    if (!buf || cap < 3) return -1;
+    int pos = 0;
+    if (json_putc(buf, cap, &pos, '[')) return -1;
+    if (q) {
+        for (int i = 0; i < q->count; i++) {
+            const oopsy_job_t *j = &q->jobs[i];
+            if (i && json_putc(buf, cap, &pos, ',')) return -1;
+            if (json_puts(buf, cap, &pos, "{\"name\":\"")) return -1;
+            if (json_putesc(buf, cap, &pos, j->name)) return -1;
+            if (json_puts(buf, cap, &pos, "\",\"state\":\"")) return -1;
+            if (json_puts(buf, cap, &pos, job_state_name(j->state))) return -1;
+            if (json_puts(buf, cap, &pos, "\",\"pct\":")) return -1;
+            if (json_putu(buf, cap, &pos, (unsigned)oopsy_job_pct(j))) return -1;
+            if (json_puts(buf, cap, &pos, ",\"error\":\"")) return -1;
+            if (j->state == OOPSY_JOB_FAILED && j->error) {
+                if (json_putesc(buf, cap, &pos, j->error)) return -1;
+            }
+            if (json_puts(buf, cap, &pos, "\"}")) return -1;
+        }
+    }
+    if (json_putc(buf, cap, &pos, ']')) return -1;
+    buf[pos] = '\0';
+    return pos;
+}
+
 /* --- The screen -------------------------------------------------------------------------- */
 
 #define TRACK 0xFF20242Au   /* progress-bar track */
@@ -231,7 +345,7 @@ int oopsy_render(oops_surface_t *surf, const oopsy_view_t *v) {
     oops_draw_rect(surf, 0, 0, (int)surf->width, 6, ACCENT);
 
     int rows = 0, y = 60;
-    oops_draw_text(surf, 60, y, "OOPSy-daisy", ACCENT, 5); y += 64; rows++;
+    oops_draw_text(surf, 60, y, "OOPSy-DAISY", ACCENT, 5); y += 64; rows++;
 
     if (v->screen == OOPSY_SCREEN_QUEUE) {
         return rows + render_queue(surf, v, y);

@@ -165,47 +165,20 @@ int timer_delete(timer_t timerid)
     return -1;
 }
 
-/* ---------------------------------------------------------------- std::mutex */
-
 /*
- * Mesa's ACO is C++ and was compiled against the sysroot's libc++, which has threads; this
- * title's libc++ is built with `_LIBCPP_HAS_THREADS 0`, so `std::mutex` is not declared and
- * `mutex.cpp` is not built. The three members ACO references therefore have no definition.
+ * # `std::mutex` used to be defined here, and is not any more
  *
- * Every other Mesa title gets them from `liboopsmesa_cxx.a`, which this one filters out of the
- * link because it duplicates the real `std::logic_error` family. `cxx_support.o` inside it
- * defines these three as no-ops - and also `__next_prime`, `__libcpp_verbose_abort`,
- * `__cxa_guard_acquire` and `__cxa_pure_virtual`, all of which now come from the real libc++ and
- * libc++abi. Taking the object back would reintroduce four duplicates to fix three symbols, so
- * the three are defined here instead.
+ * This file carried `_ZNSt3__15mutex4lockEv`, `6unlockEv`, `D1Ev` and `D2Ev` as no-ops, spelled
+ * as mangled names because `_LIBCPP_HAS_THREADS 0` meant the class was not declared to write
+ * members for. Mesa's ACO references them and the hosted libc++ did not define them.
  *
- * **A no-op lock is correct here rather than a compromise.** oops-mesa's runtime runs Mesa's
- * compiler on the calling thread; there is no second thread contending for these, and the same
- * reasoning is what `_LIBCPP_HAS_THREADS 0` already asserts for the rest of the library. If
- * threads are ever turned on for the hosted build, these go and `mutex.cpp` takes over - which
- * is the argument for doing it.
+ * **The hosted libc++ has threads now**, so the real definitions arrive in `cxx19.o` of
+ * `build-hosted/libc++.a` and the stubs became four duplicate-symbol errors at the link. Deleted
+ * rather than guarded: a no-op lock was only ever correct because nothing could contend, and now
+ * that a real one exists, keeping a way to select the fake one is a way to select a wrong one.
  *
- * Spelled as mangled names because the class they belong to is not declared in this
- * configuration: there is no `std::mutex` here to write a member definition for.
+ * That is the change the comment here used to argue for, and `README.md` listed as the reason to
+ * turn threads on.
  */
-void _ZNSt3__15mutex4lockEv(void *self)
-{
-    (void)self;
-}
-
-void _ZNSt3__15mutex6unlockEv(void *self)
-{
-    (void)self;
-}
-
-void _ZNSt3__15mutexD1Ev(void *self)
-{
-    (void)self;
-}
-
-void _ZNSt3__15mutexD2Ev(void *self)
-{
-    (void)self;
-}
 
 } /* extern "C" */

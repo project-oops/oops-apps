@@ -24,23 +24,10 @@ EXTRA_TARGET_CFLAGS  += $(OOPS_SDL_INCLUDE)
 EXTRA_TARGET_LDFLAGS += $(OOPS_SDL_LDFLAGS)
 PAYLOAD_EXTRA_DEPS   += $(OOPS_SDL_LIB)
 
-PAYLOAD_SRCS = sdl_probe_main.c \
-               $(OOPS_GL_SRCS) \
-               $(OOPS_SDK_DIR)/src/display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
-               $(OOPS_SDK_DIR)/src/input/input.c \
-               $(OOPS_SDK_DIR)/src/input/keyboard.c \
-               $(OOPS_SDK_DIR)/src/input/mouse.c \
-               $(OOPS_SDK_DIR)/src/audio/audio.c \
-               $(OOPS_SDK_DIR)/src/memory/memory.c \
-               $(OOPS_SDK_DIR)/src/system/system.c \
-               $(OOPS_SDK_DIR)/src/system/freestd.c \
-               $(OOPS_SDK_DIR)/src/system/syscall.c \
-               $(OOPS_SDK_DIR)/src/system/sysmodule.c \
-               $(OOPS_SDK_DIR)/src/thread/thread.c \
-               $(OOPS_SDK_DIR)/src/draw/draw.c
+OOPS_RENDERER = gl1
+OOPS_FEATURES := display input keyboard mouse audio thread draw
+
+PAYLOAD_SRCS = sdl_probe_main.c
 
 ENTRY_POINT := sdl_probe_start
 

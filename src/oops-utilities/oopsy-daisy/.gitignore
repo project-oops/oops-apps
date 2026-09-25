@@ -1,0 +1,3 @@
+# The opt-in webview build (make OOPSY_WEBVIEW=1) uses its own tree so toggling the flag never
+# reuses objects compiled under the other setting. Artifact only; never committed.
+build-webview/

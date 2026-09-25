@@ -1,5 +1,5 @@
 /*
- * Host self-test for OOPSy-daisy - the pure parts, on an ordinary machine.
+ * Host self-test for OOPSy-DAISY - the pure parts, on an ordinary machine.
  * The console pipeline (HTTPS + unzip) is the hardware half and is not exercised here.
  */
 
@@ -100,6 +100,37 @@ int main(void) {
                         .phase = OOPSY_BROWSE, .screen = OOPSY_SCREEN_QUEUE, .message = NULL };
     if (oopsy_render(&surf, &vq) <= 0) { free(px); return fail("queue render drew nothing"); }
     free(px);
+
+    /* the webview bridge: the JSON the page reads back */
+    oopsy_parse_catalog(SAMPLE, &cat);
+    char cj[512];
+    int cn = oopsy_catalog_json(&cat, cj, (int)sizeof cj);
+    if (cn <= 0) return fail("catalog json empty");
+    if (strcmp(cj, "[{\"name\":\"neverball\",\"size\":123},{\"name\":\"gl1-cube\",\"size\":9}]") != 0)
+        return fail("catalog json shape");
+    if (oopsy_catalog_json(&cat, cj, 5) != -1) return fail("catalog json overflow not caught");
+
+    oopsy_queue_t qj; qj.count = 0;
+    oopsy_queue_add(&qj, &cat.items[0]);
+    oopsy_queue_add(&qj, &cat.items[1]);
+    qj.jobs[0].state = OOPSY_JOB_DOWNLOADING; qj.jobs[0].done = 61;   /* ~50% of 123 */
+    qj.jobs[1].state = OOPSY_JOB_FAILED;      qj.jobs[1].error = "Unpack failed.";
+    char qjs[1024];
+    int qn = oopsy_queue_json(&qj, qjs, (int)sizeof qjs);
+    if (qn <= 0) return fail("queue json empty");
+    if (!strstr(qjs, "\"name\":\"neverball\",\"state\":\"downloading\",\"pct\":49"))
+        return fail("queue json downloading row");
+    if (!strstr(qjs, "\"state\":\"failed\",\"pct\":0,\"error\":\"Unpack failed.\""))
+        return fail("queue json failed row");
+
+    /* the page: it is present, wired to the bridge, and litehtml-friendly (flex, never CSS grid) */
+    if (!strstr(oopsy_page_html, "__oopsy_catalog")) return fail("page missing catalog bridge");
+    if (!strstr(oopsy_page_html, "__oopsy_queue"))   return fail("page missing queue bridge");
+    if (!strstr(oopsy_page_html, "oopsySelect"))     return fail("page missing select hook");
+    if (!strstr(oopsy_page_html, "oopsyRefresh"))    return fail("page missing refresh hook");
+    if (!strstr(oopsy_page_html, "display:flex"))    return fail("page not using flex");
+    if (strstr(oopsy_page_html, "display:grid") || strstr(oopsy_page_html, "display: grid"))
+        return fail("page uses CSS grid (litehtml cannot lay it out)");
 
     printf("oopsy-daisy selftest OK\n");
     return 0;

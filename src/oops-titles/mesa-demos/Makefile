@@ -103,33 +103,12 @@ EXTRA_TARGET_CFLAGS += $(MESA_DEMOS_CFLAGS) $(MESA_DEMOS_WARNINGS)
 # The list below is what `gears` resolves against and no more. A demo that needs something else
 # will fail `make imports` by name - that check reads the ELF's undefined symbols and refuses to
 # write a manifest with a gap in it - and this grows from that rather than from `ls src/`.
-# Deferred `=`, not `:=`, and it matters: `OOPS_SDK_DIR` is set by `common/app.mk`, which is
-# included at the bottom of this file. An immediate assignment expands it to empty here and make
-# reports `No rule to make target '/src/gl/glut.c'` - a path with the root missing.
-PAYLOAD_SRCS = shim/mesa_demos_entry.c shim/glu_maths_from_libm.c shim/glu_quadrics_on_mesa.c \
-                shim/glad_from_driver.c shim/glu_matrix_on_mesa.c \
-                $(DEMO_SRC) \
-                upstream/src/util/readtex.c \
-                upstream/src/util/showbuffer.c \
-                $(OOPS_SDK_DIR)/src/gl/glut.c \
-                $(OOPS_SDK_DIR)/src/gl/glut_font.c \
-                $(OOPS_SDK_DIR)/src/display.c \
-                $(OOPS_SDK_DIR)/src/agc/agc_display.c \
-                $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
-                $(OOPS_SDK_DIR)/src/memory/memory.c \
-                $(OOPS_SDK_DIR)/src/thread/thread.c \
-                $(OOPS_SDK_DIR)/src/time/time.c \
-                $(OOPS_SDK_DIR)/src/system/system.c \
-                $(OOPS_SDK_DIR)/src/system/suspend.c \
-                $(OOPS_SDK_DIR)/src/system/freestd.c \
-                $(OOPS_SDK_DIR)/src/system/syscall.c \
-                $(OOPS_SDK_DIR)/src/system/sysmodule.c \
-                $(OOPS_SDK_DIR)/src/system/fs.c \
-                $(OOPS_SDK_DIR)/src/math/math.c \
-                $(OOPS_SDK_DIR)/src/input/input.c \
-                $(OOPS_SDK_DIR)/src/input/keyboard.c \
-                $(OOPS_SDK_DIR)/src/input/mouse.c \
-                $(OOPS_SDK_DIR)/src/agc/agc_compute.c
+OOPS_FEATURES := glu glut display thread suspend input keyboard mouse
+
+PAYLOAD_SRCS = shim/mesa_demos_entry.c shim/glad_from_driver.c \
+               $(DEMO_SRC) \
+               upstream/src/util/readtex.c \
+               upstream/src/util/showbuffer.c
 
 # The same local link script the Mesa probes and `mesa-cube` carry, taken verbatim. SELFish's
 # `native_eboot.ld` emits no `PT_TLS` segment, Mesa's GL dispatch is thread-local by construction,

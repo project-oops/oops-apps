@@ -178,6 +178,12 @@ OOPS_LIBCXX_SRCS := \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/locale.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/memory.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/memory_resource.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/condition_variable.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/condition_variable_destructor.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/future.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/mutex.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/mutex_destructor.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/thread.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/new.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/new_handler.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/new_helpers.cpp \

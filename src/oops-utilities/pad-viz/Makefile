@@ -9,19 +9,13 @@
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
+OOPS_FEATURES := display draw input
+
 # Host test sources
-HOST_TEST_SRCS = pad-viz_selftest.c pad-viz.c $(OOPS_SDK_DIR)/src/draw/draw.c
+HOST_TEST_SRCS = pad-viz_selftest.c pad-viz.c $(OOPS_FEATURE_draw_SRCS)
 
 # Target payload sources
-PAYLOAD_SRCS = pad-viz.c pad-viz_main.c \
-               $(OOPS_SDK_DIR)/src/display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_display.c $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
-               $(OOPS_SDK_DIR)/src/gnm/gnm_display.c $(OOPS_SDK_DIR)/src/input/input.c \
-               $(OOPS_SDK_DIR)/src/memory/memory.c $(OOPS_SDK_DIR)/src/system/system.c \
-               $(OOPS_SDK_DIR)/src/system/offsets.c $(OOPS_SDK_DIR)/src/system/freestd.c \
-               $(OOPS_SDK_DIR)/src/system/syscall.c $(OOPS_SDK_DIR)/src/system/krw.c \
-               $(OOPS_SDK_DIR)/src/draw/draw.c
+PAYLOAD_SRCS = pad-viz.c pad-viz_main.c
 
 ENTRY_POINT := padviz_start
 

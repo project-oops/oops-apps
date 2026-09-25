@@ -1,13 +1,13 @@
-# OOPSy-daisy
+# OOPSy-DAISY
 
 <p align="center">
-  <img src="assets/logo.svg" alt="OOPSy-daisy" width="200">
+  <img src="assets/logo.svg" alt="OOPSy-DAISY" width="200">
 </p>
 
 **D**ownload **A**rtificial **I**ntelligence **S**lop **Y**ourself.
 
 Browse the oops-apps catalogue and install homebrew **on the console itself** — pick a title,
-and OOPSy-daisy downloads and unpacks it into the homebrew folder. No PC, no staging tool, no
+and OOPSy-DAISY downloads and unpacks it into the homebrew folder. No PC, no staging tool, no
 cable. This is the last link in the loop: everything else builds and publishes homebrew, and
 this runs on the device and pulls it down.
 
@@ -30,7 +30,7 @@ release (latest-main) ──► fetch the catalogue ──► pick a title ─�
 The pure parts — parsing the catalogue, the install path, the screen — are done and host-tested
 (`make check`). The on-device pipeline is written against the SDK's HTTPS client and zip
 extractor; it needs the console's secure-transport module, which is pending the hardware target
-coming back online. Until then OOPSy-daisy builds as a plain payload (`FORMATS=elf`) and stays
+coming back online. Until then OOPSy-DAISY builds as a plain payload (`FORMATS=elf`) and stays
 out of the index; once it installs for real it ships as a title of its own — installable, of
 course, from itself.
 

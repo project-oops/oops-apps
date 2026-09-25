@@ -17,7 +17,6 @@
 #include "oops/audiodec.h"
 #include "oops/audio.h"
 #include "oops/netctl.h"
-#include "oops/krw.h"
 #include "oops/syscall.h"
 #include "oops/system.h"
 #include "oops/heap.h"

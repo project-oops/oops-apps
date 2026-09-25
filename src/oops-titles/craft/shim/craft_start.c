@@ -46,7 +46,86 @@ __attribute__((visibility("default"))) int craft_start(const payload_args_t *arg
 
     (void)args;
 
+    /*
+     * **The log level the launch asked for, and nothing else was reading it.**
+     *
+     * `oops_log_init` is what applies `/app0/oops-log`'s `system=` line to the global level.
+     * Nothing in any payload calls it - a tree-wide grep finds only `oops-sdk`'s own unit tests -
+     * so the global level has always been the compiled-in default and every `oops_log_debug` in
+     * the SDK was unreachable from a title. The `gl` channel works because `gl_context.c:909` asks
+     * `oops_log_channel_level("gl", ...)` for itself; the subsystems that do not ask - AGC among
+     * them - had no way to be turned up at all.
+     *
+     * That cost this port a run: the AGC display failed, `agc_log` recorded why at debug level,
+     * and the reason was discarded before it reached the kernel log.
+     *
+     * It belongs in the SDK's payload startup so that every title gets it rather than each one
+     * remembering; raised on the bus. Here until then.
+     */
+    oops_log_init(OOPS_APP_ID);
+
+    /*
+     * **The kernel log drops bursts, and the display's diagnostics are a burst.**
+     *
+     * `agc_display_open_adopting` records 33 points in a few microseconds. Three runs of this
+     * title logged none of them while `[INPUT]` and `[GL]` lines either side came through, and the
+     * emit is in the shipped binary - so they are produced and lost in transport, not filtered.
+     *
+     * The disk sink writes every line with a direct syscall and no buffering, which is what it
+     * exists for. It probes USB first and falls back to `/data/<app_name>`, so that directory has
+     * to exist *before* the call - which is why the two `mkdir`s are here rather than below with
+     * the database's.
+     */
+    (void)oops_fs_mkdir("/data/CRFT00001", 0755);
+    (void)oops_log_enable_disk_sink(OOPS_APP_ID, 0);
+
     oops_log_info("CRFT", "entry");
+
+    /*
+     * **What `/app0` actually contains, dumped rather than reasoned about.**
+     *
+     * `oops_fs_open("/app0/oops-log")` succeeds - it is how the log level above got raised - and
+     * `fopen("/app0/textures/texture.png")` fails, with the two files sitting in the same
+     * directory on the console. Four rounds of reading the SDK could not explain that, so this
+     * asks the running process what it sees: every entry of `/app0`, then the same for
+     * `/app0/textures`, then a direct open of the file that failed.
+     *
+     * Temporary, and it earns its place while the answer is unknown: `load_png_texture` calls
+     * `exit(1)`, so without this the run ends before anything else can be learned.
+     */
+    {
+        oops_dir_t *d = oops_fs_opendir("/app0");
+        if (d == NULL) {
+            oops_log_error("CRFT", "probe: /app0 will not open as a directory");
+        } else {
+            oops_dirent_t e;
+            while (oops_fs_readdir(d, &e) == 1) {
+                oops_log_info("CRFT", "probe: /app0 entry '%s' dir=%d", e.name, e.is_directory);
+            }
+            oops_fs_closedir(d);
+        }
+
+        d = oops_fs_opendir("/app0/textures");
+        if (d == NULL) {
+            oops_log_error("CRFT", "probe: /app0/textures will not open as a directory");
+        } else {
+            oops_dirent_t e;
+            while (oops_fs_readdir(d, &e) == 1) {
+                oops_log_info("CRFT", "probe: /app0/textures entry '%s'", e.name);
+            }
+            oops_fs_closedir(d);
+        }
+
+        {
+            const int fd = oops_fs_open("/app0/textures/texture.png", OOPS_O_RDONLY, 0);
+            oops_log_info("CRFT", "probe: oops_fs_open(/app0/textures/texture.png) = %d", fd);
+            if (fd >= 0) {
+                oops_log_info("CRFT", "probe: size = %lld",
+                              (long long)oops_fs_seek(fd, 0, OOPS_SEEK_END));
+                oops_fs_close(fd);
+            }
+        }
+    }
 
     /* The database's directory. `/app0` is read-only, so this is where Craft's world goes; it
      * matches `OOPS_SQLITE_TEMP_DIR` and the `DB_PATH` the Makefile sets. */

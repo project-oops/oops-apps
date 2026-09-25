@@ -22,7 +22,6 @@
 #include "oops/memory.h"
 #include "oops/syscall.h"
 #include "oops/freestd.h"
-#include "oops/krw.h"
 #include "oops/fs.h"
 #include "oops/system.h"
 #include "obj_loader.h"

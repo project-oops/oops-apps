@@ -45,13 +45,7 @@ PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_LIBCXXABI_LIB) $(OOPS_LIBUNWIND_L
 # calls, so on-demand extraction takes neither.
 
 # Target payload sources. No display, no input: the question is answered by a number on klog.
-PAYLOAD_SRCS = cxx_throw_main.c \
-               $(OOPS_SDK_DIR)/src/system/system.c \
-               $(OOPS_SDK_DIR)/src/system/freestd.c \
-               $(OOPS_SDK_DIR)/src/system/syscall.c \
-               $(OOPS_SDK_DIR)/src/memory/memory.c \
-               $(OOPS_SDK_DIR)/src/memory/heap.c \
-               $(OOPS_SDK_DIR)/src/time/time.c
+PAYLOAD_SRCS = cxx_throw_main.c
 
 ENTRY_POINT := cxx_throw_start
 

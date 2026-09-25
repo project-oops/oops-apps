@@ -39,28 +39,10 @@ HOST_TEST_SRCS = gl2_cube_selftest.c \
                  $(OOPS_SDK_DIR)/src/system/freestd.c
 HOST_TEST_LIBS = -lm
 
-# The payload. The same list gl1-cube carries, minus the pieces this title has no use for:
-# `obj_loader.c` (no torus or sphere - one cube, so the difference from gl1-cube stays one
-# thing), and the audio and video decoders, which neither title uses and which gl1-cube links
-# out of habit.
-PAYLOAD_SRCS = gl2_cube_main.c \
-               $(OOPS_SDK_DIR)/src/display.c \
-               $(OOPS_GL_SRCS) \
-               $(OOPS_SDK_DIR)/src/agc/agc_display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
-               $(OOPS_SDK_DIR)/src/gnm/gnm_display.c \
-               $(OOPS_SDK_DIR)/src/input/input.c \
-               $(OOPS_SDK_DIR)/src/memory/memory.c \
-               $(OOPS_SDK_DIR)/src/memory/heap.c \
-               $(OOPS_SDK_DIR)/src/time/time.c \
-               $(OOPS_SDK_DIR)/src/system/system.c \
-               $(OOPS_SDK_DIR)/src/system/freestd.c \
-               $(OOPS_SDK_DIR)/src/system/syscall.c \
-               $(OOPS_SDK_DIR)/src/system/sysmodule.c \
-               $(OOPS_SDK_DIR)/src/system/krw.c \
-               $(OOPS_SDK_DIR)/src/system/fs.c \
-               $(OOPS_SDK_DIR)/src/draw/draw.c
+OOPS_RENDERER = gl2
+OOPS_FEATURES := display input draw
+
+PAYLOAD_SRCS = gl2_cube_main.c
 
 ENTRY_POINT := gl2_cube_start
 

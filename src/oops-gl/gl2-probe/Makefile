@@ -42,29 +42,11 @@ HOST_TEST_SRCS = gl2_probe_selftest.c \
                  $(OOPS_SDK_DIR)/src/system/freestd.c
 HOST_TEST_LIBS = -lm
 
-# The payload, which is the same suite behind gl2-probe's own runner. The list matches
-# gl1-probe's: a drawing probe needs the display, the allocator, the GL layer and the AGC
-# submission path behind it, and a GL 2.0 one needs the shader front end and the back end in
-# `glsl_ps.c` as well - all of which `OOPS_GL_SRCS` already carries.
+OOPS_RENDERER = gl2
+OOPS_FEATURES := display input draw
+
+# The payload, which is the same suite behind gl2-probe's own runner.
 PAYLOAD_SRCS = gl2_probe_main.c \
-               gl2_probe.c \
-               $(OOPS_SDK_DIR)/src/display.c \
-               $(OOPS_GL_SRCS) \
-               $(OOPS_SDK_DIR)/src/agc/agc_display.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
-               $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
-               $(OOPS_SDK_DIR)/src/gnm/gnm_display.c \
-               $(OOPS_SDK_DIR)/src/input/input.c \
-               $(OOPS_SDK_DIR)/src/memory/memory.c \
-               $(OOPS_SDK_DIR)/src/memory/heap.c \
-               $(OOPS_SDK_DIR)/src/time/time.c \
-               $(OOPS_SDK_DIR)/src/system/system.c \
-               $(OOPS_SDK_DIR)/src/system/freestd.c \
-               $(OOPS_SDK_DIR)/src/system/syscall.c \
-               $(OOPS_SDK_DIR)/src/system/sysmodule.c \
-               $(OOPS_SDK_DIR)/src/system/krw.c \
-               $(OOPS_SDK_DIR)/src/system/fs.c \
-               $(OOPS_SDK_DIR)/src/draw/draw.c \
-               $(OOPS_SDK_DIR)/src/system/procparam.c
+               gl2_probe.c
 
 include $(OOPS_APPS_ROOT)/common/app.mk

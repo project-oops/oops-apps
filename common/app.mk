@@ -505,11 +505,35 @@ $(BUILD):
 # A deliberate exception - a host source with no payload counterpart, a mock the harness needs -
 # goes in `OOPS_HOST_ONLY_SRCS_OK` in the app's own Makefile, which keeps the decision beside the
 # thing it is about.
+# Every payload gets these whether it lists them or not. `OOPS_FEATURE_base_SRCS`
+# from oops-sdk.mk defines the implicit core runtime (system, freestd, syscall, offsets,
+# fs, sysmodule, procparam, memory, heap, time).
+CORE_SDK_SRCS := $(if $(OOPS_FEATURE_base_SRCS),$(OOPS_FEATURE_base_SRCS),\
+                 $(OOPS_SDK_DIR)/src/system/system.c \
+                 $(OOPS_SDK_DIR)/src/system/freestd.c \
+                 $(OOPS_SDK_DIR)/src/system/syscall.c \
+                 $(OOPS_SDK_DIR)/src/system/offsets.c \
+                 $(OOPS_SDK_DIR)/src/system/procparam.c \
+                 $(OOPS_SDK_DIR)/src/system/fs.c \
+                 $(OOPS_SDK_DIR)/src/system/sysmodule.c \
+                 $(OOPS_SDK_DIR)/src/memory/memory.c \
+                 $(OOPS_SDK_DIR)/src/memory/heap.c \
+                 $(OOPS_SDK_DIR)/src/time/time.c)
+# `libc.c`, `math.c` and `scanf.c` are the freestanding C library a non-Mesa port's own code
+# stands on. A hosted title (USE_MESA) gets that C library from the Mesa sysroot and links
+# FreeBSD's own libm, so adding oops-sdk's would duplicate and collide - they are for
+# freestanding titles only.
+ifneq ($(USE_MESA),1)
+CORE_SDK_SRCS += $(OOPS_SDK_DIR)/src/system/libc.c \
+                 $(OOPS_SDK_DIR)/src/system/scanf.c \
+                 $(OOPS_SDK_DIR)/src/math/math.c
+endif
+
 ifneq ($(strip $(HOST_TEST_SRCS)),)
 ifneq ($(strip $(PAYLOAD_SRCS)),)
 OOPS_SHARED_PREFIXES := $(OOPS_SDK_DIR)/% $(OOPS_APPS_ROOT)/common/%
 OOPS_HOST_SHARED := $(filter $(OOPS_SHARED_PREFIXES),$(abspath $(HOST_TEST_SRCS)))
-OOPS_PAY_SHARED  := $(filter $(OOPS_SHARED_PREFIXES),$(abspath $(PAYLOAD_SRCS)))
+OOPS_PAY_SHARED  := $(filter $(OOPS_SHARED_PREFIXES),$(abspath $(PAYLOAD_SRCS) $(CORE_SDK_SRCS)))
 OOPS_HOST_ONLY   := $(filter-out $(OOPS_PAY_SHARED) $(abspath $(OOPS_HOST_ONLY_SRCS_OK)),$(OOPS_HOST_SHARED))
 ifneq ($(strip $(OOPS_HOST_ONLY)),)
 $(info $(APP_NAME): these shared sources are in HOST_TEST_SRCS and not in PAYLOAD_SRCS:)
@@ -543,30 +567,6 @@ else
 	@echo "$(APP_NAME) skeleton: no target payload defined"
 endif
 
-# Every payload gets these whether it lists them or not. `libc.c` joined them on 2026-09-20: it
-# is the C a port's own code calls - `sqrtf`, `malloc`, `strcpy` - and leaving it to each app to
-# remember would be the wrong way round, because a payload link passes
-# `--unresolved-symbols=ignore-all` and an app that forgot it would link clean and fault on the
-# console. `math.c` comes with it, since that is what its float functions stand on.
-CORE_SDK_SRCS := $(OOPS_SDK_DIR)/src/system/procparam.c \
-                 $(OOPS_SDK_DIR)/src/system/fs.c \
-                 $(OOPS_SDK_DIR)/src/system/sysmodule.c \
-                 $(OOPS_SDK_DIR)/src/memory/heap.c \
-                 $(OOPS_SDK_DIR)/src/time/time.c
-# `libc.c`, `math.c` and `scanf.c` are the freestanding C library a non-Mesa port's own code
-# stands on. A hosted title (USE_MESA) gets that C library from the Mesa sysroot and links
-# FreeBSD's own libm, so adding oops-sdk's would duplicate and collide - they are for
-# freestanding titles only.
-#
-# `scanf.c` is listed here rather than left to each app for the reason `libc.c` is: `libc.c`
-# names `obs_vsscanf` whether or not the app calls `sscanf`, so an app that omitted it would
-# **link cleanly** with an undefined symbol and fault on the console. That is exactly the trap
-# `docs/PORTING.md` describes, and `nm -u` on a fresh link is what caught it here.
-ifneq ($(USE_MESA),1)
-CORE_SDK_SRCS += $(OOPS_SDK_DIR)/src/system/libc.c \
-                 $(OOPS_SDK_DIR)/src/system/scanf.c \
-                 $(OOPS_SDK_DIR)/src/math/math.c
-endif
 TARGET_SYS_SRCS ?= $(filter-out $(PAYLOAD_SRCS), $(wildcard $(CORE_SDK_SRCS)))
 
 # ---------------------------------------------------------------------------

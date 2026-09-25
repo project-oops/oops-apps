@@ -4,7 +4,7 @@
 #include "oops/draw.h"
 
 /*
- * OOPSy-daisy - Download Artificial Intelligence Slop Yourself.
+ * OOPSy-DAISY - Download Artificial Intelligence Slop Yourself.
  *
  * An on-device installer for the oops-apps catalogue: it reads the rolling `latest-main`
  * release, lists the titles that ship a `.zip`, and installs the one you pick straight into
@@ -105,5 +105,30 @@ int oopsy_install_path(const char *title_id, char *buf, int buf_len);
 
 /* Draw the current view into `surf`. Returns the number of text rows drawn. */
 int oopsy_render(oops_surface_t *surf, const oopsy_view_t *v);
+
+/* --- The webview bridge (pure) ------------------------------------------------------------
+ * The on-device UI is the oops-apps index page, rendered by the SDK webview. The page reads its
+ * two pieces of dynamic state through zero-argument bridge functions the payload registers, each
+ * of which returns one of these JSON strings; the payload then drives selection and repaints by
+ * calling the page's own functions (oopsySelect / oopsyScreen / oopsyRefresh) via eval. The
+ * serialisers are pure so the host self-test can pin their shape.
+ */
+
+/* Serialise the catalogue as the JSON array `__oopsy_catalog()` returns:
+ * `[{"name":"neverball","size":123},...]`. The array index is the catalogue index the controller
+ * installs when X is pressed. Returns the length written (excluding the NUL), or -1 if `cap` is
+ * too small (the buffer is then left truncated but NUL-terminated where it stopped). Pure. */
+int oopsy_catalog_json(const oopsy_catalog_t *cat, char *buf, int cap);
+
+/* Serialise the queue as the JSON array `__oopsy_queue()` returns:
+ * `[{"name":"neverball","state":"downloading","pct":42,"error":""},...]`. `state` is one of
+ * queued/downloading/installing/done/failed; `pct` is oopsy_job_pct(); `error` is set only for a
+ * failed job. Returns the length written, or -1 if `cap` is too small. Pure. */
+int oopsy_queue_json(const oopsy_queue_t *q, char *buf, int cap);
+
+/* The on-device UI markup: the oops-apps index page, litehtml-friendly (flex layout, no CSS grid)
+ * and wired to the bridge above. Defined in oopsy-daisy_page.c; loaded with
+ * oops_webview_load_html(). */
+extern const char oopsy_page_html[];
 
 #endif /* OOPS_APPS_OOPSY_DAISY_H */
