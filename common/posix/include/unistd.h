@@ -44,6 +44,8 @@ char *getcwd(char *buf, size_t size);
 int chdir(const char *path);
 int access(const char *path, int mode);
 uid_t getuid(void);
+/* Also 0 - one identity here, so there is no real/effective distinction to report. */
+uid_t geteuid(void);
 
 /* `_exit` is `exit` here, and that is not an approximation: `oops-sdk`'s `exit` goes straight to
  * the platform's `SYS_exit` with no atexit list and no return, which is `_exit`'s contract. */

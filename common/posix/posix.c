@@ -41,6 +41,7 @@
 #include <locale.h>
 #include <pthread_np.h> /* the declaration this file's pthread_getthreadid_np answers */
 #include <pwd.h>
+#include <sched.h> /* the declaration this file's sched_yield answers */
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h> /* FILE, for fileno below */
@@ -165,6 +166,23 @@ int chdir(const char *path) {
 }
 
 uid_t getuid(void) { return 0; }
+
+/* The same answer, and for the same reason: a payload runs as one identity with nothing to
+ * distinguish a real user from an effective one. SQLite's unix layer asks for both when it decides
+ * who owns a database file it opened. */
+uid_t geteuid(void) { return 0; }
+
+/*
+ * `sched_yield` - give up the rest of this slice.
+ *
+ * Over `oops_thread_yield`, which is the same operation under a different name. It always succeeds,
+ * which is also what POSIX says: the only documented failure is a system that does not support
+ * scheduling at all.
+ */
+int sched_yield(void) {
+    oops_thread_yield();
+    return 0;
+}
 
 /*
  * **The home directory this shim invents has to exist**, and creating it is this file's job rather
