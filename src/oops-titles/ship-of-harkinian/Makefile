@@ -20,21 +20,55 @@ include $(OOPS_APPS_ROOT)/common/upstream.mk
 
 # --- what is still missing --------------------------------------------------
 #
-# **Two GL entry points, and they are the SDK's rather than this title's.**
+# **The GL gap, and it is the SDK's rather than this title's.**
 #
-# `libultraship`'s `gfx_opengl.cpp` calls 54 and `oops-gl` defines all but these. It is two and
-# not four because the vertex-array-object pair at :725-726 sits inside
-# `#if defined(__APPLE__) || defined(USE_OPENGLES)`, which this port does not compile - a symbol
-# grep over a file with platform branches measures a build nobody runs. See README.md.
+# `libultraship`'s `gfx_opengl.cpp` calls 54 entry points and `oops-gl` defines all but the first
+# two below. The vertex-array family is *not* from that file - it sits there inside
+# `#if defined(__APPLE__) || defined(USE_OPENGLES)`, which this port does not compile. It is here
+# because **ImGui's GL3 backend uses vertex array objects unconditionally on desktop GL**, and
+# libultraship links that backend. Grepping the port measured the port; compiling the link
+# measured the link. See README.md.
 #
 # `glRenderbufferStorageMultisample` is further behind a runtime `msaa_level`, so the one that is
-# unconditionally load-bearing is `glBlitFramebuffer`.
-SOH_GL_GAP := glBlitFramebuffer glRenderbufferStorageMultisample
+# unconditionally load-bearing from `gfx_opengl.cpp` is `glBlitFramebuffer`.
+SOH_GL_GAP := glBlitFramebuffer glRenderbufferStorageMultisample \
+              glGenVertexArrays glBindVertexArray glDeleteVertexArrays glGetStringi
 
 # The third-party libraries upstream fetches, minus the Apple-only one. A name that already has a
 # directory under `src/oops-deps/` is done; the rest are the vendoring queue.
+#
+# `imgui` was missing from this list until a compile survey found it: it is declared and used
+# inside the `libultraship` submodule, so the grep that built this list - run over the
+# superproject - could not see it.
 SOH_DEPS := sdl2 zlib libzip stb nlohmann-json thread-pool tinyxml2 spdlog \
-            stormlib libgfxd prism-processor
+            stormlib libgfxd prism-processor imgui
+
+# --- generated headers ------------------------------------------------------
+#
+# CMake hands libultraship two things this build has to produce another way. Both are generated
+# rather than checked in, for the reason each script gives: they are derived from files upstream
+# owns, and a stale copy of either is wrong in a way that compiles.
+#
+# `ship/install_config.h` is the exception - it is a *decision* rather than a derivation, so it
+# lives in `shim/include/` as ordinary source.
+# **`-include`, because upstream delivers these on the command line.** CMake passes the CVAR names
+# as `add_compile_definitions`, so no source includes a header for them - `Controller.cpp:69`
+# simply writes `CVAR_PREFIX_CONTROLLERS ".Port%d.HasConfig"` and expects the macro to be there.
+# Reproducing that as twenty-two `-D` flags would mean quoting each value through make and the
+# shell; one force-include of a generated header is the same thing with the quoting done once, in
+# C, where it belongs.
+SOH_GEN_DIR := $(CURDIR)/build/gen
+SOH_CVARS_H := $(SOH_GEN_DIR)/ship/cvars_generated.h
+SOH_GEN_INCLUDE := -I$(SOH_GEN_DIR) -I$(CURDIR)/shim/include \
+                   -include ship/cvars_generated.h
+
+$(SOH_CVARS_H): $(CURDIR)/gen-cvars.sh \
+                upstream/CMake/soh-cvars.cmake upstream/CMake/lus-cvars.cmake \
+                upstream/libultraship/cmake/cvars.cmake
+	@sh $(CURDIR)/gen-cvars.sh $(CURDIR)/upstream $@
+
+.PHONY: generated
+generated: $(SOH_CVARS_H)
 
 .PHONY: survey
 survey:

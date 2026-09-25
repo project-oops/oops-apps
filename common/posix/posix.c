@@ -36,6 +36,7 @@
 #include "oops/time.h"
 
 #include <dirent.h>
+#include <dlfcn.h> /* Dl_info, for the dladdr below */
 #include <errno.h>
 #include <locale.h>
 #include <pthread_np.h> /* the declaration this file's pthread_getthreadid_np answers */
@@ -528,6 +529,22 @@ int ftruncate(int fd, off_t length) {
  * *checks* would be told its file is now private when it is exactly as readable as before, and
  * that is the kind of answer someone eventually relies on.
  */
+/*
+ * **Always 0, and `*info` is zeroed anyway.** There is no run-time symbol table in a payload to
+ * look an address up in - see `dlfcn.h` for the whole argument, including why the zeroing matters
+ * for the one caller in this tree.
+ */
+int dladdr(const void *addr, Dl_info *info) {
+    (void)addr;
+    if (info != NULL) {
+        info->dli_fname = NULL;
+        info->dli_fbase = NULL;
+        info->dli_sname = NULL;
+        info->dli_saddr = NULL;
+    }
+    return 0;
+}
+
 int chmod(const char *path, mode_t mode) {
     (void)mode;
     if (path == NULL) {
