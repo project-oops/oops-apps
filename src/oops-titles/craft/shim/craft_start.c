@@ -40,8 +40,12 @@ int main(int argc, char **argv);
 int craft_start(const payload_args_t *args);
 
 __attribute__((visibility("default"))) int craft_start(const payload_args_t *args) {
-    static char arg0[] = "/app0/craft";
+    /* Craft reads argv only for an optional server host and port, so this is never opened - but it
+     * said `/app0/craft`, and `/app0` is a path this title has now established it cannot use. A
+     * plausible-but-wrong path in argv[0] is how the next reader gets misled. */
+    static char arg0[] = CRAFT_DATA_DIR "/craft";
     char *argv[2] = {arg0, 0};
+    int verbose = 0; /* `verbose=1` in <data dir>/oops-log; see below for why it is not default */
     int rc;
 
     (void)args;
@@ -61,8 +65,21 @@ __attribute__((visibility("default"))) int craft_start(const payload_args_t *arg
      *
      * It belongs in the SDK's payload startup so that every title gets it rather than each one
      * remembering; raised on the bus. Here until then.
+     *
+     * **It reads the title's own directory, not `/app0`.** `oops_log_init` looks in
+     * `/app0/oops-log`, and a homebrew title cannot open `/app0` at all - the same finding that
+     * moved `CRAFT_DATA_DIR`. So the level is taken from `<data dir>/oops-log` here and applied by
+     * hand; the SDK call is left in for the app-id it records.
      */
     oops_log_init(OOPS_APP_ID);
+    {
+        char v[16];
+        verbose = (oops_config_value(CRAFT_DATA_DIR "/oops-log", "verbose", v, sizeof(v)) == 0 &&
+                   v[0] == '1');
+        if (verbose) {
+            oops_log_set_level(OOPS_LOG_DEBUG);
+        }
+    }
 
     /*
      * **The kernel log drops bursts, and the display's diagnostics are a burst.**
@@ -71,13 +88,25 @@ __attribute__((visibility("default"))) int craft_start(const payload_args_t *arg
      * title logged none of them while `[INPUT]` and `[GL]` lines either side came through, and the
      * emit is in the shipped binary - so they are produced and lost in transport, not filtered.
      *
-     * The disk sink writes every line with a direct syscall and no buffering, which is what it
-     * exists for. It probes USB first and falls back to `/data/<app_name>`, so that directory has
-     * to exist *before* the call - which is why the two `mkdir`s are here rather than below with
-     * the database's.
+     * The sink catches them, because it writes by direct syscall rather than through the kernel
+     * log's transport. It probes USB first and falls back to `/data/<app_name>`, so that directory
+     * has to exist *before* the call - which is why the `mkdir` is here rather than below with the
+     * database's.
+     *
+     * **It is off unless the launch asks, and that is about the level more than the sink.** The
+     * sink itself is cheap now: `oops-sdk` batches everything below WARN and flushes a warning
+     * immediately. What still costs is *debug level at all* - every emitted line is a `klog` and a
+     * write to fd 1 whatever the sink does, and the AGC back end logs a line per flip. Craft's own
+     * HUD read `0fps` with debug on. Same shape as the 174ms of a 200ms Neverball frame that turned
+     * out to be `gl=debug` printing counters.
+     *
+     * Turn it on for a run by putting `verbose=1` in `<data dir>/oops-log` and restoring that one
+     * file - no rebuild. Leave it off for anything being judged on speed.
      */
-    (void)oops_fs_mkdir("/data/CRFT00001", 0755);
-    (void)oops_log_enable_disk_sink(OOPS_APP_ID, 0);
+    if (verbose) {
+        (void)oops_fs_mkdir("/data/" OOPS_APP_ID, 0755);
+        (void)oops_log_enable_disk_sink(OOPS_APP_ID, 0);
+    }
 
     oops_log_info("CRFT", "entry");
 

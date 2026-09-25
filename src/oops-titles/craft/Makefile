@@ -175,28 +175,6 @@ PAYLOAD_SRCS := $(CRAFT_PAYLOAD_SRCS)
 # The SDK subsystems this title uses, declared as capabilities via OOPS_FEATURES.
 OOPS_FEATURES := display input keyboard mouse thread net
 
-# **And named as files as well, because `OOPS_FEATURES` links nothing today.** `common/app.mk:120`
-# prints "the SDK feature table (OOPS_FEATURES_AVAILABLE) is not available yet - ignoring it for
-# now" and moves on, so a title relying on the declaration above gets no display, no input, no
-# threads and no sockets - the link then fails on 20-odd `oops_*` symbols, or worse, would have
-# faulted on the console if the link guard were not there.
-#
-# The two lists coexist on purpose: the feature declaration is the intended spelling and is already
-# correct, so when `oops-sdk.mk` commits its table this block is what gets deleted, not rewritten.
-# Nothing is compiled twice in the meantime, precisely because the declaration is inert.
-CRAFT_SDK_SRCS := $(OOPS_SDK_DIR)/src/display.c \
-                  $(OOPS_SDK_DIR)/src/agc/agc_display.c \
-                  $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
-                  $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
-                  $(OOPS_SDK_DIR)/src/input/input.c \
-                  $(OOPS_SDK_DIR)/src/input/keyboard.c \
-                  $(OOPS_SDK_DIR)/src/input/mouse.c \
-                  $(OOPS_SDK_DIR)/src/thread/thread.c \
-                  $(OOPS_SDK_DIR)/src/net/net.c \
-                  $(OOPS_SDK_DIR)/src/net/dns.c \
-                  $(OOPS_SDK_DIR)/src/net/netctl.c
-PAYLOAD_SRCS += $(CRAFT_SDK_SRCS)
-
 # ---------------------------------------------------------------------------
 # `make check`: every shader Craft ships, compiled for the console.
 #
