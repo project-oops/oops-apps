@@ -530,6 +530,45 @@ int ftruncate(int fd, off_t length) {
  * that is the kind of answer someone eventually relies on.
  */
 /*
+ * `nanosleep`, over the SDK's microsecond sleep.
+ *
+ * **It rounds up, and that direction is the contract.** POSIX says the sleep lasts *at least* the
+ * requested interval, so 500ns becomes 1us rather than 0. Rounding down would turn a caller's
+ * sub-microsecond delay into a busy loop that never yields - libultraship's frame pacer
+ * (`gfx_sdl2.cpp:662`) asks for exactly this kind of short sleep every frame.
+ *
+ * `oops_time_sleep_us` takes a 32-bit count, which runs out at about 71 minutes, so a longer
+ * request is slept in chunks rather than silently truncated to `UINT32_MAX`.
+ *
+ * `rem` is for resuming a sleep a signal interrupted. Nothing can interrupt one here - there is no
+ * signal delivery on this platform - so the sleep always completes and `rem` is zeroed, which is
+ * what a caller's `while (nanosleep(&req, &rem)) req = rem;` loop needs to see to stop.
+ */
+int nanosleep(const struct timespec *req, struct timespec *rem) {
+    uint64_t us;
+
+    if (rem != NULL) {
+        rem->tv_sec = 0;
+        rem->tv_nsec = 0;
+    }
+    if (req == NULL || req->tv_nsec < 0 || req->tv_nsec >= 1000000000L || req->tv_sec < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    /* Rounded up, per the note above. */
+    us = (uint64_t)req->tv_sec * 1000000u + ((uint64_t)req->tv_nsec + 999u) / 1000u;
+    while (us > 0xffffffffu) {
+        oops_time_sleep_us(0xffffffffu);
+        us -= 0xffffffffu;
+    }
+    if (us > 0) {
+        oops_time_sleep_us((uint32_t)us);
+    }
+    return 0;
+}
+
+/*
  * **Always 0, and `*info` is zeroed anyway.** There is no run-time symbol table in a payload to
  * look an address up in - see `dlfcn.h` for the whole argument, including why the zeroing matters
  * for the one caller in this tree.
