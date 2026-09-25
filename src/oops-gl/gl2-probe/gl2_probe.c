@@ -2831,20 +2831,22 @@ static int check_do_while(void) {
     const uint32_t *s = scan_frame();
     const int painted = census_wrong(s, 0x20, 0x20, 0x20, 4);
 
-#ifdef OOPS_HOST_BUILD
-    /* The software rasteriser generates it, so the host draws the real answer: once is 1, so
-     * red is 1/4. This is what the console is being refused *instead of*. */
+    /*
+     * **Both paths draw it now, and they have to agree.**
+     *
+     * This asserted a console *refusal* until 2026-09-25, and the reasoning was about the trip
+     * guard: a runaway loop hangs the command processor, and the guard's bound came from a
+     * `for`'s initialiser, bound and step, which a `do` does not offer. What that missed is that
+     * a guard needs a *ceiling*, not a counted number - `GLSL_GEN_MAX_TRIPS` is the one the
+     * design already named for a loop that does not do what it says. So `while` and `do` are
+     * generated, and the console run that found this arm stale is the one that proves it: the
+     * refusal it asserted was gone and the picture was right.
+     *
+     * The same three answers on both paths, which is what this suite is for. A `do` body runs
+     * once whatever its condition says, so `once` is 1 and red is 1/4.
+     */
     ok = ok && drew == GL_NO_ERROR && census_wrong(s, 64, 128, 64, 3) == 0;
-#else
-    /* **On the console the draw is refused, and refused cleanly** - `GL_INVALID_OPERATION` and
-     * nothing painted, rather than a loop that ran the wrong number of times. Asserting the
-     * refusal is the point: the generator declines `while` and `do` on purpose, because the trip
-     * guard that stops a runaway loop hanging the command processor takes its bound from a
-     * `for`'s initialiser, bound and step, and a `while` offers none. A loop that never goes
-     * false costs a power cycle, so this trade is deliberate and worth keeping honest. What this
-     * check defends is that it stays a refusal and never becomes a wrong picture. */
-    ok = ok && drew == GL_INVALID_OPERATION && painted == 0;
-#endif
+    (void)painted;
 
     /*
      * **And the rewrite the refusal recommends has to work**, or the message sends its reader
