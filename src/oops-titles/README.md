@@ -22,7 +22,7 @@ is how much of that reading has been done.
 | [spaghetti-kart](spaghetti-kart/) | | pin + notes; second title of the `libultraship` family, deliberately behind ship-of-harkinian | |
 | [craft](craft/) | | 4/4 shaders compile; 14 of 18 sources compile, `make check` | |
 | [supertux](supertux/) | | 29/33 GL entry points, `make check`; renderer read | |
-| [extreme-tux-racer](extreme-tux-racer/) | | all 45 sources compile, payload links, `make package` stages it with its 55 MB of content | |
+| [extreme-tux-racer](extreme-tux-racer/) | **end to end on hardware** - a level played to the finish | | |
 | [armagetron-advanced](armagetron-advanced/) | | | pin + notes |
 | [supertuxkart](supertuxkart/) | | | pin + notes |
 | [retroarch](retroarch/) | | | pin + notes |

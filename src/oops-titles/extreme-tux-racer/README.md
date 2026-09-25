@@ -4,7 +4,8 @@
   <img src="assets/logo.png" alt="Extreme Tux Racer" width="200">
 </p>
 
-An open-source downhill racer — the collection's second ported title, and the first in C++.
+An open-source downhill racer, played to the finish on Prospero — the collection's first ported
+title in C++, and the one that paid for the C++ runtime the rest inherit.
 
 ## About
 
