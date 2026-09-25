@@ -27,19 +27,33 @@ platform:
 
 | symbol | where | compiled here? |
 |---|---|---|
-| `glGenVertexArrays`, `glBindVertexArray` | :725–726, inside `#if defined(__APPLE__) \|\| defined(USE_OPENGLES)` (:724–727) | **no** |
+| `glGenVertexArrays`, `glBindVertexArray` | :725–726, inside `#if defined(__APPLE__) \|\| defined(USE_OPENGLES)` (:724–727) | not from here — **but see below** |
 | `glBlitFramebuffer` | :907, :977, :994, unguarded | yes |
 | `glRenderbufferStorageMultisample` | :820, :832, unguarded | yes — but behind a runtime `msaa_level` |
 
 So `oops-gl` needs **`glBlitFramebuffer`**, and `glRenderbufferStorageMultisample` only if
 multisampling is left on. It already has the rest of the framebuffer object family
-(`glGenFramebuffers`, `glBindFramebuffer`, `glFramebufferTexture2D`). It has no vertex array
-objects, and on this path it does not need any — a core profile would require one, and this port
-does not ask for a core profile.
+(`glGenFramebuffers`, `glBindFramebuffer`, `glFramebufferTexture2D`).
 
 This correction is recorded rather than quietly fixed because the first count was produced the
 wrong way, and the same mistake in the other direction is what made a texture bug take a day on
 2026-09-24: **a symbol grep over a file with platform branches measures a build nobody runs.**
+
+#### Vertex array objects are needed after all — through ImGui, not through this file
+
+The paragraph above used to end "it has no vertex array objects, and on this path it does not need
+any". That was measured the same careful way and is still true *of `gfx_opengl.cpp`* — and it was
+still the wrong answer, because it only looked at the port. **ImGui's GL3 backend, which
+libultraship links, uses vertex array objects unconditionally on desktop GL.** Compiling
+`oops-deps/imgui` is what said so; no amount of reading libultraship would have.
+
+Ten names, all in `imgui_impl_opengl3.cpp`: `glGenVertexArrays`, `glBindVertexArray`,
+`glDeleteVertexArrays`, `glGetStringi`, and the enums `GL_MAJOR_VERSION`, `GL_MINOR_VERSION`,
+`GL_NUM_EXTENSIONS`, `GL_VERTEX_ARRAY_BINDING`, `GL_PIXEL_UNPACK_BUFFER` and
+`GL_PIXEL_UNPACK_BUFFER_BINDING`. The other five ImGui sources compile.
+
+The lesson is the one directly above, applied one level out: grepping the *port* measures the
+port, and the port is not the whole link.
 
 **And `libultraship` already has a low-GL profile.** `gfx_opengl.cpp` selects its shader dialect
 at compile time: `#version 410 core` on Apple, `#version 300 es` under `USE_OPENGLES`, and

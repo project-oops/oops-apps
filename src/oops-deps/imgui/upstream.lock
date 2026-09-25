@@ -1,0 +1,19 @@
+# ocornut/imgui's origin, pinned to the revision `libultraship` asks for.
+
+# Dear ImGui, the immediate-mode UI. `libultraship` builds its whole debug and configuration
+# interface on it - 15 of the runtime's 138 sources include `imgui.h` directly - and its own
+# `cmake/dependencies/common.cmake:9` declares it as a fetched dependency.
+#
+# **An eleventh library, found by compiling rather than by reading.** The dependency table in the
+# title's README was measured by grepping the sources for each library CMake fetches, and ImGui
+# was not on that list because the grep was run against the *superproject*; ImGui is declared and
+# used inside the `libultraship` submodule. A compile survey of the runtime found it in one pass.
+#
+# **An annotated tag**, so `git ls-remote` returns a pair and the peeled line is the commit:
+# `refs/tags/v1.91.9b-docking` is the tag object 52fe0a05, and the revision below is what it
+# points at. The `-docking` branch is not optional - libultraship uses docking and multi-viewport,
+# which are not in a release tag without it.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/ocornut/imgui
+UPSTREAM_REV=4806a1924ff6181180bf5e4b8b79ab4394118875
+UPSTREAM_REF=v1.91.9b-docking

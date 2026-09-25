@@ -52,6 +52,27 @@ OOPS_SDL_INCLUDE := \
     -I$(OOPS_SDL_UPSTREAM)/include \
     -I$(OOPS_SDL_UPSTREAM)/src
 
+# # `#include <SDL2/SDL.h>`, for the ports that write it that way
+#
+#   EXTRA_TARGET_CFLAGS += $(OOPS_SDL_INCLUDE) $(OOPS_SDL_PREFIX_INCLUDE)
+#   <your archive>: | $(OOPS_SDL_PREFIX_STAMP)
+#
+# Every port here so far writes `#include "SDL.h"`, which is what upstream's own sources do and
+# what the include path above serves. A distribution installs the headers to
+# `/usr/include/SDL2/` instead, so a port that was developed against a package manager writes
+# `<SDL2/SDL.h>` - libultraship does, in 67 of its 138 sources.
+#
+# **The directory is built rather than committed.** Ninety-four one-line forwarding headers would
+# be ninety-four files in this repository that exist only to contain the word `SDL2`, and one of
+# them would eventually be missing after a bump. A symlink would be one file, and would not
+# survive a checkout on Windows. So this copies the header directory under the name the port
+# expects, into `build/`, which is already ignored.
+#
+# It is a separate variable because it is a separate question: nothing that compiles today needs
+# it, and a title asks for it by naming it. The stamp is order-only on purpose - the copy has to
+# have happened, but a header that is newer than an object is not a reason to relink.
+# The rule is further down, where `OOPS_SDL_BUILD` has been defined.
+
 # **Wildcards, not a list of files.** SDL builds with CMake and we do not, so the file list is
 # ours to keep correct across bumps - and a hand-written list of two hundred names is a list that
 # silently loses a file the day upstream adds one. A directory is a smaller thing to be wrong
@@ -130,6 +151,26 @@ OOPS_SDL_C_SRCS := $(filter-out \
 # are recursive (`=`) and resolve when the recipe runs rather than when this file is included.
 OOPS_SDL_BUILD ?= $(OOPS_SDL_DIR)/build
 OOPS_SDL_LIB := $(OOPS_SDL_BUILD)/libSDL2.a
+
+# The `SDL2/`-prefixed header view described beside `OOPS_SDL_INCLUDE` above. Down here because it
+# names `OOPS_SDL_BUILD`, and a rule's target is expanded when make reads the line.
+OOPS_SDL_PREFIX_DIR := $(OOPS_SDL_BUILD)/prefix
+OOPS_SDL_PREFIX_INCLUDE := -I$(OOPS_SDL_PREFIX_DIR)
+OOPS_SDL_PREFIX_STAMP := $(OOPS_SDL_PREFIX_DIR)/.stamp
+
+# `include/SDL_config_prospero.h` is copied in beside the rest, and has to be: `SDL.h` reaches its
+# config through a *quoted* include, which a compiler resolves next to the including file first.
+# Without the copy, `SDL2/SDL_platform.h` would find the config through `-I` anyway - but only
+# because `OOPS_SDL_INCLUDE` happens to be on the same command line, and a caller using the prefix
+# view alone would get a confusing failure deep inside SDL's header chain.
+$(OOPS_SDL_PREFIX_STAMP): $(wildcard $(OOPS_SDL_UPSTREAM)/include/*.h) \
+                          $(wildcard $(OOPS_SDL_DIR)/include/*.h)
+	@rm -rf $(OOPS_SDL_PREFIX_DIR)/SDL2
+	@mkdir -p $(OOPS_SDL_PREFIX_DIR)/SDL2
+	@cp $(OOPS_SDL_UPSTREAM)/include/*.h $(OOPS_SDL_PREFIX_DIR)/SDL2/
+	@cp $(OOPS_SDL_DIR)/include/*.h $(OOPS_SDL_PREFIX_DIR)/SDL2/
+	@echo "SDL: $$(ls $(OOPS_SDL_PREFIX_DIR)/SDL2 | wc -l) headers under SDL2/"
+	@touch $@
 
 # The warnings dropped, each because upstream's code trips it and is right to.
 OOPS_SDL_WARN_DROP := -Werror -Wconversion -Wsign-conversion -Wshadow -Wcast-qual \
