@@ -1,0 +1,31 @@
+Include <strings.h> for strcasecmp, under the macro upstream already tests
+
+`zip_close.c:797` calls `strcasecmp`, and nothing in libzip includes a header
+that declares it. That works on glibc and on FreeBSD, where `<string.h>` also
+declares the `strcasecmp` pair as an extension - but POSIX puts them in
+`<strings.h>`, and a libc that follows POSIX exactly, as `oops-sdk`'s does,
+leaves the call undeclared. Under clang 21 that is an error, not a warning.
+
+`compat.h` is where libzip already answers this class of question - it is the
+file that substitutes `_stricmp` for `strcasecmp` on MSVC eleven lines further
+down - and `HAVE_STRINGS_H` is already computed by upstream's own
+`config.h.in`. So this adds the include beside the `<stdbool.h>` one under the
+macro that was already there for it, and every platform whose configure step
+answers no is untouched.
+
+diff --git a/lib/compat.h b/lib/compat.h
+index 49d3aa3..0c772e1 100644
+--- a/lib/compat.h
++++ b/lib/compat.h
+@@ -62,6 +62,11 @@ typedef char bool;
+ #define false 0
+ #endif
+ 
++/* for strcasecmp(), which POSIX declares here rather than in <string.h> */
++#ifdef HAVE_STRINGS_H
++#include <strings.h>
++#endif
++
+ #include <errno.h>
+ 
+ /* at least MinGW does not provide EOPNOTSUPP, see

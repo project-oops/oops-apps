@@ -519,6 +519,26 @@ int ftruncate(int fd, off_t length) {
 }
 
 /*
+ * **`chmod` fails too, for the same reason `ftruncate` does.** This platform has no file
+ * permissions - `stat` reports a mode built from "is it a directory", not from anything stored -
+ * so there is nothing for a mode to change.
+ *
+ * Returning 0 would be the tempting answer, since both callers here ignore the result: libzip
+ * writes `(void)chmod(...)` when it renames a temporary file into place. But a program that
+ * *checks* would be told its file is now private when it is exactly as readable as before, and
+ * that is the kind of answer someone eventually relies on.
+ */
+int chmod(const char *path, mode_t mode) {
+    (void)mode;
+    if (path == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    errno = ENOSYS;
+    return -1;
+}
+
+/*
  * `isatty` and `fsync`, the other two `os-inl.h` reaches for.
  *
  * **Nothing here is a terminal.** A payload's `stdout` goes to the kernel log, not to a tty, so

@@ -54,6 +54,9 @@ int stat(const char *path, struct stat *out);
  * - see `posix.c` for how the size is taken without disturbing the file pointer. */
 int fstat(int fd, struct stat *out);
 int mkdir(const char *path, mode_t mode);
+/* **Always fails with `ENOSYS`.** There are no file permissions on this platform to change - see
+ * `posix.c`, and `ftruncate` in `unistd.h` for the same reasoning. */
+int chmod(const char *path, mode_t mode);
 #ifdef __cplusplus
 }
 #endif
