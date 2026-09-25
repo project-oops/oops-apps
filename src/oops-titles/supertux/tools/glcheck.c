@@ -1,13 +1,19 @@
 /*
  * supertux glcheck - every GL entry point SuperTux's renderer calls, against oops-gl's surface.
  *
- * **This is the analogue of Craft's `shadercheck` and it answers the same question**: can this
- * title render at all. Craft's answer lived in its shaders, because oops-gl compiles a fragment
- * shader to gfx1030 instructions or refuses it by name. SuperTux's GL 2.0 path has no shaders -
- * `GL20Context` is fixed-function - so the question moves to the entry points, and a GL function
- * oops-gl does not have is a **link error** rather than a slow path. That is the whole reason
- * this port shims GLEW away instead of using it: a missing function should be a named link
+ * **This is half of the question "can this title render at all"**; the other half is whether
+ * `data/shader/shader100.*` compiles, which `oops-sdk/tools/shader-survey.sh` answers and
+ * `make shadercheck` runs. This half is the entry points: a GL function oops-gl does not have is a
+ * **link error** rather than a slow path, which is also why the port answers `<SDL_opengles2.h>`
+ * from its shim instead of pulling in a loader - a missing function should be a named link
  * failure, not a null pointer called in frame one.
+ *
+ * **The path measured is the ES 2.0 one**, which the port builds with `-DUSE_OPENGLES2`. That
+ * define is upstream's own switch and it does three things this tool has to know: it makes
+ * `GL33CoreContext` the backend with `shader100.*` as its program, it compiles
+ * `gl20_context.cpp` and `gl_pixel_request.cpp` to nothing, and it replaces the three
+ * vertex-array-object calls with inline no-ops in `video/gl.hpp`. The last is why those three
+ * names are in `STUBBED_BY_UPSTREAM` rather than reported as gaps.
  *
  * It reads both trees at run time - upstream's renderer sources and oops-sdk's own `GL/gl.h` -
  * so it measures them as they are and re-runs whenever either moves.
@@ -32,16 +38,12 @@
 #define STX_GL_HEADER "../../../../oops-sdk/include/GL/gl.h"
 #endif
 
-/* The renderer's own files, in the order a reader wants them: the two context implementations
- * first, because the whole point is which backend needs what, then the shared machinery.
- *
- * Named rather than globbed so that a new file upstream shows up as a build failure here - which
- * is a prompt to read it and decide which backend it belongs to - instead of being silently
- * swept into whichever column the glob happened to put it in. */
+/* The renderer's own files. Named rather than globbed so that a new file upstream shows up as a
+ * failure here - which is a prompt to read it and decide whether the ES 2.0 build compiles it -
+ * instead of being silently swept into whichever column a glob happened to put it in. */
 typedef enum {
-    STX_GL20 = 0,  /* reached on the GL 2.0 path this port takes */
-    STX_GL33,      /* reached only when GL33CoreContext is the chosen backend */
-    STX_DROPPED,   /* not compiled by this port - see the note beside each one */
+    STX_ES2 = 0,   /* compiled, and reached, on the ES 2.0 path this port takes */
+    STX_DROPPED,   /* compiled to nothing under USE_OPENGLES2 - see the note beside each one */
 } stx_reach_t;
 
 typedef struct {
@@ -50,25 +52,39 @@ typedef struct {
 } stx_source_t;
 
 static const stx_source_t SOURCES[] = {
-    {"gl20_context.cpp", STX_GL20},
-    {"gl33core_context.cpp", STX_GL33},
-    {"gl_framebuffer.cpp", STX_GL20},
-    {"gl_painter.cpp", STX_GL20},
-    /* **Dropped, on upstream's own authority.** Its only use is in `gl_painter.cpp`, inside an
-     * `#if 0` whose comment reads: "FIXME: glFenceSync() causes crashes on Intel I965, so
-     * disable GLPixelRequest for now, it's not yet properly used anyway." The file still
-     * compiles upstream, so its `glFenceSync`/`glClientWaitSync` are live *link* references to
-     * dead code - GL 3.2 entry points on a path that claims GL 2.0. Leaving the file out costs
-     * this port nothing that upstream has not already given up. */
+    /* **The fixed-function backend, and upstream's `#ifndef USE_OPENGLES2` removes it.** It is
+     * what this port would fall back to if the shader path ever had to be given up: build
+     * without the define and `GLVideoSystem(false)` takes it. Its needs are a subset of
+     * gl1-probe's, so it is not measured here. */
+    {"gl20_context.cpp", STX_DROPPED},
+    {"gl33core_context.cpp", STX_ES2},
+    {"gl_framebuffer.cpp", STX_ES2},
+    {"gl_painter.cpp", STX_ES2},
+    /* **Dropped twice over.** `#ifndef USE_OPENGLES2` empties it, and even without the define
+     * its only use is in `gl_painter.cpp` inside an `#if 0` whose comment reads "FIXME:
+     * glFenceSync() causes crashes on Intel I965, so disable GLPixelRequest for now". Its
+     * `glFenceSync`/`glClientWaitSync` are GL 3.2 and never reached. */
     {"gl_pixel_request.cpp", STX_DROPPED},
-    {"gl_program.cpp", STX_GL33},
-    {"gl_renderer.cpp", STX_GL20},
-    {"gl_screen_renderer.cpp", STX_GL20},
-    {"gl_shader.cpp", STX_GL33},
-    {"gl_texture.cpp", STX_GL20},
-    {"gl_texture_renderer.cpp", STX_GL20},
-    {"gl_vertex_arrays.cpp", STX_GL33},
-    {"gl_video_system.cpp", STX_GL20},
+    {"gl_program.cpp", STX_ES2},
+    {"gl_renderer.cpp", STX_ES2},
+    {"gl_screen_renderer.cpp", STX_ES2},
+    {"gl_shader.cpp", STX_ES2},
+    {"gl_texture.cpp", STX_ES2},
+    {"gl_texture_renderer.cpp", STX_ES2},
+    {"gl_vertex_arrays.cpp", STX_ES2},
+    {"gl_video_system.cpp", STX_ES2},
+};
+
+/*
+ * **Called, and never a link reference.** Under `USE_OPENGLES2`, `video/gl.hpp` defines these as
+ * empty inline functions - "a simple no-op replacement looks prettier than #ifdef", upstream says
+ * - because ES 2.0 has no vertex array objects. The calls stay in the source and compile to
+ * nothing, so oops-gl not having them costs this port nothing.
+ */
+static const char *const STUBBED_BY_UPSTREAM[] = {
+    "glBindVertexArray",
+    "glDeleteVertexArrays",
+    "glGenVertexArrays",
 };
 
 /*
@@ -88,7 +104,7 @@ static const stx_source_t SOURCES[] = {
  * measured the same day. This tool failing is how that was noticed here, which is the direction
  * a baseline is *also* for - it reported four gaps closed and refused to stay quiet about it.
  *
- * An empty list means every entry point the GL 2.0 path calls is present. It is still a
+ * An empty list means every entry point the ES 2.0 path calls is present. It is still a
  * baseline: a new call in an upstream bump, or an entry point that goes away, fails this.
  */
 static const char *const KNOWN_GAPS[] = {
@@ -100,11 +116,17 @@ static const char *const KNOWN_GAPS[] = {
 
 typedef struct {
     char name[MAX_NAME_LEN];
-    int gl20;    /* called from a file the GL20 path reaches */
-    int gl33;    /* called from a GL33Core-only file */
-    int dropped; /* called only from a file this port does not compile */
+    int es2;     /* called from a file the ES 2.0 build compiles */
+    int dropped; /* called from a file the ES 2.0 build compiles to nothing */
     int have;    /* declared by oops-sdk's GL/gl.h */
 } stx_entry_t;
+
+static int is_stubbed(const char *name) {
+    for (size_t k = 0; k < sizeof(STUBBED_BY_UPSTREAM) / sizeof(STUBBED_BY_UPSTREAM[0]); k++) {
+        if (strcmp(STUBBED_BY_UPSTREAM[k], name) == 0) return 1;
+    }
+    return 0;
+}
 
 static stx_entry_t g_entries[MAX_NAMES];
 static size_t g_entry_count;
@@ -219,8 +241,7 @@ static stx_entry_t *intern(const char *name, size_t len) {
     stx_entry_t *e = &g_entries[g_entry_count++];
     memcpy(e->name, name, len);
     e->name[len] = '\0';
-    e->gl20 = 0;
-    e->gl33 = 0;
+    e->es2 = 0;
     e->dropped = 0;
     e->have = 0;
     return e;
@@ -255,9 +276,8 @@ static void scan(char *text, stx_reach_t reach, int adding, int *out_count) {
                 if (adding) {
                     stx_entry_t *e = intern(&text[i], j - i);
                     if (e) {
-                        if (reach == STX_GL33) e->gl33 = 1;
-                        else if (reach == STX_DROPPED) e->dropped = 1;
-                        else e->gl20 = 1;
+                        if (reach == STX_DROPPED) e->dropped = 1;
+                        else e->es2 = 1;
                     }
                     n++;
                 } else {
@@ -304,9 +324,7 @@ int main(int argc, char **argv) {
         int n = 0;
         scan(text, SOURCES[s].reach, 1, &n);
         free(text);
-        const char *tag = SOURCES[s].reach == STX_GL33      ? "   (GL33Core only)"
-                          : SOURCES[s].reach == STX_DROPPED ? "   (not compiled here)"
-                                                            : "";
+        const char *tag = SOURCES[s].reach == STX_DROPPED ? "   (empty under USE_OPENGLES2)" : "";
         printf("  %-26s %3d call sites%s\n", SOURCES[s].file, n, tag);
     }
     if (g_entry_count == 0u) {
@@ -325,7 +343,7 @@ int main(int argc, char **argv) {
     }
     blank_non_code(htext);
     int declared = 0;
-    scan(htext, STX_GL20, 0, &declared);
+    scan(htext, STX_ES2, 0, &declared);
     free(htext);
     if (declared == 0) {
         printf("supertux glcheck: FAILED - no entry points found in %s\n", header);
@@ -334,19 +352,19 @@ int main(int argc, char **argv) {
 
     qsort(g_entries, g_entry_count, sizeof(g_entries[0]), cmp_entry);
 
-    /* The report proper: what the GL20 path needs and does not have. Anything only GL33Core
-     * calls is listed separately rather than counted against this port, because the backend is
-     * chosen at run time and this port takes the other arm. */
-    int need20 = 0, gap20 = 0, gap33 = 0, gapdrop = 0;
+    /* The report proper: what the ES 2.0 path needs and does not have. The stubbed names and
+     * the dropped files are listed separately rather than counted against this port, because
+     * neither reaches the link. */
+    int need = 0, gap = 0, gapstub = 0, gapdrop = 0;
     int unexpected = 0, closed = 0;
 
-    printf("\n  absent from oops-gl, on the GL 2.0 path:\n");
+    printf("\n  absent from oops-gl, on the ES 2.0 path:\n");
     for (size_t i = 0; i < g_entry_count; i++) {
         const stx_entry_t *e = &g_entries[i];
-        if (!e->gl20) continue;
-        need20++;
+        if (!e->es2 || is_stubbed(e->name)) continue;
+        need++;
         if (e->have) continue;
-        gap20++;
+        gap++;
         int known = 0;
         for (size_t k = 0; k < sizeof(KNOWN_GAPS) / sizeof(KNOWN_GAPS[0]); k++) {
             if (KNOWN_GAPS[k] == NULL) continue;
@@ -355,32 +373,45 @@ int main(int argc, char **argv) {
         if (!known) unexpected++;
         printf("    %-28s %s\n", e->name, known ? "" : "<- NEW, not in KNOWN_GAPS");
     }
-    if (gap20 == 0) printf("    (none)\n");
+    if (gap == 0) printf("    (none)\n");
 
     /* The other direction: a gap the baseline still names but oops-gl now has. Quiet success
      * here would leave the list - and the port's status beside it - slowly becoming fiction. */
     for (size_t k = 0; k < sizeof(KNOWN_GAPS) / sizeof(KNOWN_GAPS[0]); k++) {
         if (KNOWN_GAPS[k] == NULL) continue;
         const stx_entry_t *e = lookup(KNOWN_GAPS[k], strlen(KNOWN_GAPS[k]));
-        if (e && e->gl20 && e->have) {
+        if (e && e->es2 && e->have) {
             printf("    %-28s <- now present; drop it from KNOWN_GAPS\n", KNOWN_GAPS[k]);
             closed++;
         }
     }
 
-    printf("\n  absent, but only GL33Core calls them - this port takes the other backend:\n");
+    printf("\n  absent, but inline no-ops under USE_OPENGLES2 (video/gl.hpp):\n");
     for (size_t i = 0; i < g_entry_count; i++) {
         const stx_entry_t *e = &g_entries[i];
-        if (e->gl20 || !e->gl33 || e->have) continue;
+        if (!e->es2 || !is_stubbed(e->name) || e->have) continue;
         printf("    %s\n", e->name);
-        gap33++;
+        gapstub++;
     }
-    if (gap33 == 0) printf("    (none)\n");
+    if (gapstub == 0) printf("    (none)\n");
 
-    printf("\n  absent, but only in files this port does not compile:\n");
+    /* **A stubbed name oops-gl starts declaring is a compile error, not good news.** `gl.hpp`'s
+     * no-ops are C++ inline definitions, and oops-gl's are `extern "C"` declarations of the same
+     * name - the two cannot coexist in one translation unit. The shim's `SDL_opengles2.h` is
+     * where that gets answered. */
+    int stubclash = 0;
     for (size_t i = 0; i < g_entry_count; i++) {
         const stx_entry_t *e = &g_entries[i];
-        if (e->gl20 || e->gl33 || !e->dropped || e->have) continue;
+        if (!e->es2 || !is_stubbed(e->name) || !e->have) continue;
+        printf("    %-28s <- oops-gl declares it now; upstream's inline stub will collide\n",
+               e->name);
+        stubclash++;
+    }
+
+    printf("\n  absent, but only in files the ES 2.0 build empties:\n");
+    for (size_t i = 0; i < g_entry_count; i++) {
+        const stx_entry_t *e = &g_entries[i];
+        if (e->es2 || !e->dropped || e->have) continue;
         printf("    %s\n", e->name);
         gapdrop++;
     }
@@ -397,21 +428,26 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    printf("\nsupertux glcheck: %d of %d entry points on the GL 2.0 path are in oops-gl"
-           " (surface only - behaviour is gl1-probe's)\n",
-           need20 - gap20, need20);
+    printf("\nsupertux glcheck: %d of %d entry points on the ES 2.0 path are in oops-gl"
+           " (surface only - behaviour is gl2-probe's)\n",
+           need - gap, need);
 
     /* **Passing means "unchanged", not "no gaps".** The gaps are this title's status and are
      * recorded in KNOWN_GAPS; what would be news is the set moving. */
+    if (stubclash) {
+        printf("supertux glcheck: FAILED - %d vertex-array stub(s) now collide with oops-gl;"
+               " keep them out of shim/include/SDL_opengles2.h\n", stubclash);
+        return 1;
+    }
     if (unexpected || closed) {
         printf("supertux glcheck: FAILED - the absent set moved (%d new, %d closed);"
                " update KNOWN_GAPS and docs/PORTING.md\n", unexpected, closed);
         return 1;
     }
-    if (gap20 == 0) {
-        printf("supertux glcheck: every entry point the GL 2.0 path calls is in oops-gl\n");
+    if (gap == 0) {
+        printf("supertux glcheck: every entry point the ES 2.0 path calls is in oops-gl\n");
     } else {
-        printf("supertux glcheck: %d known gap(s) - unchanged\n", gap20);
+        printf("supertux glcheck: %d known gap(s) - unchanged\n", gap);
     }
     return 0;
 }

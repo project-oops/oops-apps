@@ -13,9 +13,9 @@
 # is a different project wearing this one's name. v0.6.3 calls `SDL_GL_DeleteContext` and is the
 # tree the dependency stack here was built for.
 #
-# That was checked rather than assumed: both spellings were grepped in both trees, and the GL 2.0
-# renderer this port targets was confirmed present at this revision with the same fixed-function
-# calls master has (see docs/PORTING.md, *The renderer*).
+# That was checked rather than assumed: both spellings were grepped in both trees, and the ES 2.0
+# renderer this port targets - `USE_OPENGLES2` and `data/shader/shader100.*` - is present at this
+# revision (see docs/PORTING.md, *The renderer*).
 #
 # **`v0.6.3` is a lightweight tag**, so `c1ddb4f2` is the commit directly and there is no peeled
 # `^{}` line to miss - the trap Neverball's lock records and Craft's confirms it checked. Checked
@@ -31,13 +31,28 @@
 # fetch turns out to be painfully large for the analysis phase, the honest fix is a faster fetch,
 # not a pin that quietly excludes the game.
 #
-# **What this lock does NOT get you: the six submodules.** `common/upstream-fetch.sh` does not
-# recurse, and at this revision `.gitmodules` names `external/tinygettext`, `external/squirrel`,
-# `external/sexp-cpp`, `external/physfs`, `external/SDL_ttf` and `external/discord-sdk`. Four of
-# those are non-optional for a build. SuperTux is the first origin here that needs submodules at
-# all, so this is a decision for the collection and not something to paper over inside one title;
-# docs/PORTING.md, *The submodules*, states the two options and does not pick one.
+# **`UPSTREAM_SUBMODULES=1`, because four of the six are the game.** PhysFS opens every file,
+# Squirrel runs every level's scripts, sexp-cpp parses every level, and tinygettext is the
+# translations - a checkout without them is a tree that fails on missing headers. Ship of
+# Harkinian is the title that taught `common/upstream-fetch.sh` this, and its lock has the point
+# that settles it: the pinned commit records each submodule's revision in its own tree, so this
+# one hash still pins all of them. For the record, at `c1ddb4f2`:
+#
+#   external/physfs       36504d7207df8a93e6f36e016c47fbfabb8e1ed8
+#   external/squirrel     dda695e95f221b5e038796eab1f13d734dbd7270
+#   external/sexp-cpp     6018831abc1e5d5020c7b62f99962806dacf4c9f
+#   external/tinygettext  355659015e557749f6b514881c3a35d44d6e5f57
+#
+# **Not `src/oops-deps/`**, which is where a library goes when more than one title links it.
+# None of these four is wanted by another title here - SuperTuxKart vendors its own tinygettext
+# and scripts in AngelScript - so they are this title's upstream and build with it.
+#
+# The other two arrive and are not compiled: `external/SDL_ttf` is a fork whose additions the game
+# does not call, so `oops-deps/sdl2-ttf` answers it, and `external/discord-sdk` is off in
+# `shim/include/config.h`. The fetch checks every declared submodule is non-empty, which is why
+# they are fetched at all.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/SuperTux/supertux
 UPSTREAM_REV=c1ddb4f28c54de77f07aa9965231a91c0ed06708
 UPSTREAM_REF=v0.6.3 (2022-02-06; master is SDL3 and v0.7.0 is that line)
+UPSTREAM_SUBMODULES=1

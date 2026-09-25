@@ -21,7 +21,7 @@ is how much of that reading has been done.
 | [sm64](sm64/) | | GL surface measured: 34 entry points, **0 missing**. Its ROM is a build-time dependency, which is the open question | |
 | [spaghetti-kart](spaghetti-kart/) | | pin + notes; second title of the `libultraship` family, deliberately behind ship-of-harkinian | |
 | [craft](craft/) | | 4/4 shaders compile; 14 of 18 sources compile, `make check` | |
-| [supertux](supertux/) | | 29/33 GL entry points, `make check`; renderer read | |
+| [supertux](supertux/) | | ES 2.0 path: 53/53 GL entry points (`make check`), `shader100.frag` generates (`make shadercheck`); pin + submodules fetch; 468 sources selected | |
 | [extreme-tux-racer](extreme-tux-racer/) | **end to end on hardware** - a level played to the finish | | |
 | [armagetron-advanced](armagetron-advanced/) | | | pin + notes |
 | [supertuxkart](supertuxkart/) | | | pin + notes |
@@ -107,10 +107,11 @@ GL versions asserted from recollection have already been wrong twice in this pro
 
 **And that method has a blind spot, which SuperTux 2 found.** A title that ships shaders is not
 therefore a title that *runs* them: SuperTux carries `#version 100` and `#version 330` files and
-also carries a fixed-function backend that loads neither, choosing between them at run time. The
-shader files said `gl2/` and `gl3/`; the renderer says `gl1/`. So the grep above answers "what is
-in the tree", and the question is "what executes" - which means reading the backend that is
-actually selected, not only the assets beside it.
+also a fixed-function backend that loads neither, and which one executes is decided by a
+**compile-time define** - `USE_OPENGLES2` takes the `#version 100` program, neither define tries
+`#version 330` and falls back to fixed-function by exception. So the grep above answers "what is
+in the tree", and the question is "what executes" - which means reading how the build selects
+the backend, not only the assets beside it.
 
 | Slot | Target | Verified | Language |
 |---|---|---|---|
@@ -119,9 +120,9 @@ actually selected, not only the assets beside it.
 | `gl1/` | Armagetron Advanced | 23 `glBegin`, no shader calls - but exceptions, RTTI and boost, so **last** rather than second; see the comparison below | C++, 189 files |
 | `gl1/` | Extreme Tux Racer | arrays, no `glBegin`, no exceptions or RTTI, SDL **1.2**. Upstream is Subversion; unofficial git mirrors exist and one must be picked | C++, 45 files |
 | `gl2/` | **Craft** | `#version 120` - GLSL 1.20 is OpenGL 2.1 - `glCreateShader`/`glUseProgram`, 14 MB with textures | **C** |
-| `gl1/` | **SuperTux 2** | **corrected 2026-09-24.** Its `GL20Context` uses no shaders at all - fixed-function `glMatrixMode`/`glEnableClientState`/`glVertexPointer`/`glColor4f`, one texture unit - and the backend is chosen at run time from `glGetString(GL_VERSION)`. `supertux/docs/PORTING.md` | C++, 476 files |
+| `gl2/` | **SuperTux 2** | **re-read 2026-09-25.** Built with upstream's `USE_OPENGLES2`, it runs `shader100.*` - `#version 100`, three samplers - through `GL33CoreContext`, and that fragment shader generates for gfx1030. Its fixed-function `GL20Context` is the fallback, not the target; the backend is chosen by define, and `v0.6.3` never parses `GL_VERSION`. `supertux/docs/PORTING.md` | C++ with exceptions and RTTI, 468 files |
 | `gl3/` | SuperTuxKart | its README: "OpenGL >= 3.3 or OpenGL ES >= 3.0" | C++ |
-| `gl3/` | SuperTux 2 | the `#version 330` half of the same engine, through `GL33CoreContext` | C++ |
+| `gl3/` | SuperTux 2 | the `#version 330` half of the same engine - not taken; the ES 2.0 program draws the same effects | C++ |
 | `multi/` | **RetroArch** | ships `gl1.c`, `gl2.c` **and** `gl3.c` as separate drivers - one app across all three | C |
 
 ## Decompilation and recompilation ports: two families, opposite answers
