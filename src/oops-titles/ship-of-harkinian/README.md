@@ -177,7 +177,13 @@ The order of work, cheapest useful thing first:
 3. ~~The `#version 120` patch~~ — **done**, `patches/0001-ask-for-the-glsl-this-target-implements.patch`.
    One line, verified end to end: the fetch applies it *inside the `libultraship` submodule*,
    which works because submodules are checked out before patches run.
-4. **Vendor `spdlog`**, then `nlohmann/json` and `tinyxml2` — the order above, and the first is
-   the one that unblocks compiling anything at all.
-5. **Then** the archive pair, `StormLib` and `libzip`, which is the ROM-reading path.
-6. **Then** the title's own sources.
+4. **A threaded libc++.** `spdlog` is pinned and fetched in
+   [`../../oops-deps/spdlog/`](../../oops-deps/spdlog/README.md), and compiling its header found
+   the real blocker: `_LIBCPP_HAS_THREADS 0`, so `std::mutex`, `std::thread` and
+   `std::condition_variable` do not exist — and 11 of the 15 errors are that. `oops-sdk` already
+   has the whole API (`oops_thread_*`, `oops_mutex_*`, `oops_sem_*`); libc++ has
+   `_LIBCPP_HAS_THREAD_API_EXTERNAL` for exactly this. **That is an `oops-deps/libcxx` job, not a
+   title one**, and every threaded C++ port after this one needs it too.
+5. Then the rest of the nine, in the measured order — `nlohmann/json`, `tinyxml2`, and so on.
+6. **Then** the archive pair, `StormLib` and `libzip`, which is the ROM-reading path.
+7. **Then** the title's own sources.

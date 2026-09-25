@@ -1,0 +1,15 @@
+# spdlog's origin. Pinned to the revision `libultraship` asks for, which is what makes this a
+# vendored copy of that port's dependency rather than a second opinion about which version to use:
+# `cmake/dependencies/*.cmake` declares `GIT_TAG v1.16.0` on every platform.
+#
+# **It is the first of Ship of Harkinian's nine and the largest**, which is not the order anyone
+# would pick by size. It is the order the code picks: 123 of that tree's files include a spdlog
+# header, against 42 for nlohmann/json and 40 for tinyxml2, so nothing else there can be compiled
+# and checked until this one is in.
+#
+# `v1.16.0` is a lightweight tag - `git ls-remote` returned one line rather than the peeled pair
+# an annotated tag gives - so the ref and the commit are the same object.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/gabime/spdlog
+UPSTREAM_REV=486b55554f11c9cccc913e11a87085b2a91f706f
+UPSTREAM_REF=v1.16.0
