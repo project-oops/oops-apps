@@ -17,7 +17,9 @@ is how much of that reading has been done.
 |---|---|---|---|
 | [neverball](neverball/) | **end to end on hardware** | | |
 | [neverputt](neverputt/) | **end to end on hardware** | | |
-| [ship-of-harkinian](ship-of-harkinian/) | | pin + submodules fetch and verify; GL gap measured at 2 entry points, 9 dependencies to vendor (`make survey`) | |
+| [ship-of-harkinian](ship-of-harkinian/) | | pin + submodules fetch and verify; GL gap closed, shader dialect proven by `gl2-probe`, 9 dependencies to vendor (`make survey`) | |
+| [sm64](sm64/) | | GL surface measured: 34 entry points, **0 missing**. Its ROM is a build-time dependency, which is the open question | |
+| [spaghetti-kart](spaghetti-kart/) | | pin + notes; second title of the `libultraship` family, deliberately behind ship-of-harkinian | |
 | [craft](craft/) | | 4/4 shaders compile; 14 of 18 sources compile, `make check` | |
 | [supertux](supertux/) | | 29/33 GL entry points, `make check`; renderer read | |
 | [extreme-tux-racer](extreme-tux-racer/) | | all 45 sources compile, payload links, `make package` stages it with its 55 MB of content | |
@@ -121,6 +123,50 @@ actually selected, not only the assets beside it.
 | `gl3/` | SuperTuxKart | its README: "OpenGL >= 3.3 or OpenGL ES >= 3.0" | C++ |
 | `gl3/` | SuperTux 2 | the `#version 330` half of the same engine, through `GL33CoreContext` | C++ |
 | `multi/` | **RetroArch** | ships `gl1.c`, `gl2.c` **and** `gl3.c` as separate drivers - one app across all three | C |
+
+## Decompilation and recompilation ports: two families, opposite answers
+
+Surveyed 2026-09-25, sixteen projects cloned and measured. The single most useful thing it found
+is that these are not sixteen decisions but three.
+
+**First: a decompilation is not a port.** `zeldaret/oot`, `zeldaret/mm`, `n64decomp/sm64` and
+`n64decomp/mk64` build an N64 ROM; `zeldaret/tp` and `ACreTeam/ac-decomp` build a GameCube DOL.
+None has a `src/pc`, a graphics backend or a platform layer. What can be ported is the *fork*
+that added one.
+
+**Second, the `libultraship` family is in reach.** Harbour Masters' shared runtime carries the
+renderer for Ship of Harkinian (Ocarina of Time), 2ship2harkinian (Majora's Mask), SpaghettiKart
+(Mario Kart 64), Starship (Star Fox 64), PaperBoat (Paper Mario 64) and Ghostship. **Every one
+measured zero direct GL calls** - the graphics are entirely inside the library, so the platform
+work is done once for six games. Its non-Apple, non-GLES branch emits GLSL 1.20 constructs under
+a `#version 130` directive; `gl2-probe`'s `libultraship-dialect` arm proves the constructs run
+here and the directive is refused, which is a one-line patch rather than a feature.
+
+**Third, the `N64Recomp` family is not**, and for a reason no amount of effort here changes:
+it renders through **RT64**, which is Vulkan and D3D12. Measured by reference count -
+`RecompFrontend` 156 rt64 / 10 vulkan / 9 d3d12, `BanjoRecomp` 42 / 6. That covers Banjo:
+Recompiled, Zelda 64: Recompiled, Harvest Moon 64 and everything else N64Recomp produces. They
+are excellent ports and they want a graphics stack this collection does not have.
+
+Twilight Princess sits with the third group by a different route: Dusklight's source is public
+(the `HayatoG/dusklight` fork carries it, with a real `platforms/` abstraction) but its graphics
+go GX → **Aurora → WebGPU/Dawn**, 1312 wgpu references and no GL path. Courage Reborn has no
+public repository at all.
+
+| family | renderer | verdict |
+|---|---|---|
+| libultraship (6 ports) | its own Fast3D over GL 2.1-era GLSL | **in scope** - [ship-of-harkinian](ship-of-harkinian/), [spaghetti-kart](spaghetti-kart/) |
+| sm64-port | GL 2.0, 34 entry points, 0 missing | **in scope** - [sm64](sm64/), but its ROM is a *build-time* dependency |
+| N64Recomp (Banjo, Zelda 64, …) | RT64 → Vulkan / D3D12 | out of scope |
+| Dusklight / Twilight Princess | Aurora → WebGPU / Dawn | out of scope |
+| perfect_dark | GL, 61 calls, 6 missing | possible; build-time ROM like sm64 |
+| raw decompilations | none | not ports |
+
+**Build time versus run time is the other axis**, and it decides more than the graphics do.
+`sm64-port`, `perfect_dark`, `zeldaret/oot` and `zeldaret/mm` extract assets during the build and
+fail without a ROM on the build machine. The Harbour Masters ports build with no ROM anywhere and
+convert the player's own copy on the device - Ship of Harkinian links `ZAPDLib` into the game
+binary to do it. That is the shape the rule at the top of this file already makes room for.
 
 ## The real sorting axis is C versus C++
 

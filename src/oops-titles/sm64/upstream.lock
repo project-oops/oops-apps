@@ -1,0 +1,16 @@
+# Super Mario 64's origin - `sm64-port`, the plain PC port of the `n64decomp/sm64`
+# decompilation.
+#
+# **`n64decomp/sm64` itself is not a port and is not what this pins.** That repository builds an
+# N64 ROM: it has no `src/pc`, no graphics backend and no platform layer, which is true of every
+# matching decompilation. `sm64-port` is the fork that added one, and its `src/pc/gfx/` is what
+# this title is actually about.
+#
+# **Pinned to a commit, because this project has no releases.** Its only two tags are `irix` and
+# `irix2`, which are branches of a different kind of work; the default branch is what everyone
+# builds. That is a weaker pin than Neverball's `neverball-1.6.0` and the reason is recorded here
+# rather than discovered later.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/sm64-port/sm64-port
+UPSTREAM_REV=2b17d081c9798b31b91dc71f37994b0da28cffc9
+UPSTREAM_REF=main@2026-09-25
