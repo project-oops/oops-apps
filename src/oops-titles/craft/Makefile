@@ -158,20 +158,31 @@ CRAFT_PAYLOAD_SRCS := $(CRAFT_SHIM_SRCS) $(CRAFT_UPSTREAM_SRCS) $(CRAFT_DEP_SRCS
                       $(OOPS_POSIX_SRCS)
 PAYLOAD_SRCS := $(CRAFT_PAYLOAD_SRCS)
 
-# **The SDK subsystems this title uses, declared rather than listed as source files.**
+# **The SDK subsystems this title uses, named as source files.**
 #
 # `CORE_SDK_SRCS` in `common/app.mk` is what every payload gets - system, heap, filesystem, time -
-# and nothing above that. Craft needs more, and naming the capability lets the SDK decide which
-# files back it:
+# and nothing above that. Craft needs the window, its three input devices, threads for
+# `tinycthread`'s database worker, and sockets for `client.c`.
 #
-#   display keyboard mouse input   the GLFW shim's window, and its three input devices
-#   thread                         `tinycthread` runs the world database on a worker
-#   net                            `client.c` opens a TCP connection; `common/posix`'s sockets
-#                                  and `gethostbyname` sit on it
-#   draw suspend                   what every title on this renderer needs
-#
-# There is no `audio`: Craft has no sound.
-OOPS_FEATURES := display input keyboard mouse thread net draw suspend
+# **`OOPS_FEATURES` is the better spelling and is not usable yet.** Declaring a capability and
+# letting the SDK decide which files back it is what that mechanism is for, and `app.mk` supports
+# it - but the table it needs, `OOPS_FEATURES_AVAILABLE`, lives in `oops-sdk.mk` and is not
+# committed, so `app.mk` prints "ignoring it for now" and links nothing. A title that relied on it
+# built only against a working tree that happened to have the migration in flight. These lists are
+# what makes this title reproducible from committed state; swap them for
+# `OOPS_FEATURES := display input keyboard mouse thread net` when that table lands.
+CRAFT_SDK_SRCS := $(OOPS_SDK_DIR)/src/display.c \
+                  $(OOPS_SDK_DIR)/src/agc/agc_display.c \
+                  $(OOPS_SDK_DIR)/src/agc/agc_tiler.c \
+                  $(OOPS_SDK_DIR)/src/agc/agc_compute.c \
+                  $(OOPS_SDK_DIR)/src/input/input.c \
+                  $(OOPS_SDK_DIR)/src/input/keyboard.c \
+                  $(OOPS_SDK_DIR)/src/input/mouse.c \
+                  $(OOPS_SDK_DIR)/src/thread/thread.c \
+                  $(OOPS_SDK_DIR)/src/net/net.c \
+                  $(OOPS_SDK_DIR)/src/net/dns.c \
+                  $(OOPS_SDK_DIR)/src/net/netctl.c
+PAYLOAD_SRCS += $(CRAFT_SDK_SRCS)
 
 # ---------------------------------------------------------------------------
 # `make check`: every shader Craft ships, compiled for the console.
