@@ -2395,14 +2395,29 @@ static int check_draw_buffers(void) {
     glGetIntegerv(GL_DRAW_BUFFER, &v);
     ok = ok && v == (GLint)GL_BACK;
 
-    /* **A name covering more than one buffer may not appear in the list** (GL 2.0, 4.2.1), and
-     * neither may a buffer named twice - both GL_INVALID_OPERATION, not a silent union. */
+    /* **A name covering more than one buffer may not appear in the list** (GL 2.0, 4.2.1) -
+     * GL_INVALID_OPERATION, not a silent union. */
     const GLenum wide[1] = {GL_FRONT_AND_BACK};
     glDrawBuffers(1, wide);
     ok = ok && glGetError() == GL_INVALID_OPERATION;
+
+    /* **The limit is one, so a list longer than one is GL_INVALID_VALUE.**
+     *
+     * `GL_MAX_DRAW_BUFFERS` answered 2 until 2026-09-25, counting the front surface and the back
+     * one. GLSL declares `gl_FragData[gl_MaxDrawBuffers]`, so that number is also the length of an
+     * array a shader indexes, and the fragment stage exports one colour target - so the array has
+     * one element and the two could not both be right. Two surfaces receiving the same colour is
+     * double buffering, not two independent outputs.
+     *
+     * That also means "a buffer named twice" is now unreachable through this call: naming one
+     * twice needs two entries, and two entries is already refused. The check for it is still in
+     * `glDrawBuffers` and still right; this asserts the error the call actually gives, so the arm
+     * measures the implementation rather than a path the limit forecloses. */
+    glGetIntegerv(GL_MAX_DRAW_BUFFERS, &v);
+    ok = ok && v == 1;
     const GLenum twice[2] = {GL_BACK, GL_BACK};
     glDrawBuffers(2, twice);
-    ok = ok && glGetError() == GL_INVALID_OPERATION;
+    ok = ok && glGetError() == GL_INVALID_VALUE;
 
     /* And the buffer it selected is still the one a draw reaches. */
     const GLuint p = use_program(VS_PASSTHROUGH,
@@ -3386,10 +3401,17 @@ static int check_blend_uniformity(void) {
  *   - both survive: `front-and-back`'s fault is not the two-export path at all, and belongs to
  *     GL 1.x's own colour path - which would retire a line of enquiry rather than open one.
  *
- * `glDrawBuffers(2, {GL_BACK, GL_FRONT})` is GL 2.0's way to the same place. The union of two
- * distinct names is what `GL_FRONT_AND_BACK` names in one, and the list form is how a program
- * asks for it without naming a buffer that covers more than one - which 4.2.1 refuses, and which
- * `draw-buffers` above asserts is refused.
+ * **The destination is `glDrawBuffer(GL_FRONT_AND_BACK)`.** This used
+ * `glDrawBuffers(2, {GL_BACK, GL_FRONT})`, on the reading that a list of two distinct names is
+ * GL 2.0's way to say what `GL_FRONT_AND_BACK` says in one. That route closed on 2026-09-25 when
+ * `GL_MAX_DRAW_BUFFERS` became 1 - it is the length of `gl_FragData` as well as a list bound, and
+ * the fragment stage exports one target, so a limit of 2 made a shader's array disagree with the
+ * number it is told. A list of two is `GL_INVALID_VALUE` now.
+ *
+ * **Nothing this check measures has changed.** Both spellings put the same two surfaces behind the
+ * same single fragment colour; the singular call is simply the one that still says it. What is
+ * under test here is whether a blended draw reaches the *second* of them, and that question is
+ * about the export and the readback, not about how the destination was named.
  *
  * **The front is the discriminator and the back is the control.** The front's destination blue
  * is 0, so the source's blue arrives there intact and the two arms expect different values. The
@@ -3434,8 +3456,7 @@ static int check_two_draw_buffers(void) {
         const uint32_t was_front = centre_of(GL_FRONT);
         const uint32_t was_back = centre_of(GL_BACK);
 
-        const GLenum both[2] = {GL_BACK, GL_FRONT};
-        glDrawBuffers(2, both);
+        glDrawBuffer(GL_FRONT_AND_BACK);
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE);
         glUniform4f(kc, 0.25f, 0.5f, src_b, 0.0f);
