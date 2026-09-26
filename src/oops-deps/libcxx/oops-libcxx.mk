@@ -215,6 +215,58 @@ OOPS_LIBCXX_SRCS := \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/vector.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/verbose_abort.cpp
 
+# ---------------------------------------------------------------------------
+# **`<filesystem>` makes libc++ a POSIX consumer, which nothing else here is**
+#
+# Every other source in the list above stands on the freestanding C library alone -
+# `OOPS_SDK_INCLUDE` and `OOPS_SDK_LIBC_INCLUDE` are the whole of its world. `src/filesystem/`
+# is different: it wants `<sys/stat.h>`, `<dirent.h>`, `<unistd.h>` and `<sys/time.h>`, which are
+# an operating system's interface and live in `oops-apps/common/posix`.
+#
+# So that directory goes on libc++'s include path, and the consequence is worth stating: **a title
+# linking libc++ now also has to link `common/posix/posix.c`**, because that is where `realpath`,
+# `utimes`, `openat` and the rest are defined. Every C++ title here already does. One that did not
+# would get undefined symbols at the link, which `common/app.mk`'s guard reports by name - the good
+# failure.
+#
+# Named as its own variable rather than folded into the flags so that the dependency is visible in
+# one place, and so a build that genuinely must not have it can empty it.
+OOPS_LIBCXX_POSIX_INCLUDE ?= -I$(OOPS_LIBCXX_DIR)/../../../common/posix/include
+
+# ---------------------------------------------------------------------------
+# `<filesystem>`, which the header was already promising
+#
+# `__config_site` has had `_LIBCPP_HAS_FILESYSTEM 1` all along - it gates `<fstream>` as well, and
+# `<fstream>` is wanted - so `<filesystem>` has been *includable* while its implementation was not
+# built. A title using it compiled and then failed to link, which is the quiet direction.
+#
+# **What it took was eleven declarations in the port layer, not a special case here.** Bugdom's
+# Pomme bundles `ghc::filesystem` as a stand-in for platforms without `<filesystem>`, and making
+# *that* compile wanted a full POSIX filesystem - `st_dev`, hard links, `equivalent()`. libc++'s
+# own implementation wanted much less, and every gap had an honest answer:
+#
+#     st_mtim (timespec)   realpath      openat/fchmodat/unlinkat  fdopendir
+#     utimes               truncate      fchmod                    copy_file_range
+#     PATH_MAX             S_ISBLK/CHR/SOCK                        O_DIRECTORY/NOFOLLOW
+#
+# `realpath` is the one that is genuinely *complete* rather than refused: it resolves symbolic
+# links, there are none here, so collapsing `.` and `..` is the whole job. The `*at()` family
+# answers for `AT_FDCWD` - the only anchor a platform with no directory descriptors has - and
+# refuses any other. The rest fail, and `copy_file_range` failing is what makes libc++ fall back
+# to its portable copy.
+#
+# **`int128_builtins.cpp` is in the list and is not filesystem code.** It lives in this directory
+# upstream and provides `__muloti4`, which the filesystem sources reference through their 128-bit
+# time arithmetic; leaving it out compiles and does not link.
+OOPS_LIBCXX_SRCS += \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/filesystem/directory_entry.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/filesystem/directory_iterator.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/filesystem/filesystem_clock.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/filesystem/filesystem_error.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/filesystem/int128_builtins.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/filesystem/operations.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/filesystem/path.cpp
+
 # `rune_table.c` is the freestanding build's answer to `_DefaultRuneLocale`, which
 # `std::ctype<char>::classic_table()` returns. **The hosted build must not have it**: the Mesa
 # sysroot's `librune.a` defines the same symbol, from FreeBSD's own `locale/table.c`, and two
@@ -330,7 +382,8 @@ endif
 OOPS_LIBCXX_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                      $(OOPS_LIBCXX_EH_FLAGS) -fPIC -std=c++20 -O2 -w -D_POSIX_TIMERS=200809L \
                      -D_LIBCPP_BUILDING_LIBRARY -D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS \
-                     $(OOPS_LIBCXX_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
+                     $(OOPS_LIBCXX_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) \
+                     $(OOPS_LIBCXX_POSIX_INCLUDE)
 endif
 
 TARGET_CXX ?= clang++
