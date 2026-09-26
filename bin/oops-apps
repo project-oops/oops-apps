@@ -5,7 +5,7 @@
 #
 #   ./bin/oops-apps list              # the apps here
 #   ./bin/oops-apps build [app...]    # build each (default: all)
-#   ./bin/oops-apps check [app...]    # each app's own gate (default: all)
+#   ./bin/oops-apps check [app...]    # formatting, then each app's own gate (default: all)
 #   ./bin/oops-apps fmt [--check]     # clang-format first-party C and C++ in place
 #   ./bin/oops-apps dist [app...]     # stage each app's shippable artifacts under <app>/dist/
 #   ./bin/oops-apps clean [app...]    # remove build output
@@ -262,7 +262,10 @@ shift || true
 case "$cmd" in
     list) apps ;;
     build) over all "$@" ;;
-    check) over check "$@" ;;
+    check)
+        format --check
+        over check "$@"
+        ;;
     fmt) format "$@" ;;
     dist) distribute "$@" ;;
     clean) over clean "$@" ;;

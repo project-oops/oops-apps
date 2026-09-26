@@ -52,6 +52,11 @@ jobs:
       - name: The compiler this build is pinned to
         run: clang --version | head -1
 
+      # First, so a layout diff fails in seconds; `check` below runs it again.
+      - name: Formatting
+        run: ./bin/oops-apps fmt --check
+        working-directory: OOPS/oops-apps
+
       # The vendored dependency trees, as in `release.yml`: `common/upstream.mk` fetches a
       # *title's* own upstream at parse time and nothing fetched the dependencies', so a title
       # with vendored dependencies asks make for sources that were never downloaded.
