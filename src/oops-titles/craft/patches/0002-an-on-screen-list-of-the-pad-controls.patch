@@ -22,6 +22,13 @@ because Craft has none.
 The array is `char *const` and not `const char *`, because upstream's
 `render_text` takes a non-const `char *`.
 
+The margins are `ts * 2` rather than the `ts / 2` the HUD uses on the left.
+`make_character` draws a glyph `n` wide and `2n` tall around its position, so a
+line placed at `ts / 2` has half of itself below the screen, and `ALIGN_RIGHT`
+puts the last glyph's centre on `x`, which leaves its right half at the very
+edge. The HUD gets away with the tighter margin because it grows away from its
+corner and this grows towards one.
+
 `SHOW_CONTROLS_TEXT` defaults to 0 and is wrapped in `#ifndef`, so this changes
 nothing for a desktop build and the port turns it on with
 `-DSHOW_CONTROLS_TEXT=1`. Made overridable rather than changed, as patch 0001
@@ -55,8 +62,8 @@ is, so the file stays close to upstream and the next rebase is a smaller job.
 +                    "cross - jump",
 +                };
 +                int count = sizeof(controls) / sizeof(controls[0]);
-+                float cx = g->width - ts / 2;
-+                float cy = ts / 2 + ts * 2 * (count - 1);
++                float cx = g->width - ts * 2;
++                float cy = ts * 2 + ts * 2 * (count - 1);
 +                for (int i = 0; i < count; i++) {
 +                    render_text(&text_attrib, ALIGN_RIGHT, cx, cy, ts, controls[i]);
 +                    cy -= ts * 2;
