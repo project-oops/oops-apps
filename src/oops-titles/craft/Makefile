@@ -11,8 +11,11 @@ OOPS_APPS_ROOT ?= $(abspath ../../..)
 OOPS_SDK ?= $(abspath $(OOPS_APPS_ROOT)/../oops-sdk)
 OOPS_SDK_DIR := $(abspath $(OOPS_SDK))
 
-# Craft draws everything through four shader pairs and has no fixed-function path.
-OOPS_RENDERER = gl2
+# Craft draws everything through four shader pairs and has no fixed-function path, and
+# it submits a world's worth of geometry: 90000 triangles a frame once the chunks load.
+# That is upstream Mesa's radeonsi, which runs the vertex stage on the GPU. oops-gl's
+# GL 2.0 path transforms every vertex on the CPU, which measured at 150us a triangle.
+OOPS_RENDERER = mesa
 
 # Included first so that `upstream/` exists before the wildcard below expands. It is
 # guarded, so `common/app.mk`'s own include of it costs nothing.
@@ -20,9 +23,9 @@ include $(OOPS_APPS_ROOT)/common/upstream.mk
 
 FORMATS = elf
 
-# The POSIX layer above oops-sdk's libc - `stat`, `opendir`, `getcwd` - which Craft
-# reaches through SQLite. Shared with other ports, so it lives in `common/`.
-include $(OOPS_APPS_ROOT)/common/posix.mk
+# No `common/posix.mk` here. That layer stands in for a libc a freestanding payload has
+# not got; `OOPS_RENDERER = mesa` is a hosted build with oops-mesa's sysroot, which has
+# the real headers, and defining `mode_t` twice is a build error rather than a choice.
 
 # SQLite's platform layer: a VFS over `oops/fs.h`, a mutex implementation over
 # `oops/thread.h`, and the defines that remove SQLite's unix backend. The mutexes are
@@ -39,17 +42,21 @@ include $(OOPS_APPS_ROOT)/common/sqlite.mk
 # goes first on the include path so that `#include <GLFW/glfw3.h>` finds the shim.
 CRAFT_SHIM_SRCS := shim/glfw_shim.c shim/craft_offline.c shim/craft_start.c $(OOPS_SQLITE_SRCS)
 
-# Craft's own sources except `auth.c`, the HTTPS login and the only user of libcurl. The
-# port is single-player; `shim/craft_offline.c` supplies the symbol `main.c` calls.
-# `client.c` is compiled and stays inert until `client_enable()` is called.
-CRAFT_UPSTREAM_SRCS := $(filter-out upstream/src/auth.c,$(wildcard upstream/src/*.c))
+# Craft's own sources except the multiplayer half: `auth.c` is the HTTPS login and the
+# only user of libcurl, and `client.c` talks to a server over BSD sockets, which
+# oops-mesa's sysroot has no headers for. The port is single-player, so
+# `shim/craft_offline.c` supplies both files' symbols and answers "not connected".
+CRAFT_UPSTREAM_SRCS := $(filter-out upstream/src/auth.c upstream/src/client.c,\
+                                    $(wildcard upstream/src/*.c))
 
-# The vendored libraries Craft carries. sqlite and tinycthread need a platform
-# underneath them; lodepng and noise are pure C.
+# The vendored libraries Craft carries. sqlite needs a platform underneath it; lodepng
+# and noise are pure C. `tinycthread.c` is left out: it is C11 `<threads.h>` for
+# platforms without one, and oops-mesa's runtime defines `mtx_*`, `cnd_*` and `thrd_*`
+# already, so compiling it duplicates every symbol. Its header still resolves the
+# declarations Craft includes.
 CRAFT_DEP_SRCS := upstream/deps/lodepng/lodepng.c \
                   upstream/deps/noise/noise.c \
-                  upstream/deps/sqlite/sqlite3.c \
-                  upstream/deps/tinycthread/tinycthread.c
+                  upstream/deps/sqlite/sqlite3.c
 
 # `-Ishim/include` first, then upstream's include directories in its CMakeLists order.
 #
@@ -65,7 +72,7 @@ CRAFT_CFLAGS := -Ishim/include \
                 -DOOPS_POSIX_HOME=\"/app0\" \
                 -DCRAFT_DATA_DIR=\"/app0\" \
                 -DDB_PATH=\"/app0/craft.db\" \
-                $(OOPS_POSIX_INCLUDE) $(OOPS_SQLITE_INCLUDE) $(OOPS_SQLITE_DEFS)
+                $(OOPS_SQLITE_INCLUDE) $(OOPS_SQLITE_DEFS)
 
 # Upstream's code under upstream's warnings. `common/app.mk` compiles at `-Werror` with
 # warnings stricter than Craft was written for; they are switched off rather than
@@ -77,37 +84,44 @@ CRAFT_UPSTREAM_WARNINGS := -Wno-strict-prototypes -Wno-missing-prototypes -Wno-c
                            -Wno-shadow -Wno-sign-compare -Wno-char-subscripts \
                            -Wno-string-concatenation -Wno-cast-function-type-mismatch \
                            -Wno-null-pointer-subtraction -Wno-unused-const-variable \
+                           -Wno-fortify-source \
                            -Wno-unused-function
 
 EXTRA_TARGET_CFLAGS += $(CRAFT_CFLAGS) $(CRAFT_UPSTREAM_WARNINGS)
 
 # Everything the payload links. `CRAFT_SHIM_SRCS` carries `common/sqlite`'s VFS along
 # with the GLFW shim.
-CRAFT_PAYLOAD_SRCS := $(CRAFT_SHIM_SRCS) $(CRAFT_UPSTREAM_SRCS) $(CRAFT_DEP_SRCS) \
-                      $(OOPS_POSIX_SRCS)
+CRAFT_PAYLOAD_SRCS := $(CRAFT_SHIM_SRCS) $(CRAFT_UPSTREAM_SRCS) $(CRAFT_DEP_SRCS)
 PAYLOAD_SRCS := $(CRAFT_PAYLOAD_SRCS)
+
+# Mesa needs a PT_TLS segment and the `.init_array` bounds `oops_mesa_run_init_array`
+# walks; `selfish`'s default script emits neither.
+TARGET_LD_SCRIPT := $(abspath $(OOPS_APPS_ROOT)/common/mesa_title.ld)
+
+# A Mesa title imports more libc than `common/symbols.txt` names, so the manifest is
+# generated from the linked payload. Without `build/imports.txt` mkmodule builds no
+# vendor segment and the loader refuses the module. `make imports` after a link, then
+# `make title`.
+OOPS_MESA ?= $(abspath $(OOPS_APPS_ROOT)/../oops-mesa)
+SYMBOLS_FILE := $(abspath build/imports.txt)
 
 # The SDK subsystems this title uses, declared as capabilities via OOPS_FEATURES.
 OOPS_FEATURES := display input keyboard mouse thread net
 
-# ---------------------------------------------------------------------------
-# `make check`: every shader Craft ships, compiled for the console.
-#
-# oops-gl's console back end compiles a fragment shader to gfx1030 instructions or
-# refuses it, and a refused shader fails its draw with `GL_INVALID_OPERATION`. The
-# checker reads `upstream/shaders/*.glsl` directly and prints each shader's cost.
-# ---------------------------------------------------------------------------
-# system.c, fs.c and heap.c travel together: the disk sink reaches fs.c, fs.c reaches
-# the allocator.
-HOST_TEST_SRCS = tools/shadercheck.c \
-                 $(OOPS_GL_SRCS) \
-                 $(OOPS_SDK_DIR)/src/system/system.c \
-                 $(OOPS_SDK_DIR)/src/system/fs.c \
-                 $(OOPS_SDK_DIR)/src/memory/heap.c \
-                 $(OOPS_SDK_DIR)/src/system/freestd.c
-HOST_TEST_LIBS = -lm
-
 include $(OOPS_APPS_ROOT)/common/app.mk
+
+$(SYMBOLS_FILE): $(BUILD)/$(APP_NAME).elf
+	@if [ ! -f "$@" ]; then \
+	  mkdir -p $(BUILD); \
+	  OOPS_APPS_SYMBOLS=$(OOPS_APPS_ROOT)/common/symbols.txt \
+	    bash $(OOPS_MESA)/tools/generate-imports.sh $< $@; \
+	fi
+
+.PHONY: imports
+imports: $(BUILD)/$(APP_NAME).elf
+	@mkdir -p $(BUILD)
+	@OOPS_APPS_SYMBOLS=$(OOPS_APPS_ROOT)/common/symbols.txt \
+	  bash $(OOPS_MESA)/tools/generate-imports.sh $< $(SYMBOLS_FILE)
 
 # ---------------------------------------------------------------------------
 # `make stage-data`: the assets, into the packaged title

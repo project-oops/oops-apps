@@ -16,6 +16,10 @@
 
 int main(int argc, char **argv);
 
+/* oops-mesa's `abi.c`, declared here because the title links Mesa's objects rather
+ * than a header that names it. */
+extern void oops_mesa_run_init_array(void);
+
 /* Declared because shim sources are held to `-Wmissing-prototypes`. */
 int craft_start(const payload_args_t *args);
 
@@ -27,6 +31,11 @@ __attribute__((visibility("default"))) int craft_start(const payload_args_t *arg
     int rc;
 
     (void)args;
+
+    /* No start-up object walks `.init_array` here, so Mesa's dynamic initialisers -
+     * ACO's opcode table among them - are run explicitly. Before anything that can
+     * reach GL, and before `main`. */
+    oops_mesa_run_init_array();
 
     /* Applies `system=` from `/app0/oops-log`, so a run can be turned up without a
      * rebuild. */

@@ -12,6 +12,7 @@
 #include <GLFW/glfw3.h>
 
 #include "oops/display.h"
+#include "oops/gfx.h"
 #include "oops/input.h"
 #include "oops/keyboard.h"
 #include "oops/mouse.h"
@@ -35,8 +36,10 @@ const char *glewGetErrorString(int error) {
  * ------------------------------------------------------------------------- */
 
 struct GLFWwindow {
+    /* `oops/gfx.h`, not a backend's own context calls: every renderer answers this one,
+     * so which of them a title links is its Makefile's business and not this file's. */
+    oops_gfx_t *gfx;
     oops_display_t *display;
-    void *gl;
     int width, height;
     int should_close;
     int cursor_mode;
@@ -86,51 +89,48 @@ void glfwTerminate(void) {
     oops_keyboard_close();
     oops_mouse_close();
     oops_input_close();
-    if (s_window.gl) {
-        glContextDestroy(s_window.gl);
-        s_window.gl = (void *)0;
-    }
-    if (s_window.display) {
-        oops_display_close(s_window.display);
+    /* `oops_gfx_destroy` closes the display it opened, so there is nothing else to
+     * close here. */
+    if (s_window.gfx) {
+        oops_gfx_destroy(s_window.gfx);
+        s_window.gfx = (oops_gfx_t *)0;
         s_window.display = (oops_display_t *)0;
     }
 }
 
-/* The requested size is ignored and the display's own is returned; Craft reads the size
- * back. The display is still opened with `OOPS_DISPLAY_DEFAULT_*`, as `oops_gfx_create`
- * does, because `agc_display_open_adopting` silently refuses a zero dimension. */
+/* The requested size is ignored and the renderer's own is returned; Craft reads the
+ * size back. A zero in the descriptor means the display's own size, which is what a
+ * default `oops_gfx_create` gives. */
 GLFWwindow *glfwCreateWindow(int width, int height, const char *title,
                              GLFWmonitor *monitor, GLFWwindow *share) {
+    uint32_t w = 0u, h = 0u;
     (void)width;
     (void)height;
     (void)title;
     (void)monitor;
     (void)share;
-    s_window.display =
-        oops_display_open(OOPS_DISPLAY_BACKEND_AUTO, OOPS_DISPLAY_DEFAULT_WIDTH,
-                          OOPS_DISPLAY_DEFAULT_HEIGHT);
-    if (!s_window.display)
+
+    /* `oops_gfx_create` opens the display itself, so this must not open one first. */
+    s_window.gfx = oops_gfx_create((const oops_gfx_desc_t *)0);
+    if (!s_window.gfx)
         return (GLFWwindow *)0;
-    s_window.width = (int)oops_display_get_width(s_window.display);
-    s_window.height = (int)oops_display_get_height(s_window.display);
-    s_window.gl = glContextCreate(s_window.display);
-    if (!s_window.gl)
-        return (GLFWwindow *)0;
-    /* Craft is a GL 2.1 program, and oops-gl exposes only the entry points a context's
-     * version names, so shaders need at least 2.0. */
-    glContextMakeCurrent(s_window.gl);
-    glContextSetVersion(2, 0);
+    s_window.display = oops_gfx_display(s_window.gfx);
+    oops_gfx_extent(s_window.gfx, &w, &h);
+    s_window.width = (int)w;
+    s_window.height = (int)h;
     return &s_window;
 }
 
+/* `oops_gfx_create` makes the one context current on the calling thread, and there is
+ * only ever one, so this has nothing left to do. */
 void glfwMakeContextCurrent(GLFWwindow *window) {
-    if (window && window->gl)
-        glContextMakeCurrent(window->gl);
+    (void)window;
 }
 
 void glfwSwapBuffers(GLFWwindow *window) {
     (void)window;
-    glSwapBuffers();
+    if (s_window.gfx)
+        (void)oops_gfx_present(s_window.gfx);
 }
 
 /* The display's flip rate is what it is; there is nothing to ask for. */
