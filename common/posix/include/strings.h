@@ -21,6 +21,12 @@ extern "C" {
 int strcasecmp(const char *a, const char *b);
 int strncasecmp(const char *a, const char *b, size_t n);
 
+/* The pre-POSIX pair, which `<strings.h>` is their home for. A decompiled N64 codebase uses them
+ * throughout: the original compiler had them and the decompilation kept the calls. `bcopy` takes its
+ * arguments in the opposite order to `memcpy` and is defined to handle overlap. */
+void bcopy(const void *src, void *dst, size_t n);
+void bzero(void *dst, size_t n);
+
 #ifdef __cplusplus
 }
 #endif

@@ -2175,3 +2175,18 @@ __attribute__((weak)) int clock_gettime(int clk_id, struct timespec *ts) {
             return -1;
     }
 }
+
+/*
+ * `bcopy` and `bzero`, the pre-POSIX pair `<strings.h>` declares.
+ *
+ * A decompiled N64 codebase calls both throughout, the original compiler having had them. `bcopy`
+ * reverses `memcpy`'s argument order and is defined to handle overlap, so it forwards to `memmove`
+ * rather than `memcpy`. Weak, like the pair above, so a port bringing its own wins.
+ */
+__attribute__((weak)) void bcopy(const void *src, void *dst, size_t n) {
+    if (src && dst && n) memmove(dst, src, n);
+}
+
+__attribute__((weak)) void bzero(void *dst, size_t n) {
+    if (dst && n) memset(dst, 0, n);
+}

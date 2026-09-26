@@ -1,0 +1,27 @@
+This console is not a desktop BSD
+
+`compat.h` defines `__BSD__` from `__FreeBSD__`, and three backends key off it: `gfx_glx`
+wants X11, `audio_pulse` wants PulseAudio and `audio_alsa` wants ALSA. This target is
+FreeBSD-derived and has none of the three, so it takes SDL for the window, the GL context
+and the audio device, which is what upstream's `#else` arms already select.
+
+Without this the payload references all three and the link reports them undefined, because
+the sources that define them are excluded for wanting headers this platform has no
+equivalent of.
+
+Lifted for `__PROSPERO__` only, so a real BSD build keeps upstream's behaviour exactly.
+---
+diff --git a/src/pc/compat.h b/src/pc/compat.h
+index 8d6a3d4..8315289 100644
+--- a/src/pc/compat.h
++++ b/src/pc/compat.h
+@@ -1,7 +1,8 @@
+ #ifndef COMPAT_H
+ #define COMPAT_H value
+ 
+-#if defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
++#if (defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)) \
++    && !defined(__PROSPERO__)
+ #define __BSD__
+ #endif
+ 
