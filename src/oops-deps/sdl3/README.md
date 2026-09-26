@@ -6,12 +6,13 @@ SDL 3.4.16, vendored for the console beside `oops-deps/sdl2` rather than replaci
 
 | | |
 |---|---|
-| Sources compiling for the target | **159 of 159** — `make -f oops-sdl3.mk sdl3-census` |
+| Sources compiling for the target | **165 of 165** — `make -f oops-sdl3.mk sdl3-census` |
 | Archive | `build/libSDL3.a` builds |
 | Patches | **one**, three lines — see below |
-| Backend | **not written.** 33 symbols outstanding, listed below |
+| Backend | **complete.** 0 SDL symbols outstanding |
 
-Nothing here has run. The archive links against itself; no title has been built on it.
+Nothing here has run. The archive is self-contained — every SDL symbol it references is defined —
+and no title has been built on it, no frame drawn, no sample played and no button read.
 
 ## Why a second SDL
 
@@ -41,11 +42,13 @@ to SDL, and that request is theirs to make.
 
 A second patch appearing in this directory would be worth questioning.
 
-## What `backend/` has to define
+## What `backend/` defines
 
 Measured, not guessed: build the archive, take every symbol it references that nothing in it
-defines, and keep the SDL ones. 33 of them, and every one maps onto something `oops-sdk` already
-has.
+defines, and keep the SDL ones. There were 33, every one mapping onto something `oops-sdk` already
+had, and they are done — in `SDL_prosperothread.c`, `SDL_prosperotimer.c`,
+`SDL_prosperofilesystem.c`, `SDL_prosperovideo.c`, `SDL_prosperoaudio.c` and
+`SDL_prosperojoystick.c`.
 
 | | |
 |---|---|
@@ -73,6 +76,30 @@ comm -23 und def | grep -E '^(SDL_|PRIVATE)'
 sources compiled while 57 symbols were missing, because a driver a platform does not supply is a
 link-time absence and not a compile error. The same reasoning that made `make glsurface` necessary
 for q3rally.
+
+## Where the backend answers "no", and what that costs
+
+Each is argued in the file it lives in; this is the index.
+
+| | |
+|---|---|
+| `SDL_SYS_SetThreadPriority` | Fails. The SDK sets priority through a thread's *creation* attributes and has no call to change a running one. SDL treats it as advisory. |
+| `SDL_SYS_GetExeName` | Fails. No `/proc/self/exe` here - the same absence `common/posix`'s `readlink` records. |
+| `SDL_SYS_GetUserFolder` | **Answers the one writable directory for every folder.** Documents, Screenshots and Saved Games are the same place. Failing per folder was more precise and less useful. |
+| `SDL_SYS_RemovePath` | Removes a file. There is no `rmdir` underneath, so an empty directory fails. |
+| `SDL_GetSystemTimeLocalePreferences` | Writes neither format. SDL's contract is that a platform leaves alone what it does not know, and the settings are not exposed to a payload. |
+| A second window | Refused, rather than handed the first. |
+| A swap interval other than 1 | Refused. The flip is on vsync. |
+| `CreateWindowFramebuffer` | Absent, so `SDL_GetWindowSurface` fails rather than returning a buffer nothing presents. |
+| Audio recording | Absent. `oops/audio.h` is output only, so SDL offers no recording device at all. |
+| `RumbleTriggers` | Refused. The trigger motors take an *effect* curve, not an amplitude; a caller falls back to ordinary rumble. |
+| `SetSensorsEnabled` | Refused. The pad has an IMU and `oops_pad_state_t` carries it, but `SDL_SENSOR_DISABLED` is set - enabling it is a separate change. |
+| The Guide button | **Not reported.** `OOPS_BUTTON_CREATE` and `OOPS_BUTTON_PS` are the same bit, so sending both would fire Guide on every Create press. The SDL2 driver does send both. |
+
+`SDL_WaitSemaphoreTimeoutNS`'s bounded form is **polled** at 500us, because there is no timed
+semaphore wait - latency, not a lost wakeup, since the count is held and the next poll takes it.
+`SDL_SYS_GetPathInfo` costs an extra call per path because `oops/fs.h` declares `oops_file_info_t`
+and has no `oops_fs_stat` to fill one in.
 
 ## Two entries in the source list are a single file
 

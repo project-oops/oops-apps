@@ -80,11 +80,15 @@
 
 #define SDL_JOYSTICK_PRIVATE 1
 /*
- * **Empty, and honest.** `SDL_gamepad_db.h:33` expands this into its mapping table, so a private
- * platform can ship the button layout of its own pad and have SDL report a *gamepad* rather than a
- * bare joystick. Filling it in means committing to the button and axis indices the joystick backend
- * reports, and there is no backend yet - a mapping written ahead of one would be a table that looks
- * authoritative and names the wrong buttons. It goes in when `backend/`'s joystick driver does.
+ * **Empty, and it should stay that way.** `SDL_gamepad_db.h:33` expands this into SDL's mapping
+ * table, which is how a platform without a driver-supplied layout gets its pad recognised as a
+ * *gamepad* rather than a bare joystick.
+ *
+ * This platform has a driver-supplied layout: `backend/SDL_prosperojoystick.c` implements
+ * `GetGamepadMapping`, and SDL asks the driver before it consults the database. Saying the layout
+ * in code, in the same file that decides the button numbering, is what stops the two from drifting
+ * - a mapping string here would be a second copy of the numbering, kept in step by hand, and the
+ * first bump that reorders a button would leave it quietly wrong.
  */
 #define SDL_PRIVATE_GAMEPAD_DEFINITIONS
 
