@@ -27,7 +27,11 @@ include $(OOPS_APPS_ROOT)/common/posix.mk
 # SQLite's platform layer: a VFS over `oops/fs.h`, a mutex implementation over
 # `oops/thread.h`, and the defines that remove SQLite's unix backend. The mutexes are
 # real because `db.c` drives one connection from a writer thread and the main thread.
-OOPS_SQLITE_TEMP_DIR := /data/craft
+# `/app0`, not `/data`: `/data` is outside a title's sandbox - `common/posix/posix.c` records the
+# measurement - and `/app0` is inside it and writable. What a title writes to `/app0` is lost on a
+# redeploy, which for a world file is a real cost and still better than a path that cannot be
+# opened at all. Real persistence wants savedata mounted, which this title does not do yet.
+OOPS_SQLITE_TEMP_DIR := /app0
 include $(OOPS_APPS_ROOT)/common/sqlite.mk
 
 # GLFW and GLEW are not compiled: `shim/` answers every `glfw*` and GLEW entry point
@@ -59,9 +63,9 @@ CRAFT_CFLAGS := -Ishim/include \
                 -Iupstream/deps/noise \
                 -Iupstream/deps/sqlite \
                 -Iupstream/deps/tinycthread \
-                -DOOPS_POSIX_HOME=\"/data/craft\" \
-                -DCRAFT_DATA_DIR=\"/data/homebrew/CRFT00001\" \
-                -DDB_PATH=\"/data/craft/craft.db\" \
+                -DOOPS_POSIX_HOME=\"/app0\" \
+                -DCRAFT_DATA_DIR=\"/app0\" \
+                -DDB_PATH=\"/app0/craft.db\" \
                 $(OOPS_POSIX_INCLUDE) $(OOPS_SQLITE_INCLUDE) $(OOPS_SQLITE_DEFS)
 
 # Upstream's code under upstream's warnings. `common/app.mk` compiles at `-Werror` with

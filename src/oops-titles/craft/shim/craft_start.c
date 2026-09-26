@@ -24,44 +24,33 @@ __attribute__((visibility("default"))) int craft_start(const payload_args_t *arg
      * title's real directory. */
     static char arg0[] = CRAFT_DATA_DIR "/craft";
     char *argv[2] = {arg0, 0};
-    int verbose =
-        0; /* `verbose=1` in <data dir>/oops-log; off by default because of its cost */
     int rc;
 
     (void)args;
 
     /*
-     * `oops_log_init` records the app id, but it reads `/app0/oops-log`, which a
-     * homebrew title cannot open. So the debug level is taken from `<data
-     * dir>/oops-log` and applied by hand.
+     * Applies `system=` from `/app0/oops-log`, so a run can be turned up without a rebuild.
      */
     oops_log_init(OOPS_APP_ID);
-    {
-        char v[16];
-        verbose = (oops_config_value(CRAFT_DATA_DIR "/oops-log", "verbose", v,
-                                     sizeof(v)) == 0 &&
-                   v[0] == '1');
-        if (verbose) {
-            oops_log_set_level(OOPS_LOG_DEBUG);
-        }
-    }
-
-    /*
-     * The kernel log drops bursts such as the display's open diagnostics; the disk
-     * sink writes by direct syscall and keeps them. It falls back to
-     * `/data/<app_name>`, so that directory must exist before the call. Verbose is off
-     * by default because debug level logs a line per flip and costs the frame rate.
-     */
-    if (verbose) {
-        (void)oops_fs_mkdir("/data/" OOPS_APP_ID, 0755);
-        (void)oops_log_enable_disk_sink(OOPS_APP_ID, 0);
-    }
 
     oops_log_info("CRFT", "entry");
 
-    /* The database's directory. `/app0` is read-only, so this is where Craft's world
-     * goes; it matches `OOPS_SQLITE_TEMP_DIR` and the `DB_PATH` the Makefile sets. */
-    (void)oops_fs_mkdir("/data/craft", 0755);
+    /*
+     * **The disk sink is not enabled here, and must not be.**
+     *
+     * `oops_log_enable_disk_sink` resolves its location through the SDK's storage helper, and with
+     * no USB present that helper calls `oops_system_escape_sandbox` on the way to `/data`
+     * (`oops-sdk/src/system/fs.c:494`). Leaving the sandbox takes `/app0` with it - the package,
+     * and every texture and shader in it.
+     *
+     * That is not a theory. Enabling the sink is what made `/app0` unopenable for several runs of
+     * this title, which sent the asset path to `/data/homebrew/<id>` - and that in turn only
+     * worked *because* the sink had escaped. Turning the sink off restored `/app0` and broke the
+     * `/data` path, which is how the loop closed. `oops-sdk`'s header now says so.
+     *
+     * A run needing the sink has to accept losing the assets, so it is a deliberate edit here, not
+     * a flag.
+     */
 
     /*
      * Fatal: a failure means SQLite was already initialised, and it would run with
