@@ -127,8 +127,9 @@ $(OOPS_NB_LIB): $(OOPS_NB_OBJS) $(oops_makefiles)
 # `shim/nb_diag.c` holds the format strings behind this title's patch; in `PAYLOAD_SRCS` it
 # gets `-Werror -Wformat`, which the `-w` archive would not. See `shim/include/nb_diag.h`.
 # SDK sources come from the feature table through `common/app.mk`; listing them too would
-# duplicate symbols. `thread` is for `common/haptics.c`'s decay thread.
-OOPS_FEATURES := display input keyboard mouse audio suspend thread draw
+# duplicate symbols. `thread` is for `common/haptics.c`'s decay thread; `dialog` is what the
+# SDL2 backend's `SDL_ShowSimpleMessageBox` calls.
+OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog
 
 PAYLOAD_SRCS = shim/nb_start.c \
                shim/nb_diag.c \

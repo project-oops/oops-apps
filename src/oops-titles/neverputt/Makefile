@@ -120,8 +120,9 @@ $(OOPS_NP_LIB): $(OOPS_NP_OBJS) $(oops_makefiles)
 	@echo "neverputt: $@ ($(words $(OOPS_NP_OBJS)) objects)"
 
 # SDK sources come from the feature table through `common/app.mk`; listing them too would
-# duplicate symbols. `thread` is for `common/haptics.c`'s decay thread.
-OOPS_FEATURES := display input keyboard mouse audio suspend thread draw
+# duplicate symbols. `thread` is for `common/haptics.c`'s decay thread; `dialog` is what the
+# SDL2 backend's `SDL_ShowSimpleMessageBox` calls.
+OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog
 
 PAYLOAD_SRCS = shim/np_start.c \
                $(OOPS_APPS_ROOT)/common/haptics.c \
