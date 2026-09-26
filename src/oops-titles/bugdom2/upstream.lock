@@ -1,0 +1,30 @@
+# Bugdom 2's origin. Read by common/app.mk with no parser - the same KEY=value shape app.env has -
+# and by common/upstream-fetch.sh, which is shared by every title.
+#
+# UPSTREAM_REV must be a full commit hash: a tag can be moved and a branch always is.
+#
+# **A lightweight tag**, so the ref and the commit are the same object - `git ls-remote --tags`
+# returned one line for `v4.0.0`, not the peeled pair an annotated tag gives.
+#
+# **`v4.0.0` rather than `master`**, and here that is the *only* tag: jorio has cut one release of
+# this port. A port starts from what upstream calls finished, which is Neverball's reasoning and
+# Bugdom's.
+#
+# **SDL2, checked at this revision rather than assumed.** `oops-deps/sdl3` was vendored on the
+# strength of a survey that read `find_package(SDL3 ...)` out of a clone of Bugdom's *master*; both
+# pinned Bugdom revisions are SDL2, and this one is too. Read the revision the lock names.
+#
+# **The game data is in this repository**, `Data/`, 180 MB of it - Pangea released Bugdom 2 as
+# freeware and jorio's port ships it, the same arrangement as Bugdom. So this title needs nothing
+# from the player, which is the bar `src/oops-titles/README.md` sets.
+#
+# **`extern/Pomme` is a submodule and the build does not exist without it.** It is the same Pomme
+# Bugdom uses - jorio's reimplementation of the classic Mac OS toolbox - at whatever revision this
+# commit's tree records. That revision is not repeated here and does not need to be: it is in the
+# pinned commit's own tree, so one hash still pins everything. Ship of Harkinian's lock is the
+# precedent.
+UPSTREAM_SUBMODULES=1
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/jorio/Bugdom2
+UPSTREAM_REV=4050d6f97bf5d8b7ac9e91b1b7d4eacf3a4af87c
+UPSTREAM_REF=v4.0.0
