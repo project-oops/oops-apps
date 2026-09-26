@@ -19,6 +19,7 @@
 #include <string.h>
 #else
 #include <oops/freestd.h>
+#include <oops/time.h> /* the throughput check is timed on the console only */
 #endif
 
 #include "probe_px.h"
@@ -2994,6 +2995,109 @@ static int check_draw_is_deterministic(void) {
 }
 
 /* -------------------------------------------------------------------------
+ * Throughput
+ *
+ * D014 makes throughput part of what complete means, so it needs an arm. Every check
+ * above this one draws in immediate mode, which the resident vertex-buffer path
+ * declines - so a suite of them passes whether the vertex stage runs on the GPU or is
+ * interpreted per vertex on the CPU. This check is the one that can tell.
+ * ------------------------------------------------------------------------- */
+
+/* Two triangles a cell, over the middle of the region. The cells are a few pixels
+ * across so the cost is the vertex stage's and not the rasteriser's, and the margin
+ * around the grid stays background so a path that shades everything fails too. */
+#define THRU_COLS 32
+#define THRU_ROWS 32
+#define THRU_TRIS (THRU_COLS * THRU_ROWS * 2)
+#define THRU_VERTS (THRU_TRIS * 3)
+#define THRU_LO (-0.75f)
+#define THRU_HI 0.75f
+
+/* What one triangle may cost on the console. The CPU vertex path D014 replaced ran
+ * Craft at 150000ns a triangle; a compiled vertex stage is orders below that. The gate
+ * is at 10000 so that it names a return to the interpreter rather than a slow frame,
+ * and so that the snapshot's synchronisation - which is inside the measurement, since
+ * a second glFinish would move the read to the next scanout buffer - cannot trip it. */
+#define THRU_NS_PER_TRI 10000u
+
+static float g_thru_verts[THRU_VERTS * 3];
+
+static void thru_fill_grid(void) {
+    const float dx = (THRU_HI - THRU_LO) / (float)THRU_COLS;
+    const float dy = (THRU_HI - THRU_LO) / (float)THRU_ROWS;
+    int v = 0;
+    for (int r = 0; r < THRU_ROWS; r++) {
+        for (int c = 0; c < THRU_COLS; c++) {
+            const float x0 = THRU_LO + dx * (float)c;
+            const float x1 = x0 + dx;
+            const float y0 = THRU_LO + dy * (float)r;
+            const float y1 = y0 + dy;
+            const float xs[6] = {x0, x1, x1, x0, x1, x0};
+            const float ys[6] = {y0, y0, y1, y0, y1, y1};
+            for (int i = 0; i < 6; i++) {
+                g_thru_verts[v++] = xs[i];
+                g_thru_verts[v++] = ys[i];
+                g_thru_verts[v++] = 0.0f;
+            }
+        }
+    }
+}
+
+static int check_resident_throughput(void) {
+    reset_view();
+    const GLuint p =
+        use_program("attribute vec3 pos;\n"
+                    "void main() { gl_Position = vec4(pos, 1.0); }\n",
+                    "void main() { gl_FragColor = vec4(0.0, 0.0, 1.0, 1.0); }\n");
+    if (!p)
+        return 0;
+    const GLint loc = glGetAttribLocation(p, "pos");
+    if (loc < 0)
+        return 0;
+
+    thru_fill_grid();
+
+    /* A buffer object, not a client array: the resident path declines a client array,
+     * and declining it is the regression this check exists to catch. */
+    GLuint vbo = 0u;
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)sizeof(g_thru_verts), g_thru_verts,
+                 GL_STATIC_DRAW);
+    glVertexAttribPointer((GLuint)loc, 3, GL_FLOAT, GL_FALSE, 0, (const void *)0);
+    glEnableVertexAttribArray((GLuint)loc);
+
+#ifndef OOPS_HOST_BUILD
+    const uint64_t t0 = oops_time_get_ns();
+#endif
+    glDrawArrays(GL_TRIANGLES, 0, THRU_VERTS);
+    const uint32_t *s = scan_frame();
+#ifndef OOPS_HOST_BUILD
+    const uint64_t ns = oops_time_get_ns() - t0;
+#endif
+
+    /* Drawn, and drawn only where the grid is. */
+    int ok = near_rgb(SCAN_PX(s, MID_X, MID_Y), 0, 0, 255, 2);
+    ok = ok && SCAN_PX(s, 2, 2) == PROBE_BG;
+    ok = ok && SCAN_PX(s, PROBE_W - 3, PROBE_H - 3) == PROBE_BG;
+
+#ifndef OOPS_HOST_BUILD
+    /* The vertex stage reached the console as machine code. Asked of the program
+     * rather than of the clock, because it names the cause where a time names a
+     * symptom. Zero here is the interpreter, whatever the measurement says. */
+    GLint vs_words = 0;
+    glGetProgramiv(p, GL_PROGRAM_HW_VS_WORDS, &vs_words);
+    ok = ok && vs_words > 0;
+    ok = ok && (ns / (uint64_t)THRU_TRIS) < (uint64_t)THRU_NS_PER_TRI;
+#endif
+
+    glDisableVertexAttribArray((GLuint)loc);
+    glBindBuffer(GL_ARRAY_BUFFER, 0u);
+    glDeleteBuffers(1, &vbo);
+    return ok && glGetError() == GL_NO_ERROR;
+}
+
+/* -------------------------------------------------------------------------
  * The table
  * ------------------------------------------------------------------------- */
 
@@ -3080,6 +3184,9 @@ static const gl2_probe_case_t g_cases[] = {
     {"do-while", check_do_while},
     {"loop-uniformity", check_loop_uniformity},
     {"loop-spatial", check_loop_spatial},
+
+    /* Throughput (D014) */
+    {"resident-throughput", check_resident_throughput},
 };
 
 /* The suite fits in its callers' result array, so no check goes unrun. */
