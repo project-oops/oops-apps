@@ -1,6 +1,6 @@
-# SeaShell — controls
+# SeaShell - controls
 
-Console UI input map. See [FEATURES](FEATURES.md) for what each screen does.
+Input map. See [FEATURES](FEATURES.md) for what each screen does.
 
 | input | action |
 |---|---|

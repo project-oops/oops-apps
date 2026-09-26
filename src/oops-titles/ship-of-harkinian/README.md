@@ -1,97 +1,58 @@
 # Ship of Harkinian
 
 A native port of *The Legend of Zelda: Ocarina of Time*, built on the `zeldaret/oot`
-decompilation — [upstream](https://github.com/HarbourMasters/Shipwright), pinned at `9.2.3`
-("Ackbar Delta", 2026-04-14).
+decompilation - [upstream](https://github.com/HarbourMasters/Shipwright), pinned at `9.2.3`.
 
-**It plays from the player's own copy of the game, which they provide on the console, at run
-time.** That is the property that chose this title over every other port surveyed, and it is
-explained below because it is a policy question as much as a technical one.
+**It plays from the player's own copy of the game, which they provide on the hardware, at run
+time.** That property is explained below, because it is a policy question as much as a technical
+one.
 
-## Why this one
+`make compile-survey` compiles the tree with the build's own flags. It uses `-fsyntax-only` and
+does not link, and a payload link does not report an unresolved symbol, so a clean survey is not
+a working port.
 
-A survey on 2026-09-25 cloned thirteen decompilation and port projects and measured each one's
-OpenGL surface against what `oops-gl` defines. The measurement counts *definitions* in
-`oops-sdk/src/gl/*.c`, not header declarations, because a declared-but-undefined entry point is
-the thing that links clean and faults on the console.
+## The GL surface
 
-| port | language | GL calls needed | missing from oops-gl |
-|---|---|---|---|
-| sm64-port | C | 34 | **0** |
-| **libultraship** (this, and the rest of its family) | C++20 | 54 | **4** |
-| perfect_dark | C + C++ | 61 | 6 (the same 4, plus two debug) |
-
-**For the configuration this port would actually build, it is two, not four.** The first table
-counts symbols textually across the whole file, and `gfx_opengl.cpp` compiles differently per
-platform:
+`gfx_opengl.cpp` compiles differently per platform, so the surface is counted for the
+configuration this port builds, against the definitions in `oops-sdk/src/gl/*.c`:
 
 | symbol | where | compiled here? |
 |---|---|---|
-| `glGenVertexArrays`, `glBindVertexArray` | :725–726, inside `#if defined(__APPLE__) \|\| defined(USE_OPENGLES)` (:724–727) | not from here — **but see below** |
+| `glGenVertexArrays`, `glBindVertexArray` | :725-726, inside `#if defined(__APPLE__) \|\| defined(USE_OPENGLES)` (:724-727) | not from here - but see below |
 | `glBlitFramebuffer` | :907, :977, :994, unguarded | yes |
-| `glRenderbufferStorageMultisample` | :820, :832, unguarded | yes — but behind a runtime `msaa_level` |
+| `glRenderbufferStorageMultisample` | :820, :832, unguarded | yes - but behind a runtime `msaa_level` |
 
-So `oops-gl` needs **`glBlitFramebuffer`**, and `glRenderbufferStorageMultisample` only if
-multisampling is left on. It already has the rest of the framebuffer object family
-(`glGenFramebuffers`, `glBindFramebuffer`, `glFramebufferTexture2D`).
+**A symbol grep over a file with platform branches measures a build nobody runs.**
 
-This correction is recorded rather than quietly fixed because the first count was produced the
-wrong way, and the same mistake in the other direction is what made a texture bug take a day on
-2026-09-24: **a symbol grep over a file with platform branches measures a build nobody runs.**
-
-#### Vertex array objects are needed after all — through ImGui, not through this file
-
-The paragraph above used to end "it has no vertex array objects, and on this path it does not need
-any". That was measured the same careful way and is still true *of `gfx_opengl.cpp`* — and it was
-still the wrong answer, because it only looked at the port. **ImGui's GL3 backend, which
-libultraship links, uses vertex array objects unconditionally on desktop GL.** Compiling
-`oops-deps/imgui` is what said so; no amount of reading libultraship would have.
-
-Ten names, all in `imgui_impl_opengl3.cpp`: `glGenVertexArrays`, `glBindVertexArray`,
+ImGui's GL3 backend, which libultraship links, uses vertex array objects unconditionally on
+desktop GL. `imgui_impl_opengl3.cpp` needs `glGenVertexArrays`, `glBindVertexArray`,
 `glDeleteVertexArrays`, `glGetStringi`, and the enums `GL_MAJOR_VERSION`, `GL_MINOR_VERSION`,
 `GL_NUM_EXTENSIONS`, `GL_VERTEX_ARRAY_BINDING`, `GL_PIXEL_UNPACK_BUFFER` and
-`GL_PIXEL_UNPACK_BUFFER_BINDING`. The other five ImGui sources compile.
+`GL_PIXEL_UNPACK_BUFFER_BINDING`. Grepping the port measures the port, and the port is not the
+whole link. A VAO captures attribute state rather than wrapping a handle: the array state and the
+element-array-buffer binding belong to the object, and the current attribute values do not.
 
-The lesson is the one directly above, applied one level out: grepping the *port* measures the
-port, and the port is not the whole link.
+## The shader dialect
 
-**And `libultraship` already has a low-GL profile.** `gfx_opengl.cpp` selects its shader dialect
-at compile time: `#version 410 core` on Apple, `#version 300 es` under `USE_OPENGLES`, and
-otherwise `#version 130` with `varying`, `texture2D` and `gl_FragColor` — the GL 2.1-era idioms.
-Nothing needs a core profile.
+`gfx_opengl.cpp` selects its shader dialect at compile time: `#version 410 core` on Apple,
+`#version 300 es` under `USE_OPENGLES`, and otherwise `#version 130` with `varying`, `texture2D`
+and `gl_FragColor` - the GL 2.1-era idioms. Nothing needs a core profile.
 
-### The shaders work; the version number does not
+`gl2-probe`'s `libultraship-dialect` arm checks every construct the renderer emits: `attribute`,
+`varying`, `texture2D`, `gl_FragColor`, two samplers and an interpolated colour input, drawn and
+read back as the exact three-factor product. oops-gl refuses `#version 130` -
+`only GLSL 1.10, 1.20 and ES 1.00 are implemented; this shader asks for another` - so
+`patches/0001-ask-for-the-glsl-this-target-implements.patch` turns it into `#version 120` in
+`libultraship/src/fast/backends/gfx_opengl.cpp`. Claiming 1.30 in oops-gl while implementing none
+of what 1.30 added (`in`/`out`, `texture()`, integer operations) would be a false claim.
 
-Measured on 2026-09-25 with `gl2-probe`'s `libultraship-dialect` arm. Every construct the
-renderer emits compiles and runs: `attribute`, `varying`, `texture2D`, `gl_FragColor`, two
-samplers and an interpolated colour input, drawn and read back as the exact three-factor product.
+The probe arm asserts both halves, so it also retires the patch: if oops-gl implements 1.30, the
+arm's second half fails, and the patch is deleted rather than the assertion.
 
-**`#version 130` itself is refused.** `oops-gl` says so in its own words —
-`only GLSL 1.10, 1.20 and ES 1.00 are implemented; this shader asks for another` — and `130` is
-the one thing about that branch which is not 1.20.
+## The family
 
-So the port carries **a one-line patch turning `#version 130` into `#version 120`** in
-`libultraship/src/fast/backends/gfx_opengl.cpp`. That is the minimal change: the alternative is
-claiming 1.30 in `oops-gl` while implementing none of what 1.30 added (`in`/`out`, `texture()`,
-integer operations), which would be a lie the next port discovers.
-
-The patch reaches a submodule, which works because `common/upstream-fetch.sh` checks submodules
-out *before* applying patches — an ordering chosen for exactly this and paid off within the hour.
-
-The probe arm asserts both halves, so it is also what retires the patch: if `oops-gl` ever
-implements 1.30, the arm's second half fails and whoever sees it should delete the patch rather
-than the assertion.
-
-**Worth recording how this was nearly missed.** Reading `glsl_pp.c` showed `do_version` storing
-the number without judging it, which says 130 is accepted. It is not — the gate is further in. A
-first bisect appeared to confirm the reading because every branch of it returned non-zero, and
-non-zero is a pass. One `printf` of the compiler's info log answered in a single run what five
-pass/fail runs could not.
-
-## The family, which is the real argument
-
-`libultraship` is not this title's renderer. It is Harbour Masters' shared runtime, and every one
-of these is built on it:
+`libultraship` is Harbour Masters' shared runtime, not this title's renderer, and every one of
+these is built on it:
 
 | port | game | calls GL directly |
 |---|---|---|
@@ -100,131 +61,61 @@ of these is built on it:
 | Starship | Star Fox 64 | no |
 | SpaghettiKart | Mario Kart 64 | no |
 | PaperBoat | Paper Mario 64 | no |
-| Ghostship | — | no |
+| Ghostship | - | no |
 
-Every one measured **zero** direct GL calls: the renderer is entirely inside `libultraship`. So
-the platform work done here is done for all of them, and the second title out of this family
-should cost roughly what Neverputt cost after Neverball.
+The renderer is entirely inside `libultraship`, so the platform work here is shared by all of
+them.
 
 ## Run time, not build time
 
-This is the distinction that separated the candidates, and it is worth stating precisely because
-`../README.md` has carried a rule against user-supplied assets since before any of this existed.
+- **sm64-port, perfect_dark, `zeldaret/oot`, `zeldaret/mm`** extract assets during the build.
+  Without a ROM on the build machine the build fails, and nothing ships.
+- **This** builds with no ROM. The player puts their own copy on the hardware, the game notices it
+  on first run, converts it into an `.o2r`/`.otr` archive and starts.
 
-- **sm64-port, perfect_dark, `zeldaret/oot`, `zeldaret/mm`** extract assets during the *build*.
-  Without a ROM on the build machine the build fails. Nothing ships.
-- **This** builds with no ROM anywhere. The player puts their own copy on the console, the game
-  notices it on first run, converts it into an `.o2r`/`.otr` archive and starts.
+The second shape is the one the titles rule makes room for in its emulator exception: it builds,
+boots, and asks. `soh/CMakeLists.txt:623` links `ZAPDLib` into the game binary, so the conversion
+runs on the device rather than on a PC beforehand.
 
-The second shape is the one the existing rule already makes room for in its emulator exception:
-it builds, boots, and asks. `soh/CMakeLists.txt:623` links `ZAPDLib` into the game binary, so the
-conversion genuinely runs on the device rather than on a PC beforehand — which is the whole
-reason the property holds.
+## Dependencies
 
-## What this costs, measured rather than guessed
+The game (`soh/soh`), the runtime (`libultraship/src`), and the linked-in asset conversion
+(`ZAPDTR`, `OTRExporter`) are C++20 (`CMAKE_CXX_STANDARD 20`) with some C.
 
-At the pinned revision:
-
-| part | C | C++ | headers |
-|---|---|---|---|
-| `soh/soh` (the game) | 11 | 401 | 228 |
-| `libultraship/src` (the runtime) | 1 | 138 | — |
-| `ZAPDTR` (asset conversion, linked in) | 12 | 93 | 103 |
-| `OTRExporter` | 0 | 26 | 29 |
-
-**C++20** (`CMAKE_CXX_STANDARD 20`). For scale, Extreme Tux Racer — the largest C++ port here
-before this — is 45 sources.
-
-Twelve third-party libraries, of which the collection already pins three:
-
-The order to vendor them in is **measured from what the sources actually include**, not from the
-order CMake fetches them — the two disagree sharply, and the CMake order would have started with
-the wrong one.
-
-| library | files including it | vendored at | built |
-|---|---|---|---|
-| **spdlog** | **123** | [`oops-deps/spdlog`](../../oops-deps/spdlog) | header-only |
-| nlohmann/json | 42 | [`oops-deps/nlohmann-json`](../../oops-deps/nlohmann-json) | header-only |
-| tinyxml2 | 40 | [`oops-deps/tinyxml2`](../../oops-deps/tinyxml2) | `libtinyxml2.a` |
-| prism-processor | 3 | [`oops-deps/prism-processor`](../../oops-deps/prism-processor) | `libprism.a`, 6 sources |
-| libgfxd | 1 | [`oops-deps/libgfxd`](../../oops-deps/libgfxd) | `libgfxd.a` |
-| stb | 1 | [`oops-deps/stb`](../../oops-deps/stb) | `libstb.a` |
-| thread-pool | 1 | [`oops-deps/thread-pool`](../../oops-deps/thread-pool) | header-only |
-| StormLib | archive layer | [`oops-deps/stormlib`](../../oops-deps/stormlib) | `libstorm.a`, 231 sources |
-| libzip | archive layer | [`oops-deps/libzip`](../../oops-deps/libzip) | `libzip.a`, 114 sources |
-| zlib | — | [`oops-deps/zlib`](../../oops-deps/zlib) | `libz.a`, already vendored |
-| SDL | — | [`oops-deps/sdl2`](../../oops-deps/sdl2) | already vendored |
-| single-header-metal-cpp | — | — | Apple only, not needed |
+| library | vendored at | built |
+|---|---|---|
+| spdlog | [`oops-deps/spdlog`](../../oops-deps/spdlog) | header-only |
+| nlohmann/json | [`oops-deps/nlohmann-json`](../../oops-deps/nlohmann-json) | header-only |
+| tinyxml2 | [`oops-deps/tinyxml2`](../../oops-deps/tinyxml2) | `libtinyxml2.a` |
+| prism-processor | [`oops-deps/prism-processor`](../../oops-deps/prism-processor) | `libprism.a` |
+| libgfxd | [`oops-deps/libgfxd`](../../oops-deps/libgfxd) | `libgfxd.a` |
+| stb | [`oops-deps/stb`](../../oops-deps/stb) | `libstb.a` |
+| thread-pool | [`oops-deps/thread-pool`](../../oops-deps/thread-pool) | header-only |
+| StormLib | [`oops-deps/stormlib`](../../oops-deps/stormlib) | `libstorm.a` |
+| libzip | [`oops-deps/libzip`](../../oops-deps/libzip) | `libzip.a` |
+| zlib | [`oops-deps/zlib`](../../oops-deps/zlib) | `libz.a` |
+| SDL | [`oops-deps/sdl2`](../../oops-deps/sdl2) | see its README |
+| ImGui | [`oops-deps/imgui`](../../oops-deps/imgui) | see above |
+| single-header-metal-cpp | - | Apple only, not needed |
 
 The archive pair is the ROM-reading path, reached through
-`libultraship/include/ship/resource/archive/` rather than by direct include — which is why a grep
-for their headers in the sources finds nothing. `OtrArchive.h` reads `.otr` through StormLib and
-`O2rArchive.h` reads `.o2r` through libzip; neither is optional.
+`libultraship/include/ship/resource/archive/` rather than by direct include, so a grep for their
+headers in the sources finds nothing. `OtrArchive.h` reads `.otr` through StormLib and
+`O2rArchive.h` reads `.o2r` through libzip; neither is optional. Each archive is checked with
+`nm --undefined-only` rather than by the build succeeding.
 
-**spdlog first was the uncomfortable answer**, because it is the largest of them and the one that
-leans hardest on the C++20 standard library rather than on anything this SDK controls. It was also
-unavoidable: 123 of the tree's files include it, so nothing else could be compiled and checked
-until it was there. Starting with the small header-only ones would have produced three vendored
-directories and no way to tell whether any of them worked.
+spdlog's threading needs libc++'s external threading API, in
+`oops-deps/libcxx/include/__external_threading`, which every threaded C++ port shares.
 
-It paid for itself twice over. Making spdlog compile meant giving libc++ a threading API, and
-`oops-deps/libcxx/include/__external_threading` is what every threaded C++ port after this one
-stands on — prism-processor's `std::variant` and `std::string` are already using it.
+`patches/0002` covers the two arms of libultraship that decide how GL arrives.
 
 ## Submodules
 
-`libultraship`, `ZAPDTR` and `OTRExporter` are submodules of the pinned commit, and the build is
-nothing without them. `common/upstream-fetch.sh` gained `UPSTREAM_SUBMODULES=1` for this title:
-it checks them out after the revision is verified and before patches apply, then confirms each
-declared path is non-empty, because `git submodule update` reports success for a module it
-decided to skip.
+`libultraship`, `ZAPDTR` and `OTRExporter` are submodules of the pinned commit. With
+`UPSTREAM_SUBMODULES=1`, `common/upstream-fetch.sh` checks them out after the revision is verified
+and before patches apply - so a patch can reach into a submodule - then confirms each declared
+path is non-empty, because `git submodule update` reports success for a module it skipped.
 
-One hash still pins everything — a submodule's revision lives in the superproject's tree, so
-there is no second pin to drift. Note that `torch`, which newer Shipwright HEAD uses, does **not**
-exist at `9.2.3`; the asset pipeline here is the older `ZAPDTR` + `OTRExporter` pair.
-
-## State
-
-Every third-party library this title needs is vendored, pinned and building, and **the whole of
-`libultraship/src` compiles — 138 of 138 sources.** That is the runtime the game sits on.
-
-`make compile-survey` is how that is measured, and it measures it with the build's own flags
-rather than a script's. It says what it does not prove, too: `-fsyntax-only` does not link, and a
-payload link does not report an unresolved symbol, so a clean survey is not a working port. The
-four vertex-array entry points in the table above are exactly that kind of hole — every file that
-calls them compiles today.
-
-The order of work, cheapest useful thing first:
-
-1. ~~`glBlitFramebuffer` and `glRenderbufferStorageMultisample` in `oops-gl`~~ — **done**,
-   2026-09-25, with `test_gl2_blit_framebuffer_reads_the_read_binding`. The blit needed the GL 3.0
-   read/draw binding split, which `oops-gl` did not have.
-2. ~~A shader-dialect probe arm~~ — **done**, `gl2-probe`'s `libultraship-dialect`. It found the
-   `#version 130` refusal above, which no amount of reading the front end had.
-3. ~~The `#version 120` patch~~ — **done**, `patches/0001-ask-for-the-glsl-this-target-implements.patch`.
-   One line, verified end to end: the fetch applies it *inside the `libultraship` submodule*,
-   which works because submodules are checked out before patches run.
-4. ~~**A threaded libc++.**~~ — **done**. Compiling spdlog's header found the real blocker:
-   `_LIBCPP_HAS_THREADS 0`, so `std::mutex`, `std::thread` and `std::condition_variable` did not
-   exist, and 11 of the 15 errors were that. `oops-sdk` already had the whole API
-   (`oops_thread_*`, `oops_mutex_*`, `oops_sem_*`), and libc++ has
-   `_LIBCPP_HAS_THREAD_API_EXTERNAL` for exactly this. It is an `oops-deps/libcxx` job rather than
-   a title one, and every threaded C++ port after this one gets it.
-5. ~~The rest of the nine, in the measured order~~ — **done**. All ten are in the table above and
-   all ten build.
-6. ~~The archive pair, `StormLib` and `libzip`~~ — **done**. The ROM-reading path is there:
-   `SFileOpenArchive`/`SFileReadFile` and `zip_open`/`zip_fread` are all defined, and each archive
-   was checked with `nm --undefined-only` rather than by the build succeeding — which for StormLib
-   is how 201 missing sources were caught.
-7. ~~`libultraship/src`, the runtime~~ — **done**, 138 of 138. It took the `SDL2/` header prefix,
-   ImGui, the generated CVAR names, `install_config.h`, `dlfcn.h`, `nanosleep`, `cxxabi.h` on the
-   consumer's include path, and `patches/0002` for the two arms that decide how GL arrives. Each
-   one was named by a survey rather than guessed at.
-8. **`soh/soh`, the game.** 401 C++ files and 11 C. Then `ZAPDTR` and `OTRExporter`, which are the
-   asset pipeline and are linked in.
-9. **Vertex array objects in `oops-gl`**, for ImGui's GL3 backend — four entry points and six
-   enums. The only piece here that is genuinely hard: a VAO captures attribute state rather than
-   wrapping a handle, and `gl_vertex_attrib_t` currently folds the array state together with
-   `current[4]`, which the specification puts on the *other* side of the VAO boundary. The
-   element-array-buffer binding belongs to the object too.
-10. **An entry point**, and the shim that gives libultraship its window.
+One hash pins everything: a submodule's revision lives in the superproject's tree, so there is no
+second pin to drift. `torch`, which newer Shipwright uses, does not exist at `9.2.3`; the asset
+pipeline here is the `ZAPDTR` + `OTRExporter` pair.

@@ -1,23 +1,19 @@
 # oops-apps
 
-**Native homebrew for Orbis and Prospero — demos, ported games, and utilities.**
+Native homebrew for Orbis and Prospero: demos, ported games, and utilities.
 
-`oops-apps` is the native homebrew for the platform: 3D graphics demos, ports of upstream games,
-and system utilities, all built on [oops-sdk](../oops-sdk/). The demos we write from scratch are
-the known-good yardstick the rest of OOPS is measured against — the compilers, the packaging,
-the hardware transport and the emulator are all proven here first — and the ported games put the
-same toolchain through real, third-party code.
+`oops-apps` holds the native homebrew for the platform: 3D graphics demos, ports of upstream
+games, and system utilities, all built on [oops-sdk](../oops-sdk/). The demos written from
+scratch are the known-good yardstick the rest of OOPS is measured against - the compilers, the
+packaging, the hardware transport and the emulator are all exercised here first - and the ported
+games put the same toolchain through third-party code.
 
-| 📖 **[User & Operator Guide](docs/USER_GUIDE.md)** | 📐 **[Design Decisions](docs/DECISIONS.md)** |
-| :--- | :--- |
-| *Building and running the demos, and using tracer.* | *Numbered decisions and their reasoning.* |
+- [User and Operator Guide](docs/USER_GUIDE.md) - building and running the demos, and using tracer.
+- [Design Decisions](docs/DECISIONS.md) - numbered decisions and their reasoning.
+- [The oops-apps index](https://project-oops.github.io/oops-apps/) - every app, built from
+  `main`, with screenshots and downloads.
 
-⬇️ **[Browse and download every app](https://project-oops.github.io/oops-apps/)** — the
-oops-apps index, built fresh from `main` with screenshots and one-click downloads.
-
----
-
-## Role in THE LOOP
+## Role in the loop
 
 Within the [OOPS ecosystem](../docs/THE_LOOP.md), `oops-apps` is the **Known Ground-Truth Testbed**:
 
@@ -41,15 +37,18 @@ Within the [OOPS ecosystem](../docs/THE_LOOP.md), `oops-apps` is the **Known Gro
                         └──────────────► Match ◄──────────────┘
 ```
 
-1. **Unambiguous Ground Truth**: Commercial games are massive, opaque, and fail without clear diagnostics. In `oops-apps`, we know every line of code, every vertex buffer, and every expected return value.
-2. **End-to-End Pipeline Verification**: If `gl1-cube` renders on physical hardware but fails in [Orbistoun](../orbistoun/), the gap is isolated immediately without guessing.
-3. **Dogfooding First-Party Tooling**: Every application builds with `app.mk`, packages with `selfish`, and deploys with `pros`.
+1. **Known ground truth.** Commercial games are large, opaque, and fail without clear
+   diagnostics. In `oops-apps` every line of code, every vertex buffer and every expected return
+   value is known.
+2. **End-to-end pipeline verification.** If `gl1-cube` renders on the hardware but fails in
+   [Orbistoun](../orbistoun/), the gap is isolated to the emulator.
+3. **First-party tooling.** Every application builds with `app.mk`, packages with `selfish`, and
+   deploys with `pros`.
 
----
-
-## Developer Quickstart
+## Quickstart
 
 ### Build and test
+
 ```bash
 ./bin/oops-apps build    # build the applications
 ./bin/oops-apps check    # run the host-side self-tests
@@ -57,32 +56,30 @@ Within the [OOPS ecosystem](../docs/THE_LOOP.md), `oops-apps` is the **Known Gro
 ```
 
 ### Build a title and run it
+
 ```bash
 cd src/oops-gl/gl1-cube
 make title               # package a runnable title with SELFish
 ```
-Deploy and launch it on hardware with [Prosperous](../prosperous/), or run it in
-[Orbistoun](../orbistoun/). The step-by-step — including
-[creating your own application](docs/USER_GUIDE.md#4-creating-a-new-application-in-oops-apps) —
-is in the **[User & Operator Guide](docs/USER_GUIDE.md)**.
 
----
+Deploy and launch it on the hardware with [Prosperous](../prosperous/), or run it in
+[Orbistoun](../orbistoun/). The steps, including
+[creating an application](docs/USER_GUIDE.md#4-creating-a-new-application-in-oops-apps), are in
+the [User and Operator Guide](docs/USER_GUIDE.md).
 
 ## Finding the apps
 
 Apps live under `src/`, grouped by the part of the collection they exercise. List them with
-`./bin/oops-apps list`, browse the source, or **[open the oops-apps
-index](https://project-oops.github.io/oops-apps/)** to see screenshots and download the latest
-build of each one. There is deliberately no catalog table here — the source tree, the `list`
-command and the index are always current; a hand-kept list never is.
+`./bin/oops-apps list`, browse the source, or open [the oops-apps
+index](https://project-oops.github.io/oops-apps/) for screenshots and the latest build of each
+one. There is no catalog table here: the source tree, the `list` command and the index are the
+catalog.
 
----
+## Cross-project links
 
-## Cross-Project Links
-
-- **[Master OOPS Front Door](../README.md)** — Collection overview and building instructions.
-- **[The OOPS Loop](../docs/THE_LOOP.md)** — Master ecosystem loop specification.
-- **[oops-sdk](../oops-sdk/)** — Freestanding C runtime used by all applications.
-- **[SELFish](../selfish/)** — Packages applications into `.eboot` and title directories.
-- **[Prosperous](../prosperous/)** — Deploys and launches applications on hardware.
-- **[Orbistoun](../orbistoun/)** — Clean-room emulator testing these applications.
+- [OOPS front door](../README.md) - collection overview and build instructions.
+- [The OOPS Loop](../docs/THE_LOOP.md) - the ecosystem loop specification.
+- [oops-sdk](../oops-sdk/) - freestanding C runtime used by all applications.
+- [SELFish](../selfish/) - packages applications into `.eboot` and title directories.
+- [Prosperous](../prosperous/) - deploys and launches applications on the hardware.
+- [Orbistoun](../orbistoun/) - clean-room emulator testing these applications.

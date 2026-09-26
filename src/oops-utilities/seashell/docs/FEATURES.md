@@ -1,4 +1,4 @@
-# SeaShell — screens & features
+# SeaShell - screens and features
 
 The full screen hierarchy and launcher capabilities. The [README](../README.md) is the overview;
 [ARCHITECTURE](ARCHITECTURE.md) explains how these are built and tested.
@@ -15,7 +15,7 @@ The full screen hierarchy and launcher capabilities. The [README](../README.md) 
 | **Title Options Menu** | `PLAY`, `ADD/REMOVE FAVORITE`, `CHECK FOR UPDATE`, `MANAGE GAME CONTENT`, `SAVED DATA`, `INFORMATION`, `DELETE`, `BACK` |
 | **Title Information Screen** | Complete metadata: Title ID, category, version, format, location, target SDK, audio format, parental rating |
 | **Game Library** | Filtered view with 4 toggleable categories: `ALL TITLES`, `NATIVE APPS`, `HOMEBREW & ELFS`, `FAVORITES (PINNED)` |
-| **Control Centre (Home button)** | Quick menu overlay: 13 bottom dock icons + upper activity and download cards |
+| **Control Centre (Home button)** | Quick menu overlay: bottom dock icons + upper activity and download cards |
 | **Active Switcher Lifecycle** | Real-time running/suspended tracking (`NOW PLAYING` vs `SUSPENDED`), with `RESUME`, `SUSPEND`, `CLOSE`, and recent-title shortcuts |
 | **Game Base** | Friends online status list and voice party chat indicator |
 | **Media Gallery / Captures** | Screenshots and video clips with resolution, date, size, and a capture action |
@@ -25,7 +25,7 @@ The full screen hierarchy and launcher capabilities. The [README](../README.md) 
 | **Settings & Favorites Persistence** | Binary struct serialization of active theme, mode, audio preferences, and pinned favorites |
 | **Settings Subsystems** | Users, System (HDMI, Power Saving), Storage, Sound, Screen & Video (4K, 120Hz, VRR), Accessories |
 | **Developer & Debug Settings** | Package installer, payload runner, Big App 0 category override, pltauth bypass indicator, live kernel log viewer, filesystem browser |
-| **Emulator Settings** | Save-state slots (1–10), quick save/load, frame limiter, shader compilation stats, performance HUD |
+| **Emulator Settings** | Save-state slots (1-10), quick save/load, frame limiter, shader compilation stats, performance HUD |
 | **Common Dialogs Subsystem** | Confirmation prompt, progress-bar modal, error dialog |
 | **Virtual Keyboard (IME)** | 4-row QWERTY on-screen keyboard for search and text input |
 | **Toast Notifications** | Floating notification card with auto-dismiss timer |

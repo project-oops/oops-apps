@@ -1,4 +1,4 @@
 # Decisions
 
-Numbered, with reasoning, as they are made. The reasoning is the point - it is what stops a
-choice being re-litigated by somebody who only has the choice.
+The decisions in force, one file each under `decisions/`. Format and rules are in
+[STYLE](https://github.com/project-oops/OOPS/blob/main/docs/STYLE.md#decisions).

@@ -8,20 +8,19 @@ Brings GL up through the Gallium DRI frontend and reports how far it gets.
 
 ## About
 
-mesa-dri-probe is the title that first *runs* oops-mesa's platform shim rather than only compiling it.
-It creates a GL context through the frontend and renders only what it can verify, adding one thing
-at each step.
+mesa-dri-probe runs oops-mesa's platform shim. It creates a GL context through the frontend and
+renders only what it can verify, adding one thing at each step.
 
-- **Fixed function** — a clear and a triangle, read back with `glReadPixels` from the drawable's
+- **Fixed function** - a clear and a triangle, read back with `glReadPixels` from the drawable's
   own colour buffer.
-- **The programmable pipeline** — a GLSL 330 shader drawing a colour-interpolated triangle from a
-  vertex buffer: the compiler, program linking and real vertex attributes.
-- **The frame hash** — FNV-1a over every pixel of the finished frame, the roadmap's acceptance
-  gate that a single sampled pixel can't stand in for.
+- **The programmable pipeline** - a GLSL 330 shader drawing a colour-interpolated triangle from a
+  vertex buffer: the compiler, program linking and vertex attributes.
+- **The frame hash** - FNV-1a over every pixel of the finished frame, an acceptance gate that a
+  single sampled pixel cannot stand in for.
 
-It is the frontend counterpart to `mesa-probe`, which walks the winsys directly; keeping them
-separate titles gives a failure one screen and one clean attribution. A frame that doesn't retire
-is a failure, never a fallback to software — the readback is the check.
+It is the frontend counterpart to `mesa-winsys-probe`, which walks the winsys directly; separate
+titles give a failure one screen and one attribution. A frame that does not retire is a failure,
+never a fallback to software - the readback is the check.
 
 ## Screenshot
 
@@ -32,4 +31,4 @@ is a failure, never a fallback to software — the readback is the check.
 ## Docs
 
 - [oops-mesa bring-up docs](../../../../oops-mesa/docs/)
-- [oops-apps catalog & guide](../../../docs/USER_GUIDE.md)
+- [oops-apps catalog and guide](../../../docs/USER_GUIDE.md)

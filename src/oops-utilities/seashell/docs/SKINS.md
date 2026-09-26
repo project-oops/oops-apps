@@ -1,9 +1,9 @@
-# SeaShell — skins
+# SeaShell - skins
 
 SeaShell decouples UI navigation from rendering through a generic, declarative skin system
 (`home_skin_t` in `skin.h`). The same model state drives every layout below.
 
-## MODERN — modern carousel
+## MODERN - modern carousel
 
 Horizontal sliding carousel with dynamic viewport scrolling tracking `title_cursor`. The selected
 title expands with an elevated frame, a glowing badge, and a lower game-hub detail strip
@@ -11,7 +11,7 @@ title expands with an elevated frame, a glowing badge, and a lower game-hub deta
 
 ![MODERN skin](screenshots/modern.png)
 
-## XMB — cross media bar
+## XMB - cross media bar
 
 Horizontal category ribbon (`SETTINGS`, `PHOTO`, `MUSIC`, `VIDEO`, `GAMES`, `NETWORK`) with
 dynamic sine-wave ribbon meshes and an ambient floating-particle system. Horizontal category
@@ -19,42 +19,40 @@ rotation crossed with vertical item-list scrolling.
 
 ![XMB skin](screenshots/xmb.png)
 
-## BLADES — curved blade dashboard
+## BLADES - curved blade dashboard
 
 Overlapping curved blade tabs (`NETWORK`, `GAMES`, `MEDIA`, `SYSTEM`), a left hero card with a
 large artwork box, a right companion blade preview, and an action-button legend.
 
 ![BLADES skin](screenshots/blades.png)
 
-## MEMCARD — framed column list browser
+## MEMCARD - framed column list browser
 
-PlayStation 2 console aesthetic featuring the iconic cosmic 7-sphere orbiting clock and monolith
-styling for top-level navigation (`Browser` / `System Configuration`), transitioning into a
-dual-column framed memory card browser for titles.
+A cosmic orbiting-sphere clock and monolith styling for top-level navigation (`Browser` /
+`System Configuration`), transitioning into a dual-column framed memory card browser for titles.
 
 ![MEMCARD skin](screenshots/memcard.png)
 
-## REVOLUTION — 4×3 channel grid
+## REVOLUTION - 4×3 channel grid
 
-A 4×3 grid of twelve rounded TV channels, a bottom console swoop with a centered 3D spherical
-System button, an SD-card slot, a digital clock/date, and a Message Board envelope button. Full 2D
-grid D-pad navigation.
+A 4×3 grid of twelve rounded TV channels, a bottom swoop with a centred 3D spherical System
+button, an SD-card slot, a digital clock/date, and a Message Board envelope button. Full 2D grid
+D-pad navigation.
 
 ![REVOLUTION skin](screenshots/revolution.png)
 
-## AMBER — warm ribbons cross media bar
+## AMBER - warm ribbons cross media bar
 
-A warm amber aesthetic variant of the Cross Media Bar featuring shimmering golden ribbon meshes
-and glowing floating ambient particles.
+A warm amber variant of the cross media bar with shimmering golden ribbon meshes and glowing
+floating ambient particles.
 
 ![AMBER skin](screenshots/amber.png)
 
-## Capacity & responsiveness
+## Capacity and responsiveness
 
-- **Horizontal viewport windowing** — the modern carousel centres the active item
+- **Horizontal viewport windowing** - the modern carousel centres the active item
   (`view_start = title_cursor - 2`, clamped) so titles stay in view across the whole list.
-- **Responsive hold & repeat** — 14-frame initial delay (~230 ms), 3-frame stride (~50 ms),
-  4 ms idle sleep (`HOME_IDLE_SLEEP_US`).
-- **Multi-port polling** — ports 0..3 scanned every frame with no artificial throttling.
-- **Expanded capacities** — up to 64 titles (`HOME_MAX_TITLES`) and 64 menu items
-  (`HOME_MAX_ITEMS`).
+- **Hold and repeat** - 14-frame initial delay (~230 ms), 3-frame stride (~50 ms), 4 ms idle
+  sleep (`HOME_IDLE_SLEEP_US`).
+- **Multi-port polling** - ports 0..3 scanned every frame with no throttling.
+- **Capacities** - up to 64 titles (`HOME_MAX_TITLES`) and 64 menu items (`HOME_MAX_ITEMS`).

@@ -1,273 +1,85 @@
 # Titles
 
-Real programs, ported to run on the console through `oops-sdk`. A probe shows a thing can be
-done; a title is the reason for doing it.
-
-**Nothing here may need the user to supply assets or ROMs to build and boot.** An emulator is
-the one exception and only a partial one: it builds, boots and runs without any proprietary
-code, and that a user must bring their own content afterwards does not stop it being a proof.
-
-## Where each one is
-
-Every target in the survey below now has a directory, a verified pin and its own notes. **A
-scaffold is not progress** - it is somewhere for the reading to land, and what separates the rows
-is how much of that reading has been done.
-
-| | Runs | Measured | Scaffold only |
-|---|---|---|---|
-| [neverball](neverball/) | **end to end on hardware** | | |
-| [neverputt](neverputt/) | **end to end on hardware** | | |
-| [ship-of-harkinian](ship-of-harkinian/) | | pin + submodules fetch and verify; GL gap closed, shader dialect proven by `gl2-probe`, 9 dependencies to vendor (`make survey`) | |
-| [sm64](sm64/) | | GL surface measured: 34 entry points, **0 missing**. Its ROM is a build-time dependency, which is the open question | |
-| [spaghetti-kart](spaghetti-kart/) | | pin + notes; second title of the `libultraship` family, deliberately behind ship-of-harkinian | |
-| [craft](craft/) | | 4/4 shaders compile; 14 of 18 sources compile, `make check` | |
-| [supertux](supertux/) | | ES 2.0 path: 53/53 GL entry points (`make check`), `shader100.frag` generates (`make shadercheck`); pin + submodules fetch; 468 sources selected | |
-| [extreme-tux-racer](extreme-tux-racer/) | **end to end on hardware** - a level played to the finish | | |
-| [armagetron-advanced](armagetron-advanced/) | | | pin + notes |
-| [supertuxkart](supertuxkart/) | | | pin + notes |
-| [retroarch](retroarch/) | | | pin + notes |
-
-One directory here is an instrument rather than a port: [mesa-demos](mesa-demos/) is oops-mesa's
-bring-up. It is the same misfiling `gl-cts` was, and it is left for the session that owns it.
-
-**`gl-cts` moved to `../oops-mesa/gl-cts` on 2026-09-24.** It ran Khronos' conformance suite
-against oops-mesa, which is not "a real program ported to run on the console" by the definition
-at the top of this file - it is the instrument that measures the driver, its `app.env` says
-`KIND=probe`, and every other probe already lived beside `mesa-dri-probe` and
-`mesa-winsys-probe`. It was the only `KIND=probe` outside `src/oops-mesa/`, and this sentence
-had been describing the problem rather than fixing it.
-
-Each scaffold's `docs/PORTING.md` opens by saying what it inherited and what nobody has checked,
-because a directory full of confident prose is how a survey's guesses turn into a project's
-assumptions.
+Programs ported to run on the hardware through `oops-sdk`. A title builds and boots without
+the user supplying assets or ROMs. An emulator is the one exception: it builds, boots and runs
+without proprietary code, and only its content comes from the user.
 
 ## What a title is made of
 
-**A title is an origin, our patches, our shim and its metadata - and nothing else.** None of the
-program's own source or assets is committed here. That is the whole shape, and it is the same
-for every title:
+A title is an origin, our patches, our shim and its metadata. None of the program's own source
+or assets is committed here.
 
 ```
 oops-titles/<title>/
   upstream.lock     the origin: where it comes from and exactly which revision
-  upstream/         the fetched tree. Never edited, never committed (.gitignore'd)
+  upstream/         the fetched tree, never edited and never committed
   patches/          our changes to it, numbered, applied to a clean checkout
-  shim/             our code: the entry point, and whatever oops-sdk does not already provide
+  shim/             our code: the entry point, and what oops-sdk does not provide
   sce_sys/          icon0.png, pic0.png, logo.png, param.json
   app.env           the application identifier, name and version
   Makefile          through oops-apps/common/app.mk, like every other app here
 ```
 
-**Why a lock file rather than a submodule.** A submodule pins a git commit well, needs no code of
-ours, and for one title would be the obvious answer. Two things decide it for the set, and
-neither is the one that first suggested itself:
+`common/upstream.mk` fetches `upstream/` at the revision `upstream.lock` names on the first
+`make`, applies every `patches/*.patch` in sorted order, and stamps the result; the patch set is
+part of the stamp, so adding or removing a patch re-fetches. `make upstream-clean` removes the
+tree. A lock file rather than a submodule keeps a version bump to one line in one repository and
+lets the fetch be shaped (`--depth 1 --filter=blob:none` for large asset repositories).
 
-- **It would be a third level of submodule.** OOPS holds oops-apps; oops-apps would hold each
-  title's upstream. Every bump then costs three commits in three repositories, in a superproject
-  whose log is already more than half bumps - 16 of 30 at the time of writing, across 8
-  submodules. Eight titles of that is a great deal of churn for something that changes rarely,
-  and a gitlink SHA in a diff tells a reviewer nothing that a line of `upstream.lock` does not.
-- **The fetch wants shaping.** A 150 MB asset repository wants `--depth 1 --filter=blob:none`;
-  `shallow = true` in `.gitmodules` is advisory and unevenly honoured, while a script simply does
-  it.
+The identity guard (`~/.oops-identity/scan.sh`) reads what is staged. Upstream is never staged,
+so the scan covers exactly our patches, shim and metadata.
 
-Two arguments that look good and are not: that a non-git origin forces it (Extreme Tux Racer's
-upstream is Subversion, but modern git ports exist and are the sensible base anyway), and that a
-submodule would burden everyone who clones OOPS (it would not - a plain `git clone` fetches no
-submodule content, and one can be initialised on its own). A submodule stays available for an
-individual title if one turns out to suit it: the layout above is what matters, not the mechanism
-that fills `upstream/`.
+## Shims and patches
 
-**The patch rule: if it can live in the shim, it must.** A patch is for what can only be changed
-in the program's own source - a hard-coded include, a `main` that has to become a named entry
-point, a path that must move. Anything that can be satisfied by providing a function instead
-belongs in `shim/`, because a shim survives the next upstream revision and a patch has to be
-rebased. A title whose `patches/` grows faster than its `shim/` is telling us the SDK is missing
-something, and that is worth acting on rather than patching around.
+This is the policy for every title; titles carry no README of their own for it.
 
-**The identity guard, and why this layout helps.** `~/.oops-identity/scan.sh` reads what is
-staged. Upstream's tree is never staged, so the scan only ever sees our patches, our shim and our
-metadata - which is exactly the surface that could leak, and a small one.
+- **A shim is minimal and belongs to one title.** `shim/include/` goes on the include path
+  ahead of upstream's own headers, so a missing header is answered without touching upstream;
+  a translation unit in `shim/` supplies a missing function. What a second port would want is
+  an SDK entry point or lives in [`common/`](../../common/).
+- **A patch is minimal and belongs to one title.** It changes upstream only where upstream's
+  own code must behave differently here: a hard-coded `main`, a path only this program builds,
+  a menu the pad cannot reach. A missing header or function is a shim, never a patch. A patch
+  that adapts the platform rather than the program is the platform's job, because a patch is
+  carried and rebased indefinitely.
+- A title whose `patches/` grows faster than its `shim/` is pointing at something missing from
+  the SDK.
 
-**Application identifiers** follow the same four-letters-and-five-digits shape as everything else
-here (`GLCB00001`, `GLPB00001`, `GLUT00001`): four letters naming the title, then `00001`.
+[`../../AGENTS.md`](../../AGENTS.md) has the table of where each kind of fix goes.
 
-**Building and publishing.** The `Makefile` goes through `oops-apps/common/app.mk`, so a title
-gets the undefined-symbol check every payload here gets - which matters more for a port than for
-anything we wrote, since a program calling a libc function this SDK lacks otherwise links
-cleanly and faults on the console. An `oops-apps` workflow builds each title as a native Prospero
-payload and publishes it to a release.
+## Identifiers and builds
 
-## The targets, and what was actually checked
+Application identifiers are four letters naming the title and `00001` (`GLCB00001`,
+`GLUT00001`). The `Makefile` goes through `common/app.mk`, so a title gets the same
+undefined-symbol check as every payload here: a program calling a C library function this SDK
+lacks fails the link instead of faulting on the hardware. CI builds each title and publishes
+it to the release.
 
-Each entry below was verified by cloning it and reading the source - grepping for `glBegin` and
-`glVertexPointer` against `glCreateShader` and `glUseProgram`, checking the shading language
-version, and looking for the asset licence in the repository. **Nothing here is from memory**:
-GL versions asserted from recollection have already been wrong twice in this project.
+## Queued titles
 
-**And that method has a blind spot, which SuperTux 2 found.** A title that ships shaders is not
-therefore a title that *runs* them: SuperTux carries `#version 100` and `#version 330` files and
-also a fixed-function backend that loads neither, and which one executes is decided by a
-**compile-time define** - `USE_OPENGLES2` takes the `#version 100` program, neither define tries
-`#version 330` and falls back to fixed-function by exception. So the grep above answers "what is
-in the tree", and the question is "what executes" - which means reading how the build selects
-the backend, not only the assets beside it.
+A title with a pinned upstream and no code of ours has no directory. These are the pins and
+what their source says about rendering.
 
-| Slot | Target | Verified | Language |
+| Title | Upstream | Revision | From its source |
 |---|---|---|---|
-| `bring-up/` | mesa-demos | 53 programs under `src/demos/`, purpose-built per GL feature, no assets | C |
-| `gl1/` | **Neverball** | vertex arrays and buffer objects, no `glBegin` and no renderer shaders; 184 MB checked out at `neverball-1.6.0`. Its cost is the platform layer - see below | **C**, 106 files |
-| `gl1/` | Armagetron Advanced | 23 `glBegin`, no shader calls - but exceptions, RTTI and boost, so **last** rather than second; see the comparison below | C++, 189 files |
-| `gl1/` | Extreme Tux Racer | arrays, no `glBegin`, no exceptions or RTTI, SDL **1.2**. Upstream is Subversion; unofficial git mirrors exist and one must be picked | C++, 45 files |
-| `gl2/` | **Craft** | `#version 120` - GLSL 1.20 is OpenGL 2.1 - `glCreateShader`/`glUseProgram`, 14 MB with textures | **C** |
-| `gl2/` | **SuperTux 2** | **re-read 2026-09-25.** Built with upstream's `USE_OPENGLES2`, it runs `shader100.*` - `#version 100`, three samplers - through `GL33CoreContext`, and that fragment shader generates for gfx1030. Its fixed-function `GL20Context` is the fallback, not the target; the backend is chosen by define, and `v0.6.3` never parses `GL_VERSION`. `supertux/docs/PORTING.md` | C++ with exceptions and RTTI, 468 files |
-| `gl3/` | SuperTuxKart | its README: "OpenGL >= 3.3 or OpenGL ES >= 3.0" | C++ |
-| `gl3/` | SuperTux 2 | the `#version 330` half of the same engine - not taken; the ES 2.0 program draws the same effects | C++ |
-| `multi/` | **RetroArch** | ships `gl1.c`, `gl2.c` **and** `gl3.c` as separate drivers - one app across all three | C |
+| Bugdom 2 | `github.com/jorio/Bugdom2` | `v4.0.0` (`4050d6f9`) | Bugdom's engine and `extern/Pomme`; immediate-mode GL 1.x; game data ships upstream |
+| SuperTux 3D | `github.com/edstoner/supertux_3d` | `5d409c08` | GDScript and assets for Godot 3.x; no C or C++; porting it is porting Godot's `platform/` layer |
+| Armagetron Advanced | `github.com/ArmagetronAd/armagetronad` | `v0.2.9.3.0` (`036daaf3`) | GL 1.x (`glBegin` and vertex arrays); C++ with exceptions, RTTI and boost |
+| RetroArch | `github.com/libretro/RetroArch` | `v1.22.2` (`69a4f0ea`) | separate `gl1`, `gl2` and `gl3` video drivers; C |
+| SuperTuxKart | `github.com/supertuxkart/stk-code` | `1.5` (`1fb491f5`) | OpenGL 3.3 or GLES 3.0 per its README; assets in the separate `stk-assets` repository |
 
-## Decompilation and recompilation ports: two families, opposite answers
+## Porting families
 
-Surveyed 2026-09-25, sixteen projects cloned and measured. The single most useful thing it found
-is that these are not sixteen decisions but three.
+The N64 and GameCube ports in circulation fall into a few families, and the family decides
+whether a port is in reach:
 
-**First: a decompilation is not a port.** `zeldaret/oot`, `zeldaret/mm`, `n64decomp/sm64` and
-`n64decomp/mk64` build an N64 ROM; `zeldaret/tp` and `ACreTeam/ac-decomp` build a GameCube DOL.
-None has a `src/pc`, a graphics backend or a platform layer. What can be ported is the *fork*
-that added one.
-
-**Second, the `libultraship` family is in reach.** Harbour Masters' shared runtime carries the
-renderer for Ship of Harkinian (Ocarina of Time), 2ship2harkinian (Majora's Mask), SpaghettiKart
-(Mario Kart 64), Starship (Star Fox 64), PaperBoat (Paper Mario 64) and Ghostship. **Every one
-measured zero direct GL calls** - the graphics are entirely inside the library, so the platform
-work is done once for six games. Its non-Apple, non-GLES branch emits GLSL 1.20 constructs under
-a `#version 130` directive; `gl2-probe`'s `libultraship-dialect` arm proves the constructs run
-here and the directive is refused, which is a one-line patch rather than a feature.
-
-**Third, the `N64Recomp` family is not**, and for a reason no amount of effort here changes:
-it renders through **RT64**, which is Vulkan and D3D12. Measured by reference count -
-`RecompFrontend` 156 rt64 / 10 vulkan / 9 d3d12, `BanjoRecomp` 42 / 6. That covers Banjo:
-Recompiled, Zelda 64: Recompiled, Harvest Moon 64 and everything else N64Recomp produces. They
-are excellent ports and they want a graphics stack this collection does not have.
-
-Twilight Princess sits with the third group by a different route: Dusklight's source is public
-(the `HayatoG/dusklight` fork carries it, with a real `platforms/` abstraction) but its graphics
-go GX → **Aurora → WebGPU/Dawn**, 1312 wgpu references and no GL path. Courage Reborn has no
-public repository at all.
-
-| family | renderer | verdict |
+| Family | Renderer | Here |
 |---|---|---|
-| libultraship (6 ports) | its own Fast3D over GL 2.1-era GLSL | **in scope** - [ship-of-harkinian](ship-of-harkinian/), [spaghetti-kart](spaghetti-kart/) |
-| sm64-port | GL 2.0, 34 entry points, 0 missing | **in scope** - [sm64](sm64/), but its ROM is a *build-time* dependency |
-| N64Recomp (Banjo, Zelda 64, …) | RT64 → Vulkan / D3D12 | out of scope |
-| Dusklight / Twilight Princess | Aurora → WebGPU / Dawn | out of scope |
-| perfect_dark | GL, 61 calls, 6 missing | possible; build-time ROM like sm64 |
-| raw decompilations | none | not ports |
+| `libultraship` (Ship of Harkinian, 2ship2harkinian, SpaghettiKart, Starship, PaperBoat, Ghostship) | its own Fast3D over GL 2.1-era GLSL under a `#version 130` directive; no direct GL calls in the games | in reach: [ship-of-harkinian](ship-of-harkinian/), [spaghetti-kart](spaghetti-kart/) |
+| `sm64-port`, `perfect_dark` | GL 2.0; assets extracted from a ROM at build time | [sm64](sm64/) |
+| N64Recomp (Banjo, Zelda 64, Harvest Moon 64) | RT64, which is Vulkan and D3D12 | out of reach |
+| Dusklight (Twilight Princess) | Aurora over WebGPU and Dawn | out of reach |
+| raw decompilations (`zeldaret/oot`, `n64decomp/sm64`, ...) | none: they build a ROM or DOL | not ports |
 
-**Build time versus run time is the other axis**, and it decides more than the graphics do.
-`sm64-port`, `perfect_dark`, `zeldaret/oot` and `zeldaret/mm` extract assets during the build and
-fail without a ROM on the build machine. The Harbour Masters ports build with no ROM anywhere and
-convert the player's own copy on the device - Ship of Harkinian links `ZAPDLib` into the game
-binary to do it. That is the shape the rule at the top of this file already makes room for.
-
-## The real sorting axis is C versus C++
-
-More than the GL version. Neverball and Craft are C; everything else is substantial C++, which
-on a freestanding target needs `-fno-exceptions -fno-rtti` and runtime stubs for `new`, `delete`
-and static-initialisation guards. That is a known pattern and a real project, and it is a
-**shared** cost - whichever C++ title lands first pays it and the rest follow cheaply.
-
-**With one correction the comparison below forced:** that plan describes a C++ program that does
-not use exceptions or RTTI, and not every candidate is one. Extreme Tux Racer is - it is the
-right title to pay that cost. Armagetron is not, and needs a runtime with both working plus part
-of boost, which is a larger project wearing the same name.
-
-So the order that gets a title running soonest is: **Neverball** (gl1, C), then **Craft** (gl2,
-C), then **Extreme Tux Racer** to pay for the C++ runtime once, and Armagetron, SuperTux 2 and
-RetroArch after it.
-
-## What the first one costs, read from the source
-
-Measured against `neverball-1.6.0` (`16945b8a`), the revision `neverball/upstream.lock` pins.
-
-**The GL half is not the job.** No `glBegin` at all: it draws through vertex arrays and buffer
-objects - 14 `glEnableClientState`, 6 `glVertexPointer`, 14 `glGenBuffers` - which is GL 1.5 and
-is measured working in oops-gl. The `glCreateShader` and `glUseProgram` calls a grep turns up
-are **not** the renderer; they are in `share/glsl.c` and `share/hmd_common.c`, reached only with
-`ENABLE_HMD=openhmd`, which is off by default. The part this SDK exists for is the part already
-done.
-
-**The job is the platform and the codecs.** What the payload needs at runtime:
-
-| Needs | What it is for |
-|---|---|
-| SDL2 | the window and GL context (19 `SDL_GL_*`), events, timing, audio, joystick, threads and mutexes, and `SDL_RWops` |
-| SDL2_ttf | `share/font.c` - and freetype under it |
-| libpng, libjpeg | `BASE_LIBS` has both unconditionally |
-| libvorbisfile | the music |
-
-Around 125 distinct SDL symbols appear across `share/`, `ball/` and `putt/`, though the count
-that matters is smaller: a good deal of that is macros and types rather than functions to
-implement.
-
-**Four things make it smaller than that table first looks:**
-
-- **`ENABLE_FS=stdio`** is a supported switch, so the virtual filesystem can be plain
-  `fopen`/`fread` - which this SDK has - instead of PhysicsFS.
-- **`ENABLE_HMD` and `ENABLE_TILT` are off by default**, which removes openhmd, libcwiimote
-  *and* every shader call with them.
-- **`ENABLE_NLS=0`** drops gettext.
-- **`SDL_net` is not a runtime dependency at all.** It appears only in `share/mapc.c`, the map
-  compiler - a build-time tool that runs on the host, not code that ships in the payload.
-
-So the shape of the work is: an SDL2 shim over oops-sdk, and four third-party C libraries
-vendored the way upstream is. None of it is GL, and none of it is unusual code - which is the
-good kind of large.
-
-## The three `gl1` candidates, compared by what they cost
-
-Neverball's shim being thicker than the table implied made the ordering a real question, so the
-other two were read the same way. Armagetron from `ArmagetronAd/armagetronad`; Extreme Tux Racer
-from `meveric/extremetuxracer`, one of the git mirrors of the Subversion upstream.
-
-| | **Neverball** 1.6.0 | **Extreme Tux Racer** | **Armagetron Advanced** |
-|---|---|---|---|
-| Language | **C**, 86 `.c` | C++, 45 `.cpp` | C++, 189 `.cpp` |
-| Draws with | arrays + buffer objects | arrays (65 `glEnableClientState`) | 23 `glBegin` + arrays |
-| Renderer shaders | none (HMD path only) | none | none |
-| Exceptions, RTTI | - | **0 `throw`, 0 `dynamic_cast`** | **68 `throw`, 167 `dynamic_cast`** |
-| C++ standard library | - | `std::string` (602 uses) | `string` 342, `vector` 157 |
-| boost | - | none | **yes** - `shared_ptr`, `variant`, `any`, `lexical_cast` |
-| SDL | SDL2 + `_ttf` | **SDL 1.2** + `_image`, `_mixer` | SDL2 + `_image`, `_mixer`, `_syswm` |
-| Other C libraries | png, jpeg, vorbisfile | freetype | png |
-
-**The answer is that Neverball stays first, and the reason is sharper than the one in the table
-above.** That entry ordered it first for being C and fixed-function, which is true and is not the
-point. The point is that *every* candidate needs an SDL shim, so that cost is paid whoever goes
-first - and the C++ ones need a C++ runtime **as well**. Going C-first is not a preference for C;
-it is declining to pay two new costs in the same title.
-
-**Armagetron moves to last, not second.** The plan in the section below - `-fno-exceptions
--fno-rtti` and stubs for `new`, `delete` and static-initialisation guards - does not describe it:
-68 `throw` and 167 `dynamic_cast` mean it *uses* both, so it needs a C++ runtime with exceptions
-and RTTI working, plus enough of boost to satisfy `shared_ptr` and `variant`. That is a different
-and much larger project than the one that paragraph costs.
-
-**Extreme Tux Racer is the right second**, and is the title that should pay the C++ runtime cost
-for the rest. It is C++ used as a better C - classes, but no exceptions, no RTTI, no boost, and
-of the standard library essentially `std::string` alone. `-fno-exceptions -fno-rtti` genuinely
-applies to it.
-
-> **Both caveats above were resolved by pinning it, and one of them was wrong.** "Its SDL is 1.2"
-> is true of `meveric`, the mirror read first, and **not** of `RKSimon`, which is the same
-> codebase with the SDL2 port already done. The mirror question is settled in
-> `extreme-tux-racer/upstream.lock`, which compares all three - the third, `lutris`, tracks modern
-> ETR and moved to SFML, which is a larger dependency than either.
->
-> So ETR needs SDL2 and not `oops-deps/sdl12-compat`. That shim was built for this title, links
-> with zero duplicate symbols, and remains the general answer for an SDL 1.2 title - it is simply
-> not on this one's path. **Read the candidate you are about to pin, not the one you read first.**
-
-**A caution about reading these numbers.** `std::string` first counted 0 in Extreme Tux Racer,
-which would have made it look cheaper than it is - four files say `using namespace std;` and
-write `string` bare, 602 times. Any grep for a qualified name in C++ has to be checked against
-the unqualified one.
+The Harbour Masters ports build with no ROM anywhere and convert the player's own copy on the
+device, which is the shape the rule at the top of this file allows.

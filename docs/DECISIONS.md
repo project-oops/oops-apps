@@ -1,20 +1,19 @@
 # Decisions
 
-Numbered, with reasoning, as they are made. The reasoning is the point - it is what stops a
-choice being re-litigated by somebody who only has the choice.
+The decisions in force, one file each under `decisions/`. Format and rules are in
+[STYLE](https://github.com/project-oops/OOPS/blob/main/docs/STYLE.md#decisions).
 
 **This table is generated.** Edit an entry under `decisions/`, then run
 `tools/split-decisions.sh --index oops-apps`. A number resolves to exactly one file.
 
 | | # | decision | status | date |
 |---|---|---|---|---|
-| 🟢 | D001 | [A repository for apps built on the SDK, and obSCEne is not one](decisions/D001-a-repository-for-apps-built-on-the-sdk.md) | decided | 2026-09-04 |
-| 🟢 | D002 | [The base layer is on loan, and belongs in the SDK](decisions/D002-the-base-layer-is-on-loan-from-obscene.md) | decided | 2026-09-04 |
-| 🟢 | D003 | [The encoder session is gated off until its parameter layouts are known](decisions/D003-the-encoder-session-is-gated-off-until.md) | decided | 2026-09-07 |
-| 🟢 | D004 | [Hardware encode and pad injection are both out of reach from a payload](decisions/D004-hardware-encode-and-pad-injection-are.md) | hardware | 2026-09-09 |
-| 🟢 | D005 | [Exceptions come from our own libunwind, and one measurement gates the build shape](decisions/D005-exceptions-come-from-our-own-libunwind-and-one-measurement-gates-it.md) | decided | 2026-09-21 |
-| 🟢 | D006 | [Three things had to be true for a `throw` to reach its `catch`, and each one hid the next](decisions/D006-three-things-had-to-be-true-for-a-throw-to-reach-its-catch.md) | decided | 2026-09-23 |
-| 🟢 | D007 | [The CTS blocker is localization, and libc++ picks a different backend rather than growing an `_l` family](decisions/D007-the-cts-blocker-is-localization-and-it-is-measured-not-estimated.md) | decided | 2026-09-23 |
+| 🟢 | D001 | [One repository for apps built on the SDK](decisions/D001-one-repository-for-apps-built-on-the-sdk.md) | decided | 2026-09-26 |
+| 🟢 | D003 | [Porthole builds without the encoder session](decisions/D003-porthole-builds-without-the-encoder-session.md) | decided | 2026-09-26 |
+| 🟢 | D004 | [Porthole captures and serves; it does not encode or apply input](decisions/D004-porthole-captures-and-serves.md) | decided | 2026-09-26 |
+| 🟢 | D005 | [Exceptions come from our own libunwind](decisions/D005-exceptions-come-from-our-own-libunwind.md) | decided | 2026-09-26 |
+| 🟢 | D006 | [The frame table is kept, readable, and covers the unwinder](decisions/D006-the-frame-table-is-kept-readable-and-covers-the-unwinder.md) | decided | 2026-09-26 |
+| 🟢 | D007 | [libc++ uses the no-locale backend](decisions/D007-libcxx-uses-the-no-locale-backend.md) | decided | 2026-09-26 |
 
 | | meaning |
 |---|---|
