@@ -78,8 +78,23 @@ int usleep(useconds_t microseconds);
 /* Always 0: the return is "seconds left if a signal interrupted this", and nothing here can. */
 unsigned int sleep(unsigned int seconds);
 /* **Always fails with `ENOSYS`.** The SDK's filesystem cannot resize a file, and there is no
- * honest way to report otherwise - see `posix.c`. */
+ * honest way to report otherwise - see `posix.c`. `truncate` is the same answer by path; libc++'s
+ * `src/filesystem/operations.cpp` calls it from `resize_file()`, and reports the error. */
 int ftruncate(int fd, off_t length);
+int truncate(const char *path, off_t length);
+
+/*
+ * **Always fails with `ENOSYS`, which is what a kernel without the call returns** - and that is
+ * the whole point of providing it.
+ *
+ * `copy_file_range` is a Linux 4.5 / FreeBSD 13 syscall that copies between descriptors without
+ * going through userspace. libc++'s `src/filesystem/operations.cpp:52` enables it for any
+ * `__FreeBSD__` target, which this is, so its `copy_file_impl` calls it - and at line 341 falls
+ * through to a portable read-and-write copy when it fails. Refusing therefore costs a copy no
+ * speed it could have had, and the alternative was patching libc++'s platform detection.
+ */
+ssize_t copy_file_range(int infd, off_t *inoffp, int outfd, off_t *outoffp,
+                        size_t len, unsigned int flags);
 
 /* One process, so a constant - see the definition in `posix.c` for why that is the truth here
  * rather than a stand-in. */
@@ -104,6 +119,14 @@ ssize_t readlink(const char *path, char *buf, size_t size);
  */
 int link(const char *oldpath, const char *newpath);
 int symlink(const char *target, const char *linkpath);
+
+/*
+ * The `*at()` form of `unlink`. `AT_FDCWD` is the only anchor this platform has - `fcntl.h` says
+ * why - and for it this is `unlink`. `AT_REMOVEDIR` asks it to remove a *directory* instead, and
+ * that fails with `ENOSYS`: the SDK has `oops_fs_unlink` and no `rmdir`, the same gap
+ * `SDL_SYS_RemovePath` records.
+ */
+int unlinkat(int dirfd, const char *path, int flags);
 
 /*
  * **Configurable limits, and only `_PC_PATH_MAX` has an answer.**

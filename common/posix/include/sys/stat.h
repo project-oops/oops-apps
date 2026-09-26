@@ -23,6 +23,23 @@
  * asks it of every path it stats. */
 #define S_ISLNK(m) (((m) & S_IFMT) == S_IFLNK)
 
+/*
+ * **The rest of the file types, and none of them is ever true either.** A block device, a
+ * character device and a socket are things the console's filesystem does not present to a
+ * payload; `stat` here reports a file or a directory, as it says.
+ *
+ * They are named because a program classifying a path enumerates all of them - libc++'s
+ * `src/filesystem/` maps each to an `SDL`-style `file_type`, and a missing macro is a compile
+ * error in a switch that would simply never take that arm. The values are the universal octal
+ * ones.
+ */
+#define S_IFBLK  0060000u
+#define S_IFCHR  0020000u
+#define S_IFSOCK 0140000u
+#define S_ISBLK(m)  (((m) & S_IFMT) == S_IFBLK)
+#define S_ISCHR(m)  (((m) & S_IFMT) == S_IFCHR)
+#define S_ISSOCK(m) (((m) & S_IFMT) == S_IFSOCK)
+
 /* **The permission bits, which this platform does not enforce but programs still name.** A
  * caller passes them to `open` as the mode for a file it may create - StormLib's
  * `FileStream.cpp:117` is the first here - and the call has to compile whether or not anything
@@ -66,9 +83,24 @@ struct stat {
      * failure where a zero is a date of 1970. Neither is right; the zero is the one that lets a
      * port run, and it is documented rather than hidden so that a caller depending on file times
      * knows to look here first. */
-    time_t st_mtime;
-    time_t st_atime;
-    time_t st_ctime;
+    /*
+     * **`timespec`, with the `time_t` names as macros over them - which is how FreeBSD does it.**
+     *
+     * POSIX 2008 replaced `st_mtime` with `st_mtim`, a `struct timespec`, and kept the old name
+     * as a macro for its `tv_sec`. Code written since asks for `st_mtim`: libc++'s
+     * `src/filesystem/` does, in `directory_entry.cpp`, `directory_iterator.cpp` and
+     * `operations.cpp` - which was the only thing stopping its `<filesystem>` from compiling here.
+     *
+     * **One storage rather than two.** Declaring both a `time_t st_mtime` field and a `timespec
+     * st_mtim` would let them disagree the day anything fills one; the macro makes that
+     * impossible, and it is what the platform underneath does.
+     */
+    struct timespec st_mtim;
+    struct timespec st_atim;
+    struct timespec st_ctim;
+#define st_mtime st_mtim.tv_sec
+#define st_atime st_atim.tv_sec
+#define st_ctime st_ctim.tv_sec
 };
 
 #ifdef __cplusplus
@@ -87,8 +119,15 @@ int mkdir(const char *path, mode_t mode);
  * does not use here; it checks the return. */
 int mkfifo(const char *path, mode_t mode);
 /* **Always fails with `ENOSYS`.** There are no file permissions on this platform to change - see
- * `posix.c`, and `ftruncate` in `unistd.h` for the same reasoning. */
+ * `posix.c`, and `ftruncate` in `unistd.h` for the same reasoning. `fchmod` is the same answer by
+ * descriptor; libc++'s `src/filesystem/operations.cpp` calls it from `permissions()`, and its
+ * caller reports the error. */
 int chmod(const char *path, mode_t mode);
+int fchmod(int fd, mode_t mode);
+/* The `*at()` form, which `fcntl.h` explains: `AT_FDCWD` is the only anchor this platform has, and
+ * for it this is `chmod` - which refuses, because there are no permissions here to change. Any
+ * other `dirfd` fails with `EBADF` rather than being quietly read as the root. */
+int fchmodat(int dirfd, const char *path, mode_t mode, int flags);
 #ifdef __cplusplus
 }
 #endif

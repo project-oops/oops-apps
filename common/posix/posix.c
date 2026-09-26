@@ -278,6 +278,14 @@ struct OOPS_DIR {
     struct dirent ent;
 };
 
+/* There are no directory descriptors to convert - `dirent.h` says why this one cannot be made to
+ * work behind the same signature. */
+DIR *fdopendir(int fd) {
+    (void)fd;
+    errno = EBADF;
+    return NULL;
+}
+
 DIR *opendir(const char *path) {
     struct OOPS_DIR *d;
 
@@ -553,6 +561,190 @@ int ftruncate(int fd, off_t length) {
     }
     errno = ENOSYS;
     return -1;
+}
+
+/*
+ * `openat`, which is `open` for the one anchor this platform has and a refusal for the rest.
+ *
+ * `fcntl.h` argues it: there are no directory descriptors here, so `AT_FDCWD` - "relative to the
+ * working directory" - is the only meaningful `dirfd`, and the working directory is `/`. For that
+ * case this is not an approximation of `openat`, it is `openat`. Any other descriptor fails with
+ * `EBADF` rather than being quietly treated as the root, which would open the wrong file and look
+ * like the caller's bug.
+ */
+int openat(int dirfd, const char *path, int flags, ...) {
+    int mode = 0;
+
+    if (dirfd != AT_FDCWD) {
+        errno = EBADF;
+        return -1;
+    }
+    if (flags & O_CREAT) {
+        va_list ap;
+        va_start(ap, flags);
+        mode = va_arg(ap, int);
+        va_end(ap);
+    }
+    return open(path, flags, mode);
+}
+
+/* Refused, which is what a kernel without the call answers - and libc++ falls back to a portable
+ * copy when it does. `unistd.h` says why that is better than patching its platform detection. */
+ssize_t copy_file_range(int infd, off_t *inoffp, int outfd, off_t *outoffp,
+                        size_t len, unsigned int flags) {
+    (void)inoffp;
+    (void)outoffp;
+    (void)len;
+    (void)flags;
+    if (infd < 0 || outfd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    errno = ENOSYS;
+    return -1;
+}
+
+/* By path, and the same answer: the filesystem cannot resize a file. */
+int truncate(const char *path, off_t length) {
+    (void)length;
+    if (path == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    errno = ENOSYS;
+    return -1;
+}
+
+/*
+ * `realpath`, and on this platform it is **complete rather than approximate**.
+ *
+ * POSIX's `realpath` does two things: it resolves symbolic links, and it collapses `.`, `..` and
+ * repeated separators against an absolute path. There are no symbolic links on this filesystem -
+ * the same finding `readlink`, `symlink` and `S_ISLNK` record from three other directions - so
+ * the lexical half *is* the whole job, and the answer this returns is the answer a real one
+ * would.
+ *
+ * Two places where it follows the specification rather than being convenient:
+ *
+ *   - **The path must exist**, and `ENOENT` if it does not. POSIX requires every component to
+ *     resolve, and a caller using this to canonicalise a name it is about to create wants to be
+ *     told that rather than handed a tidy string.
+ *   - **`resolved` must be at least `PATH_MAX`** when it is not NULL, which is the interface's
+ *     long-standing trap and the reason passing NULL is preferred. NULL allocates, and the
+ *     caller frees.
+ *
+ * The working directory is `/` and cannot be changed - `getcwd` and `chdir` above say why - so a
+ * relative path is resolved against the root.
+ */
+char *realpath(const char *path, char *resolved) {
+    char work[PATH_MAX];
+    char *out;
+    size_t w = 0;
+    const char *p;
+
+    if (path == NULL || path[0] == '\0') {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    /* Absolute from the start: the working directory is `/`, so a relative path needs only the
+     * leading separator rather than a `getcwd` that would answer the same thing. */
+    work[w++] = '/';
+    p = (path[0] == '/') ? path + 1 : path;
+
+    while (*p != '\0') {
+        const char *seg = p;
+        size_t len;
+
+        while (*p != '\0' && *p != '/') {
+            p++;
+        }
+        len = (size_t)(p - seg);
+        while (*p == '/') {
+            p++; /* collapse repeated separators */
+        }
+
+        if (len == 0 || (len == 1 && seg[0] == '.')) {
+            continue; /* "" and "." contribute nothing */
+        }
+        if (len == 2 && seg[0] == '.' && seg[1] == '.') {
+            /* Pop the last component. At the root there is nothing above, and POSIX says `/..`
+             * is `/` rather than an error. */
+            while (w > 1u && work[w - 1] != '/') {
+                w--;
+            }
+            if (w > 1u) {
+                w--; /* the separator itself */
+            }
+            continue;
+        }
+        if (w > 1u) {
+            if (w + 1u >= sizeof(work)) {
+                errno = ENAMETOOLONG;
+                return NULL;
+            }
+            work[w++] = '/';
+        }
+        if (w + len >= sizeof(work)) {
+            errno = ENAMETOOLONG;
+            return NULL;
+        }
+        memcpy(work + w, seg, len);
+        w += len;
+    }
+    work[w] = '\0';
+
+    /* Every component has to resolve, and with no links that is one question about the whole
+     * path. A directory answers through `opendir`, a file through `oops_fs_exists`. */
+    if (!oops_fs_exists(work)) {
+        oops_dir_t *dir = oops_fs_opendir(work);
+        if (!dir) {
+            errno = ENOENT;
+            return NULL;
+        }
+        (void)oops_fs_closedir(dir);
+    }
+
+    out = resolved;
+    if (out == NULL) {
+        out = (char *)malloc(w + 1u);
+        if (out == NULL) {
+            errno = ENOMEM;
+            return NULL;
+        }
+    }
+    memcpy(out, work, w + 1u);
+    return out;
+}
+
+/* File times cannot be set, which is the same absence `sys/stat.h` records from the reading
+ * side - see `sys/time.h` for why success would be the misleading answer. */
+int utimes(const char *path, const struct timeval times[2]) {
+    (void)path;
+    (void)times;
+    errno = ENOSYS;
+    return -1;
+}
+
+/*
+ * `unlinkat`. `AT_FDCWD` is the only anchor here, and `AT_REMOVEDIR` asks for a `rmdir` the SDK
+ * does not have - refused rather than unlinking the directory's *name* and leaving its contents
+ * unreachable, which is what passing it through to `unlink` would do.
+ */
+int unlinkat(int dirfd, const char *path, int flags) {
+    if (dirfd != AT_FDCWD) {
+        errno = EBADF;
+        return -1;
+    }
+    if (flags & AT_REMOVEDIR) {
+        errno = ENOSYS;
+        return -1;
+    }
+    if (path == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    return (oops_fs_unlink(path) == 0) ? 0 : (errno = EIO, -1);
 }
 
 /* No links on this filesystem - `unistd.h` says why a copy would be worse than a refusal. */
@@ -1751,6 +1943,28 @@ int dladdr(const void *addr, Dl_info *info) {
         info->dli_saddr = NULL;
     }
     return 0;
+}
+
+/* The `*at()` form. `AT_FDCWD` is the only anchor here - `fcntl.h` and `openat` above say why -
+ * and for it this is `chmod`, which refuses. */
+int fchmodat(int dirfd, const char *path, mode_t mode, int flags) {
+    (void)flags;
+    if (dirfd != AT_FDCWD) {
+        errno = EBADF;
+        return -1;
+    }
+    return chmod(path, mode);
+}
+
+/* By descriptor, and the same answer: there are no permissions here to change. */
+int fchmod(int fd, mode_t mode) {
+    (void)mode;
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    errno = ENOSYS;
+    return -1;
 }
 
 int chmod(const char *path, mode_t mode) {
