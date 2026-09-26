@@ -43,8 +43,8 @@ SOH_DEPS := sdl2 zlib libzip stb nlohmann-json thread-pool tinyxml2 spdlog \
 
 # --- generated headers ------------------------------------------------------
 #
-# The CVAR names are generated from upstream's CMake files by `gen-cvars.sh`, so they follow
-# upstream. `ship/install_config.h` is a fixed choice and lives in `shim/include/`.
+# The CVAR names are generated from upstream's CMake files by `common/gen-lus-cvars.sh`, so they
+# follow upstream. `ship/install_config.h` is a fixed choice and lives in `shim/include/`.
 #
 # CMake passes the CVAR names as `add_compile_definitions` and no source includes a header for
 # them (`Controller.cpp:69` uses `CVAR_PREFIX_CONTROLLERS` directly), so the generated header
@@ -84,17 +84,64 @@ SOH_CVARS_H := $(SOH_GEN_DIR)/ship/cvars_generated.h
 SOH_GEN_INCLUDE := -I$(SOH_GEN_DIR) -I$(CURDIR)/shim/include \
                    -include ship/cvars_generated.h
 
-$(SOH_CVARS_H): $(CURDIR)/gen-cvars.sh \
-                upstream/CMake/soh-cvars.cmake upstream/CMake/lus-cvars.cmake \
-                upstream/libultraship/cmake/cvars.cmake
-	@sh $(CURDIR)/gen-cvars.sh $(CURDIR)/upstream $@
+# The three files in the order CMake reads them, first set() winning. `--expect` asserts the one
+# value that differs between them: `gSettings.Controllers` from the superproject and `gControllers`
+# from libultraship's defaults, both of which compile and run.
+#
+# Generated while this file is read, as `common/upstream.mk` runs its fetch, and for the same kind of
+# reason: the header is force-included into every object, and app.mk's object rules take their
+# prerequisites from `-MMD`, which cannot name a file that does not exist yet. The generator leaves
+# the file alone when the content has not changed, so running it every invocation rebuilds nothing.
+$(shell sh $(OOPS_APPS_ROOT)/common/gen-lus-cvars.sh \
+            --expect CVAR_PREFIX_CONTROLLERS=gSettings.Controllers \
+            $(SOH_CVARS_H) OOPS_SOH_CVARS_GENERATED_H \
+            $(CURDIR)/upstream/CMake/soh-cvars.cmake \
+            $(CURDIR)/upstream/CMake/lus-cvars.cmake \
+            $(CURDIR)/upstream/libultraship/cmake/cvars.cmake >&2)
 
-.PHONY: generated
-generated: $(SOH_CVARS_H)
+# `src/boot/build.c`, the other file CMake generates (`soh/CMakeLists.txt:105`): the version and
+# commit strings the crash handler, the gameplay-stats window and the randomizer's spoiler log print.
+# The lock's own revision and tag are the answer `git describe` would give, without needing git in
+# the container, so they go in verbatim. The branch is empty because a detached checkout at a commit
+# is not on one.
+#
+# The build name is upstream's patch-number-to-word table (`CMakeLists.txt:28-41`), indexed by the
+# patch number rather than transcribed, so that a version bump carries it. The index is taken in the
+# shell because make has no arithmetic: `shift <patch>` leaves the word upstream would pick in `$1`.
+SOH_VER_PARTS := $(subst ., ,$(UPSTREAM_REF))
+SOH_NATO := Alfa Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliett Kilo Lima Mike \
+            November Oscar Papa Quebec Romeo Sierra Tango Uniform Victor Whiskey Xray Yankee Zulu
+SOH_BUILD_C := $(SOH_GEN_DIR)/build.c
+
+$(SOH_BUILD_C): upstream.lock $(CURDIR)/Makefile
+	@mkdir -p $(@D)
+	@set -- $(SOH_NATO); shift $(word 3,$(SOH_VER_PARTS)); word=$$1; \
+	 { printf '/* Generated from upstream/soh/src/boot/build.c.in; see the Makefile. */\n'; \
+	   printf '#include <libultraship/libultra.h>\n\n'; \
+	   printf 'const char gBuildVersion[] = "Ackbar %s (%s)";\n' \
+	       "$$word" "$(UPSTREAM_REF)"; \
+	   printf 'const u16 gBuildVersionMajor = %s;\n' "$(word 1,$(SOH_VER_PARTS))"; \
+	   printf 'const u16 gBuildVersionMinor = %s;\n' "$(word 2,$(SOH_VER_PARTS))"; \
+	   printf 'const u16 gBuildVersionPatch = %s;\n\n' "$(word 3,$(SOH_VER_PARTS))"; \
+	   printf 'const char gGitBranch[] = "";\n'; \
+	   printf 'const char gGitCommitHash[] = "%s";\n' "$(UPSTREAM_REV)"; \
+	   printf 'const char gGitCommitTag[] = "%s";\n\n' "$(UPSTREAM_REF)"; \
+	   printf 'const char gBuildTeam[] = "github.com/harbourmasters";\n'; \
+	   printf 'const char gBuildDate[] = __DATE__ " " __TIME__;\n'; \
+	   printf 'const char gBuildMakeOption[] = "";\n'; \
+	 } > $@
+	@echo "soh: generated $(notdir $@)"
 
 # --- the include set -----------------------------------------------------------
 #
 # Every dependency's build file, for the include variables each exports.
+#
+# `OOPS_CXX_EXCEPTIONS` is set here rather than in the armed block below: `oops-libcxx.mk` reads it
+# at include time to choose between `build-eh/libc++.a` and `build/libc++.a`, and the second one
+# carries its own `std::terminate` and `std::set_new_handler` for a build with no libc++abi to
+# provide them, which collide with libc++abi's when both are on the link line. Upstream throws and
+# catches, so it is the exceptions archive either way.
+OOPS_CXX_EXCEPTIONS = 1
 OOPS_LIBCXX ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libcxx)
 include $(OOPS_LIBCXX)/oops-libcxx.mk
 OOPS_SDL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/sdl2)
@@ -195,10 +242,21 @@ SOH_SURVEY_DIR ?= upstream/libultraship/src upstream/soh
 # The second group is upstream's own filter on `soh/src` (`soh/CMakeLists.txt:187-192`): the N64
 # hardware I/O, its libc, its scheduler and the debugging monitor, all of which libultraship
 # replaces. They are the sources that still name PI and AI status registers.
-SOH_EXCLUDE_RE := speechsynthesizer/(SAPI|Darwin|ESpeak)|soh/Extractor/|Enhancements/crowd-control/|src/dmadata/|src/elf_message/|src/libultra/io/|src/libultra/libc/|src/libultra/os/|src/libultra/rmon/
+#
+# The third is the rest of upstream's own list (`soh/CMakeLists.txt:194-202`): `src/libultra/gu`
+# holds both a file per function and files that aggregate several, and the two define the same
+# names. `sprintf.c` is added back below, because the libc directory above is excluded whole and
+# upstream re-adds that one file (line 193).
+#
+# The fourth is this build's, and it is upstream's link semantics written out. libultraship is a
+# static library there, so `soh/soh/stubs.c` defining `osInvalDCache` means the library's copy is
+# never pulled in; here every object is on the link line and both definitions arrive. Five symbols
+# across two files, measured with `nm` over the objects, so the title's own stubs win as upstream
+# intends.
+SOH_EXCLUDE_RE := speechsynthesizer/(SAPI|Darwin|ESpeak)|soh/Extractor/|Enhancements/crowd-control/|src/dmadata/|src/elf_message/|src/libultra/io/|src/libultra/libc/|src/libultra/os/|src/libultra/rmon/|src/libultra/gu/(cosf|lookat|lookathil|perspective|position|sinf|sqrtf|us2dex)\.c|libultraship/libultra/os_(cache|pi)\.cpp
 
 .PHONY: compile-survey
-compile-survey: $(SOH_CVARS_H)
+compile-survey:
 	@# One compiler per core rather than one at a time: this is several hundred translation units
 	@# and a serial pass takes long enough that it is easier to guess than to measure, which is the
 	@# opposite of what a survey is for. Each writes its own error file, so the results do not
@@ -270,14 +328,16 @@ survey:
 # links are the same set. Deferred (`=`) because the generated cvars header has to exist first.
 SOH_CXX_ALL = $(shell find $(CURDIR)/upstream/soh/soh $(CURDIR)/upstream/libultraship/src \
                         -name '*.cpp' 2>/dev/null | grep -vE '$(SOH_EXCLUDE_RE)' | sort)
+# `sprintf.c` is added back by name: the exclusion above drops `src/libultra/libc` whole and upstream
+# re-adds this one file, which `osSyncPrintf` and the game's own formatting go through.
 SOH_C_ALL   = $(shell find $(CURDIR)/upstream/soh/src $(CURDIR)/upstream/soh/soh \
                         $(CURDIR)/upstream/libultraship/src \
-                        -name '*.c' 2>/dev/null | grep -vE '$(SOH_EXCLUDE_RE)' | sort)
+                        -name '*.c' 2>/dev/null | grep -vE '$(SOH_EXCLUDE_RE)' | sort) \
+              $(CURDIR)/upstream/soh/src/libultra/libc/sprintf.c
 
 ifeq ($(SOH_ARMED),1)
-OOPS_CXX_EXCEPTIONS = 1
 OOPS_CXX_STD        = c++20
-OOPS_CXX_SRCS = $(SOH_CXX_ALL)
+OOPS_CXX_SRCS = $(SOH_CXX_ALL) $(CURDIR)/shim/Extract.cpp
 # Object names collide across the port's trees - ControlDeck, Controller, Menu and more appear in
 # both soh and libultraship - so the objects go on the link line rather than into an archive that
 # would keep one of each. Set before the include, which is where `oops_ar_check` runs.
@@ -295,7 +355,7 @@ OOPS_CXX_INCLUDE += $(OOPS_LIBCXX_INCLUDE) $(OOPS_POSIX_INCLUDE) \
 # initialiser list is an error rather than a warning, and two sources call `std::toupper` without
 # including `<cctype>`, which libstdc++ reaches transitively and libc++ does not.
 OOPS_CXX_FLAGS += -Wno-c++11-narrowing -include cctype
-PAYLOAD_SRCS = shim/soh_start.c $(SOH_C_ALL) $(OOPS_POSIX_SRCS)
+PAYLOAD_SRCS = shim/soh_start.c $(SOH_BUILD_C) $(SOH_C_ALL) $(OOPS_POSIX_SRCS)
 
 # Each archive after everything that calls it. libultraship sits on top of all of them, so the
 # order runs outward: the title's own C++, then the libraries it names, then the standard library.
@@ -347,7 +407,16 @@ SOH_WARNINGS := -Wno-deprecated-non-prototype -Wno-strict-prototypes -Wno-missin
 # `$(OOPS_POSIX_INCLUDE)` leads for the same reason it does in `SOH_CXXFLAGS`, and because the
 # shim sources compiled alongside the payload read their own `<dirent.h>` and `<pwd.h>` from it.
 EXTRA_TARGET_CFLAGS += $(OOPS_POSIX_INCLUDE) $(SOH_INCLUDE) $(SOH_GEN_INCLUDE)
-OOPS_FEATURES := display input keyboard mouse audio suspend thread draw
+# `__tls_get_addr` is libkernel's, which `common/symbols.txt:391` records, so the loader resolves it.
+# It arrives through `BS::thread_pool`'s `this_thread`, which libultraship's resource loader uses; it
+# is the one import this title adds to the set `UNDEF_ALLOW` already covers.
+EXTRA_UNDEF_ALLOW := ^__tls_get_addr$$
+
+# libultraship's Fast3D backend makes the GL calls, not this title, and it compiles shaders, so the
+# GL 2.0 surface. `dialog` is for SDL's message box, which the console draws through
+# libSceMsgDialog - see `oops-deps/sdl2/backend/SDL_prosperovideo.c`.
+OOPS_RENDERER := gl2
+OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog
 
 include $(OOPS_APPS_ROOT)/common/app.mk
 
@@ -360,11 +429,3 @@ TARGET_CFLAGS += $(SOH_WARNINGS)
 ifneq ($(SOH_ARMED),1)
 .DEFAULT_GOAL := survey
 endif
-
-# Every payload source is compiled with `-include ship/cvars_generated.h`, and nothing in
-# `common/app.mk` knows it: the object rules order against `$(BUILD)`, and `skeleton` - the
-# smoke compile of the first source - against `$(BUILD)` alone. On a clean tree both run
-# before the header is generated and stop on a missing include. Order-only, so regenerating
-# the header does not rebuild what it did not change.
-skeleton: | $(SOH_CVARS_H)
-$(OOPS_PAYLOAD_OBJS): | $(SOH_CVARS_H)
