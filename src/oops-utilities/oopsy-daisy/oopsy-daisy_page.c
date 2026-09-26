@@ -231,6 +231,7 @@ const char oopsy_page_html[] =
 "  for(i=0;i<__apps.length;i++){var a=__apps[i];a.installed=!!(a.title_id&&set[a.title_id]);a.queued=false;}\n"
 "  DBG('refreshInstalled inst='+inst.length);\n"
 "}\n"
+"function oopsyRescan(){refreshInstalled();if(__screen==='browse')render();}\n"
 "function oopsyBack(){refreshInstalled();__screen='browse';__err='';__pending=null;__uninstate='';renderModal();render();}\n"
 "function oLayoutDump(){try{var G=document.getElementById('main');var C=document.getElementById('card-0');function R(e){if(!e||!e.getBoundingClientRect)return 'na';var r=e.getBoundingClientRect();return r.x+','+r.y+' '+r.width+'x'+r.height;}DBG('LAYOUT main='+R(G)+' card0='+R(C)+' body='+R(document.body));}catch(e){DBG('LAYOUT threw:'+e);}}\n"
 "function oopsyInit(){\n"
@@ -240,7 +241,7 @@ const char oopsy_page_html[] =
 "window.oopsyNav=oopsyNav;window.oopsyCycleKind=cycleKind;window.oopsyCycleStatus=cycleStatus;\n"
 "window.oopsyEnter=oopsyEnter;window.oopsyScreen=oopsyScreen;window.oopsyRefresh=oopsyRefresh;\n"
 "window.oopsyError=oopsyError;window.oopsyInit=oopsyInit;window.oLayoutDump=oLayoutDump;\n"
-"window.oopsyConfirm=oopsyConfirm;window.oopsyBack=oopsyBack;\n"
+"window.oopsyConfirm=oopsyConfirm;window.oopsyBack=oopsyBack;window.oopsyRescan=oopsyRescan;\n"
 "oopsyInit();\n"
 "</script>\n"
 "</body></html>\n";

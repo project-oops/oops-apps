@@ -73,6 +73,11 @@
 
 #define HOMEBREW_ROOT "/data/homebrew"
 
+/* Set once the process has left its sandbox (see the main loop). The escape is per-process and
+ * one-way, so both the installed-titles scan and the install worker read the real /data/homebrew
+ * after it, and neither escapes again. */
+static volatile int g_escaped;
+
 static const char *get_download_tmp(void) {
     if (oops_fs_exists("/data")) {
         return "/data/oopsy-daisy-download.zip";
@@ -246,17 +251,22 @@ static void process_job(oopsy_job_t *job, oopsy_repaint_fn repaint, void *rctx) 
     if (repaint)
         repaint(rctx);
 
-    /* Now escape the sandbox to write to /data/homebrew */
-    int esc_rc = oops_system_escape_sandbox();
-    oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "install: sandbox escape rc=%d", esc_rc);
-    if (esc_rc != 0) {
-        oops_fs_free_data(zip_data);
-        job->state = OOPSY_JOB_FAILED;
-        job->error = "Sandbox escape failed.";
-        log_error("install: sandbox escape failed");
-        if (repaint)
-            repaint(rctx);
-        return;
+    /* The main loop escapes the sandbox at startup so the installed-titles scan can read
+     * /data/homebrew; escape here only if that has not happened. Either way the write below lands
+     * in the real /data. */
+    if (!g_escaped) {
+        int esc_rc = oops_system_escape_sandbox();
+        oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "install: sandbox escape rc=%d", esc_rc);
+        if (esc_rc != 0) {
+            oops_fs_free_data(zip_data);
+            job->state = OOPSY_JOB_FAILED;
+            job->error = "Sandbox escape failed.";
+            log_error("install: sandbox escape failed");
+            if (repaint)
+                repaint(rctx);
+            return;
+        }
+        g_escaped = 1;
     }
     (void)oops_fs_mkdir(HOMEBREW_ROOT, 0777);
 
@@ -768,6 +778,20 @@ static int run_webview_ui(oops_display_t *disp, oopsy_catalog_t *cat,
     log_info("webview: first frame presented");
     webview_paint(&wc); /* a second frame so a first-paint relayout is settled */
     wv_eval(wv, "oLayoutDump();"); /* now geometry is computed - dump grid/card rects */
+
+    /* Leave the sandbox now that a frame is on screen - the display, input and webview modules are
+     * resident, and the escape itself pins net/ssl/http. It is one-way and takes /app0 with it, so
+     * it waits for the UI to be up and happens exactly once. With the real /data/homebrew now
+     * reachable, rescan for installed titles (the in-sandbox scan at init saw none) and repaint the
+     * badges. */
+    if (oops_system_escape_sandbox() == 0) {
+        g_escaped = 1;
+        log_info("sandbox: escaped; rescanning installed titles");
+        wv_eval(wv, "oopsyRescan();");
+        webview_paint(&wc);
+    } else {
+        log_error("sandbox: escape failed; installed-title badges unavailable");
+    }
 
     /* Start the background download worker now that the queue and bridges are live.
      */
