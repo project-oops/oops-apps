@@ -193,5 +193,39 @@ survey:
 	    fi; \
 	 done; printf '   -> %s vendored, %s to go\n' "$$have" "$$need"
 
-# This title has no `elf` rule, so `make` runs the survey.
+# --- the payload ------------------------------------------------------------
+#
+# libultraship has no build here, so the payload is behind SOH_ARMED. app.env carries
+# FORMATS=title and app.mk is included either way, so `make title` is a real target and only
+# the source lists are conditional.
+#
+# main is at upstream/soh/src/code/main.c:60 in a C translation unit, so the shim is C. A
+# freestanding C++ main is mangled and a C shim misses it silently, the payload link ignoring
+# unresolved symbols.
+ifeq ($(SOH_ARMED),1)
+OOPS_CXX_EXCEPTIONS = 1
+OOPS_CXX_STD        = c++20
+OOPS_CXX_SRCS := $(sort $(wildcard $(CURDIR)/upstream/soh/soh/*.cpp) \
+                        $(wildcard $(CURDIR)/upstream/libultraship/src/*/*.cpp))
+include $(OOPS_LIBCXX)/oops-libunwind.mk
+include $(OOPS_LIBCXX)/oops-libcxxabi.mk
+# libc++ owns new and delete for a title linking the full archive; cxxrt's copy sits outside
+# libc++'s __lcxx_override section and fails the guard its new carries.
+EXTRA_TARGET_CFLAGS += -DOOPS_CXX_EXTERNAL_NEW_DELETE
+include $(OOPS_APPS_ROOT)/common/cxx.mk
+OOPS_CXX_INCLUDE += $(OOPS_LIBCXX_INCLUDE) $(SOH_INCLUDE) $(SOH_GEN_INCLUDE)
+PAYLOAD_SRCS := shim/soh_start.c $(OOPS_POSIX_SRCS)
+EXTRA_TARGET_LDFLAGS += $(OOPS_CXX_LDFLAGS) $(OOPS_SDL_LDFLAGS) \
+                        $(OOPS_LIBCXX_LDFLAGS) $(OOPS_LIBCXXABI_LDFLAGS) \
+                        $(OOPS_LIBUNWIND_LDFLAGS)
+PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_SDL_LIB) \
+                        $(OOPS_LIBCXX_LIB) $(OOPS_LIBCXXABI_LIB) $(OOPS_LIBUNWIND_LIB)
+endif
+
+EXTRA_TARGET_CFLAGS += $(SOH_INCLUDE) $(SOH_GEN_INCLUDE)
+OOPS_FEATURES := display input keyboard mouse audio suspend thread draw
+
+include $(OOPS_APPS_ROOT)/common/app.mk
+
+# The survey is the default until the payload links.
 .DEFAULT_GOAL := survey

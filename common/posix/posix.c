@@ -574,13 +574,10 @@ int ftruncate(int fd, off_t length) {
  * The flag values in `fcntl.h` are FreeBSD's and `oops/fs.h` takes the same numbers, so the flags
  * pass straight through. `mode` is read only when `O_CREAT` is set, as POSIX says.
  *
- * **Weak, because oops-sdk defines `open` too now** (`src/system/fs.c`, its D013: the libc
- * descriptor discarded writes, so `open` routes through `SYS_open`). Two strong definitions made
- * every title that links this shim and the SDK's `fs.c` fail the link on `duplicate symbol: open` -
- * neverball, craft, q3rally, bugdom, bugdom2, all of them at once. The SDK's is the one that should
- * win: it is the newer, deliberate answer to a real defect, and this one exists only because
- * `openat` below needs *an* `open` to call. Weak gets both: the SDK's overrides it wherever `fs.c`
- * is linked, and this remains for a title that links the shim without it.
+ * Weak, because oops-sdk defines `open` too (`src/system/fs.c`, oops-sdk#D013), and two strong
+ * definitions fail the link on `duplicate symbol: open` for any title linking both. The SDK's wins:
+ * this one exists only because `openat` below needs an `open` to call, and weak leaves it for a title
+ * that links the shim without the SDK's filesystem.
  */
 __attribute__((weak)) int open(const char *path, int flags, ...) {
     int mode = 0;

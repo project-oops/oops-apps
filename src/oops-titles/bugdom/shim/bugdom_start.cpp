@@ -1,47 +1,29 @@
 /*
- * The payload entry point.
+ * Payload entry point: builds a one-element command line and calls upstream's main in
+ * src/Boot.cpp. The loader runs no main and passes no argv.
  *
- * A payload is called, not spawned: the loader runs no `main` and passes no argv. This builds a
- * one-element command line and calls Bugdom's `main` in `src/Boot.cpp`, so no patch renames it.
+ * C++, not C: in a freestanding C++ translation unit main is an ordinary function, so Boot.cpp
+ * exports _Z4mainiPPc and a C shim asking for main links - the payload link ignores unresolved
+ * symbols - and faults at the first instruction.
  *
- * **C++, and it has to be.** `main` is declared here because Bugdom has no header for it, and it is
- * *not* `extern "C"`: in a freestanding C++ translation unit `main` is an ordinary function, so
- * `Boot.cpp` exports it mangled as `_Z4mainiPPc`. A C shim asking for the unmangled name links -
- * `--unresolved-symbols=ignore-all` - and faults at the first instruction on the console. `app.mk`'s
- * guard caught it here instead. Extreme Tux Racer's `etr_start.cpp` says the same thing.
- *
- * **`argv[0]` is the whole interface.** `FindGameData` (`src/Boot.cpp:35`) derives the data
- * directory from it - on a non-Apple build its first attempt is `parent_path(argv[0]) / "Data"` -
- * and accepts the result only when `Data/Skeletons/DoodleBug.3dmf` opens. So this probes for that
- * one file under each candidate root and hands back the root that answered, rather than hard-coding
- * `/app0`: a homebrew title's payload runs from `/data/homebrew/<id>`, and the package mount is the
- * fallback, not the rule.
- *
- * Its later attempts are `"Data"` relative to the working directory and then a `runtime_error`, and
- * neither is worth reaching: there is no working directory here worth relying on, and the exception
- * surfaces as `SDL_ShowSimpleMessageBox` on a console with nobody to dismiss it.
- *
- * **`HOME`, because that is where preferences go.** Pomme's `FindFolder` (`Files.cpp:186`) reads
- * `XDG_CONFIG_HOME` then `HOME` and returns `fnfErr` when both are unset, which Bugdom answers with
- * `DoAlert("Warning: Cannot locate the Preferences folder.")` - an alert box, again with nobody to
- * dismiss it. The environment starts empty on this platform, so the one name a payload genuinely
- * knows is exported here.
+ * argv[0] is the whole interface. FindGameData (src/Boot.cpp:35) takes
+ * parent_path(argv[0]) / "Data" on a non-Apple build, accepting it only when
+ * Data/Skeletons/DoodleBug.3dmf opens, so this probes for that file under each candidate root and
+ * hands back the one that answered.
  */
 #include "oops/fs.h"
-/* For `payload_args_t`, which the entry signature names. */
 #include "oops/syscall.h"
 #include "oops/system.h"
-/* `setenv`; see `oops-sdk/include/libc/stdlib.h` on why the environment starts empty. */
+/* setenv; the environment starts empty, see oops-sdk/include/libc/stdlib.h. */
 #include <stdlib.h>
 
-/* Mangled, deliberately - see the header comment. */
+/* Mangled, per the header comment. */
 int main(int argc, char **argv);
 
-/* Enough for "<root>/Data/Skeletons/DoodleBug.3dmf"; the roots below are short and fixed. */
+/* Fits "<root>/Data/Skeletons/DoodleBug.3dmf"; the roots below are short and fixed. */
 static const size_t BUG_PATH_MAX = 256;
 
-/* Appends to `buf` from `off`, NUL-terminating. Returns the new length, or 0 if it would not
-   fit - 0 is unambiguous because every caller passes a non-empty prefix or a non-empty `s`. */
+/* Appends to buf from off, NUL-terminating. Returns the new length, or 0 if it would not fit. */
 static size_t bug_append(char *buf, size_t cap, size_t off, const char *s) {
     size_t i = 0;
     while (s[i] != '\0') {
@@ -55,12 +37,8 @@ static size_t bug_append(char *buf, size_t cap, size_t off, const char *s) {
     return off + i;
 }
 
-/*
- * Whether `root` holds the `Data` directory Bugdom would accept.
- *
- * **The same file `FindGameData` checks**, deliberately: a probe for `Data/` alone would pass on a
- * package whose assets failed to copy, and the game would then take its second attempt and throw.
- */
+/* The same file FindGameData checks: a probe for Data/ alone would accept a package whose assets
+   failed to copy, and upstream would then throw. */
 static int bug_root_has_data(const char *root) {
     char path[BUG_PATH_MAX];
 
@@ -80,7 +58,7 @@ static int bug_root_has_data(const char *root) {
 
 extern "C" __attribute__((visibility("default"))) int
 bugdom_start(const payload_args_t *args) {
-    /* A homebrew title's own directory first, then the package mount. */
+    /* A homebrew title's own directory, then the package mount. */
     static const char *const roots[] = {"/data/homebrew/" OOPS_APP_ID, "/app0"};
     static char arg0[BUG_PATH_MAX];
     const char *root = nullptr;
@@ -91,39 +69,25 @@ bugdom_start(const payload_args_t *args) {
 
     oops_log_init(OOPS_APP_ID);
 
-    /*
-     * The disk sink, because the kernel log drops bursts and Bugdom's start-up is one: Pomme reads
-     * every 3DMF model and every sound resource before the first frame. `/data/<app id>` must
-     * exist - the sink falls back to it with no USB stick present.
-     */
+    /* The kernel log drops bursts and this start-up is one, Pomme reading every model and sound
+       resource before the first frame. The sink falls back to /data/<app id>, which has to exist
+       when no USB stick is present. */
     (void)oops_fs_mkdir("/data/" OOPS_APP_ID, 0755);
     (void)oops_log_enable_disk_sink(OOPS_APP_ID, 0);
 
     oops_log_info("BUGD", "entry");
 
-    /*
-     * **The static constructors, which nothing else runs.** `.init_array` is not walked for a plain
-     * C++ payload on this platform, so namespace-scope constructors never execute unless the entry
-     * point asks. This archive has five of them.
-     *
-     * It is worth the comment because of how it fails: most constructors only zero their members,
-     * and `.bss` is already zero, so a title missing every one of them behaves correctly until a
-     * constructor stores something that is *not* zero. Extreme Tux Racer lost 2026-09-24 to exactly
-     * this - `curr_course = -1` stayed 0, a load took its "already loaded" early return, and a
-     * division by a zero course width produced a NaN that walked through two clamps into a page
-     * fault four layers away. `oops/system.h` tells the story at length.
-     *
-     * Idempotent, so calling it here is safe even if a future runtime also does.
-     */
+    /* Namespace-scope constructors: .init_array is not walked for this payload, so nothing else
+       runs them. Idempotent, per oops/system.h. */
     oops_run_init_array();
 
-    /* Writable, for high scores and preferences; `.config` is the directory Pomme appends to
-       `HOME`, and `FindFolder` is called with `kDontCreateFolder`. */
+    /* Pomme's FindFolder (Files.cpp:186) reads XDG_CONFIG_HOME then HOME and returns fnfErr when
+       both are unset, which upstream answers with an alert box. .config is the directory it appends,
+       and it is called with kDontCreateFolder. */
     (void)oops_fs_mkdir(OOPS_POSIX_HOME, 0755);
     (void)oops_fs_mkdir(OOPS_POSIX_HOME "/.config", 0755);
     if (setenv("HOME", OOPS_POSIX_HOME, 1) != 0) {
-        /* Not fatal: the game runs, and only saving fails. Said out loud because the symptom -
-           scores that vanish between launches - does not name this. */
+        /* Not fatal: only saving fails, and the symptom does not name this. */
         oops_log_error("BUGD", "HOME could not be set; preferences will not persist");
     }
 
@@ -134,11 +98,8 @@ bugdom_start(const payload_args_t *args) {
         }
     }
     if (root == nullptr) {
-        /*
-         * Refused rather than started. `FindGameData` would fall through to `"Data"`, fail that
-         * too, and throw `Couldn't find the Data folder.` into a message box - which says nothing
-         * about *where* it looked, and needs a controller to acknowledge.
-         */
+        /* Refused rather than started: upstream's remaining attempts end in a message box that
+           names no path and needs a controller to dismiss. */
         oops_log_error("BUGD",
                        "no Data/Skeletons/DoodleBug.3dmf under %s or %s - "
                        "the assets are not deployed",
@@ -146,7 +107,7 @@ bugdom_start(const payload_args_t *args) {
         return 1;
     }
 
-    /* `FindGameData` takes `parent_path`, so the trailing name only has to be a name. */
+    /* FindGameData takes parent_path, so the trailing name only has to be a name. */
     {
         const size_t n = bug_append(arg0, sizeof(arg0), 0u, root);
         if (n == 0u || bug_append(arg0, sizeof(arg0), n, "/Bugdom") == 0u) {

@@ -61,13 +61,11 @@ endif
 # libc++'s include directory precedes the C library's: its <errno.h> and friends wrap the C
 # headers with `#include_next`, and `<cerrno>` refuses to build without them.
 # `$(OOPS_SDK_INCLUDE)` goes first; its `oops/...` headers share no names with either.
-# **The same three identity defines `app.mk` gives the C half** (its `TARGET_CFLAGS`, line 215).
-# A C++ entry-point shim wants `OOPS_APP_ID` for exactly what a C one wants it for - `oops_log_init`,
-# the disk sink, and `/data/homebrew/<id>` - and until 2026-09-26 only C had it, so the C++ shim
-# failed on `use of undeclared identifier 'OOPS_APP_ID'` with nothing saying where the name lives.
+# The same three identity defines app.mk gives the C half, for a C++ entry-point shim that wants
+# OOPS_APP_ID for oops_log_init, the disk sink and /data/homebrew/<id>.
 #
-# They are safe here although `app.mk` has not been read yet: `OOPS_CXX_FLAGS` is recursive (`=`),
-# so these expand when a compile runs, by which time `app.mk` has set all three.
+# Safe although app.mk has not been read yet: OOPS_CXX_FLAGS is recursive (`=`), so these expand when
+# a compile runs, by which time app.mk has set all three.
 OOPS_CXX_APP_DEFINES = -DOOPS_APP_ID=\"$(TITLE_ID)\" -DOOPS_APP_NAME=\"$(APP_NAME)\" \
                        -D'OOPS_APP_VERSION="$(BUILD_VERSION)"'
 

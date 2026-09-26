@@ -6,66 +6,50 @@
 #   make census-one F=<path> [X=1]   every error in one source, C or C++
 #   make glsurface     whether oops-gl's by-name lookup answers the entry points this game loads
 #
-# **Most of this title is Bugdom's.** Same author, same engine lineage, same Pomme, same SDL2, same
-# freeware data in the repository - so the expensive questions were answered next door and this file
-# is deliberately the same shape as `../bugdom/Makefile`. Where it differs, it says why.
+# This file is the same shape as ../bugdom/Makefile: same author, same engine lineage, the same Pomme,
+# the same SDL2 and the same freeware data arrangement. Only the differences carry comments.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
-# **`OOPS_SDK_DIR` early, because this file names files under it before `app.mk` is included.**
-# `app.mk` defines it at its line 11, too late for an immediately-expanded (`:=`) list further down.
-# The `?=` matches app.mk's own default, so including app.mk afterwards changes nothing.
+# Before the app.mk include, because this file names files under OOPS_SDK_DIR in an
+# immediately-expanded list below. The `?=` matches app.mk's own default.
 OOPS_SDK ?= $(abspath $(OOPS_APPS_ROOT)/../oops-sdk)
 OOPS_SDK_DIR := $(abspath $(OOPS_SDK))
 
-# **`gl1`, and `glu` with it.** Bugdom 2 renders through fixed-function OpenGL - `glBegin`,
-# `glVertex3f`, `glTexEnvi` - and its camera is `gluLookAt`/`gluPerspective`, which is why
-# `OOPS_FEATURES` names `glu` where Bugdom's does not.
+# Fixed-function OpenGL, with gluLookAt and gluPerspective for the camera, which is why
+# OOPS_FEATURES names glu where Bugdom's does not.
 #
-# **71 entry points, all defined by oops-gl.** Three names the grep finds are not calls:
-# `glLockArraysEXT` and `glUnlockArraysEXT` are commented out at `Source/3D/MetaObjects.c:756,759`,
-# and `glTextureName` is a local variable in `OGL_Support.c:848`. Checked, because two of the three
-# would otherwise have read as a missing compiled-vertex-array extension.
-#
-# **Unlike Bugdom, this one uses a loader**, so the by-name trap does apply: `OGL_Support.c:132,135`
-# binds `glActiveTexture` and `glClientActiveTexture` through `SDL_GL_GetProcAddress`. Both are in
-# oops-gl's `gl_procs.h` table - `make glsurface` is the standing check, and q3rally is the title
-# that needed it: it linked clean while 66 entry points it looked up by name answered NULL.
+# Unlike Bugdom this port uses a loader, so a lookup answering NULL is a null call at run time rather
+# than a link error: OGL_Support.c:132 and :135 bind glActiveTexture and glClientActiveTexture through
+# SDL_GL_GetProcAddress. `make glsurface` is the check.
 OOPS_RENDERER = gl1
 
-# **First, because this file names files under `upstream/` while it is being read.**
+# First, because this file names files under upstream/ while it is being read.
 include $(OOPS_APPS_ROOT)/common/upstream.mk
 
 BUG2_UP := $(CURDIR)/upstream
 
 # --- the source list -------------------------------------------------------
 #
-# **A wildcard, and here that is upstream's own answer rather than a shortcut.**
-# `CMakeLists.txt:80` is `file(GLOB_RECURSE GAME_SOURCES ... ${GAME_SRCDIR}/*.c *.cpp)`, so the
-# directory *is* the list. Every C source sits exactly one directory below `Source/`; `Boot.cpp` is
-# the only C++ and the only file directly in it.
+# Wildcarded because upstream globs (CMakeLists.txt:80). Every C source sits one directory below
+# Source/; Boot.cpp is the only C++ and the only file directly in it.
 BUG2_C_SRCS := $(sort $(wildcard $(BUG2_UP)/Source/*.c) $(wildcard $(BUG2_UP)/Source/*/*.c))
 BUG2_OWN_CXX := $(sort $(wildcard $(BUG2_UP)/Source/*.cpp) $(wildcard $(BUG2_UP)/Source/*/*.cpp))
 
 # --- Pomme, which is most of the platform layer ----------------------------
 #
-# Pomme is jorio's reimplementation of the classic Mac OS toolbox - Resource Manager, Sound Manager,
-# QuickDraw - and Bugdom 2 is a Mac game, so this is not an optional dependency.
+# Pomme reimplements the classic Mac OS toolbox, which a Mac game of this age rests on rather than
+# optionally uses. The pinned tree records a different Pomme revision from Bugdom's, which is
+# upstream's choice; one pinned hash still pins everything.
 #
-# **A different revision from Bugdom's**, and that is upstream's choice rather than an oversight:
-# Bugdom 1.3.4's tree records Pomme at `ef94150e`, this one at `c6a38eab`. One pinned hash still
-# pins everything, because the submodule revision lives in the pinned commit's own tree.
+# Listed by name rather than globbed: CMakeLists.txt:54-58 sets POMME_NO_VIDEO, POMME_NO_INPUT,
+# POMME_NO_GRAPHICS, POMME_NO_QD3D and POMME_NO_MP3, and each switch both drops sources and defines a
+# macro the remaining sources compile against.
 #
-# **Its list is transcribed, not globbed, because five of its subsystems are switched off.**
-# `CMakeLists.txt:54-58` sets `POMME_NO_VIDEO`, `_INPUT`, `_GRAPHICS`, `_QD3D` and `_MP3`, and each
-# both drops sources *and* defines a macro the remaining sources compile against. Globbing
-# `extern/Pomme/src` would compile the fifteen that are off, against headers those very macros empty.
-#
-# **`POMME_NO_QD3D` is the one Bugdom does not set.** Bugdom draws through Pomme's QuickDraw 3D
-# reimplementation; Bugdom 2 brought its own `Source/3D`, so Pomme's three QD3D sources are off here
-# and the `-I.../QD3D` include Bugdom needs is absent from this title's include list - upstream's
-# `target_include_directories` (`CMakeLists.txt:123`) names only `extern/Pomme/src` and
-# `Source/Headers`, and no source here includes `QD3D.h` by bare name. Checked, not assumed.
+# POMME_NO_QD3D is the one Bugdom does not set: this game brought its own Source/3D, so Pomme's QD3D
+# sources are off and the -I.../QD3D include Bugdom needs is absent here. Upstream's
+# target_include_directories (CMakeLists.txt:123) names only extern/Pomme/src and Source/Headers, and
+# no source here includes QD3D.h by bare name.
 POMME_SRC := $(BUG2_UP)/extern/Pomme/src
 POMME_CXX := \
     $(POMME_SRC)/Pomme.cpp \
@@ -97,22 +81,18 @@ POMME_DEFINES := -DPOMME_NO_VIDEO -DPOMME_NO_INPUT -DPOMME_NO_GRAPHICS -DPOMME_N
 # --- the dependencies ------------------------------------------------------
 include $(OOPS_APPS_ROOT)/common/posix.mk
 
-# **SDL2, and that is what the pinned revision asks for** - `find_package(SDL2 REQUIRED COMPONENTS
-# main)` at `CMakeLists.txt:68`, `#include <SDL.h>` throughout. `oops-deps/sdl3` exists and is
-# complete; neither Bugdom pin needs it. See `../bugdom/docs/PORTING.md` for how that was nearly got
-# wrong: a survey read `find_package(SDL3 ...)` out of a clone of *master*.
+# The pinned revision asks for SDL2: `find_package(SDL2 REQUIRED COMPONENTS main)` at
+# CMakeLists.txt:68, with `#include <SDL.h>` throughout.
 OOPS_SDL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/sdl2)
 include $(OOPS_SDL)/oops-sdl.mk
 
-# **libc++, and libunwind and libc++abi with it.** Bugdom 2 throws: `Boot.cpp` wraps the whole game
-# in `catch (std::exception&)`, and `std::filesystem` reports failures as `filesystem_error`. The
-# platform exports no Itanium unwind or C++ ABI symbols, so both come from here (oops-apps#D005).
+# The game throws - Boot.cpp wraps it in `catch (std::exception&)`, and std::filesystem reports
+# failures as filesystem_error - and the platform exports no Itanium unwind or C++ ABI symbols, so
+# both archives come from here (D005).
 #
-# **`OOPS_CXX_EXCEPTIONS` has to be set before this include.** `oops-libcxx.mk:66` reads it to choose
-# between `build-eh/libc++.a` and `build/libc++.a`, with `?=`, at include time - so setting it
-# afterwards silently takes the no-exceptions archive, which defines `std::terminate`,
-# `std::bad_alloc` and eighteen more itself instead of deferring to libc++abi. Bugdom's link failed
-# on exactly that, as twenty duplicate symbols naming neither archive nor the ordering.
+# OOPS_CXX_EXCEPTIONS is set above the include: oops-libcxx.mk reads it with `?=` at include time to
+# choose between build-eh/libc++.a and build/libc++.a, and the no-exceptions archive defines
+# std::terminate and std::bad_alloc itself instead of deferring to libc++abi, which collides.
 OOPS_CXX_EXCEPTIONS = 1
 OOPS_CXX_STD        = c++20
 
@@ -121,33 +101,22 @@ include $(OOPS_LIBCXX)/oops-libcxx.mk
 include $(OOPS_LIBCXX)/oops-libunwind.mk
 include $(OOPS_LIBCXX)/oops-libcxxabi.mk
 
-# **`libc++` owns `operator new`, and a title linking the full archive must say so.**
-#
-# `common/cxxrt.cpp` defines `operator new`/`delete` over `oops_malloc`, and `oops-libcxxabi.mk`
-# excludes libc++abi's `stdlib_new_delete.cpp` to match. But `libc++.a` *also* defines them, in its
-# own `__lcxx_override` section, **with a guard in each one asserting that `&operator new` lies
-# inside that section**. `--allow-multiple-definition` lets cxxrt's win, at an address outside
-# `__lcxx_override`, so libc++'s own nothrow `operator new` fails its guard and executes a `ud2`: a
-# privileged-instruction fault at the first libc++ allocation, which for Pomme is before the first
-# frame.
-#
-# OOPSy-daisy found this on hardware on 2026-09-25 and the fix is confirmed there. Allocation still
-# reaches the SDK heap, because libc++'s `operator new` calls `malloc`, which *is* `oops_malloc`.
+# libc++ owns operator new and delete. libc++ places its own in an __lcxx_override section and each
+# carries a guard asserting &operator new lies inside it; common/cxxrt.cpp's definition wins under
+# --allow-multiple-definition from outside that section, and libc++'s nothrow operator new then
+# executes ud2. Allocation still reaches the SDK heap, libc++'s operator new calling malloc.
 EXTRA_TARGET_CFLAGS += -DOOPS_CXX_EXTERNAL_NEW_DELETE
 
-# **The include list is upstream's, transcribed** - `CMakeLists.txt:123-128`. `GL_SILENCE_DEPRECATION`
-# comes from `target_compile_definitions` two blocks down and is harmless here, but it is upstream's
-# flag and upstream's flags are not edited out on a guess.
+# Upstream's include list, CMakeLists.txt:123-128. GL_SILENCE_DEPRECATION is upstream's flag, from
+# its target_compile_definitions.
 BUG2_CFLAGS := -I$(BUG2_UP)/Source -I$(BUG2_UP)/Source/Headers \
                -I$(POMME_SRC) \
                $(POMME_DEFINES) -DGL_SILENCE_DEPRECATION \
                -DOOPS_POSIX_HOME=\"/data/bugdom2\" \
                $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE)
 
-# **Upstream's code under upstream's warnings.** `common/app.mk` compiles at `-Werror` with a set
-# stricter than this codebase was written for. Switched off rather than patched away: a patch against
-# somebody else's tree is a rebase burden for no behaviour change. The list grows only when the
-# census names a new one.
+# app.mk compiles at -Werror with a set stricter than upstream's code meets. Switched off rather than
+# patched, a patch against somebody else's tree being a rebase burden for no behaviour change.
 BUG2_WARNINGS := -Wno-strict-prototypes -Wno-missing-prototypes -Wno-conversion \
                  -Wno-sign-conversion -Wno-shorten-64-to-32 -Wno-comment \
                  -Wno-unused-parameter -Wno-unused-but-set-variable -Wno-shadow \
@@ -157,52 +126,43 @@ BUG2_WARNINGS := -Wno-strict-prototypes -Wno-missing-prototypes -Wno-conversion 
 
 EXTRA_TARGET_CFLAGS += $(BUG2_CFLAGS) $(BUG2_WARNINGS)
 
-# **The C++ flags for `census` only**, with `OOPS_LIBCXX_INCLUDE` ahead of the C headers:
-# libc++'s `<errno.h>` and friends wrap the C ones with `#include_next`, and `<cerrno>` refuses to
-# build without them. `oops-stormlib.mk` had this ordering backwards and built anyway, because its
-# C++ never includes `<cmath>`.
-#
-# Recursive (`=`), because `TARGET_CFLAGS` is not known until `common/app.mk` has been read.
+# Census flags. OOPS_LIBCXX_INCLUDE precedes the C headers: libc++'s <errno.h> and friends wrap the C
+# ones with #include_next, and <cerrno> does not build without them. Recursive (`=`), because
+# TARGET_CFLAGS is not known until app.mk has been read.
 BUG2_CXX_FLAGS = -x c++ -std=c++20 $(OOPS_LIBCXX_INCLUDE) \
                  $(filter-out -std=c11 -Wstrict-prototypes -Wmissing-prototypes,$(TARGET_CFLAGS)) \
                  $(EXTRA_TARGET_CFLAGS)
 
 # --- the link --------------------------------------------------------------
 #
-# `shim/bugdom2_start.cpp` is the entry point and the only source here that is ours.
-#
-# **C++, and it has to be.** In a freestanding C++ translation unit `main` is an ordinary function,
-# so `Boot.cpp` exports it *mangled* - `_Z4mainiPPc`. A C shim asking for `main` links, because a
-# payload link ignores unresolved symbols, and `app.mk`'s guard is the only thing between that and a
-# fault at the first instruction on the console. So this goes in `OOPS_CXX_SRCS`.
+# The entry point is C++ because main is mangled: in a freestanding C++ translation unit it is an
+# ordinary function, so Boot.cpp exports _Z4mainiPPc and a C shim misses it, the payload link ignoring
+# unresolved symbols. So it goes in OOPS_CXX_SRCS rather than PAYLOAD_SRCS.
 BUG2_SHIM_CXX := shim/bugdom2_start.cpp
 
-# **The C++ half goes through `common/cxx.mk`**, which compiles it with its own flags: `app.mk`
-# builds every `PAYLOAD_SRCS` entry as C11, which is wrong for C++ and actively wrong for C++20.
+# The C++ half goes through common/cxx.mk, app.mk building every PAYLOAD_SRCS entry as C11.
 #
-# `OOPS_CXX_SRCS` is set **before** the include on purpose - `cxx.mk` names it as a prerequisite of
-# the archive, and make expands a rule's prerequisites when it reads the rule, so a title that set it
-# afterwards got an archive that never rebuilt when its own C++ changed.
+# OOPS_CXX_SRCS is set above the include: cxx.mk names it as a prerequisite of the archive, and make
+# expands a rule's prerequisites when it reads the rule, so naming them afterwards gives an archive
+# that never rebuilds when this title's C++ changes.
 #
-# No `OOPS_CXX_LINK_OBJECTS`: no two sources in the list share a basename. `oops_ar_check` says so.
+# No OOPS_CXX_LINK_OBJECTS: no two sources here share a basename, which oops_ar_check confirms.
 OOPS_CXX_SRCS := $(POMME_CXX) $(BUG2_OWN_CXX) $(BUG2_SHIM_CXX)
 include $(OOPS_APPS_ROOT)/common/cxx.mk
 
-# **After the include, because `cxx.mk` clears it** - and only libc++'s headers go here. The rest of
-# this title's include path reaches C++ through `EXTRA_TARGET_CFLAGS`, which `OOPS_CXX_FLAGS` appends
-# last; naming `BUG2_CFLAGS` here as well would put the POSIX shim's headers *ahead* of libc++'s.
+# After the include, which clears it, and libc++'s headers only: the rest of this title's include path
+# reaches C++ through EXTRA_TARGET_CFLAGS, which OOPS_CXX_FLAGS appends last. Naming BUG2_CFLAGS here
+# would put the POSIX shim's headers ahead of libc++'s.
 OOPS_CXX_INCLUDE += $(OOPS_LIBCXX_INCLUDE)
 
 PAYLOAD_SRCS := $(BUG2_C_SRCS) $(OOPS_POSIX_SRCS)
 
-# **The SDK subsystems, as capabilities.** `glu` because the camera is `gluLookAt`/`gluPerspective`.
-# No `net`: the game has no networking.
+# glu for the camera. No net: the game has no networking.
 OOPS_FEATURES := glu display input keyboard mouse audio suspend thread draw
 
-# **Each archive after everything that calls it.** `app.mk` puts LDFLAGS ahead of the payload
-# objects, and a plain archive seen before its callers contributes nothing - so the title's own C++
-# first, then SDL2, then the three standard-library archives innermost-last: libc++ calls libc++abi,
-# which calls libunwind.
+# Each archive after everything that calls it, app.mk putting LDFLAGS ahead of the payload objects and
+# a plain archive seen before its callers contributing nothing. libc++ calls libc++abi, which calls
+# libunwind, so those three come last in that order.
 EXTRA_TARGET_LDFLAGS += $(OOPS_CXX_LDFLAGS) $(OOPS_SDL_LDFLAGS) \
                         $(OOPS_LIBCXX_LDFLAGS) $(OOPS_LIBCXXABI_LDFLAGS) $(OOPS_LIBUNWIND_LDFLAGS)
 PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_SDL_LIB) \
@@ -211,14 +171,13 @@ PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_SDL_LIB) \
 include $(OOPS_APPS_ROOT)/common/app.mk
 
 # ---------------------------------------------------------------------------
-# `make census`: which of this title's sources compile for the target, today
+# `make census`: which of this title's sources compile for the target
 #
-# One file at a time, `-fsyntax-only`, each blocker printed **with the source that hit it** so that
-# clearing one does not start with a grep to find out where it was. It survives the arming because it
-# is the cheaper half of a build when a dependency bump breaks the tree, and a `-j` link is not.
+# One file at a time, -fsyntax-only, each blocker printed with the source that hit it. C and C++ are
+# counted separately because they compile under different flags.
 #
-# **A clean census is not a working port.** `-fsyntax-only` does not link, and a link is where a
-# missing driver or GL entry point shows up.
+# A clean census is not a working payload: -fsyntax-only does not link, and a link is where a missing
+# driver or GL entry point appears.
 # ---------------------------------------------------------------------------
 .PHONY: census
 census:
@@ -272,11 +231,10 @@ census-one:
 # too. The table is compared by expanding `OOPS_GL_PROC_LIST` with the preprocessor, which is why it
 # does not matter that the list is split across `gl_procs.h` and `gl_procs_core.h`.
 #
-# **Two assertions, because both directions of this check can lie.** The name count must be non-zero,
-# or a grep that matched nothing reports a clean surface; and a name that is deliberately not in
-# oops-gl must come back missing, or the table match is wrong rather than the title. The first draft
-# of this recipe failed the second one: `#n` stringifies, so the expansion is `["glActiveTexture"]`
-# with the quotes, and a search for `[glActiveTexture]` reported every name missing.
+# Two assertions, because both directions of this check can lie. The name count must be non-zero, or a
+# grep that matched nothing reports a clean surface; and a control name that is deliberately not in
+# oops-gl must come back missing, or the table match is wrong rather than the title. `#n` stringifies,
+# so the expanded table holds `["glActiveTexture"]` with the quotes.
 # ---------------------------------------------------------------------------
 .PHONY: glsurface
 glsurface:

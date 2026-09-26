@@ -1,28 +1,18 @@
-# Bugdom 2's origin. Read by common/app.mk with no parser - the same KEY=value shape app.env has -
-# and by common/upstream-fetch.sh, which is shared by every title.
+# Bugdom 2's origin, read by common/app.mk and common/upstream-fetch.sh as KEY=value lines.
 #
-# UPSTREAM_REV must be a full commit hash: a tag can be moved and a branch always is.
+# UPSTREAM_REV is a full commit hash: a tag can be moved and a branch always is. UPSTREAM_REF names
+# the release that hash is, for a reader. v4.0.0 is upstream's only tag, and it is lightweight, so the
+# ref and the commit are the same object.
 #
-# **A lightweight tag**, so the ref and the commit are the same object - `git ls-remote --tags`
-# returned one line for `v4.0.0`, not the peeled pair an annotated tag gives.
+# The revision asks for SDL2, not SDL3. Read the revision the lock names rather than a clone on disk.
 #
-# **`v4.0.0` rather than `master`**, and here that is the *only* tag: jorio has cut one release of
-# this port. A port starts from what upstream calls finished, which is Neverball's reasoning and
-# Bugdom's.
+# The game data is in this repository under Data/: Pangea released Bugdom 2 as freeware and jorio's
+# port ships it, so the title needs nothing from the player, which is the bar src/oops-titles/README.md
+# sets.
 #
-# **SDL2, checked at this revision rather than assumed.** `oops-deps/sdl3` was vendored on the
-# strength of a survey that read `find_package(SDL3 ...)` out of a clone of Bugdom's *master*; both
-# pinned Bugdom revisions are SDL2, and this one is too. Read the revision the lock names.
-#
-# **The game data is in this repository**, `Data/`, 180 MB of it - Pangea released Bugdom 2 as
-# freeware and jorio's port ships it, the same arrangement as Bugdom. So this title needs nothing
-# from the player, which is the bar `src/oops-titles/README.md` sets.
-#
-# **`extern/Pomme` is a submodule and the build does not exist without it.** It is the same Pomme
-# Bugdom uses - jorio's reimplementation of the classic Mac OS toolbox - at whatever revision this
-# commit's tree records. That revision is not repeated here and does not need to be: it is in the
-# pinned commit's own tree, so one hash still pins everything. Ship of Harkinian's lock is the
-# precedent.
+# extern/Pomme is a submodule and the build does not exist without it: it is jorio's reimplementation
+# of the classic Mac OS toolbox. Its revision is not repeated here, because it lives in the pinned
+# commit's own tree, so one hash pins everything.
 UPSTREAM_SUBMODULES=1
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/jorio/Bugdom2

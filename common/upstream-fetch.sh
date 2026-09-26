@@ -151,15 +151,12 @@ if [ -n "$SUBMODULES" ] && [ -f "$DIR/.gitmodules" ]; then
         echo "upstream-fetch: submodule checkout failed" >&2
         exit 1
     }
-    # **The tree's gitlinks, not `.gitmodules`.** `.gitmodules` is an ordinary tracked file and can
-    # name a module the revision does not actually contain: SpaghettiKart 1.0.0 lists
-    # `lib/wasm-micro-runtime` in it with no gitlink anywhere in the tree, so `git submodule status`
-    # answers "pathspec did not match", nothing can check it out, and the directory stays empty
-    # forever. Checking `.gitmodules` therefore failed a fetch whose four real submodules had all
-    # arrived. The gitlinks are what `git submodule update` acts on, so they are what to verify.
+    # The tree's gitlinks, not .gitmodules: that file is ordinary tracked content and can name a
+    # module the revision does not contain, which nothing can check out and which would then fail this
+    # check forever. The gitlinks are what `git submodule update` acts on.
     #
-    # A variable rather than a pipe, so the loop runs in this shell and keeps `missing`.
-    # `ls-tree` separates the path with a tab, hence `cut -f2-` rather than a space split.
+    # A variable rather than a pipe, so the loop runs in this shell and keeps `missing`. `ls-tree`
+    # separates the path with a tab, hence `cut -f2-`.
     sub_paths="$(cd "$DIR" && $GIT ls-tree -r HEAD 2>/dev/null \
                  | grep -E '^[0-7]+ commit ' | cut -f2-)"
     missing=""

@@ -8,15 +8,14 @@ Pangea's garden adventure, ported through oops-sdk.
 
 ## About
 
-Bugdom is a 1999 Macintosh game, released as freeware and ported to modern systems by jorio: 78 C
-sources and one C++, drawing through immediate-mode OpenGL 1.x, on SDL2 and on jorio's Pomme. It is
-tracked against a pinned commit.
+Bugdom is a 1999 Macintosh game, released as freeware and ported to modern systems by jorio. It
+draws through immediate-mode OpenGL on SDL2, and rests on jorio's Pomme for its Mac OS toolbox
+layer.
 
-- **Pinned by commit hash** — `18b413f8`, the `1.3.4` release, newest of five. A **lightweight** tag.
-- **Fetched, not vendored** — `make` pulls upstream on demand.
-- **Brings its own game data** — 66 MB under `Data/`, 207 files. Nothing is required from the player.
-- **Submodule** — `extern/Pomme` is one, so the fetch needs `UPSTREAM_SUBMODULES=1`. Ship of
-  Harkinian's lock is the precedent.
+- Pinned by commit hash to the newest release tag, a lightweight tag.
+- Fetched rather than vendored: `make` pulls upstream on demand.
+- Brings its own game data under `Data/`, so nothing is required from the player.
+- `extern/Pomme` is a submodule, so the lock carries `UPSTREAM_SUBMODULES=1`.
 
 ## Building
 
@@ -26,26 +25,16 @@ make package    # the title package with the game data, which is what runs
 make census     # compile every source for the target and report, without linking
 ```
 
-## What is measured
+`make census` compiles with `-fsyntax-only` and does not link. A link is where a missing GL entry
+point or an unresolved symbol appears, so a clean census is not a working payload.
 
-**It links and it packages.** `build/bugdom.elf` is 4,981,312 bytes with `common/app.mk`'s
-undefined-symbol guard clean, and `make package` produces 216 files — eboot, `sce_sys/`,
-`sce_module/libc.prx` and the whole of `Data/`.
+## Notes
 
-**`oops-gl` covers Bugdom's GL surface completely** — all 51 entry points it names, and it calls them
-**by symbol**: no `SDL_GL_GetProcAddress`, no glad, no GLEW, so a missing one is an ordinary link
-error rather than a NULL at run time. The renderer is `glBegin`/`glVertex3f` immediate mode, the same
-shape as Neverball and Extreme Tux Racer, so `OOPS_RENDERER = gl1` is the target and there is no
-shader question.
+`OOPS_RENDERER` is `gl1`, and the port calls GL by symbol rather than through a loader, so a missing
+entry point is a link error.
 
-**SDL2, not SDL3.** The candidate survey read `find_package(SDL3 ...)` out of a clone of *master*;
-the pinned 1.3.4 asks for SDL2, and so does Bugdom 2's pinned v4.0.0.
-[`docs/PORTING.md`](docs/PORTING.md) has the detail, and the lesson: read the revision the lock names.
+Pomme uses libc++'s `<filesystem>` rather than the `ghc::filesystem` it bundles, which costs one
+patch and removes a dependency on POSIX facilities this platform does not have.
 
-**Pomme took libc++'s real `<filesystem>`.** It bundles `ghc::filesystem` as a stand-in and would have
-needed a full POSIX filesystem underneath it — file identity, hard links, `utimensat`, `std::wstring`.
-Building libc++'s own implementation instead cost eleven declarations in the port layer, each with an
-honest answer, and one patch to lift two arms of an `#if` that exclude this build — one of which
-excludes *every* clang, everywhere, and not on purpose.
-
-**Nothing has run.** No frame, no sound, no input. `docs/PORTING.md` lists what that leaves open.
+[`docs/PORTING.md`](docs/PORTING.md) covers the structure, the SDL2 pin, the four C++ constraints a
+title on this platform has to meet, and how the entry point finds the data.
