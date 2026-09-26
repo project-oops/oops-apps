@@ -29,8 +29,8 @@ int ship_of_harkinian_start(const payload_args_t *args);
  * OTR file not found"), and the same fact goes to the log, where it can be read without
  * a screen.
  *
- * It reports rather than refuses: whether the game can start is libultraship's answer to
- * give, and it gives it a few frames later with more of the picture than this has.
+ * It reports rather than refuses: whether the game can start is libultraship's answer
+ * to give, and it gives it a few frames later with more of the picture than this has.
  */
 static void soh_report_game_data(void);
 
@@ -58,10 +58,11 @@ static void soh_report_game_data(void) {
                        path);
     }
 
-    oops_log_error("SOH",
-                   "oot.o2r missing - convert an Ocarina of Time ROM to it on a desktop "
-                   "and copy the archive to %s",
-                   OOPS_POSIX_HOME);
+    oops_log_error(
+        "SOH",
+        "oot.o2r missing - convert an Ocarina of Time ROM to it on a desktop "
+        "and copy the archive to %s",
+        OOPS_POSIX_HOME);
 }
 
 __attribute__((visibility("default"))) int
