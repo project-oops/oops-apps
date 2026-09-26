@@ -1,28 +1,11 @@
 /*
- * Threads, mutexes and semaphores over `oops/thread.h`.
+ * Threads, mutexes and semaphores over `oops/thread.h`. Upstream's
+ * `src/thread/generic/` builds the condition variable (`SDL_syscond.c`) and
+ * thread-local storage (`SDL_systls.c`) on these. The generic mutex and semaphore are
+ * built on each other, so the platform provides both.
  *
- * # Three of the five, and upstream writes the other two
- *
- * SDL's thread layer is thread, mutex, semaphore, condition variable and thread-local
- * storage. Only the first three are here, because upstream's `src/thread/generic/`
- * already builds the other two out of them - `SDL_syscond.c` from a mutex and a
- * semaphore, `SDL_systls.c` from a mutex - and those are real implementations rather
- * than the stubs the same directory keeps for platforms with no threads at all.
- *
- * **Which three is not a free choice.** Generic mutex is built on a semaphore and
- * generic semaphore is built on a mutex and a condition variable, so the two are
- * circular and a platform must break the ring by providing one of them. Providing both,
- * as here, is what lets the generic condition variable be reused rather than written a
- * third time - and both map one to one onto the SDK, so neither costs anything to
- * provide.
- *
- * # Mutexes here are recursive
- *
- * `SDL_LockMutex` is documented to be recursive: the owning thread may lock again and
- * must unlock the same number of times. `oops_mutex_init` is not told to be, so the
- * count is kept here. Getting this wrong deadlocks a title on its own second lock
- * rather than failing anywhere visible, which is why it is the one part of this file
- * with state of its own.
+ * `SDL_LockMutex` is recursive by contract; `oops_mutex_init` is not, so the owner and
+ * recursion count are kept here.
  */
 #include "SDL_internal.h"
 
@@ -37,10 +20,7 @@
 
 /* ---------------------------------------------------------------- threads */
 
-/*
- * SDL's entry point returns void*, and `SDL_RunThread` is what actually runs the user
- * function and records its return value, so nothing here needs to interpret it.
- */
+/* `SDL_RunThread` runs the user function and records its return value. */
 static void *PROSPERO_RunThread(void *data) {
     SDL_RunThread((SDL_Thread *)data);
     return NULL;
@@ -61,9 +41,8 @@ int SDL_SYS_CreateThread(SDL_Thread *thread) {
 void SDL_SYS_SetupThread(const char *name) {
     (void)name;
     /*
-     * The name is given at creation, which is the only point this SDK takes one, so
-     * there is nothing left to do in the new thread itself. Deliberately empty rather
-     * than missing: `SDL_RunThread` calls this unconditionally.
+     * The SDK takes the name at creation. Empty but required: `SDL_RunThread` calls it
+     * unconditionally.
      */
 }
 
@@ -74,10 +53,8 @@ SDL_threadID SDL_ThreadID(void) {
 int SDL_SYS_SetThreadPriority(SDL_ThreadPriority priority) {
     (void)priority;
     /*
-     * Refused rather than ignored. `oops_thread_create` takes a priority and this SDK
-     * has no call to change one afterwards, so pretending would leave a title believing
-     * its audio thread had been raised. A title that must have the priority can ask for
-     * it at creation.
+     * The SDK sets priority only at `oops_thread_create`, so changing it afterwards is
+     * refused rather than silently ignored.
      */
     return SDL_Unsupported();
 }
@@ -177,8 +154,7 @@ int SDL_UnlockMutex(SDL_mutex *mutex) {
     if (--mutex->recursion > 0) {
         return 0;
     }
-    /* Cleared before the unlock, because after it another thread may already own this.
-     */
+    /* Cleared before the unlock, after which another thread may own it. */
     mutex->owner = 0;
     mutex->recursion = 0;
     if (oops_mutex_unlock(&mutex->mutex) != 0) {
@@ -194,11 +170,7 @@ struct SDL_semaphore {
     SDL_atomic_t count;
 };
 
-/*
- * The SDK's semaphore is created with a maximum, and SDL's has none. This is the
- * ceiling a counting semaphore is given here: high enough that no SDL use reaches it,
- * and a number rather than a guess at "unbounded", because the call requires one.
- */
+/* The SDK's semaphore requires a maximum and SDL's has none; this is never reached. */
 #define PROSPERO_SEM_MAX 0x7fffffff
 
 SDL_sem *SDL_CreateSemaphore(Uint32 initial_value) {
@@ -258,15 +230,8 @@ int SDL_SemWaitTimeout(SDL_sem *sem, Uint32 timeout) {
     }
 
     /*
-     * **Polled, and that is a compromise worth naming.** The SDK has no timed semaphore
-     * wait - `oops_cond_timedwait` is the only timed primitive - so a bounded wait is a
-     * poll and a sleep. The cost is up to a millisecond of latency and a wakeup per
-     * millisecond while waiting; the alternative is to rebuild the semaphore on a
-     * condition variable, which is the generic implementation this file exists to
-     * avoid.
-     *
-     * If a title turns out to sit in a timed wait hot enough for this to matter, the
-     * answer is a timed wait in `oops/thread.h`, not a cleverer loop here.
+     * The SDK has no timed semaphore wait, so a bounded wait polls once per
+     * millisecond. A timed wait belongs in `oops/thread.h` if this ever matters.
      */
     {
         Uint64 deadline = SDL_GetTicks64() + timeout;
@@ -303,10 +268,8 @@ Uint32 SDL_SemValue(SDL_sem *sem) {
         return 0;
     }
     /*
-     * Counted here because the SDK's semaphore does not report its value. It is
-     * advisory either way - by the time a caller reads it another thread may have
-     * changed it - which is why SDL documents this call as a hint rather than a
-     * synchronisation primitive.
+     * Counted here because the SDK's semaphore does not report its value. SDL documents
+     * the value as advisory.
      */
     v = SDL_AtomicGet(&sem->count);
     return v > 0 ? (Uint32)v : 0;

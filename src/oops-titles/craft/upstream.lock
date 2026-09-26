@@ -1,30 +1,13 @@
-# Craft's origin. Read by common/app.mk with no parser - the same KEY=value shape app.env has -
-# and by common/upstream-fetch.sh, which is shared by every title.
+# Craft's origin, in the KEY=value shape app.env has. Read by common/app.mk and by
+# common/upstream-fetch.sh.
 #
-# UPSTREAM_REV is what gets checked out, and it must be a full commit hash: a tag can be moved
-# and a branch always is, so neither is a pin. UPSTREAM_REF is there to tell a reader which
-# release that hash is.
+# UPSTREAM_REV is what gets checked out and is a full commit hash, since a tag or branch
+# can move. UPSTREAM_REF tells a reader which release that hash is.
 #
-# **Master, not the `v1.0` tag**, which is the opposite of what Neverball's lock chose - so the
-# reason is here rather than in anybody's head. Craft's last commit is 2021 and `v1.0` is 2014,
-# and there are seventeen commits between them. Read one at a time, they say master is the
-# finished state:
-#
-#   - most of the diff is a **vendored GLFW**, updated 3.0 -> 3.1.2, which this port does not
-#     compile at all: `shim/` answers the twenty-three GLFW entry points Craft calls, over
-#     oops-sdk's display and input. That part of the diff is irrelevant here by construction.
-#   - `src/util.c` gained an error-and-exit when a shader or texture file will not open, which
-#     is strictly better on a console where the data directory is a place a port can get wrong.
-#   - the rest is README text and a server-side `-fPIC`.
-#
-# So the usual worry about tracking a branch - that it is a moving target with unfinished work
-# in it - does not apply to a repository whose last change was a README merge. Pinning by hash
-# makes it immovable either way; what the choice decides is *which* immovable tree, and master's
-# is the one upstream presents.
-#
-# **`v1.0` is a lightweight tag**, so `fe3e7b3f` is the commit directly and there is no peeled
-# `^{}` line to miss - the trap Neverball's lock records. Noted because the next reader will
-# wonder whether it was checked. It was.
+# The pin is master's final commit rather than the `v1.0` tag. The commits after `v1.0`
+# are a vendored GLFW update this port does not compile, an error-and-exit in
+# `src/util.c` when a shader or texture will not open, README text and a server-side
+# `-fPIC`. `v1.0` is a lightweight tag, so `fe3e7b3f` is the commit itself.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/fogleman/Craft
 UPSTREAM_REV=d6888a6e1e54340358ce25b1220f410541360b6b

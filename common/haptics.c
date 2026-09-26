@@ -1,20 +1,11 @@
 /*
- * The bodies behind `haptics.h`. See that file for why a decay thread rather than a
- * frame hook.
+ * The decay thread behind haptics.h.
  *
- * # The two motors
+ * A DualSense has a heavy motor and a light one. A hit drives mostly the heavy one with
+ * a third as much on the light one, which gives the impact weight and an edge.
  *
- * A DualSense has a heavy motor and a light one, and `oops_input_set_rumble` takes
- * both. A hit reads best as mostly the heavy one with a little of the light on top: the
- * heavy motor carries the weight of the impact and the light one gives it an edge.
- * Driving them equally reads as a phone on vibrate.
- *
- * # Why it decays rather than switching off
- *
- * A square pulse - full on, then nothing - reads as a click, because the motors have
- * enough inertia that starting is felt and stopping is not. Ramping down over a few
- * frames is what makes it read as an impact with mass behind it, which is the point for
- * a rolling ball.
+ * The level ramps down over a few ticks rather than switching off: the motors have
+ * enough inertia that a square pulse is felt only as a click.
  */
 #include "haptics.h"
 
@@ -23,13 +14,12 @@
 #include "oops/thread.h"
 #include "oops/time.h"
 
-/* How often the thread re-sends the motor levels. Sixteen milliseconds is about a
-   frame; going finer costs syscalls for a change no hand can feel. */
+/* How often the thread re-sends the motor levels: about a frame. Finer costs syscalls
+   for a change no hand can feel. */
 #define HAPTICS_TICK_MS 16u
 
 /* Fraction of the level that survives each tick. 0.82^4 is about a third, so a hit is
-   most of the way down in four ticks - roughly 60ms, which is an impact rather than a
-   buzz. */
+   most of the way down in four ticks (about 60ms): an impact rather than a buzz. */
 #define HAPTICS_DECAY 0.82f
 
 /* Below this the motors are off rather than nearly off: a level that never quite
@@ -51,28 +41,16 @@ static void haptics_send(int level_milli) {
     if (level_milli > 1000)
         level_milli = 1000;
 
-    /* The heavy motor carries the hit and the light one sharpens it - see the header.
-     */
+    /* The heavy motor carries the hit and the light one sharpens it. */
     const int heavy = (level_milli * 255) / 1000;
     const int light = (level_milli * 255) / 1000 / 3;
 
     const int rc =
         oops_input_set_rumble(0u, (unsigned char)light, (unsigned char)heavy);
 
-    /*
-     * **The first real pulse reports itself, once, at info.**
-     *
-     * Rumble was silent on the first hardware run and the log could not say why: the
-     * bump call is in the build and `scePadSetVibration` is in `common/symbols.txt`, so
-     * "no rumble" could equally have been the game never asking, the SDK refusing, or
-     * the motors being told a level of zero. Those need telling apart before anything
-     * is changed, and none of them is visible without a line.
-     *
-     * Once, and only for a non-zero level: this runs on a 16ms thread and the zero at
-     * start-up is not interesting. `rc` is what `oops_input_set_rumble` returned - it
-     * answers -1 when there is no pad handle or the vibration import did not resolve,
-     * and nothing has ever checked it.
-     */
+    /* The first non-zero pulse logs once, with the rumble call's result: rc is -1 when
+       there is no pad handle or the vibration import did not resolve. With the thread
+       and bump lines it tells a silent pad's cause apart. */
     if (level_milli > 0) {
         static int told;
         if (!told) {
@@ -88,19 +66,16 @@ static void *haptics_loop(void *arg) {
 
     int last_sent = -1;
 
-    /* **Says the thread body actually ran.** `oops_thread_create` returning a handle is
-     * not the same as the thread being scheduled, and on the first hardware run there
-     * was no rumble and no way to tell "the game never asked" from "the thread never
-     * ticked" from "the SDK refused". Three one-shot lines - this, the one in
-     * `oops_haptics_bump` and the one in `haptics_send` - separate all three, and cost
-     * one log line each per run. */
+    /* A handle from oops_thread_create does not prove the thread was scheduled; this
+       line does. With the one-shot lines in oops_haptics_bump and haptics_send it
+       separates "never asked", "never ticked" and "the SDK refused". */
     oops_log_info("HAPTIC", "decay thread running");
 
     while (haptics_running) {
         int level = haptics_level;
 
         if (level > 0) {
-            /* **Decayed here and stored back**, so a bump arriving mid-tick raises the
+            /* Decayed here and stored back, so a bump arriving mid-tick raises the
                level the next tick starts from rather than being overwritten by this
                one's result. */
             int next = (int)((float)level * HAPTICS_DECAY);
@@ -109,9 +84,8 @@ static void *haptics_loop(void *arg) {
             haptics_level = next;
         }
 
-        /* **Only on a change.** The motors hold what they were last told, so re-sending
-           the same level every tick is a syscall per frame for nothing - and sending
-           zero repeatedly is the same waste on the whole of a quiet menu. */
+        /* Sent only on a change: the motors hold what they were last told, so
+           re-sending the same level is a wasted syscall per tick. */
         if (level != last_sent) {
             haptics_send(haptics_on ? level : 0);
             last_sent = level;
@@ -120,7 +94,7 @@ static void *haptics_loop(void *arg) {
         oops_time_sleep_ms(HAPTICS_TICK_MS);
     }
 
-    /* Silent on the way out, whatever the level was - see the header. */
+    /* Silent on the way out, whatever the level was. */
     haptics_send(0);
     return (void *)0;
 }
@@ -145,30 +119,16 @@ int oops_haptics_init(void) {
     haptics_level = 0;
     haptics_running = 1;
 
-    /* **Both zero: the platform's own priority and the platform's own stack.**
-     *
-     * The first version asked for 64 KiB, reasoning that a loop holding two ints needs
-     * no more. That is the wrong thing to reason about. `oops_thread_create` only calls
-     * `scePthreadAttrSetstacksize` when a size is given, and it ignores what that call
-     * returns - so a size below the platform's minimum is a thread that is created,
-     * hands back a handle, and then dies on its first real stack use with nothing said.
-     * Which is indistinguishable, from outside, from the thread never being scheduled
-     * at all.
-     *
-     * SDL's backend passes the same zero (`SDL_prosperothread.c:52`) and its threads
-     * work. A default that is known to run beats a number chosen from a guess about a
-     * loop's needs.
-     *
-     * Priority zero is separately correct rather than merely safe: `oops_thread_create`
-     * treats it as "do not set one", so this inherits the caller's and cannot outrank
-     * the physics.
-     */
+    /* Stack size zero takes the platform default: oops_thread_create ignores the
+       result of scePthreadAttrSetstacksize, so a size below the platform minimum makes
+       a thread that dies silently. SDL's backend passes the same zero
+       (SDL_prosperothread.c:52). Priority zero means "do not set one", so the thread
+       inherits the caller's and cannot outrank the physics. */
     haptics_thread = oops_thread_create("oops-haptics", haptics_loop, (void *)0, 0, 0);
 
     if (!haptics_thread) {
-        /* **Every entry point becomes a no-op rather than a direct call.** Setting the
-         * motors from the caller's thread with nothing to turn them off is worse than
-         * no rumble: the pad runs until the title exits. */
+        /* Every entry point becomes a no-op rather than a direct call: motors set
+         * from the caller's thread with nothing to turn them off run until exit. */
         haptics_running = 0;
         oops_log_warn("HAPTIC", "no decay thread - rumble is disabled for this run");
         return -1;
@@ -200,7 +160,7 @@ void oops_haptics_bump(float strength) {
 
     const int level = (int)(strength * 1000.0f);
 
-    /* The first time the game asks for anything - see the thread's line. */
+    /* Logs the first request from the game, once. */
     {
         static int told;
         if (!told) {
@@ -209,7 +169,7 @@ void oops_haptics_bump(float strength) {
         }
     }
 
-    /* **Raised, never replaced.** A ball rattling down a slope fires a stream of small
+    /* Raised, never replaced: a ball rattling down a slope fires a stream of small
        bounces, and letting the newest one set the level would cut off the big hit that
        started them. */
     if (level > haptics_level)

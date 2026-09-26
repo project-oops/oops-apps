@@ -5,22 +5,19 @@
 # branch always is, so neither is a pin. UPSTREAM_REF says which release that hash is, for a
 # reader.
 #
-# **Lightweight, like SDL2's tag and unlike Neverball's.** `git ls-remote refs/tags/release-3.4.16`
-# answers with the commit itself and the peeled `^{}` form answers with nothing, which is what a
-# lightweight tag looks like - checked, because an annotated tag is what put the wrong hash in a
-# title's lock the first time.
+# A lightweight tag: `git ls-remote refs/tags/release-3.4.16` answers with the commit and has no
+# peeled `^{}` line.
 #
-# # Why a second SDL rather than a bump
+# SDL3 sits beside `oops-deps/sdl2` rather than replacing it: SDL3 renamed the configuration
+# header, changed the backend driver interfaces and removed parts of the 2.x API. SDL2 programs
+# use `sdl2`; SDL3 programs use this. `sdl2-compat` runs SDL2 programs on SDL3, which is the
+# other direction.
 #
-# `oops-deps/sdl2` stays exactly where it is: Neverball, Neverputt, Extreme Tux Racer, SuperTux and
-# q3rally are all built against it, and Extreme Tux Racer reaches it through `sdl12-compat`, which
-# is an SDL2 program. Bugdom and Bugdom 2 need SDL3, and SDL3 is not a version bump - it renamed the
-# configuration header, changed the driver interfaces the backends implement, and removed the parts
-# of the 2.x API those ports would have used. Two vendored copies is the honest shape; the titles
-# pick one by which `.mk` they include.
-#
-# **`sdl2-compat` is not the answer to this**, and it is worth writing down because the name
-# suggests otherwise: it runs *SDL2 programs* on top of SDL3. Bugdom is an SDL3 program.
+# **No title uses this yet, and Bugdom is not one of them** - that was the assumption it was
+# vendored under and it did not hold. Bugdom's `master` requires SDL3; the revision its lock pins,
+# 1.3.4, has `find_package(SDL2 REQUIRED COMPONENTS main)` and `#include <SDL.h>` throughout, as
+# does Bugdom 2's pinned v4.0.0. Both build against `oops-deps/sdl2`. This is ready for the title
+# that needs it.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/libsdl-org/SDL
 UPSTREAM_REV=fa2c02bb6e21974a89ea9824bc53c9932abe5f9c

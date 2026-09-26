@@ -4,13 +4,8 @@
 #   include $(OOPS_THREADPOOL)/oops-thread-pool.mk
 #   EXTRA_TARGET_CFLAGS += $(OOPS_THREADPOOL_INCLUDE)
 #
-# Header-only, so no archive.
-#
-# **This one is the proof that libc++'s threading works.** `BS::thread_pool` constructs real
-# `std::thread`s, holds a `std::mutex` and waits on a `std::condition_variable` - it is not a
-# library that merely mentions them. It compiled first try after
-# `../libcxx/include/__external_threading` went in, which is a better test of that header than
-# anything written to test it directly.
+# Header-only, so no archive. `BS::thread_pool` uses `std::thread`, `std::mutex` and
+# `std::condition_variable`, provided through `../libcxx/include/__external_threading`.
 ifndef OOPS_THREADPOOL_DIR
 OOPS_THREADPOOL_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif

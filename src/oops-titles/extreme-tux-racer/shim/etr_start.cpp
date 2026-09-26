@@ -1,14 +1,11 @@
 /*
  * The payload entry point.
  *
- * A payload is called, not spawned: there is no `main` the loader runs and no argv to
- * hand it. ETR's `main` lives in `main.cpp` upstream, so this calls it - which is the
- * whole of the adaptation, and the reason it is three lines rather than a patch
- * renaming `main`.
+ * A payload is called, not spawned: the loader runs no `main` and passes no argv. This
+ * calls ETR's `main` from upstream `main.cpp`, so no patch renames it.
  *
- * `main` is declared here rather than included, because ETR does not export it in a
- * header. Declaring it `extern "C"` would be wrong - it is C++ in a C++ translation
- * unit and its name is mangled accordingly.
+ * `main` is declared here because ETR has no header for it. It is not `extern "C"`:
+ * it is C++ and its name is mangled.
  */
 #include "oops/syscall.h"
 #include "oops/system.h"
@@ -18,9 +15,8 @@ int main(int argc, char **argv);
 extern "C" __attribute__((visibility("default"))) int
 etr_start(const payload_args_t *args) {
     /*
-     * ETR reads `argv[0]` for its own path handling, so it gets one rather than a null
-     * it would have to guard. `/app0` is where the package is mounted and where the
-     * data it ships beside this binary lives.
+     * ETR derives its data directory from `argv[0]` (`game_config.cpp:313`). `/app0` is
+     * where the package, and the data shipped in it, is mounted.
      */
     static char arg0[] = "/app0/etr";
     char *argv[2] = {arg0, 0};
@@ -30,13 +26,9 @@ etr_start(const payload_args_t *args) {
     oops_klog("ETXR", "entry");
 
     /*
-     * **Before `main`, because a payload has no crt to do it.** ETR is built of global
-     * objects - `Course`, `Tex`, `FT`, `Winsys` and a dozen more - and their
-     * constructors run from
-     * `.init_array`, which nothing walks unless the title asks. The failure is
-     * invisible until a constructor stores something that is not zero: `CCourse`'s sets
-     * `curr_course = -1`, and with it left at 0 the game loaded no course at all and
-     * faulted on a NaN four layers later. `oops/system.h` has the whole account.
+     * Before `main`, because a payload has no crt to do it. ETR's global objects
+     * (`Course`, `Tex`, `FT`, `Winsys` and more) have constructors in `.init_array`;
+     * `CCourse`'s sets `curr_course = -1`. See `oops/system.h`.
      */
     oops_run_init_array();
 

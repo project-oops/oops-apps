@@ -1,3 +1,4 @@
+/* pad-viz's controller diagram, a pure function of padviz_state_t (see pad-viz.h). */
 #include "pad-viz.h"
 
 #include "app_ui.h"
@@ -149,8 +150,7 @@ int padviz_render(oops_surface_t *surf, const padviz_state_t *state) {
     oops_draw_text(surf, 560, 320, "tilt", LABEL, 2);
     tilt_box(surf, 560, 344, 160, 150, pad->acceleration);
 
-    /* Footer: the batched-read sample count (proof the low-latency path delivers), and
-     * how to leave. */
+    /* Footer: the batched-read sample count, and how to leave. */
     char footer[48];
     oops_snprintf(footer, sizeof(footer), "samples: %d",
                   state->sample_count < 0 ? 0 : state->sample_count);

@@ -1,56 +1,32 @@
-# SuperTux's origin. Read by common/app.mk with no parser - the same KEY=value shape app.env
-# has - and by common/upstream-fetch.sh, which is shared by every title.
+# SuperTux's origin. Read by common/app.mk as KEY=value lines, like app.env, and by
+# common/upstream-fetch.sh.
 #
-# UPSTREAM_REV is what gets checked out, and it must be a full commit hash: a tag can be moved
-# and a branch always is, so neither is a pin. UPSTREAM_REF is there to tell a reader which
-# release that hash is.
+# UPSTREAM_REV is the checked-out commit and must be a full hash; UPSTREAM_REF names the
+# release it is.
 #
-# **v0.6.3, and the reason is SDL rather than age.** This is the newest release upstream calls
-# stable, which would be enough on its own - but the decisive fact is that master has moved to
-# **SDL3**: its `gl_video_system.cpp` calls `SDL_GL_DestroyContext`, which is SDL3's spelling of
-# what SDL2 calls `SDL_GL_DeleteContext`. `src/oops-deps/` pins SDL **2**, and sdl12-compat
-# beside it, and no SDL3. So a master pin would make this title's first task "port SDL3", which
-# is a different project wearing this one's name. v0.6.3 calls `SDL_GL_DeleteContext` and is the
-# tree the dependency stack here was built for.
+# v0.6.3 is the newest stable release on SDL2. master and v0.7.0 are SDL3
+# (`gl_video_system.cpp` calls `SDL_GL_DestroyContext`), and `src/oops-deps/` pins SDL2 and
+# no SDL3. v0.6.3 carries the ES 2.0 renderer this port targets: `USE_OPENGLES2` and
+# `data/shader/shader100.*` (docs/PORTING.md, The renderer). `v0.6.3` is a lightweight tag,
+# so the hash is the tagged commit.
 #
-# That was checked rather than assumed: both spellings were grepped in both trees, and the ES 2.0
-# renderer this port targets - `USE_OPENGLES2` and `data/shader/shader100.*` - is present at this
-# revision (see docs/PORTING.md, *The renderer*).
+# UPSTREAM_SPARSE is absent: `src/` is the program and `data/` is content it needs to start.
 #
-# **`v0.6.3` is a lightweight tag**, so `c1ddb4f2` is the commit directly and there is no peeled
-# `^{}` line to miss - the trap Neverball's lock records and Craft's confirms it checked. Checked
-# here too: `git ls-remote --tags` shows the tag once, with no `^{}` companion.
-#
-# **v0.7.0 exists as a tag and is not chosen.** It is the SDL3 line above; taking it would cost
-# the SDL3 port before a single frame.
-#
-# **UPSTREAM_SPARSE is deliberately absent.** gl-cts and libc++ use it because they want a few
-# directories out of somebody else's monorepo. This repository *is* the game: `src/` is the
-# program, `data/` is the content it will not start without - the same relationship Neverball's
-# 252 MB of levels has to its payload - and a sparse pin would be a tree that cannot ship. If the
-# fetch turns out to be painfully large for the analysis phase, the honest fix is a faster fetch,
-# not a pin that quietly excludes the game.
-#
-# **`UPSTREAM_SUBMODULES=1`, because four of the six are the game.** PhysFS opens every file,
-# Squirrel runs every level's scripts, sexp-cpp parses every level, and tinygettext is the
-# translations - a checkout without them is a tree that fails on missing headers. Ship of
-# Harkinian is the title that taught `common/upstream-fetch.sh` this, and its lock has the point
-# that settles it: the pinned commit records each submodule's revision in its own tree, so this
-# one hash still pins all of them. For the record, at `c1ddb4f2`:
+# UPSTREAM_SUBMODULES=1 because four submodules are part of the game: PhysFS opens every
+# file, Squirrel runs level scripts, sexp-cpp parses levels and tinygettext holds the
+# translations. The pinned commit records each submodule's revision, so one hash pins all:
 #
 #   external/physfs       36504d7207df8a93e6f36e016c47fbfabb8e1ed8
 #   external/squirrel     dda695e95f221b5e038796eab1f13d734dbd7270
 #   external/sexp-cpp     6018831abc1e5d5020c7b62f99962806dacf4c9f
 #   external/tinygettext  355659015e557749f6b514881c3a35d44d6e5f57
 #
-# **Not `src/oops-deps/`**, which is where a library goes when more than one title links it.
-# None of these four is wanted by another title here - SuperTuxKart vendors its own tinygettext
-# and scripts in AngelScript - so they are this title's upstream and build with it.
+# They build with this title rather than in `src/oops-deps/`, which holds libraries shared
+# by more than one title.
 #
-# The other two arrive and are not compiled: `external/SDL_ttf` is a fork whose additions the game
-# does not call, so `oops-deps/sdl2-ttf` answers it, and `external/discord-sdk` is off in
-# `shim/include/config.h`. The fetch checks every declared submodule is non-empty, which is why
-# they are fetched at all.
+# `external/SDL_ttf` and `external/discord-sdk` are fetched but not compiled: the fetch
+# checks every declared submodule is non-empty. `oops-deps/sdl2-ttf` stands in for the
+# SDL_ttf fork, and Discord is off in `shim/include/config.h`.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/SuperTux/supertux
 UPSTREAM_REV=c1ddb4f28c54de77f07aa9965231a91c0ed06708

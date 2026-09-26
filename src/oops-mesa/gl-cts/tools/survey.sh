@@ -1,10 +1,7 @@
 #!/bin/sh
-# Compile every CTS framework source for the target, one at a time, and group the failures by
-# cause.
-#
-# This is the same instrument as the libc++ survey behind `oops-apps#D007`, for the same reason:
-# a port of 260-odd files does not need its first error, it needs to know which twelve causes
-# account for all of them. Nothing is linked and nothing is installed.
+# Compile every CTS framework and test-module source for the target, one at a time, and group
+# the failures by cause (as for the libc++ survey, oops-apps#D007). Nothing is linked or
+# installed.
 #
 #   tools/survey.sh            all of it
 #   tools/survey.sh tcuDefs    just the sources whose name contains that
@@ -29,115 +26,45 @@ INCLUDES="-I$UP/delibs/debase -I$UP/delibs/depool -I$UP/delibs/deutil
           -I$UP/opengl/simplereference -I$UP/randomshaders
           -I$UP/xexml"
 
-# Every directory under the test modules that holds a header, found rather than listed - the
-# same set `Makefile`'s `CTS_INCLUDES` builds, and for the same reason: upstream's includes are
-# flat (`esextcTestCaseBase.hpp`, not `../esextcTestCaseBase.hpp`), so a set that is merely
-# representative reports missing headers that are present.
-#
-# **This survey measures what the build compiles or it measures nothing.** It walked only
-# `framework/` until 2026-09-24, which was the whole port at the time; the 311 test sources are
-# the part with the unknown answer now.
+# Every test-module directory holding a header, the same set `Makefile`'s `CTS_INCLUDES`
+# builds: upstream's includes are flat, so the set must be complete.
 for d in $(find "$MOD" "$GLS" -name '*.hpp' | sed 's|/[^/]*$||' | sort -u); do
     INCLUDES="$INCLUDES -I$d"
 done
 
-# # This is a HOSTED title, so the C library is the Mesa sysroot's
-#
-# `common/app.mk` puts it plainly at its `USE_MESA` block: a hosted title takes its target C
-# library from the Mesa sysroot, and oops-sdk's freestanding libc headers **collide** with it -
-# the sysroot's `__clock_t` is `int` where oops-sdk's `clock_t` is `int64_t`. So `app.mk` empties
-# `OOPS_SDK_LIBC_INCLUDE` for these titles.
-#
-# This survey used oops-sdk's freestanding libc until 2026-09-23 and was measuring a
-# configuration this title will never be built in. The sysroot is a full FreeBSD header set -
-# `unistd.h`, `signal.h`, `pthread.h`, `dirent.h`, `sys/stat.h` and a real `libm.a` - so most of
-# what looked like a long list of SDK gaps was the wrong question rather than missing work.
-#
-# oops-sdk's *non-libc* headers stay: `oops/gfx.h` and friends are how the platform layer reaches
-# the display, and they are not a C library.
+# A hosted title takes its C library from the Mesa sysroot, whose types collide with oops-sdk's
+# freestanding libc (`common/app.mk`, USE_MESA). oops-sdk's non-libc headers (`oops/gfx.h`)
+# stay on the path.
 MESA_SYSROOT="$OOPS_APPS/../oops-mesa/toolchain/sysroot"
 
-# # `<fenv.h>`, which the staged sysroot does not carry and msun's source tree does
-#
-# `deMath.c` sets the floating-point rounding mode through `fegetround`/`fesetround` to compute
-# reference values for the GLSL rounding tests, so it is not optional and a wrong one would make
-# a wrong reference rather than a failure.
-#
-# The sysroot has no `fenv.h` - only libc++'s wrapper, which `#include_next`s a C one that is not
-# there. FreeBSD keeps it per-architecture and amd64 uses `msun/x86/fenv.h`, which oops-mesa
-# already stages from the same pinned checkout as `libm.a`. So this points at the real header
-# rather than writing a second one: the rounding-mode constants are the x87 control-word values
-# and the SSE shift is 3, and neither is worth transcribing by hand.
-#
-# **This reaches past the sysroot into the source tree beside it, and should not have to.**
-# Staging `fenv.h` into `sysroot/usr/include` is oops-mesa's to do; when it does, this line goes.
+# `<fenv.h>` from msun's source tree (`msun/x86/fenv.h` on amd64), because the sysroot has
+# none. `deMath.c` sets the rounding mode to compute GLSL rounding reference values.
 MESA_MSUN_X86="$OOPS_APPS/../oops-mesa/toolchain/msun-src/msun/x86"
 
-# # `_XOPEN_SOURCE=600`, and the value is pinned from both sides
-#
-# It has to be **at least 500**, because `deThreadUnix.c:32` is
-# `#if !defined(_XOPEN_SOURCE) || (_XOPEN_SOURCE < 500)` over `#error "You are using too old
-# posix API!"`. (`_POSIX_C_SOURCE` is a different macro and does not satisfy that check - an
-# easy hour to lose.)
-#
-# It has to be **at most 600**, because FreeBSD's `<unistd.h>` guards `usleep` with
-# `(__XSI_VISIBLE && __XSI_VISIBLE <= 600) || __BSD_VISIBLE`: POSIX 2008 removed it, so 700
-# hides it and `deThreadUnix.c` calls it.
-#
-# Setting it also drives `__BSD_VISIBLE` to 0, which is separately necessary: FreeBSD's
-# `<unistd.h>` declares `fflagstostr(u_long)` and `select(..., fd_set *, ...)` in BSD-visible
-# blocks *without including `<sys/types.h>` itself*, so a unit including `<unistd.h>` alone meets
-# them with no `u_long` in scope. `oops-libcxx.mk` reaches the same place through
-# `_POSIX_C_SOURCE`, which is right for it because libc++ never calls `usleep`.
+# `_XOPEN_SOURCE=600`, as in `Makefile`: at least 500 for `deThreadUnix.c:32`, at most 600
+# because FreeBSD's `<unistd.h>` hides `usleep` above it, and `__BSD_VISIBLE` 0 keeps its
+# `u_long` declarations out of units without `<sys/types.h>`.
 BASE="-target x86_64-unknown-freebsd --sysroot=$MESA_SYSROOT
       -D_XOPEN_SOURCE=600
       -fPIC -fno-stack-protector -O2 -w -DOOPS_TARGET=3
       -I$SDK/include -I$MESA_MSUN_X86
       $INCLUDES"
 
-# # libc++'s headers come before the SDK's, and the order is not cosmetic
-#
-# libc++ ships its own `<math.h>`, `<string.h>`, `<errno.h>` and friends: thin wrappers that
-# pull in the C library's with `#include_next` and then add the C++ overloads. `<cmath>` checks
-# that its wrapper was the one found, and says so when it was not:
-#
-#     <cmath> tried including <math.h> but didn't find libc++'s <math.h>
-#
-# With `-I$SDK/include/libc` first, the C header wins and **161 of the framework's 260 sources
-# failed on that one line**. It is also why `common/cxxrt.cpp` declares `std::set_terminate`
-# by hand instead of including `<exception>`, which was read at the time as a quirk of that file
-# rather than as this.
-# # `-std=` has to be whatever `Makefile` sets, and there is no mechanism holding it there
-#
-# The Makefile sets `OOPS_CXX_STD = c++17` and says why. This said `c++17` while the Makefile
-# was still taking `cxx.mk`'s `c++11` default, so the survey reported the 305 test sources clean
-# and the build stopped on the first `std::make_unique`. **A survey compiled differently from
-# the build measures a configuration nothing ships**, which is the same mistake this script's
-# own sysroot comment records from 2026-09-23, made again in a different flag.
-#
-# Change one and change the other, in the same commit.
+# libc++'s headers come first: its `<math.h>` and friends wrap the C headers with
+# `#include_next`, and `<cmath>` refuses to build without them. `-std=` must match
+# `Makefile`'s `OOPS_CXX_STD`; change both together.
 CXXFLAGS="-nostdinc++ -fexceptions -frtti -std=c++17
           -I$LIBCXX/include -I$LIBCXX/upstream/libcxx/include
           -DDEQP_TARGET_NAME=\"OOPS\" $BASE"
-# `-include malloc_np.h`: `deMemory.c` calls `malloc_usable_size`, which FreeBSD declares in
-# `<malloc_np.h>` - the jemalloc extensions - and not in `<stdlib.h>`, which is what upstream
-# includes on this platform. The sysroot has the header; this puts its declaration in scope
-# without shadowing `<stdlib.h>`, which is the trap this port has already fallen into once.
+# `deMemory.c` calls `malloc_usable_size`, which FreeBSD declares in `<malloc_np.h>`, not
+# `<stdlib.h>`; force-including it leaves `<stdlib.h>` unshadowed.
 CFLAGS="-std=c11 -DDEQP_TARGET_NAME=\"OOPS\" -include malloc_np.h $BASE"
 
 filter="${1:-}"
 ok=0; bad=0
 
-# `framework/platform` holds one subdirectory per operating system - X11, Win32, Android, OSX -
-# and none of them is this one. Ours is what has to be written, and it goes in `shim/`, so
-# compiling upstream's here would only report that we are not Linux. Skipped rather than
-# reported, with the count printed at the end so it is visible rather than silent.
-#
-# The test modules skip the four things `Makefile`'s `CTS_MOD_EXCLUDE` excludes, so that the
-# histogram is a list of work and not a list of decisions already made. `runner/` is a separate
-# executable with its own `main`; `glcTestPackageRegistry.cpp` and `common/glcSpirvUtils.cpp`
-# are replaced by `shim/gl_cts_registry.cpp` and `shim/gl_cts_spirv_stub.cpp`, and both would
-# fail here on headers this build deliberately does not have.
+# Skipped, and counted: `framework/platform` (other operating systems; ours is `shim/`) and
+# what `Makefile`'s `CTS_MOD_EXCLUDE` leaves out, so the histogram lists only open work.
 skipped=0
 for src in $(find "$UP" "$MOD" "$GLS" \( -name '*.cpp' -o -name '*.c' \) | sort); do
     name=$(basename "$src")

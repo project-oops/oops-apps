@@ -1,30 +1,9 @@
-# mesa-cube - the example title for oops-mesa, and the first one here that is not a probe.
+# mesa-cube - the example title for oops-mesa: what a title author reads before writing one.
 #
-# # What it is for
-#
-# `mesa-winsys-probe` and `mesa-dri-probe` each answer a question and stop. This one answers
-# nothing: it is what roadmap unit 7 asks for - "an example title" - and its job is to be the thing
-# a title author reads before writing their own. So it is ordinary on purpose. It sets `USE_MESA`,
-# it calls `oops_gl_create`, it draws every frame and presents every frame, and it stops when the
-# host closes it.
-#
-# # Why a cube rather than another triangle
-#
-# `mesa-dri-probe` draws one triangle and hashes it, which is the right shape for a gate and the wrong
-# shape for an example: it exercises a single draw of untextured, undepth-tested geometry. This
-# one adds the parts a real title uses immediately and nothing had touched here yet - a texture
-# and a sampler, a depth buffer with the test on, an index buffer, a matrix pipeline, and a frame
-# loop that presents repeatedly rather than once.
-#
-# That coverage matters more than it did a day ago. Unit 8's CTS subset is blocked on a C++
-# standard library this repository does not have (worklog 067), so until that is answered this
-# title is the broadest exercise of the GL stack that exists here. It is **an example, not
-# conformance** - the tests that would mean something are Khronos's, not ours - and nothing in this
-# directory should ever be described as the latter.
-#
-# Its other use is the present path. `oops_gl_present` reports its cost in four parts for the
-# first ten frames and every sixtieth after (oops-mesa D012), and a title that presents once
-# produces one sample. This one produces a profile, which is what decides D012's open question.
+# It sets `USE_MESA`, calls `oops_gl_create`, and draws and presents every frame until the host
+# closes it: a texture and sampler, a depth test, an index buffer, a matrix pipeline. It is an
+# example, not conformance. Presenting every frame gives `oops_gl_present`'s per-part cost
+# report a profile rather than one sample (oops-mesa#D012).
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
@@ -32,16 +11,12 @@ OOPS_APPS_ROOT ?= $(abspath ../../..)
 EXTRA_TARGET_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 
 # The renderer this title links (common/app.mk). `mesa` is the hosted OpenGL-through-Mesa stack
-# (oops-mesa D002); the same source would build on oops-gl with `gl1`/`gl2` instead.
+# (oops-mesa#D002); the same source builds on oops-gl with `gl1`/`gl2` instead.
 OOPS_RENDERER = mesa
 
-# The example reaches for the SDK the way a real title does: `math.c` for the matrix pipeline
-# (this file no longer hand-rolls one), `input.c` for the pad, and `hud.c` for the GPU overlay.
-# `fs.c` was already here for the stop file. A hosted title takes the freestanding libc these need
-# from the Mesa sysroot, so no `-Iinclude/libc` is added (`common/app.mk` withholds it under
-# USE_MESA) - they include only `<string.h>`/`<sys/types.h>`-level headers, which the sysroot
-# provides. `hud.c` draws through fixed-function GL, which Mesa's compatibility context runs
-# alongside this title's own 3.3 shaders.
+# SDK math for the matrices, input for the pad, and the HUD overlay. Under USE_MESA the libc
+# headers come from the Mesa sysroot. The HUD draws fixed-function GL, which Mesa's
+# compatibility context runs beside this title's 3.3 shaders.
 OOPS_FEATURES := display thread input hud
 
 PAYLOAD_SRCS = mesa_cube_main.c \
@@ -49,21 +24,14 @@ PAYLOAD_SRCS = mesa_cube_main.c \
 
 ENTRY_POINT := mesa_cube_start
 
-# The same local link script the two Mesa probes carry, and it goes the same way they do: SELFish's
-# `native_eboot.ld` emits no `PT_TLS` segment and Mesa cannot link without one, and Mesa's GL
-# dispatch is thread-local by construction. All three lines go when `REQ-20260915T0001Z-8d72` on
-# the SELFish bus resolves. It also carries the `.preinit_array`/`.init_array`/`.fini_array`
-# output sections with `PROVIDE_HIDDEN` bounds, which is not optional: a hosted title has no crt to
-# walk them, and until worklog 062 ran them by hand ACO's opcode table stayed zeroed and faulted
-# the GPU.
+# SELFish's `native_eboot.ld` plus a PT_TLS segment, which Mesa's thread-local GL dispatch
+# needs, and `.init_array` bounds: a hosted title has no crt, so it runs Mesa's constructors
+# itself.
 TARGET_LD_SCRIPT := $(abspath local_tls.ld)
 
-# The import manifest, generated rather than written - same arrangement and same reason as the
-# probes: a Mesa-linked title imports far more than `common/symbols.txt` carries, and every
-# attribution comes from obSCEne's mined corpus rather than from anyone's judgement.
-#
-# Run `make imports` after a link, then `make title`. Not optional: without `build/imports.txt`
-# mkmodule builds no vendor segment and the container is refused when it loads.
+# The import manifest is generated from obSCEne's corpus; a Mesa title imports more than
+# `common/symbols.txt` carries. Run `make imports` after a link, then `make title`: without
+# `build/imports.txt` mkmodule builds no vendor segment and the loader refuses the module.
 OOPS_MESA ?= $(abspath $(OOPS_APPS_ROOT)/../oops-mesa)
 SYMBOLS_FILE := $(abspath build/imports.txt)
 

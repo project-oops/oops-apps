@@ -1,34 +1,12 @@
 /*
- * Every shader Craft ships, compiled for the console.
+ * Every shader Craft ships, compiled for the console on a build machine.
  *
- * # Why this is the check this title needs
- *
- * oops-gl's GL 2.0 back end compiles a fragment shader to real gfx1030 instructions, or
- * **refuses it by name**. A refusal is not a slow path and not a fallback: the draw
- * fails with `GL_INVALID_OPERATION` and nothing is drawn, deliberately, because running
- * the fixed-function instruments in a program's place would put a picture on screen
- * that no part of the program asked for. So a shader the back end will not take is a
- * title that does not render - and the whole point of finding that out here is that a
- * build machine can.
- *
- * It reads `upstream/shaders/` directly rather than a copy, so it is checking the files
- * the game loads, and it moves when either the shaders or the compiler do.
- *
- * # The four numbers, and why they are printed even when everything passes
- *
- * Four limits can refuse a shader, and each is a hardware fact rather than a tuning
- * choice:
- *
- *   - **varying floats**, at 16 - four parameters of four components, which is what the
- * vertex stage can export. A fifth has never run on this part (obSCEne `REQ-...-4f16`).
- *   - **uniform floats**, at 32 - what one draw's block carries.
- *   - **texture sets**, at 2 - the descriptor sets in that same block.
- *   - **registers**, at 136 - what the frame's stage table allocates for the pixel
- * stage.
- *
- * A shader that fits today and is three floats from a limit is worth seeing before
- * somebody adds a varying, so the numbers print on success too. Craft's block shader is
- * the interesting one: it uses both texture sets, which is all of them.
+ * oops-gl's GL 2.0 back end compiles a fragment shader to gfx1030 instructions or
+ * refuses it, and a refused shader fails its draw with `GL_INVALID_OPERATION`. This
+ * reads `upstream/shaders/` directly and prints each pair's cost against the four
+ * limits that can refuse one, on success too: varying floats (16, four exported
+ * parameters), uniform floats (one draw's block), texture sets (2, in the same block)
+ * and pixel-stage registers (136, the frame's stage table allocation).
  */
 #include "oops/display.h"
 #include "oops/memory.h"
@@ -38,15 +16,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The limits, from oops-sdk. Named here so the report can say how close a shader is. */
+/* The limits, named so the report can say how close a shader is. */
 #define MAX_VARYING_FLOATS 16
 #define MAX_UNIFORM_FLOATS OOPS_GL_GL2_UNIFORM_FLOATS
 #define MAX_TEX_SETS 2
 #define MAX_VGPRS 136
 
 /* ---------------------------------------------------------------------------
- * A host display and allocator. The SDK's are direct memory and have nothing to
- * talk to on a build machine; this is the same stub gl2-probe's self-test uses.
+ * A host display and allocator, standing in for the SDK's direct-memory ones.
  * ------------------------------------------------------------------------- */
 static uint32_t *s_fb;
 static int s_dummy = 1;
@@ -191,15 +168,9 @@ static void check_pair(const char *dir, const char *name) {
     static uint32_t words[OOPS_GL_PS_GL2_WORDS];
     uint32_t count = 0u, vgprs = 0u;
     char log[512] = {0};
-    /* **Null for the user-SGPR count and the input-enable mask.** Both describe how a
-       draw configures the pixel stage rather than how much of a budget the shader
-       spent, so neither is one of the four limits above - the four that can refuse a
-       shader, which is the whole of what this tool reports. Asking for them and
-       dropping them would suggest they were measured.
-
-       Null is supported here rather than merely survived: `gl_program_compile_fragment`
-       guards every write to all four of its outputs, in the prologue
-       (glsl_ps.c:213-218) and again on the success path (:765-771). */
+    /* Null for the user-SGPR count and input-enable mask, which configure a draw and
+       are not limits this tool reports. `gl_program_compile_fragment` guards every
+       output write (glsl_ps.c:213-218 and :765-771). */
     if (!gl_program_compile_fragment(p, words, OOPS_GL_PS_GL2_WORDS, &count, &vgprs,
                                      (uint32_t *)0, (uint32_t *)0, log, sizeof(log))) {
         printf("  %-8s FAIL  no console code: %s\n", name, log);
@@ -223,8 +194,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     glContextMakeCurrent(g_ctx);
-    /* **GL 2.0, or every call below is GL_INVALID_OPERATION.** A context has the entry
-     * points its version names and no others, and the default is 1.1. */
+    /* A context exposes only its version's entry points and defaults to 1.1. */
     glContextSetVersion(2, 0);
 
     static const char *const NAMES[] = {"block", "line", "sky", "text"};

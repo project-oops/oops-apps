@@ -1,38 +1,19 @@
 /*
- * sdl-probe: the smallest thing that proves upstream SDL2 works on this target.
+ * sdl-probe: the smallest app that runs upstream SDL2 on this target.
  *
- * It is here rather than beside `src/oops-deps/sdl2/` because that directory holds a
- * dependency, not an app, and this is an app: it goes through `common/app.mk` like
- * every other payload and gets the undefined-symbol check that a dependency on its own
- * never runs.
+ * As an app it goes through common/app.mk and its undefined-symbol check, which a
+ * payload link needs because it passes --unresolved-symbols=ignore-all.
  *
- * **That check is the point of this probe.** `oops-sdl.mk` can be right about every
- * source file and still be wrong, because a payload link passes
- * `--unresolved-symbols=ignore-all` - so a call into a function nobody defines links
- * cleanly and faults on the console. Building SDL inside a real app is the only place
- * that gets caught before hardware.
- *
- * What it exercises, in the order SDL does it:
- *
- *   SDL_Init          video, joystick, audio and timers, all four backends at once
- *   SDL_CreateWindow  with SDL_WINDOW_OPENGL, so the display opens
- *   SDL_GL_CreateContext, MakeCurrent
- *   SDL_PollEvent     the pump, once a frame
- *   SDL_NumJoysticks, SDL_GameControllerOpen - the declared mapping, with no mapping
- * database glClear, SDL_GL_SwapWindow
- *
- * It draws a colour that changes with the frame counter, so a still frame and a stopped
- * loop look different on a screen, and it ends by itself rather than waiting to be
- * closed - a probe that has to be killed is one that costs a console run to find out
- * about.
+ * It runs SDL_Init, SDL_CreateWindow with SDL_WINDOW_OPENGL, a GL context, the event
+ * pump, SDL_GameControllerOpen with no mapping database, and glClear and swap each
+ * frame. The clear colour follows the frame counter, so a stopped loop is visible, and
+ * the probe ends by itself.
  */
 #include "SDL.h"
 
 /*
- * GL comes from oops-gl directly, not from `SDL_opengl.h`. SDL's header is a copy of
- * the Khronos headers for platforms whose GL arrives through a loader; here `<GL/gl.h>`
- * is the real one and the entry points are linked in, which is also why
- * `SDL_GL_GetProcAddress` honestly returns NULL for everything.
+ * GL comes from oops-gl directly, not from SDL_opengl.h: the entry points are linked
+ * in, which is also why SDL_GL_GetProcAddress returns NULL for everything.
  */
 #include "GL/gl.h"
 
@@ -43,9 +24,8 @@
 #include <stdbool.h>
 
 /*
- * Long enough to work a controller through by hand. At the measured 9 to 12 ms a flip
- * this is around half a minute, and Options ends it sooner - a fixed count is the
- * backstop for a run with nobody at the console, not the way a run is meant to end.
+ * Long enough to work a controller through by hand. Options ends a run sooner; the
+ * count is the backstop for a run with nobody at the console.
  */
 #define PROBE_FRAMES 3000
 
@@ -62,14 +42,8 @@ __attribute__((visibility("default"))) int sdl_probe_start(const payload_args_t 
 
     (void)args;
 
-    /*
-     * Debug level, so the SDK's own `oops_log_debug` lines reach the console log. The
-     * pad's init reports `scePadSetProcessPrivilege`, `scePadInit` and the user id that
-     * way, and the first hardware run of this probe printed "no pad" with no way to
-     * tell whether that meant no pad was connected or the backend never asked. A probe
-     * that cannot distinguish its two failure modes costs a console run to find out;
-     * this one line is cheaper.
-     */
+    /* Debug level, so the SDK's pad init lines (scePadSetProcessPrivilege, scePadInit
+     * and the user id) reach the console log. */
     oops_log_set_level(OOPS_LOG_DEBUG);
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER |
@@ -107,11 +81,8 @@ __attribute__((visibility("default"))) int sdl_probe_start(const payload_args_t 
         oops_log_info(PROBE_TAG, "%s", SDL_GetError());
     }
 
-    /*
-     * The pad, through the controller API rather than the raw joystick one - that is
-     * what exercises the mapping the driver declares, and a title with no mapping
-     * database is exactly the case `GetGamepadMapping` exists for.
-     */
+    /* The pad, through the controller API, which exercises the mapping the driver
+     * declares for a title with no mapping database. */
     pads = SDL_NumJoysticks();
     if (pads > 0) {
         oops_log_info(PROBE_TAG, "a pad is present");
@@ -122,14 +93,9 @@ __attribute__((visibility("default"))) int sdl_probe_start(const payload_args_t 
                               : "not opened as a game controller");
             if (pad) {
                 int a;
-                /*
-                 * Every axis read once, at rest, before anything is touched. The event
-                 * log below only fires when an axis *crosses* a deadzone, so a trigger
-                 * sitting correctly at zero produces no line at all - and absence of
-                 * evidence read as evidence is how the half-scale trigger bug survived
-                 * three clean hardware runs. This prints the resting value whether it
-                 * is right or wrong.
-                 */
+                /* Every axis once, at rest: the event log below fires only when an
+                 * axis crosses a deadzone, so a resting value is otherwise never
+                 * printed. */
                 for (a = 0; a < SDL_CONTROLLER_AXIS_MAX; a++) {
                     oops_kprintf(
                         "SDLPB", "axis %d at rest: %d\n", a,
@@ -141,13 +107,8 @@ __attribute__((visibility("default"))) int sdl_probe_start(const payload_args_t 
                           "present, but not recognised as a game controller");
         }
     } else {
-        /*
-         * Zero joysticks has two causes and they need telling apart: no pad is
-         * connected, or the joystick subsystem never started. `SDL_WasInit` answers the
-         * second directly, and asking the SDK's own pad poll answers the first - so the
-         * log says which rather than leaving the next reader to guess, as the first
-         * hardware run did.
-         */
+        /* Zero joysticks means no pad or no joystick subsystem. SDL_WasInit answers
+         * the second and the SDK's own pad poll the first. */
         oops_pad_state_t st;
         int rc;
 
@@ -170,29 +131,18 @@ __attribute__((visibility("default"))) int sdl_probe_start(const payload_args_t 
                 quit = true;
             } else if (ev.type == SDL_CONTROLLERBUTTONDOWN ||
                        ev.type == SDL_CONTROLLERBUTTONUP) {
-                /*
-                 * Logged, because the point of a probe is to say what arrived.
-                 * Detection and `SDL_GameControllerOpen` were confirmed on hardware
-                 * before this line existed, and events were not - the probe consumed
-                 * them silently, so a run with the pad in hand proved nothing about the
-                 * path from `PROSPERO_JoystickUpdate` through
-                 * `SDL_PrivateJoystickButton` to the queue.
-                 */
+                /* Logged, so a run shows events reaching the queue from
+                 * PROSPERO_JoystickUpdate through SDL_PrivateJoystickButton. */
                 oops_kprintf("SDLPB", "button %d %s\n", (int)ev.cbutton.button,
                              ev.type == SDL_CONTROLLERBUTTONDOWN ? "down" : "up");
                 if (ev.type == SDL_CONTROLLERBUTTONDOWN &&
                     ev.cbutton.button == SDL_CONTROLLER_BUTTON_START) {
-                    /* Options ends it early, so a run can be cut short without closing
-                       the title. Logged above first, so the press that stopped it is on
-                       the record. */
+                    /* Options ends the run early without closing the title. */
                     quit = true;
                 }
             } else if (ev.type == SDL_CONTROLLERAXISMOTION) {
-                /*
-                 * Rate-limited to one line per axis per crossing of a deadzone. A stick
-                 * at rest still jitters, and 600 frames of that would bury the button
-                 * lines it is meant to sit beside.
-                 */
+                /* One line per axis per deadzone crossing, so resting jitter does not
+                 * bury the button lines. */
                 static int reported[SDL_CONTROLLER_AXIS_MAX];
                 int axis = ev.caxis.axis;
                 int big = (ev.caxis.value > 16000 || ev.caxis.value < -16000);

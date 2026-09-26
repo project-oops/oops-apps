@@ -1,17 +1,11 @@
 # glm's origin. Read by `common/upstream-fetch.sh`, fetched by `common/deps-fetch.sh`.
 #
-# **`0.9.9.8`, the release SuperTux `v0.6.3` was built against**, not glm's 1.0 line. 0.9.9.8 is
-# from April 2020 and SuperTux 0.6.3 from February 2022, when every distribution shipped it; 1.0
-# came in 2024. SuperTux reaches glm through one header, `math/vector.hpp`, which includes the
-# experimental `gtx/io.hpp` - an extension whose contract glm does not promise across releases.
-# Taking the version the game was written against removes a question rather than raising one.
+# `0.9.9.8` is the release SuperTux `v0.6.3` was built against. SuperTux's `math/vector.hpp`
+# includes the experimental `gtx/io.hpp`, whose contract glm does not keep across releases.
 #
-# **A lightweight tag**: `git ls-remote --tags` gives `refs/tags/0.9.9.8` with no peeled `^{}`
-# line, so the hash below is the commit directly.
+# A lightweight tag: `refs/tags/0.9.9.8` has no peeled `^{}` line, so the hash is the commit.
 #
-# **Header-only**, so there is nothing to compile - `oops-glm.mk` is an include path and the
-# `GLM_ENABLE_EXPERIMENTAL` define SuperTux's CMake adds for `gtx/`. `UPSTREAM_SPARSE` takes the
-# headers and leaves glm's test suite, documentation and CMake behind.
+# Header-only. `UPSTREAM_SPARSE` takes the headers and leaves tests, docs and CMake behind.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/g-truc/glm
 UPSTREAM_REV=bf71a834948186f4097caa076cd2663c69a10e1e

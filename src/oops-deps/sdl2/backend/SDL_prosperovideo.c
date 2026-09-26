@@ -2,22 +2,10 @@
  * The console video driver for upstream SDL2: the display, the one window, and the GL
  * context.
  *
- * # What a context is here
- *
- * oops-gl has one implicit context, created with the display and never switched. SDL's
- * model is a handle you create, make current and delete. The two meet by handing back a
- * sentinel: there is exactly one context, `MakeCurrent` on it succeeds, and
- * `MakeCurrent` on anything else fails rather than pretending. A caller that believes a
- * second context exists would draw into the first one and see no error, which is the
- * failure D009 exists to prevent.
- *
- * # Where the attributes go
- *
- * `SDL_GL_SetAttribute` writes into `_this->gl_config` before the context is created,
- * and a real driver honours what it can and reports back what it got. This display is
- * 32-bit RGBA with a depth buffer and no stereo or multisample, and `GL_CreateContext`
- * writes that back so `SDL_GL_GetAttribute` answers with the truth rather than the
- * request.
+ * oops-gl has one implicit context, created with the display. SDL receives a sentinel
+ * handle for it; `MakeCurrent` on any other context fails. `GL_CreateContext`
+ * writes the display's real format into `gl_config`, so `SDL_GL_GetAttribute` reports
+ * what the display is rather than what was requested.
  */
 #include "SDL_internal.h"
 
@@ -50,13 +38,9 @@ static int PROSPERO_VideoInit(_THIS) {
     SDL_DisplayMode mode;
 
     /*
-     * The renderer, brought up through oops/gfx.h rather than by opening the display
-     * alone. This is the fix for the one thing this backend used to get wrong: it
-     * opened a display but never created a GL context, so a title's GL calls had none.
-     * `oops_gfx_create` opens the display *and* creates the context and makes it
-     * current - and it dispatches to whichever renderer the title linked, so building
-     * SDL against Mesa gets Mesa's present path (its flip owns the scanout), not this
-     * backend flipping a buffer Mesa never drew into.
+     * `oops_gfx_create` opens the display, creates the GL context and makes it current,
+     * dispatching to whichever renderer the title linked, so Mesa keeps its own present
+     * path.
      */
     data->gfx =
         oops_gfx_create(&(oops_gfx_desc_t){.width = OOPS_DISPLAY_DEFAULT_WIDTH,
@@ -70,23 +54,19 @@ static int PROSPERO_VideoInit(_THIS) {
 
     oops_time_init();
 
-    /* The dashboard's Close becomes an SDL_QUIT in the event pump; install the handler
-     * that flags it (oops/system.h). Every SDL program on this backend then closes
-     * cleanly. */
+    /* Flags the dashboard's Close, which the event pump turns into SDL_QUIT
+     * (oops/system.h). */
     oops_system_install_close_handler();
 
     /*
-     * The keyboard and mouse are optional hardware and their absence is not an error -
-     * a pad is the usual input. Remembered so the pump does not poll a device that
-     * reported unavailable, and so a title can still start when neither is plugged in.
+     * Keyboard and mouse are optional; their absence is not an error, and the pump
+     * skips a device that reported unavailable.
      */
     data->keyboard_ready = (oops_keyboard_init() == 0);
     data->mouse_ready = (oops_mouse_init() == 0);
 
-    /* These two flags gate the pump in `PROSPERO_PumpEvents`, so they decide whether a
-       title sees any key or mouse event at all - and until they were printed, a title
-       that received nothing looked identical to a title whose events were being dropped
-       somewhere above. */
+    /* These flags gate all key and mouse events in `PROSPERO_PumpEvents`, so they are
+       logged. */
     oops_log_info("INPUT", "SDL video init: keyboard_ready=%d mouse_ready=%d",
                   data->keyboard_ready, data->mouse_ready);
 
@@ -136,10 +116,8 @@ static int PROSPERO_CreateSDLWindow(_THIS, SDL_Window *window) {
     }
 
     /*
-     * The window is the display. A request for any other size is answered with the size
-     * it actually got - SDL carries `w`/`h` back to the caller, so a title that asks
-     * for 800x600 and reads the window size back learns the truth instead of scaling to
-     * a number nobody honoured.
+     * The window is the display. Any requested size is replaced with the display's,
+     * which SDL reports back to the caller.
      */
     window->x = 0;
     window->y = 0;
@@ -166,11 +144,7 @@ static void PROSPERO_DestroyWindow(_THIS, SDL_Window *window) {
     window->driverdata = NULL;
 }
 
-/*
- * Deliberately nothing, and this is the honest implementation rather than a stub. There
- * is no title bar to set, and a caller that believes the call worked draws exactly the
- * same picture - which is the test D009 gives for which of the two this is.
- */
+/* There is no title bar; doing nothing is the complete implementation. */
 static void PROSPERO_SetWindowTitle(_THIS, SDL_Window *window) {
     (void)_this;
     (void)window;
@@ -185,9 +159,8 @@ static void PROSPERO_ShowWindow(_THIS, SDL_Window *window) {
 
 static int PROSPERO_GL_LoadLibrary(_THIS, const char *path) {
     /*
-     * There is no library and no loader: oops-gl is linked into the payload. A path is
-     * refused rather than ignored, because a caller naming one wants a *different* GL
-     * and will not get it.
+     * oops-gl is linked into the payload. A named library path is refused, since the
+     * caller wants a different GL.
      */
     if (path) {
         return SDL_SetError("prospero: GL is linked in, so no library can be loaded");
@@ -203,17 +176,9 @@ static void PROSPERO_GL_UnloadLibrary(_THIS) {
 }
 
 /*
- * **The GL that answers this is oops-gl, and it is reached weakly.**
- *
- * This backend creates no GL of its own - the context is the display's - so nothing
- * else here needs a GL to be linked, and a title that uses SDL for events and audio
- * should not be made to carry one. A weak *definition* rather than a weak reference is
- * what keeps that true both ways: oops-gl's own definition overrides it when there is
- * one, and when there is not, the payload still links with no undefined symbol for
- * `common/app.mk`'s check to trip over.
- *
- * It is declared here rather than by including <GL/gl.h>, which would put a whole GL
- * API beside SDL's own and conflict with it.
+ * A weak definition, overridden by oops-gl when it is linked, so a title using SDL
+ * without GL still links with no undefined symbol. Declared here because <GL/gl.h>
+ * conflicts with SDL's own GL declarations.
  */
 __attribute__((weak)) void *oops_gl_get_proc_address(const char *name) {
     (void)name;
@@ -223,20 +188,9 @@ __attribute__((weak)) void *oops_gl_get_proc_address(const char *name) {
 static void *PROSPERO_GL_GetProcAddress(_THIS, const char *proc) {
     (void)_this;
     /*
-     * **This returned NULL for everything until 2026-09-22**, reasoning that a
-     * statically linked payload has every entry point already bound, so a name reaching
-     * here must be one the linker could not resolve - that is, absent.
-     *
-     * The reasoning was wrong and the console showed it. A title written against
-     * desktop GL does not name the post-1.1 entry points as symbols at all: it holds
-     * function pointers and fills them from strings, because on a desktop the driver is
-     * behind a loader. The linker never saw `glGenBuffersARB` because nothing
-     * referenced it. Neverball took the NULL, stored it, and called it -
-     * `sol_load_full` jumped to address zero on the first mesh it loaded.
-     *
-     * So the name has to be looked up, and oops-gl looks it up in the payload's own
-     * dynamic symbol table. A name it does not have still answers NULL, which is what a
-     * caller probing for an extension is asking.
+     * Desktop-GL titles load post-1.1 entry points by name, so the linker never sees
+     * them. oops-gl looks the name up in the payload's dynamic symbol table and
+     * answers NULL for a name it does not have.
      */
     return oops_gl_get_proc_address(proc);
 }
@@ -254,10 +208,8 @@ static SDL_GLContext PROSPERO_GL_CreateContext(_THIS, SDL_Window *window) {
     }
 
     /*
-     * Report what the display is, not what was asked for. SDL leaves the requested
-     * values in gl_config when a driver does not write them back, and then
-     * SDL_GL_GetAttribute returns the request - a title checking whether it got a
-     * stencil buffer would be told yes.
+     * The display's actual format. Without this, gl_config keeps the requested values
+     * and SDL_GL_GetAttribute reports them.
      */
     _this->gl_config.red_size = 8;
     _this->gl_config.green_size = 8;
@@ -278,8 +230,7 @@ static SDL_GLContext PROSPERO_GL_CreateContext(_THIS, SDL_Window *window) {
 static int PROSPERO_GL_MakeCurrent(_THIS, SDL_Window *window, SDL_GLContext context) {
     PROSPERO_VideoData *data = (PROSPERO_VideoData *)_this->driverdata;
 
-    /* Releasing the context is the one case where both arguments are NULL, and it
-     * succeeds. */
+    /* Both NULL releases the context, which succeeds. */
     if (!context && !window) {
         return 0;
     }
@@ -295,9 +246,7 @@ static int PROSPERO_GL_MakeCurrent(_THIS, SDL_Window *window, SDL_GLContext cont
 static void PROSPERO_GL_DeleteContext(_THIS, SDL_GLContext context) {
     (void)_this;
     (void)context;
-    /* The context is the display's and outlives this call; closing it here would take
-       the display down under a title that is merely switching contexts. VideoQuit owns
-       it. */
+    /* The context belongs to the display and VideoQuit closes it. */
 }
 
 static void PROSPERO_GL_GetDrawableSize(_THIS, SDL_Window *window, int *w, int *h) {
@@ -315,11 +264,7 @@ static void PROSPERO_GL_GetDrawableSize(_THIS, SDL_Window *window, int *w, int *
 static int PROSPERO_GL_SetSwapInterval(_THIS, int interval) {
     PROSPERO_VideoData *data = (PROSPERO_VideoData *)_this->driverdata;
 
-    /*
-     * The flip is on vsync and there is no way to ask for anything else, so 1 is
-     * accepted and everything else is refused. Accepting 0 and flipping on vsync anyway
-     * would make SDL_GL_GetSwapInterval report a tear-free zero.
-     */
+    /* The flip is always on vsync, so only an interval of 1 is accepted. */
     if (interval != 1) {
         return SDL_SetError(
             "prospero: the flip is on vsync, so the swap interval is 1");
@@ -340,7 +285,7 @@ static int PROSPERO_GL_SwapWindow(_THIS, SDL_Window *window) {
         return SDL_SetError("prospero: that window is not this display's");
     }
     /* Present through the renderer, not a bare display flip: the flip belongs to
-     * whichever backend drew the frame (D012). oops_gfx_present returns true on
+     * whichever backend drew the frame. oops_gfx_present returns true on
      * success; false means the frame is not on screen. */
     if (!oops_gfx_present(data->gfx)) {
         return SDL_SetError("prospero: the present failed (%d)",
@@ -401,7 +346,7 @@ static SDL_VideoDevice *PROSPERO_CreateDevice(void) {
 
 VideoBootStrap PROSPERO_bootstrap = {
     PROSPEROVID_DRIVER_NAME, "OOPS console video driver", PROSPERO_CreateDevice,
-    NULL /* no ShowMessageBox yet - oops/dialog.h is the place it will come from */
+    NULL /* no ShowMessageBox */
 };
 
 #endif /* SDL_VIDEO_DRIVER_PROSPERO */

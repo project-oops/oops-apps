@@ -1,14 +1,9 @@
 # libjpeg-turbo's origin. Neverball decodes JPEG textures through it - one source, `fs_jpg.c`.
 #
-# **A lightweight tag**, unlike the four codec locks beside it: `refs/tags/3.1.4` and its peeled
-# form give the same answer.
+# A lightweight tag: `refs/tags/3.1.4` and its peeled form give the same commit.
 #
-# libjpeg-turbo rather than the original IJG libjpeg because it is the maintained one and is
-# API-compatible with it - a program written against `jpeglib.h` builds against either.
-#
-# **SIMD is off.** The turbo in the name is hand-written assembly per architecture, built through
-# CMake with NASM; the C fallback decodes the same images and is what a first port wants. A
-# title that finds JPEG decode is its bottleneck can revisit that with a measurement in hand.
+# libjpeg-turbo is the maintained, API-compatible successor to IJG libjpeg. SIMD is off: it is
+# per-architecture NASM assembly, and the C path decodes the same images.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/libjpeg-turbo/libjpeg-turbo
 UPSTREAM_REV=e352b02f794f701407b39af08576035ba3360d60

@@ -1,60 +1,13 @@
 # Arguments for the CTS run, one per line. Staged to /app0 by `make stage-args`.
 #
-# **This file is the whole point of the run-time subset.** oops-mesa's roadmap row 8 asks for "a
-# bounded, named subset", and a subset fixed at build time would be one this project curated
-# rather than one it ran. Editing this file and restoring it changes what executes; the binary
-# does not change and does not need rebuilding.
+# The case subset is chosen here at run time: editing this file and restoring it changes what
+# executes without rebuilding. `shim/gl_cts_entry.c` reads it before anything touches /data,
+# after which /app0 no longer resolves.
 #
-# `shim/gl_cts_entry.c` reads it before anything touches /data, because reaching /data escapes the
-# sandbox and /app0 stops resolving after that.
-
-# The first subset that exercises the driver rather than describing it.
+# Give one `--deqp-case`, with commas separating patterns: dEQP refuses any repeated option,
+# including `--deqp-log-filename` and `--deqp-archive-dir`, which the entry point already
+# passes. Group names come from the `TestCaseGroup(...)` constructors in the sources.
 #
-# `KHR-GL30.info.*` (the default with no file) asks the driver what it is: six cases, all passing
-# as of 2026-09-25, and not conformance in any useful sense - nothing in it touches a shader, a
-# texture or a buffer.
-#
-# These three do, and are bounded enough to come back through klog while the .qpa is still empty
-# (oops-sdk REQ-20260925T1936Z-6c8d):
-#
-#   get_uniform_tests   uniform getters - shader compile, link, and readback of every type
-#   buffer_objects      buffer creation, upload, mapping and draw
-#   clip_distance       gl_ClipDistance, which is a vertex-shader output the rasteriser must honour
-#
-# Each is a real pass/fail about this driver. Expect failures: that is the point of running
-# somebody else's tests, and a failure here is a finding rather than a fault in the run.
-#
-# Group names are taken from the `TestCaseGroup(...)` constructors in the sources rather than
-# guessed - `get_uniform_tests` turned out to hold exactly one case, which is not much of a
-# subset, and the only way to know that was to look.
-#
-# **One `--deqp-case`, comma separated.** Repeating the option is refused - dEQP answers
-# "Command line option '--deqp-case' specified multiple times", prints its usage and exits
-# without running anything. Its own help is where the comma form is documented: *"Test case(s)
-# to run, supports wildcards (e.g. dEQP-GLES2.info.*) and commas to separate multiple"*.
-#
-# The same applies to every option here, which matters for the two the entry point already
-# passes: putting `--deqp-log-filename` or `--deqp-archive-dir` in this file will not override
-# them, it will stop the run.
-# **Narrowed to the one case that hangs the GPU**, to tell two different bugs apart.
-#
-# 2026-09-25: the eight groups above ran 20 cases, all passing, and then
-# `KHR-GL30.transform_feedback.draw_xfb_stream_test` submitted an IB that never retired -
-# "submission 221 did not retire; fence still 0x11111111", the wait answering -60 (ETIMEDOUT),
-# and amdgpu declaring the context lost and guilty of a hard recovery.
-#
-# A hang that only appears after nineteen prior cases is a different fault from one that hangs on
-# its own: the first is state left behind by something earlier, the second is that case's own
-# submission. Running it alone is the one arm that separates them, and it answers in seconds.
-#
-# **`KHR-GL46.info` asks whether a 4.6 context can be created at all.**
-#
-# `GL_VERSION` reads `4.6 (Compatibility Profile)` because radeonsi derives it from caps and
-# nothing in the build clamps it (D014). That is the driver's arithmetic about the hardware, not
-# evidence that a 4.6 context works - and "3.3" in the prose is the scope of what has been run,
-# not a ceiling anything imposes.
-#
-# This settles which it is. dEQP asks the platform for the context the package needs, so
-# `KHR-GL46.*` either gets a 4.6 context and runs, or is refused and says so. Either answer is
-# worth more than the version string.
+# With no file the entry point runs `KHR-GL30.info.*`. `KHR-GL46.info.*` asks the platform for
+# a 4.6 context, so it either runs or reports that the context was refused.
 --deqp-case=KHR-GL46.info.*

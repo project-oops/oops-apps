@@ -1,8 +1,7 @@
-# libgfxd's origin, pinned to the commit `libultraship` names - upstream has no releases, so the
-# lock names a bare commit and says so rather than inventing a version.
+# libgfxd's origin, pinned to the commit `libultraship` names; upstream has no releases.
 #
 # A decoder for N64 display lists (F3D and its dialects), in C. libultraship uses it to print a
-# display list for the debugger; it is one include, and small.
+# display list for the debugger.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/glankk/libgfxd
 UPSTREAM_REV=008f73dca8ebc9151b205959b17773a19c5bd0da

@@ -1,3 +1,4 @@
+/* The gallery pages, a pure function of gallery_state_t (see gallery.h). */
 #include "gallery.h"
 
 #include "app_ui.h"
@@ -38,7 +39,6 @@ static void frame(oops_surface_t *surf, int page) {
     app_ui_version(surf, -1, 56);
 
     oops_draw_rect(surf, 48, 96, (int)surf->width - 96, 3, ACCENT);
-    /* page N of M, bottom-left */
     char footer[32];
     oops_snprintf(footer, sizeof(footer), "%d/%d", page + 1, gallery_page_count());
     oops_draw_text(surf, 48, (int)surf->height - 56, footer, LABEL, 2);
@@ -67,8 +67,7 @@ static void page_input(oops_surface_t *surf, const oops_pad_state_t *pad) {
     char num[16];
     int y = 140;
     y = app_ui_row(surf, y, "connected", pad->connected ? "yes" : "no");
-    /* Buttons as a hex mask - enough to see something change without a glyph per
-     * button. */
+    /* Buttons as a hex mask rather than a glyph per button. */
     oops_snprintf(num, sizeof(num), "0x%08x", (unsigned)pad->buttons);
     y = app_ui_row(surf, y, "buttons", num);
     oops_snprintf(num, sizeof(num), "%d", (int)pad->left_stick_x);
@@ -122,7 +121,7 @@ static int caps_row(oops_surface_t *surf, int y, const char *label, int availabl
 }
 
 /* capabilities page: what this console offers the SDK's media-decode and input-device
- * subsystems, straight from the oops_*_available() calls the payload gathered. */
+ * subsystems, from the oops_*_available() calls the payload gathered. */
 static void page_caps(oops_surface_t *surf, const gallery_caps_t *c) {
     int y = 132;
     y = caps_row(surf, y, "AGC GPU tiler", c->agc_gpu);

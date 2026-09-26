@@ -1,8 +1,6 @@
 /*
- * SDL3's timer and system-time backend, over `oops/time.h`.
- *
- * Four symbols, and three of them are a rename. `oops/time.h` already publishes exactly
- * what SDL wants: a monotonic counter, its frequency, and a microsecond sleep.
+ * SDL3's timer and system-time backend, over `oops/time.h`'s monotonic counter, its
+ * frequency and its microsecond sleep.
  */
 #include "SDL_internal.h"
 
@@ -10,8 +8,7 @@
 
 #ifdef SDL_TIMER_PRIVATE
 
-/* Reached through `-I<upstream>/src`, because this file sits outside upstream's tree.
- */
+/* Reached through `-I<upstream>/src`; this file sits outside upstream's tree. */
 #include "timer/SDL_timer_c.h"
 
 Uint64 SDL_GetPerformanceCounter(void) {
@@ -23,16 +20,9 @@ Uint64 SDL_GetPerformanceFrequency(void) {
 }
 
 /*
- * **Rounded up, not down, and never to zero.** `oops_time_sleep_us` takes microseconds
- * and SDL asks in nanoseconds, so anything under a microsecond truncates to nothing -
- * and SDL's callers use a short delay as a yield inside a spin, where returning
- * immediately turns the loop into a busy-wait that starves whatever it is waiting for.
- * Rounding up costs at most a microsecond and keeps the call meaning what it says.
- *
- * The 32-bit argument is the other edge: `oops_time_sleep_us` takes a `uint32_t`, which
- * tops out near 71 minutes, and SDL's `Uint64` does not. A long sleep is split rather
- * than truncated, because a truncated one would return early and look like a spurious
- * wakeup.
+ * Nanoseconds round up to microseconds and never to zero: SDL's callers use a short
+ * delay as a yield inside a spin. `oops_time_sleep_us` takes a `uint32_t`, so a long
+ * sleep is split into steps rather than truncated.
  */
 void SDL_SYS_DelayNS(Uint64 ns) {
     Uint64 us = (ns + 999u) / 1000u;
@@ -54,23 +44,10 @@ void SDL_SYS_DelayNS(Uint64 ns) {
 #include "time/SDL_time_c.h"
 
 /*
- * **The console has locale settings and the SDK does not read them.**
- *
- * `oops/netctl.h` knows the machine's address and `oops/system.h` its model and serial;
- * nothing exposes the user's date or time format, which live in the system software's
- * settings rather than in anything a payload queries today.
- *
- * SDL's contract here is that a platform writes what it knows and leaves the rest alone
- * - the Unix backend fills these from `nl_langinfo` and simply does not touch them when
- * that says nothing. So this touches neither, and SDL's caller keeps the defaults it
- * set before calling. That is the honest answer: not "the format is unknown", which
- * would be a third value nobody handles, but "this platform did not answer", which is a
- * case the interface already has.
- *
- * A port that wants the real formats wants a `sceSystemServiceParamGetInt` for them,
- * which `oops/system.h` has the shape for - `SCE_SYSTEM_SERVICE_PARAM_ID_DATE_FORMAT`
- * and its `TIME_FORMAT` sibling are the ids. Worth doing when something asks; nothing
- * has.
+ * The SDK does not expose the user's date or time format, so neither is written and
+ * SDL's caller keeps the defaults it set, as the Unix backend does when `nl_langinfo`
+ * has no answer. The system service ids are `SCE_SYSTEM_SERVICE_PARAM_ID_DATE_FORMAT`
+ * and `..._TIME_FORMAT`.
  */
 void SDL_GetSystemTimeLocalePreferences(SDL_DateFormat *df, SDL_TimeFormat *tf) {
     (void)df;

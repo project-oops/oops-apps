@@ -1,52 +1,27 @@
 /*
  * SDL3's build configuration for this console.
  *
- * # This file is reached without a patch, and that is SDL3's doing
+ * `include/build_config/SDL_build_config.h:34` includes this file when
+ * `SDL_PLATFORM_PRIVATE` is defined, and `SDL_video.c:89`, `SDL_audio.c:29` and
+ * `SDL_joystick.c:55` begin their driver lists with a `_PRIVATE` entry.
  *
- * `include/build_config/SDL_build_config.h:34` starts its platform chain with
- *
- *     #if defined(SDL_PLATFORM_PRIVATE)
- *     #include "SDL_build_config_private.h"
- *
- * so defining `SDL_PLATFORM_PRIVATE` and putting this file on the include path is the
- * whole of the registration. **SDL2 needed a patch for the same thing** -
- * `patches/0001-*` in `oops-deps/sdl2` adds an arm to `SDL_platform.h`'s chain and
- * registers each backend by hand. SDL3 has a supported extension point for a platform
- * it has never heard of, and it goes further than the config header: `SDL_video.c:89`,
- * `SDL_audio.c:29` and `SDL_joystick.c:55` each begin their driver list with a
- * `_PRIVATE` entry, and there is a `_PRIVATE` selector for every subsystem a console
- * has to supply.
- *
- * So `oops-deps/sdl3/patches/` is empty, and should stay that way. A patch here would
- * be a sign that something is being done against the grain of an interface SDL
- * provides.
- *
- * # What is on, and why
- *
- * The rule is the narrowest thing that works: `_PRIVATE` only where a console genuinely
- * has to supply the implementation, `DUMMY` or `DISABLED` everywhere else. A dummy that
- * SDL ships is better tested than a private one we would write, and each `_PRIVATE` is
- * a file in `backend/` that has to be kept correct across bumps.
+ * `_PRIVATE` is used only where the console must supply the implementation, each one a
+ * file in `backend/`; everything else is SDL's own `DUMMY` or `DISABLED`.
  */
 #ifndef SDL_build_config_private_h_
 #define SDL_build_config_private_h_
 
-/* Both, the way every one of SDL's own platform configs does it: this file *is* the
- * build config, and saying so stops the chain from reaching a second one. */
+/* As in SDL's own platform configs: this file is the build config, so the chain
+ * reaches no second one. */
 #define SDL_build_config_h_
 
 #include <SDL3/SDL_platform_defines.h>
 
-/* What `SDL_GetPlatform()` answers, and what `SDL.c:764` returns for a private
- * platform. */
+/* What `SDL_GetPlatform()` answers (`SDL.c:764`). */
 #define SDL_PLATFORM_PRIVATE_NAME "Prospero"
 
-/* ---- the C library we stand on -------------------------------------------
- *
- * `oops-sdk`'s freestanding libc plus `oops-apps/common/posix`. Each of these says "the
- * header exists and the function in it is real"; SDL falls back to its own
- * `src/stdlib/` for anything not claimed here, which is why the list is short rather
- * than aspirational. */
+/* The C library: `oops-sdk`'s libc plus `common/posix`. SDL uses its own `src/stdlib/`
+ * for anything not claimed here. */
 #define HAVE_STDARG_H 1
 #define HAVE_STDDEF_H 1
 #define HAVE_STDINT_H 1
@@ -65,36 +40,25 @@
 #define HAVE_GCC_SYNC_LOCK_TEST_AND_SET 1
 #endif
 
-/* Little-endian x86-64. SDL works this out for itself on platforms it knows; it does
- * not know this one. */
+/* Little-endian x86-64; SDL cannot infer it for a private platform. */
 #define SDL_BYTEORDER 1234
 
-/* ---- what this console supplies -----------------------------------------
- *
- * Each of these names a `backend/` source. `SDL_VIDEO_OPENGL` is what makes SDL's GL
- * paths available at all, and `SDL_VIDEO_RENDER_OGL` is the 2D renderer built on them -
- * a port that only ever calls GL itself still wants the first. */
+/* What this console supplies, each a `backend/` source. `SDL_VIDEO_OPENGL` enables
+ * SDL's GL paths; `SDL_VIDEO_RENDER_OGL` is the 2D renderer built on them. */
 #define SDL_VIDEO_DRIVER_PRIVATE 1
 #define SDL_VIDEO_OPENGL 1
 #define SDL_VIDEO_RENDER_OGL 1
 
 #define SDL_AUDIO_DRIVER_PRIVATE 1
-/* Beside the private one, not instead of it: SDL falls through the driver list in
- * order, so a machine with no audio device still opens. */
+/* After the private driver in SDL's list, so audio still opens with no device. */
 #define SDL_AUDIO_DRIVER_DUMMY 1
 
 #define SDL_JOYSTICK_PRIVATE 1
 /*
- * **Empty, and it should stay that way.** `SDL_gamepad_db.h:33` expands this into SDL's
- * mapping table, which is how a platform without a driver-supplied layout gets its pad
- * recognised as a *gamepad* rather than a bare joystick.
- *
- * This platform has a driver-supplied layout: `backend/SDL_prosperojoystick.c`
- * implements `GetGamepadMapping`, and SDL asks the driver before it consults the
- * database. Saying the layout in code, in the same file that decides the button
- * numbering, is what stops the two from drifting
- * - a mapping string here would be a second copy of the numbering, kept in step by
- * hand, and the first bump that reorders a button would leave it quietly wrong.
+ * Empty: `SDL_gamepad_db.h:33` expands this into SDL's mapping table, but
+ * `backend/SDL_prosperojoystick.c` implements `GetGamepadMapping`, which SDL asks
+ * first.
+ * The layout lives beside the button numbering it describes.
  */
 #define SDL_PRIVATE_GAMEPAD_DEFINITIONS
 
@@ -105,13 +69,8 @@
 #define SDL_FILESYSTEM_PRIVATE 1
 #define SDL_FSOPS_PRIVATE 1
 
-/* ---- what it does not ----------------------------------------------------
- *
- * `DISABLED` where SDL will compile the subsystem out entirely, `DUMMY` where it wants
- * an implementation and ships one that answers "nothing here". Neither is a gap to be
- * filled later unless a title asks: a pad is a joystick, not a haptic device with
- * force-feedback axes, and `oops_input_*`'s rumble reaches titles through
- * `common/haptics.h` instead. */
+/* What it does not: `DISABLED` compiles a subsystem out, `DUMMY` uses SDL's empty
+ * implementation. Rumble reaches titles through `common/haptics.h`, not SDL haptics. */
 #define SDL_HAPTIC_DISABLED 1
 #define SDL_HIDAPI_DISABLED 1
 #define SDL_SENSOR_DISABLED 1

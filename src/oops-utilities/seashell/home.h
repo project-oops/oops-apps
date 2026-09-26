@@ -5,37 +5,16 @@
 #include "oops/input.h"
 
 /*
- * home - clean-room reimplementation of the Prospero shell (Prospero UX / SceShellCore)
- * for homebrew and the Orbistoun emulator.
+ * home - a clean-room Prospero-style shell: the front end for Orbistoun and an
+ * on-console launcher payload.
  *
- * Two audiences, one codebase:
- * 1. The front-end UI and system software shell for Orbistoun.
- * 2. An on-console launcher payload for real hardware.
- *
- * # The split: the model does everything that does not touch a machine
- *
- * - The model (home.c) manages screens, navigation, dialogs, cursor state, and software
- * drawing. It runs headlessly, allocates nothing from libc, and has zero external
- * dependencies.
- * - The host (home_host_t, home_main.c) handles title launching, process lifecycle,
- * package installation, save states, captures, and machine power. In Orbistoun, the
- * host dispatch drives the emulator's subsystems; on real hardware, it talks to kernel
- * services.
- *
- * # Controller binding
- *
- * - PS Button (bit 16, HOME_BUTTON_PS): opens/closes the Control Centre overlay.
- * - L1 / R1: switches between GAMES and MEDIA mode.
- * - D-Pad / Sticks: navigation with initial delay and hold-to-repeat.
- * - Cross: select / activate.
- * - Circle: back / cancel.
- * - Square: quick jump to Game Library.
- * - Triangle: universal search (with virtual keyboard).
- * - Options: context menu on highlighted game/app.
- * - L1 + R1 + Options: clean exit to loader.
+ * The model (home.c) owns screens, navigation, dialogs, cursor state and software
+ * drawing; it runs headless and allocates nothing. The host (home_host_t, home_main.c)
+ * performs everything that touches a machine: launching, process lifecycle, package
+ * install, save states, captures and power. The controller map is in docs/CONTROLS.md.
  */
 
-/* Standard PS/Home system button bitmask (bit 16 confirmed on Prospero hardware) */
+/* The PS button bit in the pad button mask */
 #define HOME_BUTTON_PS (1u << 16)
 
 /* Fixed sizes throughout: a payload has no allocator */
@@ -55,7 +34,7 @@
 
 #include "skin.h"
 
-/* Legacy layout enum retained for test/API compatibility */
+/* Layout identifiers exposed to tests and callers */
 typedef enum home_layout {
     HOME_LAYOUT_XMB = 0,    /* Cross Media Bar */
     HOME_LAYOUT_LIST = 1,   /* Framed column */
@@ -68,7 +47,7 @@ const home_skin_t *home_current_skin(const struct home_model *m);
 void home_set_skin(struct home_model *m, int index);
 void home_next_skin(struct home_model *m);
 
-/* Legacy Theme API (forwards to active skin's theme) */
+/* Theme API; forwards to the active skin's themes */
 int home_theme_count(void);
 const home_theme_t *home_theme_at(int index);
 void home_next_theme(struct home_model *m);
@@ -95,7 +74,7 @@ typedef enum home_screen {
     HOME_SCREEN_LIBRARY,              /* Installed / Collection / Homebrew */
     HOME_SCREEN_TITLE_OPTIONS,        /* Options context menu on title */
     HOME_SCREEN_TITLE_INFO,           /* Metadata & file details */
-    HOME_SCREEN_CONTROL,              /* Quick menu: 13-dock + cards */
+    HOME_SCREEN_CONTROL,              /* Quick menu: dock and cards */
     HOME_SCREEN_SWITCHER,             /* Active running title & recent switcher */
     HOME_SCREEN_NOTIFICATIONS,        /* Unread and history notifications */
     HOME_SCREEN_GAME_BASE,            /* Friends online & voice parties */
@@ -492,8 +471,8 @@ void home_tick(home_model_t *m);
 /*
  * A digest of the whole model, for deciding whether a frame needs drawing at
  * all. Equal digests on consecutive frames mean home_render() would produce the
- * same pixels, so the caller can skip the render and the flip; see the note on
- * the definition for why it hashes everything rather than a list of fields.
+ * same pixels, so the caller can skip the render and the flip. It hashes the
+ * whole model rather than a list of fields; the definition says why.
  */
 uint64_t home_model_digest(const home_model_t *m);
 

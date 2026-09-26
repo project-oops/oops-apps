@@ -3,32 +3,15 @@
 #
 #   pak.sh <basegame-dir> <qvm-build-dir> <output.pk3>
 #
-# Called by `make pak`; not meant to be run by hand, though it can be.
+# Called by `make pak`. `pros restore` costs per file, so the data deploys as one archive.
 #
-# # Why one archive
+# A `.pk3` is a zip (read by `qcommon/unzip.c`). Paths inside are relative to the game
+# directory: an entry rooted at `baseq3r/` is never found, so this zips from inside
+# `baseq3r` and the final check refuses such entries. The `.qvm` modules go under `vm/`,
+# where `VM_Create` looks.
 #
-# `pros restore` costs per *file* rather than per byte - 1,775 files measured at 81 minutes - and
-# `upstream/baseq3r` is 3,623 of them. As one `.pk3` it is one file, and the data can be redeployed
-# in the time it takes to send the bytes.
-#
-# # What a .pk3 is, and the one way to get it wrong
-#
-# A zip, which is what ioquake3 reads natively - `qcommon/unzip.c` is minizip and is in the payload's
-# source list. **The paths inside are relative to the game directory.** An archive holding
-# `baseq3r/maps/foo.bsp` rather than `maps/foo.bsp` is one the engine opens successfully, finds
-# nothing in, and reports as an empty pk3 - so this zips from *inside* `baseq3r`, and the check at the
-# end refuses an archive whose first entry starts with `baseq3r/`.
-#
-# The three `.qvm` modules go in under `vm/`, which is where `VM_Create` looks. Upstream's `run.sh`
-# symlinks them to the same place.
-#
-# # The archiver is probed by running it
-#
-# `common/app.mk` records why at its own zip step: Windows installs a `python3` App Execution Alias
-# that exists, satisfies `command -v`, and then prints "Python was not found" and exits 49. So the
-# question asked is `python3 -c 'import zipfile'`, which is what the branch actually depends on.
-#
-# `zip` is preferred where it exists because it is faster on a tree this size. Both deflate.
+# python3 is probed by running it, because a Windows App Execution Alias satisfies
+# `command -v` and then fails (see `common/app.mk`). `zip` is preferred for speed.
 set -euo pipefail
 
 BASEGAME="${1:?basegame dir}"
@@ -68,8 +51,7 @@ def add(zf, root, skip_dotfiles):
             if skip_dotfiles and name.startswith("."):
                 continue
             full = os.path.join(dirpath, name)
-            # Relative to `root`, which is what makes the entry `maps/foo.bsp` rather than
-            # `baseq3r/maps/foo.bsp` - see the note at the top about which of those works.
+            # Relative to `root`: `maps/foo.bsp`, not `baseq3r/maps/foo.bsp`.
             zf.write(full, os.path.relpath(full, root).replace(os.sep, "/"))
             n += 1
     return n
@@ -86,8 +68,7 @@ fi
 
 rm -rf "$STAGE"
 
-# **The check that the paths are right**, because the failure it catches is silent: the engine opens
-# a wrongly-rooted pk3 without complaint and simply has no files in it.
+# Verify the paths: the engine opens a wrongly rooted pk3 without complaint and finds nothing.
 if python3 -c 'import zipfile' >/dev/null 2>&1; then
     python3 - "$OUT" <<'PY'
 import sys, zipfile

@@ -1,23 +1,15 @@
 # Spaghetti Kart's origin - Harbour Masters' native port of Mario Kart 64.
 #
-# **The second title out of the `libultraship` family**, after `../ship-of-harkinian`. That
-# library is Harbour Masters' shared runtime - renderer, audio, resources, input - and six ports
-# are built on it. Every one of them measured *zero* direct GL calls on 2026-09-25: the graphics
-# are entirely inside `libultraship`, so the platform work done for one is done for all.
+# It runs on `libultraship`, the same runtime as `../ship-of-harkinian`. The graphics live
+# entirely inside `libultraship`, so the platform work is shared between the two titles.
 #
-# Which is why this title exists now rather than later. It is not a second port's worth of work;
-# it is the same port with a different game on top, and how much cheaper it turns out to be is
-# the thing worth measuring.
-#
-# Pinned to `1.0.0` (2026-02-25), the first release, rather than the newest commit. Lightweight
-# tag, so the ref and the commit are the same object - `git ls-remote` returned one line, not the
-# peeled pair an annotated tag gives.
+# Pinned to the `1.0.0` release (2026-02-25). It is a lightweight tag, so the ref and the
+# commit are the same object.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/HarbourMasters/SpaghettiKart
 UPSTREAM_REV=1732542a6a200a21a9112a75820517a754d9514a
 UPSTREAM_REF=1.0.0
 
-# `libultraship` (the runtime), `torch` (the asset processor) and a documentation theme. Same
-# reasoning as Ship of Harkinian's: the build is nothing without them, and one hash still pins
-# everything because the submodule revisions live in the pinned commit's own tree.
+# `libultraship` (the runtime), `torch` (the asset processor) and a documentation theme. The
+# build needs them, and the pinned commit records their revisions.
 UPSTREAM_SUBMODULES=1

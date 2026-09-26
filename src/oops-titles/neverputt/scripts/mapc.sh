@@ -2,39 +2,15 @@
 # Build the Neverball tree's map compiler on the host, and compile its levels - Neverputt's
 # courses among them.
 #
-# **A verbatim copy of `../../neverball/scripts/mapc.sh`.** The two titles hold their own
-# checkouts of the same upstream (see `upstream.lock` for why), so each needs its own run against
-# its own `data/`, and the script derives every path from its own location - `HERE`, `TITLE`,
-# `DEPS` - so the copy needs no edit beyond this note. Shared machinery belongs in `common/`, but
-# this is specific to one upstream project rather than to every app here, and a title reaching
-# into a sibling title's `scripts/` is the coupling `upstream.lock` explains avoiding. If a third
-# title ever comes out of this tree, that is the moment to lift it somewhere shared.
+# A copy of `../../neverball/scripts/mapc.sh`: this title has its own checkout (see
+# `upstream.lock`), and the script derives every path from its own location. It compiles
+# every `.map` in the tree; `make package` selects.
 #
-# It compiles **every** `.map` in the tree, Neverball's levels included: splitting it by binary
-# would mean teaching it which courses belong to which title, and the tool costs minutes either
-# way. `make package` is what selects.
-#
-# Neverball ships `.map` sources and no `.sol`: the levels are compiled by `mapc`, a tool that
-# runs on the **build machine**, not on the console. Without this the payload has no levels at
-# all, so this is part of building the title rather than an optional extra.
-#
-# # Why it builds its own zlib, libpng and libjpeg
-#
-# `mapc` reads PNG and JPEG textures to work out their sizes, so it needs those libraries -
-# natively, for the build machine. The builder has no dev packages for them, and installing some
-# would put a dependency outside the lock files that everything else here obeys.
-#
-# So it compiles the **same pinned sources** the payload uses, with the host compiler and no
-# target flags. Same revisions, same code, different machine - which also means a bump to those
-# locks is picked up here without anybody remembering to.
-#
-# # The JPEG wrappers
-#
-# libjpeg-turbo 3.x compiles a dozen of its sources once per sample precision, through one-line
-# wrappers that CMake generates from `src/wrapper/template.c`. We do not run its CMake, so they
-# are written below - two lines each, exactly what the template produces. Without them the link
-# fails on eighteen undefined `j12*` symbols, because `jdmaster.c` dispatches on an image's
-# precision at run time and so needs all of them to exist.
+# `mapc` reads PNG and JPEG textures for their sizes, so it is linked against the same pinned
+# zlib, libpng and libjpeg sources the payload uses, built with the host compiler.
+# libjpeg-turbo compiles some sources once per sample precision through wrappers CMake
+# generates from `src/wrapper/template.c`; they are written below, since `jdmaster.c`
+# dispatches on precision at run time and needs all of them.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

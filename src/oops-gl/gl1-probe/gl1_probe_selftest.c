@@ -2,8 +2,7 @@
  * Host self-test for gl1-probe.
  *
  * Runs the whole check suite against the software rasteriser and prints one line per
- * feature. The same suite runs on the console through `gl1_probe_main.c`; comparing the
- * two outputs is the point of the app.
+ * feature. The same suite runs on the console through `gl1_probe_main.c`.
  */
 
 #include "gl1_probe.h"
@@ -12,13 +11,8 @@
 #include <stdio.h>
 #include <string.h>
 
-/* A host display is a plain buffer. oops-sdk's real one talks to the AGC backend, which
- * is not here - so these stubs stand in, exactly as gl-cube's self-test does. The
- * software rasteriser writes into this and the checks read it back, which is the whole
- * mechanism. */
-/* Sized for the display the probe asks for, which is a full 1920x1080 - the probe works
- * in a small corner of it, but the buffer has to be the whole thing or the row stride
- * is a lie. */
+/* A host display is a plain buffer standing in for oops-sdk's AGC display. It is the
+ * full 1920x1080 the probe asks for, so the row stride matches the console's. */
 static uint32_t s_host_fb[1920 * 1080];
 static int s_host_disp_dummy = 1;
 static unsigned int s_host_w = 1920;
@@ -37,8 +31,7 @@ oops_display_t *oops_display_open(oops_display_backend_t backend, unsigned int w
     return (oops_display_t *)&s_host_disp_dummy;
 }
 
-/* The real one answers 0 for a display that was returned but never opened, which is the
- * case the probe missed on hardware. Stubbed true here because this one did open. */
+/* The real one answers 0 for a display that was returned but never opened. */
 int oops_display_is_ready(const oops_display_t *disp) {
     (void)disp;
     return 1;
@@ -89,7 +82,6 @@ int main(void) {
 
     printf("gl1-probe selftest: %d/%d passed (host software rasteriser)\n", passed,
            ran);
-    /* **A failing check fails the build.** The probe exists to be believed, so a red
-     * line in its output cannot be something the build walks past. */
+    /* A failing check fails the build. */
     return passed == ran ? 0 : 1;
 }

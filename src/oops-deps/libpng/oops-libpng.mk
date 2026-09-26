@@ -1,12 +1,10 @@
-# libpng build integration. Include before `common/app.mk`; it pulls zlib in itself, because
-# libpng does not build without it and a title should not have to know that.
+# libpng build integration. Include before `common/app.mk`; it pulls zlib in itself.
 #
 #   OOPS_PNG ?= $(abspath ../../oops-deps/libpng)
 #   include $(OOPS_PNG)/oops-libpng.mk
 #
-# `include/pnglibconf.h` is **upstream's own prebuilt config** with one line changed - see the
-# comment on `PNG_CONVERT_tIME_SUPPORTED` in it, which is off because it is the only caller of
-# `gmtime` and `oops-sdk` deliberately has no calendar.
+# `include/pnglibconf.h` is upstream's prebuilt config with `PNG_CONVERT_tIME_SUPPORTED` off:
+# it is the only caller of `gmtime`, and `oops-sdk` has no calendar.
 ifndef OOPS_PNG_DIR
 OOPS_PNG_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
@@ -23,7 +21,7 @@ OOPS_PNG_SRCS := $(addprefix $(OOPS_PNG_UPSTREAM)/,png.c pngerror.c pngget.c png
 OOPS_PNG_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                   -nostdlibinc -fPIC -O2 -w $(OOPS_PNG_INCLUDE) $(OOPS_POSIX_INCLUDE) \
                   $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
-# `ar` is handed the list rather than the directory - `common/deps.mk` says what the glob cost.
+# `ar` is handed the object list rather than a directory glob (see `common/deps.mk`).
 $(OOPS_PNG_LIB): $(OOPS_PNG_SRCS) $(lastword $(MAKEFILE_LIST))
 	@mkdir -p $(OOPS_PNG_BUILD)
 	@rm -f $@

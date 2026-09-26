@@ -4,24 +4,14 @@
 #
 #   gen-err-str.sh <upstream-dir> <output.c>
 #
-# # Why this exists rather than a checked-in file
-#
-# The table pairs an error *number* with its message, and the numbers come from `ZIP_ER_*` in
-# `lib/zip.h` - a header this repository does not control. Checking the generated file in would
-# mean that an upstream bump which inserts an error in the middle silently shifts every message
-# after it by one, and the only symptom is a zip failure reporting the wrong reason. Generating it
-# from the pinned headers at build time cannot drift.
-#
-# # It is a transcription of upstream's generator, not an interpretation
-#
-# `cmake/GenerateZipErrorStrings.cmake` does the same two passes with the same regular expressions.
-# There is no cmake in the build container, so this is the same transform in awk. The shape of a
-# line it reads is:
+# The table pairs each `ZIP_ER_*` number in upstream's headers with its message, so it is
+# generated from the pinned headers rather than checked in. This is the transform of
+# `cmake/GenerateZipErrorStrings.cmake` in awk. A line such as
 #
 #   #define ZIP_ER_SEEK 4             /* S Seek error */
 #
-# giving `{ S, "Seek error" },` - the letter is the error's type (`L`/`N`/`S`/`Z`, or `E`/`G` for
-# the detail table) and the rest of the comment is the message.
+# gives `{ S, "Seek error" },` - the letter is the error's type (`L`/`N`/`S`/`Z`, or `E`/`G`
+# for the detail table) and the rest of the comment is the message.
 set -eu
 
 U=${1:?usage: gen-err-str.sh <upstream-dir> <output.c>}
@@ -82,14 +72,8 @@ const int _zip_err_details_count = sizeof(_zip_err_details)/sizeof(_zip_err_deta
 TAIL
 } > "$tmp"
 
-# **What has to hold is position, not count.** `zip_strerror` indexes this array by the error
-# number, so entry *k* must be the one for `ZIP_ER_<something> k`. Counting the rows would not
-# catch that: a header with a gap in its numbering - say 0..35 with 7 unused - produces 35 defines
-# and 35 rows, matching counts and every message from 8 upward off by one. Nothing would fault; the
-# library would simply report the wrong reason for every failure it ever had.
-#
-# So the check is that the numbers are exactly 0..n-1 in order, which is also what makes an empty
-# table impossible (it would fail at n=0 against a header that has defines).
+# `zip_strerror` indexes the table by error number, so the defines must be numbered exactly
+# 0..n-1 in order and the table must have n rows. A gap would shift every later message.
 check_order() {
     # $1 = header, $2 = prefix, $3 = how many rows the table got, $4 = table name
     awk -v prefix="$2" -v got="$3" -v name="$4" '

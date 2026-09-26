@@ -1,16 +1,10 @@
 name: release
 
-# Publish every app's shippable artifacts to a single rolling `latest-main` prerelease.
+# Publishes every app's shippable artifacts to the rolling `latest-main` prerelease.
 #
-# The shape is a matrix over the apps, and the app list is discovered rather than written
-# down: the `discover` job asks `bin/oops-apps list` (a directory with a Makefile is an app),
-# so a new app is built and published the day it exists, with nothing to add to this file.
-#
-# **CI never learns a format.** Each app's Makefile carries a `dist` target that stages what it
-# ships - a plain `.elf` payload, a `.zip` title directory, a `.pkg`, whatever the app is -
-# under its own `dist/`. This workflow runs `make dist` and uploads whatever lands there. An
-# app with no `dist` target ships nothing this run, which is said out loud, not failed: a demo
-# without a release is a normal state. See the release contract in `bin/oops-apps`.
+# A matrix over the apps `bin/oops-apps list` reports. Each cell runs the app's `dist`
+# target and uploads whatever lands in its `dist/`; the release contract is in
+# `bin/oops-apps`.
 
 on:
   push:
@@ -21,12 +15,8 @@ permissions:
   contents: read
 
 jobs:
-  # The app list, as JSON, for the build matrix. `bin/oops-apps list` is the one source of
-  # truth for what an app is, here and for a person at a terminal.
-  #
-  # It takes the same three-step preamble as everything else even though listing directories
-  # needs no siblings - one shape, so that reading any job in the collection teaches you all of
-  # them, the way obSCEne's provenance job takes the preamble to compile nothing.
+  # The app list, as JSON, for the build matrix. It keeps the collection's standard
+  # checkout-and-bootstrap preamble although listing needs no siblings.
   discover:
     name: which apps
     runs-on: ubuntu-latest
@@ -44,11 +34,10 @@ jobs:
       - name: Siblings this build needs
         run: OOPS/bin/oops bootstrap oops-apps
         env:
-          # Empty unless the org secret exists, and empty is the old behaviour.
+          # Empty unless the org secret exists.
           OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
-      # Two lists, not one. A title that renders through Mesa (`OOPS_RENDERER = mesa`) needs the
-      # whole oops-mesa build to link, which is a separate, heavy job - so those are split out to
-      # `build-mesa` and the plain matrix never tries (and fails) to build them.
+      # Two lists: a Mesa title (`OOPS_RENDERER = mesa`) links against the oops-mesa build,
+      # so it goes to `build-mesa` rather than the plain matrix.
       - id: list
         run: |
           is_mesa() { grep -qE 'OOPS_RENDERER[[:space:]]*[:?]?=[[:space:]]*mesa|USE_MESA[[:space:]]*[:?]?=[[:space:]]*1' "$1/Makefile" "$1/app.env" 2>/dev/null; }
@@ -65,12 +54,9 @@ jobs:
           echo "mesa:  $mesa_apps"
         working-directory: OOPS/oops-apps
 
-  # Build the Rust packaging tools once and share them with every matrix cell. Without selfish
-  # (the packager) and obscene-tool (the module tagger), `make dist` cannot produce a title: it
-  # prints "selfish not found" and stages only the bare ELF. That is why the release carried
-  # nothing but `.elf` until this job existed - the C cross-compiler in the build container has
-  # no Rust, so the tools were never built. Built in the *same* container the apps build in, so
-  # the binaries are glibc-compatible with the cells that run them.
+  # Builds selfish (the packager) and obscene-tool (the module tagger) once for every cell;
+  # without them `make dist` stages only the bare ELF. Built in the apps' own container so
+  # the binaries match its glibc.
   tools:
     name: build packaging tools
     needs: discover
@@ -88,8 +74,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: OOPS/oops-apps
-      # obscene-tool depends by path on selfish, prosperous and oops-libs, and selfish on its own
-      # crates - so fetch the whole set rather than guess the closure.
+      # Every sibling, since obscene-tool depends by path on selfish, prosperous and oops-libs.
       - name: The sibling sources the tools are built from
         run: OOPS/bin/oops bootstrap
         env:
@@ -110,39 +95,25 @@ jobs:
           name: packaging-tools
           path: out/
 
-  # One cell per app, in parallel. `fail-fast: false` so one app's build failing does not pull
-  # the finished ones down with it - each app is its own deliverable.
+  # One cell per app; `fail-fast: false` because each app is its own deliverable.
   build:
     name: "stage: ${{ matrix.app }}"
     needs: [discover, tools]
     runs-on: ubuntu-latest
-    # **The pinned compiler, because the runner's own is not it.**
-    #
-    # `toolchain.mk` pins the collection to clang 21 and names the two runners that carry the
-    # pin - WSL `oops-builder` and this container. Ubuntu's `clang` package is 18, so from the
-    # day the pin landed every `make -n dist` here failed, every app was reported as having "no
-    # dist target, nothing to ship yet", and the rolling release quietly stopped moving: its
-    # assets sat at 2026-09-20 for four days while the workflow went green every time. The
-    # publish job had nothing to publish and said so in the only way it could, by changing
-    # nothing.
-    #
-    # An honest "nothing to ship" and a broken toolchain are the same message in this workflow,
-    # which is what made it invisible. The container removes the second one.
+    # The clang 21 pin from `toolchain.mk`; Ubuntu's own `clang` package is an older major.
     container: silkeh/clang:21
     strategy:
       fail-fast: false
       matrix:
         app: ${{ fromJSON(needs.discover.outputs.apps) }}
     steps:
-      # Before `actions/checkout`, which silently falls back to a REST download without git -
-      # and a download has no submodules, which this build needs.
+      # Before `actions/checkout`, which without git falls back to a download with no
+      # submodules.
       - name: Tools the container does not ship
         run: |
           apt-get update -qq
           apt-get install -y -qq git zip jq ca-certificates lld
-      # The standard OOPS preamble: check out the collection, check this repository out into
-      # it, ask bootstrap for the siblings the apps build against (oops-sdk, and selfish for
-      # any app that packages). Never set a job-level working-directory.
+      # The collection, then this repository inside it; no job-level working-directory.
       - uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/OOPS
@@ -154,11 +125,8 @@ jobs:
       - name: The compiler this build is pinned to
         run: clang --version | head -1
 
-      # The vendored dependency trees. `common/upstream.mk` fetches a *title's* own upstream at
-      # Makefile-parse time and nothing fetched the dependencies', so a title with vendored
-      # dependencies asked make for a source file that was never downloaded, make said "No rule
-      # to make target", and the app was reported as shipping nothing. Idempotent: a tree
-      # already at its revision costs a stamp comparison.
+      # The vendored dependency trees; `common/upstream.mk` fetches only a title's own
+      # upstream. A tree already at its revision costs a stamp comparison.
       - name: The dependency trees this build is pinned to
         run: ./common/deps-fetch.sh
         working-directory: OOPS/oops-apps
@@ -166,12 +134,10 @@ jobs:
       - name: Siblings this build needs
         run: OOPS/bin/oops bootstrap oops-apps
         env:
-          # Empty unless the org secret exists, and empty is the old behaviour.
+          # Empty unless the org secret exists.
           OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
 
-      # The packaging tools from the `tools` job, dropped where make's wildcard looks for them
-      # (app.mk resolves SELFISH_BIN / MKMODULE_BIN by wildcard under these paths). With them in
-      # place `make dist` can package a title; without them it could only ever stage the ELF.
+      # The packaging tools, placed where app.mk resolves SELFISH_BIN and MKMODULE_BIN.
       - name: The packaging tools this build needs
         uses: actions/download-artifact@v4
         with:
@@ -182,9 +148,7 @@ jobs:
           install -Dm755 tools-bin/selfish OOPS/selfish/target/release/selfish
           install -Dm755 tools-bin/obscene-tool OOPS/obscene/tool/target/release/obscene-tool
 
-      # `make dist` for this one app, through the same entry point a person uses. If the app
-      # has no `dist` target it stages nothing and the upload below finds no files - honest,
-      # and not a failure.
+      # An app with no `dist` target stages nothing, and the upload below ignores that.
       - name: Stage ${{ matrix.app }}
         run: |
           ./bin/oops-apps dist ${{ matrix.app }}
@@ -199,14 +163,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: app-${{ matrix.app }}
-          # Upload directly from flat staging directory so category hierarchy is not preserved
+          # The flat staging directory, so the category hierarchy is not preserved.
           path: OOPS/oops-apps/staging/*
           if-no-files-found: ignore
 
-  # Build upstream Mesa for the target once, and cache it. This job only primes the cache; the
-  # per-title cells below restore it, so a fresh cache builds Mesa once here rather than five
-  # times in parallel. The cache is keyed on the pins and oops-mesa's own toolchain, so it
-  # rebuilds only when one of those changes. See mesa.yml for the standalone bring-up of this.
+  # Builds Mesa once to prime the cache the per-title cells restore. The key covers the pins
+  # and oops-mesa's toolchain and patches; mesa.yml runs the same build on its own.
   mesa:
     name: build oops-mesa
     needs: discover
@@ -259,10 +221,8 @@ jobs:
           cd OOPS/oops-mesa
           OOPS_MESA_FREEBSD_SRC="$GITHUB_WORKSPACE/freebsd-src" ./bin/oops-mesa build
 
-  # One cell per mesa title. Each restores the cached Mesa build (primed by `mesa`), clones the
-  # Mesa headers, places the packaging tools, and packages the title inside the clang-21 toolchain
-  # image - the same route that linked all five in mesa.yml. `fail-fast: false`, so a title that
-  # does not build yet does not pull the others down, and `release` publishes whatever staged.
+  # One cell per Mesa title, packaged in the oops-mesa toolchain image against the cached
+  # build. `fail-fast: false`, so one title's failure leaves the others to publish.
   build-mesa:
     name: "mesa title: ${{ matrix.app }}"
     needs: [discover, tools, mesa]
@@ -338,19 +298,8 @@ jobs:
   release:
     name: publish latest-main
     needs: [discover, build, build-mesa]
-    # **`always()`, because the matrix already says each app is its own deliverable.**
-    #
-    # `fail-fast: false` above stops one app's failure from cancelling the others, and then this
-    # job's default `needs` requirement threw that away: it waits for *every* cell to succeed, so
-    # a single app that cannot build keeps every app that can out of the release. Eight of
-    # twenty-five fail today - most of them wanting the oops-mesa sibling - and they had been
-    # holding back the seventeen that build, Neverball among them, for as long as they have been
-    # failing.
-    #
-    # Publishing what was staged is the honest reading of the contract: the run is still marked
-    # failed, the broken apps are still red and still named, and the apps that built are still
-    # downloadable. A release that waits for the worst app in the repository is a release nobody
-    # can rely on.
+    # `always()`, so the apps that staged publish even when another cell failed; the run is
+    # still marked failed and names the apps that did not build.
     if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -367,9 +316,9 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           shopt -s nullglob
-          # Each artifact is `app-<name>/` holding that app's dist files.
-          # Enforce OOPS CONVENTIONS.md section 2: every file must start with the app name,
-          # encode the target generation, and be packaged as a file (never an unzipped directory).
+          # Each artifact is `app-<name>/` holding that app's dist files. CONVENTIONS.md
+          # section 2: each file starts with the app name, encodes the target generation,
+          # and is a file, never an unzipped directory.
           for d in staged/app-*/; do
             app=$(basename "$d"); app=${app#app-}
             for f in "$d"*; do
@@ -405,8 +354,7 @@ jobs:
             echo "any=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # Only when something is actually there. An empty release is worse than none - it looks
-      # like a build that shipped and left the page blank.
+      # Only when something staged, so the release is never replaced by an empty one.
       - name: Replace the previous latest-main
         if: steps.collect.outputs.any == 'true'
         env:

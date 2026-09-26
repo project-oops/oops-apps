@@ -1,16 +1,12 @@
 /*
- * cube_hud.h - the one HUD both cube demos draw.
+ * cube_hud.h - the dashboard shared by gl1-cube and mesa-cube.
  *
- * gl1-cube and mesa-cube are the same demo through two renderers, so they show the same
- * dashboard: this is that dashboard, drawn once here and called by both. It is built on
- * the SDK's GPU overlay
- * (`oops/hud.h`), so it works on either renderer - including Mesa, whose scanout buffer
- * the CPU cannot write into.
+ * Both demos are the same scene through two renderers and draw this one dashboard. It
+ * is built on the SDK's GPU overlay (oops/hud.h), so it works on either renderer,
+ * including Mesa, whose scanout buffer the CPU cannot write into.
  *
- * A caller fills the fields it has and calls `oops_cube_hud_draw` once a frame, after
- * its scene and before it presents. Fields a renderer does not have a value for are
- * shown honestly (a status line says what that stack actually measures); nothing here
- * is faked to look uniform.
+ * A caller fills the fields it has and calls oops_cube_hud_draw once a frame, after its
+ * scene and before it presents. The status line says what that stack measures.
  */
 #ifndef OOPS_CUBE_HUD_H
 #define OOPS_CUBE_HUD_H
@@ -37,10 +33,10 @@ typedef struct oops_cube_hud {
     const char *mesh; /* "cube" / "torus" / "sphere" */
     unsigned tris, verts;
 
-    /* Live pipeline toggles - the interactive state both cubes now carry */
+    /* Live pipeline toggles */
     bool cull, depth, texture, lighting;
 
-    /* The per-stack truth: gl1-cube's GPU-verified/hash line, mesa-cube's
+    /* The per-stack status: gl1-cube's GPU-verified/hash line, mesa-cube's
      * scanout/pacing line. */
     const char *status;
     uint32_t status_color; /* ARGB */

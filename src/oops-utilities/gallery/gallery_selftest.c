@@ -3,8 +3,7 @@
  *
  * Renders every page into a plain buffer and checks each drew and none wrote past the
  * surface. It does not check what the pages say - on a host the platform behind the SDK
- * is absent, so the values are defaults - only that the drawing is sound, which is a
- * fact about the app rather than about the machine it is not running on.
+ * is absent, so the values are defaults - only that the drawing is sound.
  */
 
 #include <stdint.h>
@@ -33,6 +32,7 @@ int main(void) {
     oops_surface_t surf = {.pixels = pixels, .width = W, .height = H, .pitch = W};
 
     int ok = 1;
+    /* Every page renders as itself, draws something, and stays inside the surface. */
     for (int page = 0; page < gallery_page_count(); page++) {
         for (size_t i = 0; i < (size_t)W * H; i++) {
             pixels[i] = 0;

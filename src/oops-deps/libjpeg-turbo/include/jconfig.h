@@ -1,16 +1,12 @@
 /*
- * libjpeg-turbo's public build configuration. CMake normally generates it from
- * `src/jconfig.h.in`; we do not run its CMake, so every value here is a decision rather
- * than whatever the build machine happened to detect.
+ * libjpeg-turbo's public build configuration, in place of the one CMake generates from
+ * `src/jconfig.h.in`.
  *
  * `JPEG_LIB_VERSION 62` is the ABI a program written against the original IJG libjpeg
- * expects, which is what Neverball is - it includes `<jpeglib.h>` and calls
- * `jpeg_read_header`.
+ * expects, as Neverball is.
  *
- * **Arithmetic coding is off and SIMD is off.** Arithmetic coding is patent-era baggage
- * that almost no JPEG in the wild uses; SIMD is per-architecture assembly built through
- * NASM, and the C path decodes the same images. A title that measures JPEG decode as
- * its bottleneck can revisit the second of those with a number in hand.
+ * Arithmetic coding is off: almost no JPEG uses it. SIMD is off: it is per-architecture
+ * NASM assembly, and the C path decodes the same images.
  */
 #ifndef OOPS_JCONFIG_H
 #define OOPS_JCONFIG_H
@@ -22,18 +18,9 @@
 #define MEM_SRCDST_SUPPORTED 1
 
 /*
- * **The `#ifndef` is load-bearing and was missing here at first.**
- *
- * libjpeg-turbo 3.x compiles a dozen of its sources three times over, at 8, 12 and 16
- * bits per sample, through generated one-line wrappers that `#define BITS_IN_JSAMPLE`
- * and include the real file. `jmorecfg.h` renames every function accordingly -
- * `jinit_1pass_quantizer` becomes `j12init_1pass_quantizer` - and `jdmaster.c` calls
- * whichever the image's precision needs, at run time.
- *
- * Writing this unguarded overrode the wrapper's own define, so all three passes
- * compiled as 8-bit, every `j12*` symbol went undefined, and the library did not link.
- * Upstream's `jconfig.h.in` has the guard; dropping it was a transcription error, and
- * it cost a link that had looked like 27 clean compiles.
+ * Guarded as in upstream's `jconfig.h.in`: the per-precision wrappers define
+ * `BITS_IN_JSAMPLE` as 12 or 16 before including the real source, and an unguarded
+ * define would compile every pass as 8-bit and leave the `j12*` symbols undefined.
  */
 #ifndef BITS_IN_JSAMPLE
 #define BITS_IN_JSAMPLE 8

@@ -8,21 +8,8 @@
 # The immediate-mode UI libultraship builds its debug and configuration interface on. Needs SDL
 # and oops-gl, so include `oops-sdl.mk` and the SDK's GL feature first.
 #
-# # Five of the seven sources compile; the GL3 backend does not, yet
-#
-# `imgui_impl_opengl3.cpp` names ten things `oops-gl` does not have: `glGenVertexArrays`,
-# `glBindVertexArray`, `glDeleteVertexArrays`, `glGetStringi`, and the enums `GL_MAJOR_VERSION`,
-# `GL_MINOR_VERSION`, `GL_NUM_EXTENSIONS`, `GL_VERTEX_ARRAY_BINDING`, `GL_PIXEL_UNPACK_BUFFER` and
-# `GL_PIXEL_UNPACK_BUFFER_BINDING`.
-#
-# **That is a correction to what this title's README used to say.** It recorded the vertex-array
-# calls as *not* needed, because in `libultraship`'s own sources they appear only inside
-# `#if defined(__APPLE__) || defined(USE_OPENGLES)`. True, and beside the point: ImGui's GL3
-# backend uses them unconditionally on desktop GL, and libultraship links that backend. The
-# earlier answer came from grepping the port; this one came from compiling it.
-#
-# Vertex array objects are real work in `oops-gl` - they capture attribute state, they are not a
-# handle to wrap - so they are their own job rather than something to bolt on here.
+# `imgui_impl_opengl3.cpp` uses vertex array objects, `glGetStringi` and the GL3 version and
+# extension enums unconditionally on desktop GL, so it needs them from `oops-gl`.
 ifndef OOPS_IMGUI_DIR
 OOPS_IMGUI_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
@@ -35,11 +22,8 @@ OOPS_IMGUI_LDFLAGS := $(OOPS_IMGUI_LIB)
 
 # Upstream's `target_sources` from `libultraship/cmake/dependencies/common.cmake:21` and `:30` -
 # the five core files and the two backends libultraship selects, not every backend in the tree.
-#
-# `imgui_demo.cpp` is one of the five. It is the demo window, which a shipped title never opens -
-# but libultraship lists it, and `ImGui::ShowDemoWindow` is reachable from the runtime's own debug
-# menu, so leaving it out would turn a menu entry into a link-time hole that a payload link does
-# not report.
+# `imgui_demo.cpp` stays: `ImGui::ShowDemoWindow` is reachable from the runtime's debug menu,
+# and a payload link does not report the missing symbol.
 OOPS_IMGUI_SRCS := \
     $(OOPS_IMGUI_UPSTREAM)/imgui.cpp \
     $(OOPS_IMGUI_UPSTREAM)/imgui_demo.cpp \
@@ -49,15 +33,11 @@ OOPS_IMGUI_SRCS := \
     $(OOPS_IMGUI_UPSTREAM)/backends/imgui_impl_opengl3.cpp \
     $(OOPS_IMGUI_UPSTREAM)/backends/imgui_impl_sdl2.cpp
 
-# `IMGUI_IMPL_OPENGL_LOADER_CUSTOM` with no loader header behind it: `imgui_impl_opengl3.cpp`
-# otherwise picks a loader (glad, glew, gl3w) and includes it. `oops-gl` *is* the GL here and its
-# entry points are ordinary linked symbols, so there is nothing to load at run time - the define
-# tells the backend to use whatever `<GL/gl.h>` already declared, which is ours.
+# `IMGUI_IMPL_OPENGL_LOADER_CUSTOM` with no loader header: `oops-gl` entry points are linked
+# symbols, so the backend uses what `<GL/gl.h>` declares instead of glad, glew or gl3w.
 #
-# `IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS` is upstream's own option for a platform with no shell to
-# open a path in. Without it `imgui.cpp` reaches for `<sys/wait.h>`, `fork` and `xdg-open`, none of
-# which exist on this console - and the feature behind them is "click a link in the demo window",
-# which has nowhere to go here anyway. A flag upstream provides beats a patch we would rebase.
+# `IMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS` is upstream's option for a platform with no shell;
+# without it `imgui.cpp` wants `<sys/wait.h>`, `fork` and `xdg-open`.
 OOPS_IMGUI_DEFS := -DIMGUI_IMPL_OPENGL_LOADER_CUSTOM -DIMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS
 
 OOPS_IMGUI_CXXFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \

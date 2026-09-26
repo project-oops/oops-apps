@@ -1,13 +1,7 @@
 name: Deploy docs to GitHub Pages
 
-# The same shape oops-libs and oops-sdk use, and for the same reason: this is not one of the
-# four, so it publishes its documentation and nothing else. `/` redirects straight to it
-# rather than inventing a front page for a repository that does not want one.
-#
-# `paths-ignore` rather than a `paths` allowlist. An allowlist that forgot `docs/**` is how
-# three of the sibling sites silently lagged their own documentation - the deploy went green
-# and published the previous commit's pages. Naming what cannot change the site is the safe
-# direction to be wrong in.
+# Publishes the documentation and the apps index, as oops-libs and oops-sdk do.
+# `paths-ignore` names what cannot change the site, so a new docs path is never missed.
 
 on:
   push:
@@ -30,11 +24,8 @@ concurrency:
 jobs:
   build:
     name: Build site bundle
-    # GitHub Pages does not serve a private repository on a free plan, so turning this
-    # repository private turns Pages off with it. Without this guard the workflow fails red on
-    # every push - a mark that means nothing but that the site is deliberately not there. Gated
-    # rather than deleted: flip the repository back to public and the site returns. The four
-    # project repos carry the same gate; this aligns oops-apps with them.
+    # Pages does not serve a private repository on a free plan, so the job runs only while
+    # the repository is public.
     if: github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
     steps:
@@ -53,20 +44,18 @@ jobs:
       - name: Siblings this build needs
         run: OOPS/bin/oops bootstrap oops-apps
         env:
-          # Empty unless the org secret exists, and empty is the old behaviour.
+          # Empty unless the org secret exists.
           OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
 
       - name: Assemble bundle
         run: |
           set -euo pipefail
           mkdir -p site
-          # The documentation, under /docs/, rendered by the shared builder the whole
-          # collection uses so every set of docs looks alike. Grey rather than a project
-          # accent: oops-apps is not one of the four.
+          # The documentation under /docs/, by the collection's shared builder, in the
+          # neutral grey used for repositories that are not one of the four projects.
           bash ../tools/build-docs.sh . site "#8b9096" "oops-apps"
-          # The oops-apps index at the site root. Generated from the apps themselves
-          # (app.env, README, screenshots) so it never lags the repo; its download buttons
-          # resolve live from the rolling latest-main release.
+          # The apps index at the site root, generated from each app's app.env, README and
+          # screenshots; download buttons resolve from the rolling latest-main release.
           bash ../tools/build-apps-index.sh . site "#3fb950"
           du -sh site
         working-directory: OOPS/oops-apps

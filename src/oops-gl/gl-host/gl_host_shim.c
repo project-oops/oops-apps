@@ -1,31 +1,12 @@
 /*
  * gl-host - run an unmodified GL 1.x program against oops-gl, on a desktop.
  *
- * **The point is the next port, not this one.** Every question asked of oops-gl so far
- * has cost a console run and a photograph of a television: build, push, launch, look,
- * guess again. That is affordable once and not affordable for a shelf of titles. A
- * program linked against GL calls the same entry points wherever it runs, so putting
- * this library in front of the system's one makes those calls land in oops-gl instead -
- * on a machine with a debugger, a filesystem and no queue for the hardware.
- *
- * What it gives, for any title, before a line of porting work is done:
- *
- *   - the frame oops-gl draws from that title's own calls, beside the frame the title's
- * normal driver draws, which is the comparison that has been missing
- *   - every error oops-gl raised while drawing it, which is the list of what that title
- * needs and this GL has not got
- *
- * Driven by the environment rather than by arguments, because the program being
- * measured owns its own command line:
- *
- *   OOPS_GL_HOST_W, OOPS_GL_HOST_H   the display to open (default 800x600)
- *   OOPS_GL_HOST_DUMP                path prefix for frames; "shot" writes
- * shot-0001.ppm OOPS_GL_HOST_EVERY              dump one frame in N (default 1)
- *   OOPS_GL_HOST_MAX                stop dumping after this many frames (default 8)
- *   OOPS_GL_HOST_REPORT             where to write the readiness report (default
- * stderr)
- *
- * Used as:
+ * Preloaded in front of the system GL, it makes a program's GL calls land in oops-gl,
+ * dumps the frames oops-gl draws, and reports GL errors and missing entry points.
+ * Configured by environment, since the program owns its command line:
+ * OOPS_GL_HOST_W/_H (display, default 800x600), OOPS_GL_HOST_DUMP (frame path prefix),
+ * OOPS_GL_HOST_EVERY (dump one frame in N), OOPS_GL_HOST_MAX (frames to dump, default
+ * 8), OOPS_GL_HOST_REPORT (report path, default stderr).
  *
  *   OOPS_GL_HOST_DUMP=/tmp/nb LD_PRELOAD=./liboopsGL.so ./neverball
  */
@@ -41,12 +22,8 @@
 #include <string.h>
 
 /* --------------------------------------------------------------------------
- * The display.
- *
- * oops-sdk's real one talks to the console's display engine, which is not here - so
- * this stands in, exactly as gl1-probe's and gl-cube's self-tests do. The software
- * rasteriser writes into this buffer and the dump reads it back out, which is the whole
- * mechanism.
+ * The display: a plain buffer standing in for the console's display engine. The
+ * software rasteriser writes into it and the dump reads it back out.
  * -------------------------------------------------------------------------- */
 
 static uint32_t *s_fb;
@@ -110,11 +87,8 @@ static unsigned long env_num(const char *name, unsigned long dflt) {
     return (end && *end == '\0') ? n : dflt;
 }
 
-/* **A constructor, not lazy initialisation on the first GL call.** There are 667 entry
- * points and any of them can be the first; a check at the top of each would mean
- * touching all of them, and a check in only some would mean the one that got missed
- * draws into no context at all and silently does nothing. The loader runs this before
- * the program's own main, which is earlier than any GL call can be. */
+/* A constructor rather than lazy initialisation, since any entry point can be the first
+ * call. The loader runs it before the program's main, so before any GL call. */
 __attribute__((constructor)) static void gl_host_init(void) {
     const unsigned int w = (unsigned int)env_num("OOPS_GL_HOST_W", 800);
     const unsigned int h = (unsigned int)env_num("OOPS_GL_HOST_H", 600);
@@ -130,8 +104,8 @@ __attribute__((constructor)) static void gl_host_init(void) {
     }
     fprintf(stderr, "gl-host: oops-gl is the GL for this process (%ux%u)\n", w, h);
 
-    /* Recording, if it was asked for, from here - which is before the program's own
-       main and so before any texture it will ever upload. See `capture_tick`. */
+    /* Recording, if asked for, starts here - before the program's main and so before
+       any texture it uploads. See `capture_tick`. */
     {
         const char *cap = getenv("OOPS_GL_HOST_CAPTURE");
         if (cap && *cap) {
@@ -142,8 +116,7 @@ __attribute__((constructor)) static void gl_host_init(void) {
     }
 }
 
-/* One frame, as a binary PPM - the format costs fifteen lines to write and every image
- * tool reads it, which is the right trade for a debugging artifact nobody keeps. */
+/* One frame, as a binary PPM: no library needed, and every image tool reads it. */
 static void dump_frame(unsigned long n) {
     const char *prefix = getenv("OOPS_GL_HOST_DUMP");
     if (!prefix || !s_fb)
@@ -156,11 +129,9 @@ static void dump_frame(unsigned long n) {
         return;
     fprintf(f, "P6\n%u %u\n255\n", s_w, s_h);
 
-    /* Read through GL rather than off the buffer directly: glReadPixels is what a
-     * caller would use, it applies the same origin convention every other reader here
-     * assumes, and going through it means this reports the pixels oops-gl says it drew
-     * rather than the ones this file guessed the layout of. PPM is top-down and GL's
-     * origin is bottom-left, so the rows come back in the order this has to reverse. */
+    /* Read through glReadPixels rather than off the buffer, so this reports the pixels
+     * oops-gl says it drew. PPM is top-down and GL's origin is bottom-left, so the rows
+     * are reversed. */
     unsigned char *rgba = (unsigned char *)malloc((size_t)s_w * (size_t)s_h * 4u);
     if (!rgba) {
         fclose(f);
@@ -185,30 +156,14 @@ static void dump_frame(unsigned long n) {
 /* --------------------------------------------------------------------------
  * The frame boundary.
  *
- * A GL program does not tell its driver when a frame ends - it tells its *windowing*
- * library, and SDL is what every title here uses. Interposing the swap is therefore how
- * this finds out, and forwarding it afterwards is what keeps the program running
- * normally: it still has its own real context from the system driver, still presents to
- * its own window, and still behaves like a program rather than like a program being
- * measured.
+ * A GL program tells its windowing library, SDL here, when a frame ends, so the swap is
+ * interposed and then forwarded: the program keeps its real context and window.
  * -------------------------------------------------------------------------- */
 
-/* **One frame's call stream, written out as a file.**
- *
- * The capture engine has existed for a while and has never been usable, because the
- * console has no writable filesystem to get a capture off. Recording on a desktop
- * instead solves that from the other end: the same calls, the same format, and a
- * filesystem to put it in.
- *
- * What it is for is bisection. `oops_gl_capture_replay` takes a prefix, so a capture
- * replayed on hardware can be cut at any call - and the call at which the replayed
- * frame stops matching the host's is the call that breaks it. Nine synthetic
- * reproductions of the port's broken surface have passed on hardware; the stream is
- * what they were all failing to be.
- *
- * OOPS_GL_HOST_CAPTURE names the file and OOPS_GL_HOST_CAPTURE_FRAME the frame to
- * record, counted in swaps - the title screen takes a few frames to settle, so frame 1
- * is rarely the one worth having.
+/* Writes one frame's call stream to a file, for replay on hardware. The replay can be
+ * cut at any call, so the call where the replayed frame stops matching the host's is
+ * the one that breaks it. OOPS_GL_HOST_CAPTURE names the file and
+ * OOPS_GL_HOST_CAPTURE_FRAME the frame to record, counted in swaps.
  */
 static void capture_tick(unsigned long frame) {
     const char *path = getenv("OOPS_GL_HOST_CAPTURE");
@@ -216,12 +171,9 @@ static void capture_tick(unsigned long frame) {
         return;
     const unsigned long want = env_num("OOPS_GL_HOST_CAPTURE_FRAME", 60);
 
-    /* **Recording starts before the program does**, in the constructor, not a frame
-       before the one wanted. A title uploads its textures while it loads and draws with
-       them for the rest of its life, so a capture of one frame in the middle names
-       textures that were created before it began - replayed, it draws an untextured
-       white screen, which is exactly what the first attempt produced. The upload has to
-       be in the stream with the draw that uses it. */
+    /* Recording starts in the constructor, not a frame before the one wanted: a title
+       uploads its textures while it loads, and the upload has to be in the stream with
+       the draw that uses it. */
     if (frame != want)
         return;
 
@@ -248,11 +200,9 @@ void SDL_GL_SwapWindow(void *window) {
     s_frames++;
     capture_tick(s_frames);
 
-    /* Asked at the boundary rather than per call: glGetError clears as it reports, so a
-     * caller checking its own errors would hide them from this and this would hide them
-     * from the caller. At a swap the program has had its chance and whatever is left is
-     * unexamined - and an unexamined error is exactly the kind a port never notices it
-     * is relying on. */
+    /* Asked at the swap rather than per call: glGetError clears as it reports, so a
+     * per-call check would hide errors from the program. What is left at a swap is
+     * what the program never examined. */
     for (;;) {
         const GLenum e = glGetError();
         if (e == GL_NO_ERROR)
@@ -282,22 +232,10 @@ void SDL_GL_SwapWindow(void *window) {
 /* --------------------------------------------------------------------------
  * How a title finds the GL it is going to use.
  *
- * **Half a GL is worse than none.** A GL 1.x program links the entry points that
- * existed in 1.1 and asks for everything newer by name, because that is how extensions
- * have always been reached - Neverball takes `glBindBuffer` and the rest of the
- * buffer-object family this way (share/glext.c). Those requests go to SDL, which
- * answers out of the system driver, so without this a title's buffer calls configure
- * the *system's* GL while its draw calls arrive here. The two then disagree about
- * everything: this GL is told to draw from an array whose buffer it never saw bound,
- * reads the offset as a client pointer, and follows it into nothing.
- *
- * That cost an afternoon and looked exactly like a bug in the array path, which is
- * worth saying plainly - the first crash this harness produced was the harness's fault,
- * and a harness that manufactures faults is worse than no harness at all.
- *
- * The names are counted on the way past, because what a title asks for *is* the list of
- * what it needs. A name this GL cannot answer is a porting task, discovered before
- * anyone has built anything for the console.
+ * A GL 1.x program links the 1.1 entry points and asks for everything newer by name
+ * through SDL (Neverball's share/glext.c takes the buffer-object family this way).
+ * Interposing the lookup keeps those calls in oops-gl too, so buffer binds and draws
+ * reach the same GL. Names this GL cannot answer are recorded for the report.
  * -------------------------------------------------------------------------- */
 
 #define GL_HOST_MAX_MISSING 64
@@ -308,10 +246,9 @@ static char s_missing_store[GL_HOST_MAX_MISSING][64];
 
 void *SDL_GL_GetProcAddress(const char *name) {
     if (name) {
-        /* Ours first. The loader searches the executable, then the preloaded libraries,
-         * then everything else - and the program under test does not define GL entry
-         * points, so a name this library exports resolves here and not in the system
-         * driver. */
+        /* Ours first: the loader searches the executable, then the preloaded
+         * libraries, so a name this library exports resolves here and not in the
+         * system driver. */
         void *p = dlsym(RTLD_DEFAULT, name);
         if (p) {
             s_proc_ours++;
@@ -327,8 +264,7 @@ void *SDL_GL_GetProcAddress(const char *name) {
         }
         s_proc_missing++;
     }
-    /* Not ours: let SDL answer, so the program still gets whatever it was going to get
-     * and behaves as it normally would rather than crashing inside the measurement. */
+    /* Not ours: SDL answers, so the program still gets what it would otherwise get. */
     static void *(*real_gpa)(const char *);
     if (!real_gpa) {
         *(void **)(&real_gpa) = dlsym(RTLD_NEXT, "SDL_GL_GetProcAddress");
@@ -339,9 +275,7 @@ void *SDL_GL_GetProcAddress(const char *name) {
 /* --------------------------------------------------------------------------
  * The report.
  *
- * What a title asked of this GL and did not get. For a port that has not started yet
- * this is the answer to "what does it need", which is otherwise discovered one hardware
- * run at a time.
+ * What a title asked of this GL and did not get: the porting task list for that title.
  * -------------------------------------------------------------------------- */
 
 __attribute__((destructor)) static void gl_host_report(void) {
@@ -358,9 +292,7 @@ __attribute__((destructor)) static void gl_host_report(void) {
         fprintf(f, ", first 0x%04x", (unsigned)s_first_error);
     fprintf(f, "\ngl-host: %lu entry points served, %lu not ours\n", s_proc_ours,
             s_proc_missing);
-    /* **The porting task list.** Every name here is something the title looked for and
-     * this GL did not have, which is the question a new port opens with and has until
-     * now been answered by building it and finding out. */
+    /* Every name the title looked up that this GL does not have. */
     const unsigned long shown =
         (s_proc_missing < GL_HOST_MAX_MISSING) ? s_proc_missing : GL_HOST_MAX_MISSING;
     for (unsigned long i = 0; i < shown; i++) {

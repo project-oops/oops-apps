@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 #
 # Build every demo in turn and record one row per demo. See tools/README.md.
-#
-# The root is derived from this script's own location rather than written down, so the file
-# carries no absolute path - which is both what the collection's conventions require and what
-# makes it work from any checkout.
+# The root is derived from this script's location.
 set -u
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,8 +18,7 @@ mkdir -p "$TITLE/build"
 for f in upstream/src/demos/*.c; do
     d="$(basename "$f" .c)"
 
-    # Each demo links to the same ELF, so the previous one is removed rather than trusted:
-    # changing DEMO does not change any source mtime, and make would otherwise call it up to date.
+    # Every demo links to the same ELF and DEMO changes no mtime, so the old one is removed.
     rm -f build/mesa-demos.elf build/imports.txt
 
     if ! make DEMO="$d" > "$LOG" 2>&1; then
@@ -32,8 +28,7 @@ for f in upstream/src/demos/*.c; do
         continue
     fi
 
-    # `make imports` is the useful gate: payload links ignore unresolved symbols, so this is what
-    # names a missing function before the console does.
+    # Payload links ignore unresolved symbols; `make imports` names a missing function.
     if ! make DEMO="$d" imports > "$LOG" 2>&1; then
         miss="$(awk '/need a library by hand/{f=1;next} f&&/^    /{gsub(/^ +/,"");printf "%s ",$0} f&&/^$/{exit}' "$LOG" | cut -c1-110)"
         printf '%s\tIMPORTS-FAIL\t%s\n' "$d" "$miss" >> "$OUT"

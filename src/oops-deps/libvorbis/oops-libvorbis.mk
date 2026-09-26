@@ -3,15 +3,11 @@
 #   OOPS_VORBIS ?= $(abspath ../../oops-deps/libvorbis)
 #   include $(OOPS_VORBIS)/oops-libvorbis.mk
 #
-# **The source list is upstream's `libvorbis_la_SOURCES`, not `lib/*.c`.** That glob was tried
-# first and swept in `psytune.c` and `tone.c`, which are standalone tuning programs with their
-# own `main()`, and `misc.c`, which is debug scaffolding. Upstream's Makefile.am already knows
-# which files are the library; reading it is cheaper than discovering the difference from
-# compile errors.
+# The source list is upstream's `libvorbis_la_SOURCES` (`lib/Makefile.am`), not `lib/*.c`, which
+# also holds the standalone programs `psytune.c` and `tone.c` and the debug helper `misc.c`.
 #
 # `vorbisfile.c` is its own library upstream (`libvorbisfile_la_SOURCES`) and is what Neverball
-# actually calls - `ov_open_callbacks`, `ov_read`. It is in the same archive here because a
-# payload links one archive either way.
+# calls; it shares this archive.
 ifndef OOPS_VORBIS_DIR
 OOPS_VORBIS_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
@@ -29,7 +25,7 @@ OOPS_VORBIS_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin 
                      -nostdlibinc -fPIC -O2 -w -I$(OOPS_VORBIS_UPSTREAM)/lib \
                      $(OOPS_VORBIS_INCLUDE) $(OOPS_POSIX_INCLUDE) \
                      $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
-# `ar` is handed the list rather than the directory - `common/deps.mk` says what the glob cost.
+# `ar` is handed the object list rather than a directory glob (see `common/deps.mk`).
 $(OOPS_VORBIS_LIB): $(OOPS_VORBIS_SRCS) $(lastword $(MAKEFILE_LIST))
 	@mkdir -p $(OOPS_VORBIS_BUILD)
 	@rm -f $@

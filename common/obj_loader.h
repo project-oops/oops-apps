@@ -1,6 +1,6 @@
 /*
- * oops-apps: Freestanding 3D Wavefront OBJ Loader & Procedural Mesh Generator
- * Zero libc dependencies. Uses oops/freestd.h and oops/memory.h.
+ * obj_loader.h - a freestanding Wavefront OBJ loader and procedural mesh generator.
+ * No libc dependencies; uses oops/freestd.h and oops/memory.h.
  */
 
 #ifndef OOPS_OBJ_LOADER_H
@@ -24,9 +24,9 @@ extern "C" {
 #endif
 
 /*
- * Parses a Wavefront OBJ from memory buffer.
- * Automatically triangulates convex faces, computes normals if missing,
- * generates vibrant per-vertex colors, and scales/centers the mesh into [-1.0, 1.0].
+ * Parses a Wavefront OBJ from a memory buffer.
+ * Triangulates convex faces, computes normals if missing, generates per-vertex
+ * colours, and scales and centres the mesh into [-1.0, 1.0].
  * Returns 0 on success, negative error code on failure.
  */
 int oops_mesh_load_obj(const char *data, size_t size, oops_mesh_t *out_mesh);

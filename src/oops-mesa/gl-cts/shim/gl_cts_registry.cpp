@@ -1,53 +1,14 @@
 /*
  * `glcts::registerPackages()` - which test packages this build contains.
  *
- * This stands in for `external/openglcts/modules/glcTestPackageRegistry.cpp`, which is
- * excluded from the build. Upstream's version registers thirty-one packages and this
- * registers twenty-five; the six it leaves out and the reason for each are below, and
- * **the reason is never that they were not wanted**.
+ * Stands in for the excluded `glcTestPackageRegistry.cpp`. Every package is
+ * constructed as upstream constructs it, with the same name, so results stay
+ * comparable. The `KHR-*` ES packages stay and report `NotSupported` without ES.
  *
- * # Why a replacement rather than a patch
- *
- * `patches/` is for changing upstream's behaviour. This changes nothing about how any
- * package behaves - every package here is constructed exactly as upstream constructs
- * it, with the same name string, so a result from this binary is comparable with a
- * result from any other. What differs is only the *set*, and a set is better stated in
- * one readable file than reconstructed from a diff. `AGENTS.md` puts our code in
- * `shim/`; this is ours.
- *
- * # The six that are absent, and what it would take to have them
- *
- *     dEQP-EGL           teglTestPackage.hpp     modules/egl
- *     dEQP-GLES2         tes2TestPackage.hpp     modules/gles2
- *     dEQP-GLES3         tes3TestPackage.hpp     modules/gles3
- *     dEQP-GLES31        tes31TestPackage.hpp    modules/gles31
- *     dEQP-GL45-GLES3    tgl45es3TestPackage.hpp     modules/gles3
- *     dEQP-GL45-GLES31   tgl45es31TestPackage.hpp    modules/gles31
- *
- * These are dEQP's *own* test modules - the top-level `modules/` trees, not
- * `external/openglcts/modules/` - and `upstream.lock` does not fetch them. They are
- * carried in the conformance binary because a Khronos submission requires them; they
- * are not part of the `KHR-*` suite and nothing in the `KHR-*` suite refers to them.
- *
- * **Adding them is four lines in the lock and no thought**, which is precisely why the
- * shape of this file matters: adding `modules/egl modules/gles2 modules/gles3
- * modules/gles31` to `UPSTREAM_SPARSE` and un-commenting the six blocks below is the
- * whole change. The last two are the ones worth having first - `dEQP-GL45-GLES3` and
- * `dEQP-GL45-GLES31` run the ES3 and ES31 test sets against a *desktop GL 4.5 context*,
- * so they exercise this driver rather than an ES driver it does not have. The first
- * four need an EGL display, and `shim/tcuOopsPlatform.cpp` implements no
- * `tcu::EGLPlatform`, so they would construct and then report `NotSupported` for every
- * case.
- *
- * # Everything else upstream registers is here
- *
- * All twenty-four `KHR-*` packages and `CTS-Configs`, including the whole ES side. The
- * ES packages are kept even though this platform has no ES driver: `KHR-GLES2` and its
- * siblings ask the platform for an ES context, the platform does not offer one, and
- * dEQP reports `NotSupported` - which is a *result*, and the honest one. Dropping them
- * would make the case list shorter without making any answer in it different, and
- * `oops-mesa`'s roadmap row 8 is explicit that which cases run is a run-time choice.
- * `/app0/cts-args.txt` is where that choice is made.
+ * Absent: dEQP's own EGL, GLES2, GLES3, GLES31, GL45-GLES3 and GL45-GLES31 packages,
+ * from the top-level `modules/egl` and `modules/gles*`, which `upstream.lock` does not
+ * fetch. Adding those to `UPSTREAM_SPARSE` and registering them is the whole change;
+ * the EGL-based ones need a `tcu::EglPlatform`.
  */
 #include "glcTestPackageRegistry.hpp"
 
@@ -148,18 +109,9 @@ static tcu::TestPackage *createGL46Package(tcu::TestContext &testCtx) {
 }
 
 /*
- * Called from `external/openglcts/modules/glcTestPackageEntry.cpp`, which is upstream's
- * and is compiled unmodified. That file is a single namespace-scope object whose
- * constructor calls this - so **nothing here runs unless `.init_array` is walked**, and
- * on this platform nothing walks it but `oops_mesa_run_init_array()` in
- * `shim/gl_cts_entry.c`. Without that call the suite starts, opens its log, finds an
- * empty registry and reports zero cases.
- *
- * The registration order is upstream's. It has no effect on execution -
- * `tcu::TestPackageRegistry` is keyed by name and the runner walks it by name - but
- * keeping it makes this file diffable against `glcTestPackageRegistry.cpp` on a version
- * bump, which is the one thing that has to stay cheap about carrying a replacement for
- * somebody else's file.
+ * Called by a constructor in upstream's `glcTestPackageEntry.cpp`, so it runs only when
+ * `oops_mesa_run_init_array()` walks `.init_array`. The order is upstream's, so this
+ * file diffs against `glcTestPackageRegistry.cpp`; the registry is keyed by name.
  */
 void registerPackages(void) {
     tcu::TestPackageRegistry *registry = tcu::TestPackageRegistry::getSingleton();

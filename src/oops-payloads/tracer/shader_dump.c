@@ -1,3 +1,11 @@
+/*
+ * shader_dump - the tracer's shader-creation hook.
+ *
+ * Every shader the title creates is recorded in the trace; each distinct one (by FNV-1a
+ * hash of its code) is also written once to the dump directory as <hash>.bin, with its
+ * container header beside it as <hash>.hdr. The same code builds on the host for the
+ * self-test, writing through POSIX instead of oops/fs.h.
+ */
 #include "shader_dump.h"
 #include "tracer.h"
 
@@ -123,6 +131,7 @@ static int write_dump_file(const char *path, const void *data, size_t len) {
 #endif
 }
 
+/* The stage in the header's first word, or compute when it is absent or unknown. */
 static uint32_t parse_shader_stage(const void *header) {
     if (header == NULL) {
         return SHADER_STAGE_CS;
@@ -135,6 +144,8 @@ static uint32_t parse_shader_stage(const void *header) {
     return SHADER_STAGE_CS;
 }
 
+/* The code size: a plausible length in the header's third or fourth word, else up to
+ * the first s_endpgm rounded to 16 bytes, else 256. */
 static uint32_t parse_shader_size(const void *header, const void *payload) {
     uint32_t size = 0;
     if (header != NULL) {

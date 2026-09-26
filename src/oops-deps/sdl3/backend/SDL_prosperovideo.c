@@ -1,27 +1,13 @@
 /*
  * SDL3's video driver for this console, over `oops/gfx.h` and `oops/display.h`.
  *
- * # One display, one window, one context
+ * One display, one window, one GL context. The display is open before a payload runs,
+ * so there is one display mode and the window is the display: it cannot be moved,
+ * resized, hidden or given a border. `oops-deps/sdl2/backend/SDL_prosperovideo.c` is
+ * the same driver for SDL2's interface.
  *
- * A desktop's video driver abstracts a window system. This console has a single display
- * that is already open by the time a payload runs, so most of the interface has one
- * honest answer: there is one display mode, `CreateSDLWindow` hands back the display it
- * already had, and the window cannot be moved, resized, hidden or given a border.
- * Saying so plainly is better than a driver that accepts a resize and quietly ignores
- * it.
- *
- * `oops-deps/sdl2/backend/SDL_prosperovideo.c` is the same driver for SDL2, and the
- * shape carries over even though the interface does not: SDL3 renamed `driverdata` to
- * `internal`, made every entry point return `bool` instead of `int`, replaced
- * `GL_DeleteContext` with `GL_DestroyContext` and dropped `GL_GetDrawableSize` in
- * favour of the window's own size.
- *
- * # The present goes through the renderer
- *
- * `GL_SwapWindow` calls `oops_gfx_present`, not `oops_display_flip`. The flip belongs
- * to whichever back end `oops_gfx` is driving - a GPU-accelerated one has a command
- * buffer to submit first, and flipping underneath it shows the previous frame. The SDL2
- * driver records the same.
+ * `GL_SwapWindow` presents through `oops_gfx_present`, not `oops_display_flip`: a GPU
+ * back end has a command buffer to submit before the flip.
  */
 #include "SDL_internal.h"
 
@@ -50,15 +36,13 @@ typedef struct {
 } PROSPERO_VideoData;
 
 /*
- * **The context is a fixed address, not an allocation.** There is exactly one GL
- * context - the display's - and it outlives every
- * `SDL_GL_CreateContext`/`DestroyContext` pair. Handing back the address of a
- * file-scope object makes "is this our context?" a pointer comparison, and makes
- * destroying it a no-op that cannot accidentally free something the display still owns.
+ * The one GL context is the display's and outlives every create/destroy pair, so its
+ * handle is the address of a file-scope object: identity is a pointer comparison and
+ * destroying it frees nothing.
  */
 static const int prospero_the_context = 0;
 
-/* ---- bring-up ----------------------------------------------------------- */
+/* Bring-up. */
 
 static bool PROSPERO_VideoInit(SDL_VideoDevice *_this) {
     PROSPERO_VideoData *data = (PROSPERO_VideoData *)_this->internal;
@@ -73,22 +57,17 @@ static bool PROSPERO_VideoInit(SDL_VideoDevice *_this) {
 
     oops_time_init();
 
-    /* The system's close request - the PS button's "Close Application" - has to reach
-     * SDL as a quit event rather than killing the process from under it. */
+    /* The system's close request reaches SDL as a quit event (see `PumpEvents`). */
     oops_system_install_close_handler();
 
-    /* Neither is fatal: a console with no keyboard or mouse attached is the normal
-     * case, and the pad is a joystick rather than either of these. */
+    /* Neither is fatal: no keyboard or mouse is the normal case. */
     data->keyboard_ready = (oops_keyboard_init() == 0);
     data->mouse_ready = (oops_mouse_init() == 0);
 
     SDL_zero(mode);
     mode.w = (int)oops_display_get_width(data->display);
     mode.h = (int)oops_display_get_height(data->display);
-    /* **`SDL_PIXELFORMAT_XRGB8888`, and the X matters.** The scanout is 32 bits per
-     * pixel with the top byte unused rather than an alpha channel - a mode claiming
-     * ARGB would have SDL's own software renderer blending against a byte the display
-     * ignores. */
+    /* The scanout is 32 bits per pixel with the top byte unused, not alpha. */
     mode.format = SDL_PIXELFORMAT_XRGB8888;
     mode.refresh_rate = 0.0f; /* unknown here; SDL takes 0 as "do not report one" */
 
@@ -120,7 +99,7 @@ static void PROSPERO_VideoQuit(SDL_VideoDevice *_this) {
     data->window = NULL;
 }
 
-/* ---- the one window ----------------------------------------------------- */
+/* The window. */
 
 static bool PROSPERO_CreateSDLWindow(SDL_VideoDevice *_this, SDL_Window *window,
                                      SDL_PropertiesID create_props) {
@@ -131,14 +110,11 @@ static bool PROSPERO_CreateSDLWindow(SDL_VideoDevice *_this, SDL_Window *window,
         return SDL_SetError("prospero: no display, so no window");
     }
     if (data->window) {
-        /* **Refused rather than silently sharing.** A program that opens a second
-         * window and is handed the first would draw both into the same display and see
-         * neither. */
+        /* A second window would share the one display. */
         return SDL_SetError("prospero: this display already has a window");
     }
 
-    /* The window is the display, whatever size was asked for. SDL wants to be told the
-     * size it actually got, which these two assignments are. */
+    /* The window is the display, whatever size was asked for. */
     window->w = (int)oops_display_get_width(data->display);
     window->h = (int)oops_display_get_height(data->display);
     window->flags |= SDL_WINDOW_FULLSCREEN | SDL_WINDOW_BORDERLESS;
@@ -159,12 +135,8 @@ static void PROSPERO_DestroyWindow(SDL_VideoDevice *_this, SDL_Window *window) {
 }
 
 /*
- * **Both answer success without moving anything, and that is the truthful answer here
- * rather than a shortcut.** SDL's contract is that a driver reports the geometry the
- * window *actually* has by sending the event; a fullscreen window on a fixed display
- * has the geometry it always had, so the event carries the real numbers and the caller
- * is not misled. A driver that failed instead would stop programs that set a window
- * size on the way up, which is most of them.
+ * Both succeed without moving anything: the event reports the geometry the window
+ * actually has, as SDL's contract asks, and programs that set a size at start-up run.
  */
 static bool PROSPERO_SetWindowPosition(SDL_VideoDevice *_this, SDL_Window *window) {
     SDL_SendWindowEvent(window, SDL_EVENT_WINDOW_MOVED, window->x, window->y);
@@ -175,16 +147,13 @@ static void PROSPERO_SetWindowSize(SDL_VideoDevice *_this, SDL_Window *window) {
     SDL_SendWindowEvent(window, SDL_EVENT_WINDOW_RESIZED, window->w, window->h);
 }
 
-/* ---- events -------------------------------------------------------------- */
+/* Events. */
 
 static void PROSPERO_PumpEvents(SDL_VideoDevice *_this) {
     /*
-     * **The close request is the only event this driver sources.** The pad arrives
-     * through the joystick driver and the keyboard and mouse through their own
-     * subsystems; there is no window system to poll. `oops_system_close_requested()` is
-     * set by the handler installed above and stays set, so the quit is **latched** -
-     * sending one on every pump would fill the queue with duplicates and a program that
-     * ignores the first would never get anything else.
+     * The close request is the only event this driver sources; input arrives through
+     * its own subsystems. `oops_system_close_requested()` stays set, so the quit is
+     * sent once.
      */
     static bool quit_sent = false;
 
@@ -195,12 +164,10 @@ static void PROSPERO_PumpEvents(SDL_VideoDevice *_this) {
     }
 }
 
-/* ---- OpenGL --------------------------------------------------------------- */
+/* OpenGL. */
 
 static bool PROSPERO_GL_LoadLibrary(SDL_VideoDevice *_this, const char *path) {
-    /* There is no library to load: oops-gl is linked into the payload. A path is
-     * refused rather than ignored, because a caller naming one wants *that* library and
-     * would not get it. */
+    /* oops-gl is linked in; a caller naming a library would not get it. */
     if (path) {
         return SDL_SetError(
             "prospero: GL is linked in; there is no library to load from '%s'", path);
@@ -214,20 +181,12 @@ static void PROSPERO_GL_UnloadLibrary(SDL_VideoDevice *_this) {
 }
 
 /*
- * **This returned NULL for everything in the SDL2 driver until 2026-09-22**, on the
- * reasoning that a statically linked payload has every entry point already bound. The
- * reasoning was wrong and the console showed it: a title written against desktop GL
- * does not *name* the post-1.1 entry points as symbols at all - it holds function
- * pointers and fills them from strings, because on a desktop the driver is behind a
- * loader. Neverball took the NULL, stored it, and called it.
+ * A title written against desktop GL fills function pointers from names rather than
+ * linking the entry points. `oops_gl_get_proc_address` looks each name up in oops-gl's
+ * table of core and extension entry points (`oops-sdk/src/gl/gl_procs_core.h`).
  *
- * `oops_gl_get_proc_address` looks the name up in oops-gl's own table. That table
- * carries the core entry points as well as the extensions since 2026-09-26, which is
- * what a port binding *every* name by string needs - see
- * `oops-sdk/src/gl/gl_procs_core.h`.
- *
- * Weak, so that a title linking this driver without oops-gl gets NULL rather than a
- * link error.
+ * Weak, so a title linking this driver without oops-gl gets NULL rather than a link
+ * error.
  */
 __attribute__((weak)) void *oops_gl_get_proc_address(const char *name) {
     (void)name;
@@ -253,16 +212,12 @@ static SDL_GLContext PROSPERO_GL_CreateContext(SDL_VideoDevice *_this,
         return NULL;
     }
 
-    /* **What the caller is told it got.** The display is 32-bit XRGB with a 24-bit
-     * depth buffer and 8 bits of stencil; reporting anything else would have a program
-     * pick a configuration the display cannot show. Multisampling is 0 rather than 1:
-     * there is none, and a program that checks before enabling anti-aliasing should be
-     * told so. */
+    /* The configuration the display has: 32-bit XRGB, 24-bit depth, 8-bit stencil,
+     * no multisampling. */
     _this->gl_config.red_size = 8;
     _this->gl_config.green_size = 8;
     _this->gl_config.blue_size = 8;
-    _this->gl_config.alpha_size =
-        0; /* the top byte is unused, not alpha - see the mode above */
+    _this->gl_config.alpha_size = 0; /* the top byte is unused, not alpha */
     _this->gl_config.buffer_size = 32;
     _this->gl_config.depth_size = 24;
     _this->gl_config.stencil_size = 8;
@@ -279,8 +234,7 @@ static bool PROSPERO_GL_MakeCurrent(SDL_VideoDevice *_this, SDL_Window *window,
                                     SDL_GLContext context) {
     PROSPERO_VideoData *data = (PROSPERO_VideoData *)_this->internal;
 
-    /* Releasing the context is the one case where both arguments are NULL, and it
-     * succeeds. */
+    /* Both NULL releases the context. */
     if (!context && !window) {
         return true;
     }
@@ -296,18 +250,11 @@ static bool PROSPERO_GL_MakeCurrent(SDL_VideoDevice *_this, SDL_Window *window,
 static bool PROSPERO_GL_DestroyContext(SDL_VideoDevice *_this, SDL_GLContext context) {
     (void)_this;
     (void)context;
-    /* The context is the display's and outlives this call; tearing it down here would
-     * take the display with it under a program that is merely switching contexts.
-     * `VideoQuit` owns it. */
+    /* The context is the display's; `VideoQuit` owns it. */
     return true;
 }
 
-/*
- * **The flip is on vsync and cannot be turned off**, so anything but 1 is refused
- * rather than accepted and ignored. A program asking for 0 wants to run unlocked and
- * needs to know it cannot; one asking for -1 wants adaptive sync, which is the same
- * answer.
- */
+/* The flip is always on vsync, so any interval but 1 is refused. */
 static bool PROSPERO_GL_SetSwapInterval(SDL_VideoDevice *_this, int interval) {
     PROSPERO_VideoData *data = (PROSPERO_VideoData *)_this->internal;
 
@@ -334,16 +281,14 @@ static bool PROSPERO_GL_SwapWindow(SDL_VideoDevice *_this, SDL_Window *window) {
     if (window != data->window) {
         return SDL_SetError("prospero: that window is not this display's");
     }
-    /* Through the renderer rather than a bare `oops_display_flip`: the flip belongs to
-     * whichever back end `oops_gfx` is driving, and a GPU one has a command buffer to
-     * submit first. */
+    /* Through the renderer, which submits a GPU back end's commands before the flip. */
     if (oops_gfx_present(data->gfx) != 0) {
         return SDL_SetError("prospero: oops_gfx_present() failed");
     }
     return true;
 }
 
-/* ---- the device --------------------------------------------------------- */
+/* The device. */
 
 static void PROSPERO_DeleteDevice(SDL_VideoDevice *device) {
     SDL_free(device->internal);
@@ -363,7 +308,7 @@ static SDL_VideoDevice *PROSPERO_CreateDevice(void) {
         SDL_free(device);
         return NULL;
     }
-    data->swap_interval = 1; /* vsync, and it cannot be anything else */
+    data->swap_interval = 1; /* always vsync */
     device->internal = data;
 
     device->VideoInit = PROSPERO_VideoInit;
@@ -386,10 +331,8 @@ static SDL_VideoDevice *PROSPERO_CreateDevice(void) {
 
     device->free = PROSPERO_DeleteDevice;
 
-    /* **No `CreateWindowFramebuffer`.** That is SDL's software surface path, and
-     * offering it would let `SDL_GetWindowSurface` succeed with a buffer nothing
-     * presents. A program that wants pixels without GL should be told no and reach for
-     * the renderer instead. */
+    /* No `CreateWindowFramebuffer`: nothing would present SDL's software surface, so
+     * `SDL_GetWindowSurface` fails and a program uses the renderer. */
 
     return device;
 }
@@ -398,7 +341,7 @@ VideoBootStrap PRIVATE_bootstrap = {
     PROSPERO_DRIVER_NAME, "OOPS Prospero video driver", PROSPERO_CreateDevice,
     NULL, /* no ShowMessageBox: `oops/dialog.h` has one, but it is modal and
            * system-owned, and SDL calls this before the video subsystem is up */
-    true  /* preferred: it is the only one that can show anything here */
+    true  /* preferred: the only driver that can show anything */
 };
 
 #endif /* SDL_VIDEO_DRIVER_PRIVATE */

@@ -1,16 +1,7 @@
-# sdl12-compat's origin. Read by `common/upstream-fetch.sh`, shared with the titles and with
-# `../sdl2`.
+# sdl12-compat's origin. Read by `common/upstream-fetch.sh`.
 #
-# UPSTREAM_REV must be a full commit hash: a tag can be moved and a branch always is. UPSTREAM_REF
-# says which release that hash is, for a reader.
-#
-# **A lightweight tag, checked.** `git ls-remote refs/tags/release-1.2.76` and its peeled `^{}`
-# form give the same answer, so there is no annotated-tag object in between - the trap that put
-# the wrong hash in Neverball's lock the first time. Verified against a checkout: `rev-parse
-# HEAD` is this hash.
-#
-# 1.2.76 is the newest release; the tree also carries `prerelease-*` tags, and a port starts from
-# something upstream calls finished.
+# UPSTREAM_REV is a full commit hash, since a tag can be moved. UPSTREAM_REF names the release
+# for a reader. `release-1.2.76` is a lightweight tag, so the hash is the commit itself.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/libsdl-org/sdl12-compat
 UPSTREAM_REV=293b4cbd9eea61b18b9c9425d0c9200bff037360

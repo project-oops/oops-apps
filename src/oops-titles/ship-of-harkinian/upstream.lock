@@ -1,27 +1,18 @@
 # Ship of Harkinian's origin.
 #
-# `Shipwright` is the repository; "Ship of Harkinian" is what the program is called and `soh` is
-# what it builds. It is a native port of Ocarina of Time built on the `zeldaret/oot`
-# decompilation, and it reads the player's own ROM **at run time** rather than at build time -
-# see the README here for why that is the property that chose this title over the others surveyed.
+# `Shipwright` is the repository, "Ship of Harkinian" the program, and `soh` the binary it
+# builds. It is a native port of Ocarina of Time on the `zeldaret/oot` decompilation and
+# reads the player's own ROM at run time (see README.md here).
 #
-# Pinned to `9.2.3` ("Ackbar Delta", 2026-04-14), the newest release rather than the newest
-# commit: a port should start from something upstream calls finished. `9.2.3` is a *lightweight*
-# tag, so the ref and the commit are the same object - unlike Neverball's `neverball-1.6.0`, which
-# is annotated and where `git ls-remote --tags --refs` hands back the tag rather than the commit.
-# The hash below is what `rev-parse HEAD` must report after checkout, and the fetch script
-# refuses the mismatch either way.
+# Pinned to the `9.2.3` release ("Ackbar Delta", 2026-04-14). `9.2.3` is a lightweight tag,
+# so the ref and the commit are the same object. The fetch script refuses a checkout whose
+# `rev-parse HEAD` differs from UPSTREAM_REV.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/HarbourMasters/Shipwright
 UPSTREAM_REV=cb71e22a79bc5d1f688fa881795bbd93094895fc
 UPSTREAM_REF=9.2.3
 
-# **Two submodules, and the build is nothing without them.** `libultraship` is the entire runtime
-# - renderer, audio, resource system, input - and `torch` is the asset processor that turns a ROM
-# into the `.o2r` archive the game loads. A checkout without them configures and then fails on
-# missing headers.
-#
-# This key is new; `common/upstream-fetch.sh` gained it for this title. The submodule revisions
-# are not repeated here because they do not need to be: they are recorded in the pinned commit's
-# own tree, so one hash still pins everything.
+# `libultraship` is the runtime (renderer, audio, resources, input) and `torch` turns a ROM
+# into the `.o2r` archive the game loads; the build needs both. The pinned commit records
+# the submodule revisions, so one hash pins everything.
 UPSTREAM_SUBMODULES=1

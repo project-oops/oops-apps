@@ -1,14 +1,7 @@
 /*
- * Comprehensive tracer host selftest.
- *
- * Exercises:
- * 1. Fixed-rate sampling & linear probing NID sampler.
- * 2. Inlined and hashed out-buffer diff telemetry.
- * 3. Freestanding x86_64 inline detour and trampoline hooking engine.
- * 4. AGC shader interception, container parsing, FNV-1a deduplication, and bytecode
- * dumping.
- * 5. AGC command buffer (DCB) telemetry interception.
- * 6. Wire format decoding and verification.
+ * Tracer host self-test: the per-NID sampler, out-buffer telemetry, the x86_64 detour
+ * and trampoline engine, AGC shader capture with deduplication, DCB submission capture,
+ * and decoding of the flushed trace.
  */
 
 #include <stdint.h>
@@ -32,7 +25,7 @@
 #define HOT_CALLS 1000u
 #define COLD_CALLS 4u
 
-/* --- Test Target 1: Generic Function Hooking --- */
+/* Detour target: 16 bytes of nops give the detour room to overwrite. */
 static int s_mock_hook_called = 0;
 static tracer_hook_t s_test_hook = {0};
 
@@ -48,7 +41,7 @@ static int mock_add_hook(int a, int b) {
     return real_add(a, b) + 100;
 }
 
-/* --- Test Target 2: Mock AGC Shader Creation --- */
+/* Stand-in for sceAgcCreateShader. */
 static int s_real_agc_create_shader_called = 0;
 
 int mock_sceAgcCreateShader(void *shader_obj, const void *header, void *gpu_payload,
@@ -72,7 +65,7 @@ int __attribute__((noinline)) mock_sceAgcCreateShader(void *shader_obj,
     return 0;
 }
 
-/* --- Test Target 3: Mock AGC DCB Submission --- */
+/* Stand-in for sceAgcDriverSubmitDcb. */
 static int s_real_agc_submit_dcb_called = 0;
 
 typedef struct {
@@ -95,9 +88,7 @@ int __attribute__((noinline)) mock_sceAgcDriverSubmitDcb(const test_dcb_desc_t *
 int main(void) {
     printf("tracer_selftest: starting...\n");
 
-    /* =====================================================================
-     * Section 1: Ring Buffer, Sampler, & Outbuf Telemetry
-     * ===================================================================== */
+    /* The sampler counts every call and records the first OBS_TRACE_CAP per NID. */
     static struct obs_trace_rec storage[4096];
     static uint64_t samp_nids[256];
     static uint32_t samp_counts[256];
@@ -126,13 +117,13 @@ int main(void) {
     }
     assert(obs_trace_count(&samp, NID_COLD) == COLD_CALLS);
 
-    /* Inlined outbuf */
+    /* A small out-buffer is recorded inline. */
     (void)obs_trace_hit(&samp, NID_OUT);
     uint8_t small[8] = {0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80};
     obs_trace_outbuf(&buf, NID_OUT, 0x40000000ULL, small, sizeof(small),
                      OBS_TRACE_OUTBUF_INLINE);
 
-    /* Hashed outbuf */
+    /* A large out-buffer is recorded as its FNV-1a hash. */
     (void)obs_trace_hit(&samp, NID_BIG);
     uint8_t big[128];
     for (unsigned i = 0; i < sizeof(big); i++) {
@@ -144,9 +135,8 @@ int main(void) {
     assert(expected_hash != 0);
     assert(buf.recs[buf.head - 1u].arg[2] == expected_hash);
 
-    /* =====================================================================
-     * Section 2: Inline Detour & Trampoline Hooking Engine
-     * ===================================================================== */
+    /* A detour routes calls to the hook, whose trampoline reaches the original;
+     * removing it restores the original behaviour. */
     assert(mock_add(10, 20) == 30);
     assert(s_mock_hook_called == 0);
 
@@ -155,23 +145,21 @@ int main(void) {
     assert(hook_rc == 0);
     assert(s_test_hook.installed == 1);
 
-    /* Calling mock_add should now route through mock_add_hook -> trampoline -> 30 + 100
-     * = 130 */
+    /* mock_add_hook -> trampoline -> 30, plus 100. */
     int (*volatile p_add)(int, int) = mock_add;
     int hooked_res = p_add(10, 20);
     assert(hooked_res == 130);
     assert(s_mock_hook_called == 1);
 
-    /* Uninstall hook and verify restoration */
+    /* Uninstalling restores the original. */
     int unhook_rc = tracer_hook_uninstall(&s_test_hook);
     assert(unhook_rc == 0);
     assert(s_test_hook.installed == 0);
     assert(p_add(10, 20) == 30);
     assert(s_mock_hook_called == 1);
 
-    /* =====================================================================
-     * Section 3: AGC Shader Interception & Bytecode Disk Dumping
-     * ===================================================================== */
+    /* A created shader's bytecode and header are dumped to disk byte for byte, once per
+     * distinct bytecode. */
     tracer_init(NULL, 0);
     shader_dump_set_directory("build/test_shaders");
     shader_dump_reset_cache();
@@ -181,7 +169,7 @@ int main(void) {
                             (void *)hook_sceAgcCreateShader, 16);
     assert(agc_hook_rc == 0);
 
-    /* Construct synthetic compute shader */
+    /* A synthetic compute shader. */
     uint32_t container_hdr[76]; /* 304 bytes */
     memset(container_hdr, 0, sizeof(container_hdr));
     container_hdr[0] = SHADER_STAGE_CS; /* Compute */
@@ -201,7 +189,7 @@ int main(void) {
     assert(obj_out == 0xcafebabeu);
     assert(shader_dump_get_count() == 1);
 
-    /* Verify dumped files exist on disk */
+    /* The dump files are named by the bytecode hash. */
     uint64_t cs_hash = obs_trace_fnv1a((const uint8_t *)cs_bytecode, 64);
     char hex[17];
     for (int i = 15; i >= 0; i--) {
@@ -229,13 +217,12 @@ int main(void) {
     assert(memcmp(read_hdr, container_hdr, sizeof(container_hdr)) == 0);
     fclose(f_hdr);
 
-    /* Test deduplication: calling again with same payload must NOT increment dump count
-     */
+    /* The same bytecode again is not dumped again. */
     create_rc = p_create_shader(&obj_out, container_hdr, cs_bytecode, 0);
     assert(create_rc == 0);
     assert(shader_dump_get_count() == 1);
 
-    /* Test second shader: Vertex shader with different instructions */
+    /* Different bytecode is dumped. */
     container_hdr[0] = SHADER_STAGE_VS;
     container_hdr[2] = 128u;
     uint32_t vs_bytecode[32];
@@ -246,17 +233,13 @@ int main(void) {
     assert(create_rc == 0);
     assert(shader_dump_get_count() == 2);
 
-    /* Clean up shader files */
     remove(bin_path);
     remove(hdr_path);
 
-    /* =====================================================================
-     * Section 4: AGC DCB Submission Interception
-     * ===================================================================== */
+    /* tracer_install_hooks intercepts a DCB submission and still calls the original. */
     int dcb_hook_rc =
         tracer_hook_install(&g_hook_agc_submit_dcb, (void *)mock_sceAgcDriverSubmitDcb,
                             (void *)g_hook_agc_submit_dcb.hook_fn, 16);
-    /* Alternatively, hook through tracer_install_hooks */
     tracer_uninstall_hooks();
     int install_rc = tracer_install_hooks((void *)mock_sceAgcCreateShader,
                                           (void *)mock_sceAgcDriverSubmitDcb, NULL);
@@ -273,12 +256,9 @@ int main(void) {
     assert(submit_rc == 0);
     assert(s_real_agc_submit_dcb_called == 1);
 
-    /* Uninstall all hooks */
     tracer_uninstall_hooks();
 
-    /* =====================================================================
-     * Section 5: Trace Flush & Decode Validation
-     * ===================================================================== */
+    /* The flushed trace file decodes without error. */
     const char *trace_path = "build/tracer_selftest.bin";
     int flush_rc = tracer_flush_to_file(trace_path);
     assert(flush_rc == 0);

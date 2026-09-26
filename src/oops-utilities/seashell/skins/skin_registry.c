@@ -1,3 +1,8 @@
+/*
+ * Skin registry - the ordered list of skins; index 0 is the fallback for an unknown
+ * index or id. Themes are the skins' themes, one per skin.
+ */
+
 #include "../skin.h"
 #include "../home.h"
 

@@ -6,13 +6,9 @@
 #   EXTRA_TARGET_LDFLAGS += $(OOPS_STB_LDFLAGS)
 #   PAYLOAD_EXTRA_DEPS   += $(OOPS_STB_LIB)
 #
-# **A single-header library needs one translation unit to put the code somewhere.**
-# `stb_image.h` is declarations until something defines `STB_IMAGE_IMPLEMENTATION` before
-# including it; `build/stb_impl.c` is that file, generated here rather than committed because it
-# is two lines that belong to the build. libultraship's own CMake writes the identical file.
-#
-# C rather than C++, and no libc++ on the include path: stb is plain C89-ish and compiles against
-# the SDK's libc alone.
+# `build/stb_impl.c` is the one translation unit that defines `STB_IMAGE_IMPLEMENTATION` before
+# including `stb_image.h`, generated as libultraship's CMake generates it. It is plain C and
+# compiles against the SDK's libc alone.
 ifndef OOPS_STB_DIR
 OOPS_STB_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif

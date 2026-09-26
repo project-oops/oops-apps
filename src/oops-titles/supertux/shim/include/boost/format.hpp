@@ -1,16 +1,12 @@
 /*
  * `boost::format`, for the specifiers SuperTux's strings actually contain.
  *
- * Measured across `src/`: `%s` eleven times, `%d` twice, `%1%` once, and nothing else -
- * no width, no precision, no positional `%1$s`, and none in `data/locale/` either,
- * where a translator could have introduced one. So each argument is rendered the way
- * Boost renders it for those - through `operator<<` - and substituted in order; `%N%`
- * picks argument N; `%%` is a literal percent.
+ * `src/` and `data/locale/` use `%s`, `%d` and `%1%`, with no width, precision or
+ * `%1$s`. Each argument is rendered through `operator<<` and substituted in order;
+ * `%N%` picks argument N; `%%` is a literal percent.
  *
- * **A specifier this does not understand is copied through, not guessed at.** A string
- * that shows `%5.2f` on screen is a visible, findable bug; one silently formatted wrong
- * is not. Boost throws on too few arguments; this leaves the specifier in the text for
- * the same reason.
+ * An unrecognised specifier, or one with no argument left, is copied through unchanged
+ * so the mistake shows on screen.
  */
 #ifndef STX_SHIM_BOOST_FORMAT_HPP
 #define STX_SHIM_BOOST_FORMAT_HPP

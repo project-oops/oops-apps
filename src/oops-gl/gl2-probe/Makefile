@@ -4,21 +4,12 @@
 #   make eboot      the artifact that deploys to a console
 #   make title      the installable package
 #
-# **The suite now packages, because the thing it measures now exists.** Two answers opened the
-# gate that held it back. obSCEne's `REQ-20260921T1615Z-4e77` established that a generated pixel
-# shader retires on this pipeline and its interpolated parameters arrive; `-2a45` then measured a
-# compiled shader's `image_sample` returning its texel under whole-quad mode. Until both, a
-# payload would have reported a block of checks as failed for one reason upstream of all of them,
-# which is the thing the ordering existed to avoid.
+# No `elf` in FORMATS: this collection installs native titles, so the eboot and the title
+# package are staged. The `.elf` is still built as the intermediate both are made from,
+# linked against `selfish/link/native_eboot.ld`.
 #
-# **No `elf` in FORMATS**, as with gl2-cube. That format stages the bare ELF for a homebrew
-# loader; this collection installs native titles, so the artifacts worth staging are the eboot
-# and the title package. The `.elf` is still built - it is the intermediate both of those are
-# made from, linked against `selfish/link/native_eboot.ld`.
-#
-# The suite in `gl2_probe.c` runs on hardware unchanged, which is the whole reason it is written
-# as a shared suite with a thin runner rather than as one program: `gl2_probe_selftest.c` is the
-# host's runner and `gl2_probe_main.c` the console's, and neither owns a check.
+# The suite in `gl2_probe.c` is shared: `gl2_probe_selftest.c` is the host's runner and
+# `gl2_probe_main.c` the console's.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 EXTRA_CFLAGS += -I$(OOPS_APPS_ROOT)/common
@@ -27,12 +18,9 @@ EXTRA_TARGET_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 FORMATS = eboot title
 
 # The whole GL layer, from the one list in common/app.mk. The self-test supplies its own display
-# and allocator, since the SDK's are direct memory and have nothing to talk to on a build
-# machine.
+# and allocator, since the SDK's are direct memory.
 # `fs.c` because `system.c` reaches into it for the log's disk sink - `oops_log_enable_disk_sink`
-# calls `oops_fs_get_storage_dir`. The payload link has always had it and only the host self-test
-# had to be told, which is the same one-line fix gl1-probe's list already carries; without it
-# `make check` does not link at all, so the host gate silently stops being run.
+# calls `oops_fs_get_storage_dir`.
 HOST_TEST_SRCS = gl2_probe_selftest.c \
                  gl2_probe.c \
                  $(OOPS_GL_SRCS) \
@@ -45,7 +33,6 @@ HOST_TEST_LIBS = -lm
 OOPS_RENDERER = gl2
 OOPS_FEATURES := display input draw
 
-# The payload, which is the same suite behind gl2-probe's own runner.
 PAYLOAD_SRCS = gl2_probe_main.c \
                gl2_probe.c
 

@@ -1,6 +1,29 @@
+/*
+ * The blades skin: one category open as a coloured panel of items, the others folded
+ * into labelled tabs on either side of it.
+ */
 #include "../skin.h"
 #include "../home.h"
 #include "oops/freestd.h"
+
+/* A folded blade at x = tx: a grey tab with its label written down it, one letter per
+ * line. A tab left of the open blade carries a second highlight line. */
+static void draw_tab(oops_surface_t *surf, int tx, int top_y, int bot_y, int tab_w,
+                     const char *label, int left) {
+    const int blade_h = bot_y - top_y;
+    oops_draw_rect(surf, tx, top_y, tab_w - 4, blade_h, 0xFF8A9EA7u);
+    oops_draw_line(surf, tx, top_y, tx, bot_y, 0xFFE0E0E0u);
+    if (left)
+        oops_draw_line(surf, tx + 1, top_y, tx + 1, bot_y, 0xFFFFFFFFu);
+    oops_draw_line(surf, tx + tab_w - 5, top_y, tx + tab_w - 5, bot_y, 0xFF546E7Au);
+
+    int sy = top_y + (blade_h / 3);
+    for (const char *p = label; *p != '\0'; p++) {
+        const char ch[2] = {*p, '\0'};
+        (void)oops_draw_text(surf, tx + 14, sy, ch, 0xFF263238u, 1);
+        sy += 15;
+    }
+}
 
 static int blades_render_main(oops_surface_t *surf, const struct home_model *m,
                               const struct home_skin *skin) {
@@ -53,49 +76,20 @@ static int blades_render_main(oops_surface_t *surf, const struct home_model *m,
     int bot_y = sh - ((sh >= 1080) ? 80 : 70);
     int blade_h = bot_y - top_y;
 
-    /* ---- 1. Flanking Curved Left Tabs (for b < act_blade)
-     * -------------------------------- */
+    /* Folded blades flank the open one: those before it on the left, after it on the
+     * right. */
     for (int b = 0; b < act_blade; b++) {
-        int tx = 20 + (b * tab_w);
-        oops_draw_rect(surf, tx, top_y, tab_w - 4, blade_h, 0xFF8A9EA7u);
-        oops_draw_line(surf, tx, top_y, tx, bot_y, 0xFFE0E0E0u);
-        oops_draw_line(surf, tx + 1, top_y, tx + 1, bot_y, 0xFFFFFFFFu);
-        oops_draw_line(surf, tx + tab_w - 5, top_y, tx + tab_w - 5, bot_y, 0xFF546E7Au);
-
-        const char *txt = skin->categories[b].label;
-        int sy = top_y + (blade_h / 3);
-        while (*txt != '\0') {
-            char ch[2];
-            ch[0] = *txt++;
-            ch[1] = '\0';
-            (void)oops_draw_text(surf, tx + 14, sy, ch, 0xFF263238u, 1);
-            sy += 15;
-        }
+        draw_tab(surf, 20 + (b * tab_w), top_y, bot_y, tab_w, skin->categories[b].label,
+                 1);
         drawn += 4;
     }
-
-    /* ---- 2. Flanking Curved Right Tabs (for b > act_blade)
-     * ------------------------------- */
     for (int b = skin->category_count - 1; b > act_blade; b--) {
-        int tx = sw - 20 - ((skin->category_count - b) * tab_w);
-        oops_draw_rect(surf, tx, top_y, tab_w - 4, blade_h, 0xFF8A9EA7u);
-        oops_draw_line(surf, tx, top_y, tx, bot_y, 0xFFE0E0E0u);
-        oops_draw_line(surf, tx + tab_w - 5, top_y, tx + tab_w - 5, bot_y, 0xFF546E7Au);
-
-        const char *txt = skin->categories[b].label;
-        int sy = top_y + (blade_h / 3);
-        while (*txt != '\0') {
-            char ch[2];
-            ch[0] = *txt++;
-            ch[1] = '\0';
-            (void)oops_draw_text(surf, tx + 14, sy, ch, 0xFF263238u, 1);
-            sy += 15;
-        }
+        draw_tab(surf, sw - 20 - ((skin->category_count - b) * tab_w), top_y, bot_y,
+                 tab_w, skin->categories[b].label, 0);
         drawn += 4;
     }
 
-    /* ---- 3. Active Blade Panel
-     * ----------------------------------------------------------- */
+    /* The open blade's panel. */
     int bx = 20 + (act_blade * tab_w);
     int rx_limit = sw - 20 - ((skin->category_count - 1 - act_blade) * tab_w);
     int bw = rx_limit - bx;
@@ -114,8 +108,7 @@ static int blades_render_main(oops_surface_t *surf, const struct home_model *m,
     oops_draw_line(surf, bx + bw - 1, top_y, bx + bw - 1, bot_y, 0xFF546E7Au);
     drawn += 8;
 
-    /* ---- 4. Top Header & Logo
-     * ----------------------------------------------------------- */
+    /* The header and logo. */
     static const char *s_headers[] = {"Network", "Select a Game", "Media Library",
                                       "System Settings"};
     const char *hdr = (act_blade < 4) ? s_headers[act_blade] : "Blades";
@@ -134,8 +127,7 @@ static int blades_render_main(oops_surface_t *surf, const struct home_model *m,
     (void)oops_draw_text(surf, logo_cx + 26, top_y + 18, "BLADES", 0xFFFFFFFFu, 2);
     drawn += 6;
 
-    /* ---- 5. Left Column: Vertical List of Items
-     * ------------------------------------------ */
+    /* The left column: the open blade's items. */
     int lx = bx + 30;
     int lw = (bw * 48) / 100;
     int count = home_get_category_item_count(m, skin, act_blade);
@@ -234,8 +226,7 @@ static int blades_render_main(oops_surface_t *surf, const struct home_model *m,
         drawn++;
     }
 
-    /* ---- 6. Right Column: Showcase / Feature Preview Card
-     * -------------------------------- */
+    /* The right column: a preview card for the selected item. */
     int rx_card = lx + lw + 24;
     int rw_card = bw - (rx_card - bx) - 30;
     int ry_card = top_y + 70;
@@ -289,8 +280,7 @@ static int blades_render_main(oops_surface_t *surf, const struct home_model *m,
                          0xFFB0BEC5u, 1);
     drawn += 10;
 
-    /* ---- 7. Bottom Bar: Action Button Legend
-     * --------------------------------------------- */
+    /* The bottom bar: the button legend. */
     int leg_y = bot_y + ((sh >= 1080) ? 18 : 14);
     int leg_x = bx + 36;
 

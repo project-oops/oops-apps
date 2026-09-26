@@ -1,15 +1,10 @@
 /*
  * gl1-cube: the scene the payload draws.
  *
- * **One copy, because two copies drifted.** The vertex, colour, texture-coordinate and
- * normal arrays and the procedural texture used to be written out twice - once in
- * `gl1_cube_main.c` and once in `gl1_cube_selftest.c` - and on 2026-09-17 a comparison
- * of the two found the top face's sixth vertex coloured `1.00, 1.00, 0.15` in the
- * payload and `0.15, 1.00, 0.15` in the test. One value in 288, and it meant the host
- * test had been rasterising a cube the console never drew.
- *
- * The payload's values are the ones kept: they are what the pinned hardware oracle
- * measured.
+ * The vertex, colour, texture-coordinate and normal arrays and the procedural texture,
+ * included by both `gl1_cube_main.c` and `gl1_cube_selftest.c` so the host test
+ * rasterises the cube the console draws. The values are the ones the pinned hardware
+ * oracle measured.
  */
 
 #ifndef GL1_CUBE_SCENE_H

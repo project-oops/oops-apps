@@ -6,13 +6,10 @@
  * upstream's `config.h` template and tested nowhere), so the add-on browser has to
  * link. Every transfer fails as an unreachable host would: `curl_easy_perform` returns
  * `CURLE_COULDNT_CONNECT`, and a transfer added to a multi handle comes back from
- * `curl_multi_info_read` as `CURLMSG_DONE` with that result. Both are paths the
- * downloader already takes on an offline desktop, and the second is the one that
- * matters - a multi handle that never reported its transfers finished would leave the
- * add-on menu's progress dialog open forever.
+ * `curl_multi_info_read` as `CURLMSG_DONE` with that result, which closes the add-on
+ * menu's progress dialog.
  *
- * The types are opaque, and the option and result numbers are libcurl's own so that a
- * log line printing one reads the same as it would upstream.
+ * The types are opaque; option and result numbers are libcurl's own.
  */
 #ifndef STX_SHIM_CURL_CURL_H
 #define STX_SHIM_CURL_CURL_H

@@ -1,17 +1,8 @@
-# SDL2's origin. Read by `common/upstream-fetch.sh`, which is shared with the titles - the same
-# KEY=value shape `app.env` has, so make needs no parser for it.
+# SDL2's origin. Read by `common/upstream-fetch.sh`, in the same KEY=value shape as `app.env`.
 #
-# UPSTREAM_REV is what gets checked out and must be a full commit hash: a tag can be moved and a
-# branch always is, so neither is a pin. UPSTREAM_REF says which release that hash is, for a
-# reader.
-#
-# **This tag is lightweight, unlike Neverball's.** `release-2.30.9` points straight at the commit
-# below, so `git ls-remote refs/tags/release-2.30.9` and the peeled `^{}` form give the same
-# answer - checked, because an annotated tag is what put the wrong hash in the title's lock the
-# first time. Verified against a checkout: `rev-parse HEAD` is this hash.
-#
-# 2.30.x is the maintained 2.x line. SDL3 exists, but every title in the porting queue targets
-# SDL2 or SDL 1.2, and sdl12-compat - the answer to Extreme Tux Racer - is built on SDL2.
+# UPSTREAM_REV is a full commit hash, since a tag can be moved. UPSTREAM_REF names the release
+# for a reader. `release-2.30.9` is a lightweight tag, so the hash is the commit itself.
+# 2.30.x is the maintained 2.x line; sdl12-compat builds on it.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/libsdl-org/SDL
 UPSTREAM_REV=c98c4fbff6d8f3016a3ce6685bf8f43433c3efcc

@@ -7,19 +7,9 @@
 #   EXTRA_TARGET_LDFLAGS += $(OOPS_FT_LDFLAGS)
 #   PAYLOAD_EXTRA_DEPS   += $(OOPS_FT_LIB)
 #
-# # Fifteen files, not two hundred
-#
-# FreeType builds every font format it knows: Type 1, CFF, CID, PCF, BDF, PFR, Windows FNT, plus
-# validators and a cache. The titles here render TrueType, so this compiles the core, the
-# `sfnt`/`truetype` driver pair, the two rasterisers and the autohinter - which is the set
-# upstream's own docs call a minimal TrueType build.
-#
-# The list is not trimmed for size but for **surface**: a format nothing opens is still a parser
-# reading untrusted bytes, and still something to rebuild on a bump.
-#
-# `gzip/ftgzip.c` is in because `ftstdlib.h` wires compression into the core's option defaults.
-# It is the one entry that brings `setjmp` with it - see `oops-sdk/include/libc/setjmp.h`, which
-# is declarations over the platform's, and note that nothing in a TrueType path calls it.
+# The titles here render TrueType, so this compiles the core, the `sfnt`/`truetype` driver
+# pair, the two rasterisers and the autohinter - upstream's minimal TrueType build. A format
+# nothing opens is still a parser reading untrusted bytes, so the rest stay out.
 
 ifndef OOPS_FT_DIR
 OOPS_FT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
@@ -49,27 +39,13 @@ OOPS_FT_SRCS := \
     $(OOPS_FT_UPSTREAM)/src/base/ftstroke.c \
     $(OOPS_FT_UPSTREAM)/src/base/ftmm.c
 
-# **Three of these were added after a link said so**, which is the intended way for this list to
-# grow:
-#
-#   * `base/ftstroke.c` - SDL2_ttf draws outlined text with `FT_Stroker_New` and its kin.
-#   * `base/ftmm.c` - `FT_Set_Named_Instance`, the variable-font entry point sfnt calls.
-#
-# **`gzip/ftgzip.c` is not here, and removing it from this list was not enough.** It is the only
-# thing in a font build that calls `setjmp`/`longjmp`, which the module packager refuses: the
-# mined corpus does not say which library exports them, so a module cannot declare where to
-# resolve them. Dropping the file only moved the undefined symbol, because `sfnt/sfwoff.c` and
-# `sfnt/ttsvg.c` call `FT_Gzip_Uncompress` directly.
-#
-# `include/ftoption-oops.h` turns off `FT_CONFIG_OPTION_USE_ZLIB`, which removes the callers as
-# well as the module. That costs WOFF fonts and gzip-compressed SVG glyphs, neither of which any
-# title here ships.
+# `base/ftstroke.c` serves SDL2_ttf's outlined text (`FT_Stroker_New`); `base/ftmm.c` serves
+# `FT_Set_Named_Instance`, the variable-font entry point sfnt calls. `gzip/ftgzip.c` is left
+# out, and `include/ftoption-oops.h` turns off `FT_CONFIG_OPTION_USE_ZLIB` to remove its callers.
 
-# `-nostdlibinc` for the reason `oops-libcxx.mk` gives: without it the build machine's
-# `/usr/include` stays on the path and a FreeBSD freestanding target compiles against glibc.
-# `FT2_BUILD_LIBRARY` is FreeType's own switch for "this is the library, not a consumer".
-# `FT_CONFIG_MODULES_H` points at our own module list - see `include/ftmodule-oops.h` for why
-# the default one cannot be used with a trimmed source set.
+# `-nostdlibinc` keeps the build machine's `/usr/include` off the path (see `oops-libcxx.mk`).
+# `FT2_BUILD_LIBRARY` is FreeType's switch for building the library rather than a consumer.
+# `FT_CONFIG_MODULES_H` names the trimmed module list in `include/ftmodule-oops.h`.
 OOPS_FT_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                  -nostdlibinc -fPIC -O2 -w -DFT2_BUILD_LIBRARY \
                  '-DFT_CONFIG_MODULES_H=<ftmodule-oops.h>' \
@@ -77,7 +53,7 @@ OOPS_FT_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nos
                  -I$(OOPS_FT_DIR)/include \
                  $(OOPS_FT_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
 
-# `ar` is handed the list rather than the directory - `common/deps.mk` says what the glob cost.
+# `ar` is handed the object list rather than a directory glob (see `common/deps.mk`).
 $(OOPS_FT_LIB): $(OOPS_FT_SRCS) $(lastword $(MAKEFILE_LIST))
 	@mkdir -p $(OOPS_FT_BUILD)
 	@rm -f $@

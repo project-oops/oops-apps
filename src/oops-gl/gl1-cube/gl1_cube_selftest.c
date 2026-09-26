@@ -4,17 +4,8 @@
  * Runs the payload's scene through the real oops-gl software path: the same vertices,
  * colours, texture coordinates, normals and procedural texture the console draws, from
  * gl1_cube_scene.h, with the same state the payload configures - depth, culling,
- * texturing **and lighting**.
- *
- * Two things this is deliberately careful about:
- *
- *   The scene is included, not copied. It used to be copied, and on 2026-09-17 the
- * copies had drifted: one vertex colour in 288 differed, so every run of this test had
- * been rasterising a cube the console never drew. See gl1_cube_scene.h.
- *
- *   Lighting is configured and checked. The payload's headline state is GL_LIGHTING
- * with GL_COLOR_MATERIAL and a specular term, and nothing on the host exercised any of
- * it - a rasteriser that ignored the light entirely would have passed.
+ * texturing and lighting. Lighting (GL_LIGHTING with GL_COLOR_MATERIAL and a specular
+ * term) is checked to change the frame, so a rasteriser that ignored it would fail.
  */
 
 #include "GL/gl.h"
@@ -70,10 +61,8 @@ unsigned int oops_display_get_height(const oops_display_t *disp) {
     return s_host_h;
 }
 
-/* obj_loader allocates its vertex buffers through the SDK's direct-memory allocator,
- * which has no host implementation: on a build machine the kernel entry points behind
- * it are absent and every allocation would refuse. The alignment argument is dropped
- * because nothing here depends on it - these are arrays of floats, not GPU resources.
+/* obj_loader allocates through the SDK's direct-memory allocator, which has no host
+ * implementation. Alignment is dropped: these are arrays of floats, not GPU resources.
  */
 void *oops_mem_alloc(size_t size, size_t alignment, oops_mem_type_t type) {
     (void)alignment;
@@ -266,14 +255,8 @@ int main(void) {
     }
     memcpy(first_pass, s_host_fb, sizeof(s_host_fb));
 
-    /*
-     * 8. The light has to be doing something.
-     *
-     * Every other check here passes on a rasteriser that ignores GL_LIGHTING and
-     * interpolates the vertex colours, because the cube is coloured either way. Drawing
-     * the same geometry with the lighting disabled and requiring a different frame is
-     * what distinguishes the two.
-     */
+    /* 8. Lighting changes the frame: the same geometry drawn unlit must differ, since
+     * the cube is coloured either way. */
     glDisable(GL_LIGHTING);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glDrawArrays(GL_TRIANGLES, 0, 36);
@@ -305,13 +288,7 @@ int main(void) {
     }
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-    /*
-     * 10. The two procedural meshes the payload can switch to.
-     *
-     * R2 cycles cube -> torus -> sphere on the console and nothing on the host had ever
-     * built either one, so a generator that returned a mesh of degenerate triangles, or
-     * no triangles, would have shown up only as a blank screen on hardware.
-     */
+    /* 10. The torus and sphere R2 cycles to build real, non-degenerate meshes. */
     glEnable(GL_TEXTURE_2D);
     if (oops_mesh_create_torus(&torus, 24, 16, 0.75f, 0.35f) != 0 || !torus.positions) {
         fprintf(stderr, "gl1-cube selftest: torus generation failed\n");
@@ -348,14 +325,8 @@ int main(void) {
         }
     }
 
-    /*
-     * 11. The same scene, drawn again, is the same frame.
-     *
-     * The payload redraws from scratch every frame and its oracle record is a hash of
-     * one of them. A rasteriser carrying state between draws - an uncleared depth
-     * buffer, a stale matrix, an accumulating rounding error - would make that hash
-     * unreproducible, and the record would be evidence of nothing.
-     */
+    /* 11. The same scene drawn again is the same frame: no state carries between draws,
+     * so the oracle record's frame hash is reproducible. */
     load_scene_matrices(30.0f);
     glClearColor(0.1f, 0.1f, 0.2f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

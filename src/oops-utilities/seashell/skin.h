@@ -4,7 +4,12 @@
 #include "oops/draw.h"
 #include "oops/input.h"
 
-/* Forward declarations */
+/*
+ * Skins - the declarative description of a shell look: its theme, its categories,
+ * its navigation axes, and optional hooks that replace the generic engine in home.c.
+ * The registry in skins/skin_registry.c lists every skin.
+ */
+
 struct home_model;
 struct home_title;
 struct home_item;
@@ -69,8 +74,7 @@ typedef struct home_theme {
 
 /* Skin definition structure */
 typedef struct home_skin {
-    const char
-        *id; /* Unique skin identifier: "modern", "xmb", "blades", "list", "amber" */
+    const char *id;          /* Unique identifier: "modern", "xmb", "list" */
     const char *name;        /* Human readable display name */
     const char *author;      /* Skin author */
     const char *description; /* Overview description */
@@ -83,20 +87,17 @@ typedef struct home_skin {
     int default_category;
 
     /* Declarative navigation rules */
-    home_axis_t primary_axis; /* Axis that rotates categories (e.g. HORIZONTAL for
-                                 XMB/Blades) */
-    home_axis_t item_axis; /* Axis that scrolls items within category (e.g. VERTICAL for
-                              XMB/Blades) */
-    int wrap_categories;   /* 1 = wrap around, 0 = clamp */
-    int wrap_items;        /* 1 = wrap around, 0 = clamp */
-    int bumper_nav;        /* 1 = L1/R1 switches categories */
+    home_axis_t primary_axis; /* Axis that changes category */
+    home_axis_t item_axis;    /* Axis that scrolls items within a category */
+    int wrap_categories;      /* 1 = wrap around, 0 = clamp */
+    int wrap_items;           /* 1 = wrap around, 0 = clamp */
+    int bumper_nav;           /* 1 = L1/R1 switches categories */
 
     /* Lifecycle hooks */
     void (*init)(struct home_model *m, const struct home_skin *skin);
     void (*tick)(struct home_model *m, const struct home_skin *skin);
 
-    /* Navigation / Action hooks (return 1 if handled, 0 to use generic engine fallback)
-     */
+    /* Navigation and action hooks: 1 = handled, 0 = use the generic engine */
     int (*move)(struct home_model *m, const struct home_skin *skin, int dir);
     int (*activate)(struct home_model *m, const struct home_skin *skin);
     int (*back)(struct home_model *m, const struct home_skin *skin);

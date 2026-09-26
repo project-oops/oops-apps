@@ -1,17 +1,13 @@
+/*
+ * Revolution skin - a 4x3 grid of channel cards filled from the installed titles,
+ * over a bottom bar holding the System button, the storage slot, a clock and the
+ * message button. Cursor slots 0-11 are channels and 12-14 the bottom bar; the skin
+ * moves the cursor across both in two dimensions.
+ */
+
 #include "../skin.h"
 #include "../home.h"
 #include "oops/freestd.h"
-
-/*
- * Revolution skin - Clean-room channel grid dashboard featuring:
- * - 4x3 grid of 12 rounded title channels populated from installed titles
- * - Channel card rendering with icon, title name, and status badges
- * - Soft patterned channel background on empty channels
- * - Right-edge cyan page arrow ('>')
- * - Bottom console swoop with 3D spherical System button, Storage slot,
- *   large digital clock/calendar, and Message (envelope) button
- * - Full 2D grid D-pad navigation + bottom dock navigation
- */
 
 #define REV_GRID_COLS 4
 #define REV_GRID_ROWS 3
@@ -95,7 +91,7 @@ static int revolution_render_background(oops_surface_t *surf,
     int sw = (int)surf->width;
     int sh = (int)surf->height;
 
-    /* Light metallic platinum gradient (pure CPU cache-friendly vertical gradient) */
+    /* Light platinum vertical gradient */
     oops_draw_rect_gradient(surf, 0, 0, sw, sh, 0xFFF5F7FAu, 0xFFDEE2E8u, 1);
 
     return 1;
@@ -120,8 +116,7 @@ static int revolution_render_main(oops_surface_t *surf, const struct home_model 
     int cur = m->category_cursor[m->category_idx];
     int top_foc = (m->top_nav != HOME_TOP_NAV_NONE);
 
-    /* ---- 1. Channel Grid (12 TV Channels)
-     * ------------------------------------------------ */
+    /* Channel grid */
     for (int i = 0; i < REV_GRID_TOTAL; i++) {
         int col = i % REV_GRID_COLS;
         int row = i / REV_GRID_COLS;
@@ -174,8 +169,7 @@ static int revolution_render_main(oops_surface_t *surf, const struct home_model 
         }
     }
 
-    /* ---- 2. Right Page Flip Arrow ('>')
-     * -------------------------------------------------- */
+    /* Page arrow right of the grid */
     int arrow_x = start_x + grid_w + ((sw >= 1920) ? 24 : 16);
     int arrow_y = start_y + ch + (gap_y / 2) + ((sw >= 1920) ? 14 : 10);
     if (arrow_x + 24 < sw) {
@@ -188,8 +182,7 @@ static int revolution_render_main(oops_surface_t *surf, const struct home_model 
         drawn += 4;
     }
 
-    /* ---- 3. Bottom Console Bar with Curved Bezel Swoop
-     * ----------------------------------- */
+    /* Bottom bar with a curved edge */
     int bottom_y = sh - ((sw >= 1920) ? 145 : 100);
 
     /* Solid metallic lower plate */
@@ -205,8 +198,7 @@ static int revolution_render_main(oops_surface_t *surf, const struct home_model 
     }
     drawn += 10;
 
-    /* ---- 4. Bottom-Left: 3D Spherical System Button (Slot 12)
-     * ---------------------------- */
+    /* System button, bottom left (slot 12) */
     int sys_btn_x = (start_x >= 70) ? (start_x - ((sw >= 1920) ? 50 : 36)) : 50;
     int sys_btn_y = sh - ((sw >= 1920) ? 72 : 52);
     int btn_r = (sw >= 1920) ? 42 : 28;
@@ -247,8 +239,7 @@ static int revolution_render_main(oops_surface_t *surf, const struct home_model 
     }
     drawn += 6;
 
-    /* ---- 5. Bottom-Center: Large Digital Clock & Date
-     * ------------------------------------ */
+    /* Clock and date, bottom centre */
     char clk_buf[32];
     int hr = m->status.hour;
     int mn = m->status.minute;
@@ -273,8 +264,7 @@ static int revolution_render_main(oops_surface_t *surf, const struct home_model 
                          0xFF767F8Cu, 1);
     drawn += 2;
 
-    /* ---- 6. Bottom-Right: 3D Message Board (Envelope) Button (Slot 14)
-     * ------------------- */
+    /* Message button, bottom right (slot 14) */
     int mail_btn_x =
         (start_x >= 70) ? (sw - (start_x - ((sw >= 1920) ? 50 : 36))) : (sw - 50);
     int mail_btn_y = sys_btn_y;
@@ -427,7 +417,7 @@ static int revolution_activate(struct home_model *m, const struct home_skin *ski
     }
 }
 
-/* Calculate focused cursor bounding rectangle */
+/* Cursor rectangle, in the 1280x720 layout */
 static int revolution_cursor_rect(const struct home_model *m,
                                   const struct home_skin *skin, int *x, int *y, int *w,
                                   int *h) {

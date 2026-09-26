@@ -1,12 +1,8 @@
 name: Build oops-mesa
 
-# Bring-up workflow for the heavy dependency: compile upstream Mesa for the target and publish
-# its archives, so the USE_MESA titles (mesa-cube, mesa-demos, gl-cts, ...) can link them in the
-# release. It is `workflow_dispatch` only for now - the Mesa build is a ~40-60 minute container
-# compile that pulls a pinned FreeBSD source and the Mesa submodule, so it runs on demand while
-# it is being stabilised, then folds into release.yml once green.
-#
-# Nothing depends on this yet, so a failure here cannot regress the working (non-mesa) release.
+# Compiles upstream Mesa for the target, publishes its archives and links the USE_MESA
+# titles against them. It runs on demand (`workflow_dispatch`), and no other workflow
+# depends on it.
 
 on:
   workflow_dispatch:
@@ -35,20 +31,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: OOPS/oops-apps
-      # obscene too: the platform-stubs stage reads obSCEne's measured import census
-      # (data/hardware/ps5-imports.txt) to answer Mesa's "does this symbol exist" probes.
-      # obscene for the import census; oops-sdk because the mesa titles build on it, and this
-      # workflow now also links them against the archives it produces.
+      # obscene for its import census (data/hardware/ps5-imports.txt), which answers Mesa's
+      # symbol probes; oops-sdk because the mesa titles build on it.
       - name: oops-mesa, obscene, and the SDK the titles build on
         run: |
           OOPS/bin/oops bootstrap oops-mesa obscene oops-sdk
           (cd OOPS/oops-apps && ./common/deps-fetch.sh) || echo "deps-fetch: some upstreams unavailable, continuing"
         env:
           OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
-      # Mesa as a **standalone** clone at the pin, not a submodule: oops-mesa applies its patches
-      # with `git apply`, and a submodule checkout's `.git` is a gitlink file pointing into the
-      # superproject's module store - a path that does not exist in this assembled checkout, so
-      # git reports "not a git repository". A plain clone has a real .git and patches apply.
+      # A standalone clone, not a submodule: oops-mesa's `git apply` needs a real .git, and a
+      # submodule's gitlink points outside this assembled checkout.
       - name: The pinned Mesa source, as a standalone tree
         run: |
           MESA_PIN=$(sed -n 's/^MESA_PIN *:= *//p' OOPS/oops-mesa/dependencies.mk)
@@ -61,9 +53,8 @@ jobs:
         run: |
           echo "fbsd=$(sed -n 's/^SYSROOT_PIN *:= *//p' OOPS/oops-mesa/dependencies.mk)" >> "$GITHUB_OUTPUT"
 
-      # The FreeBSD source the sysroot is staged from, at the pinned revision. A blob-filtered
-      # clone keeps it to the trees plus the blobs the pin's checkout actually needs; cached by
-      # the pin so it is fetched once. stage-sysroot.sh checks HEAD equals this pin.
+      # The FreeBSD source the sysroot is staged from, blob-filtered and cached by its pin.
+      # stage-sysroot.sh checks HEAD equals the pin.
       - name: Cache the FreeBSD source
         id: cache-fbsd
         uses: actions/cache@v4
@@ -76,13 +67,8 @@ jobs:
           git clone --filter=blob:none --no-checkout https://github.com/freebsd/freebsd-src.git freebsd-src
           git -C freebsd-src checkout --detach "${{ steps.pins.outputs.fbsd }}"
 
-      # The archives themselves, keyed on everything that determines them: the Mesa/FreeBSD pins
-      # and oops-mesa's own toolchain and patches. A hit skips the whole compile.
-      # Cache both halves of a title's link: the Mesa archives under build/, and the support
-      # archives (C++ runtime, libelf, libm, librune, cpu_model, the platform stub) that
-      # build-mesa.sh writes to toolchain/sysroot/usr/lib. Caching build/ alone left the second
-      # set missing on a cache hit, so every title failed the link on `-loopsmesa_cxx` and its
-      # kin. `-v2` retires the build-only cache.
+      # Both halves of a title's link: the Mesa archives under build/ and the support archives
+      # build-mesa.sh writes to toolchain/sysroot/usr/lib. A hit skips the whole compile.
       - name: Cache the Mesa build
         id: cache-mesa
         uses: actions/cache@v4
@@ -105,18 +91,15 @@ jobs:
           echo "== archives =="
           find OOPS/oops-mesa/build -name '*.a' | sort
 
-      # The toolchain image is produced by the Mesa build, but that step is skipped on a cache
-      # hit, so ensure it here. The sysroot itself is cached whole (headers and archives), so it
-      # is never re-staged - re-staging would `rm` files the container wrote as root and fail.
+      # The Mesa build makes this image, and a cache hit skips that step. The sysroot is
+      # cached whole and never re-staged, since its files are owned by the container's root.
       - name: Ensure the toolchain image
         run: |
           image=$(sed -n 's/^TOOLCHAIN_IMAGE *:= *//p' OOPS/oops-mesa/dependencies.mk)
           docker image inspect "$image" >/dev/null 2>&1 || docker build -t "$image" OOPS/oops-mesa/toolchain/
 
-      # Link each mesa title against the archives, in the clang-21 toolchain image. This is the
-      # proof that the build is usable: if these link, the release can package them. Reported per
-      # app, and the job does not fail on a title that does not link yet - that is a title's own
-      # bring-up, not a fault in the Mesa build.
+      # Reported per title; a title that does not link does not fail the job, since that is
+      # the title's fault rather than the Mesa build's.
       - name: Link the mesa titles against the archives
         run: |
           image=$(sed -n 's/^TOOLCHAIN_IMAGE *:= *//p' OOPS/oops-mesa/dependencies.mk)

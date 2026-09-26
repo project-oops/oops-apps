@@ -1,7 +1,6 @@
 # libogg build integration. Pulled in by `oops-libvorbis.mk`; rarely included directly.
 #
-# `include/ogg/config_types.h` is ours: autotools generates it with four integer widths
-# substituted, and those are not a choice on an LP64 target - the header says so.
+# `include/ogg/config_types.h` stands in for the header autotools generates.
 ifndef OOPS_OGG_DIR
 OOPS_OGG_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
@@ -14,7 +13,7 @@ OOPS_OGG_SRCS := $(OOPS_OGG_UPSTREAM)/src/framing.c $(OOPS_OGG_UPSTREAM)/src/bit
 OOPS_OGG_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                   -nostdlibinc -fPIC -O2 -w $(OOPS_OGG_INCLUDE) $(OOPS_POSIX_INCLUDE) \
                   $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
-# `ar` is handed the list rather than the directory - `common/deps.mk` says what the glob cost.
+# `ar` is handed the object list rather than a directory glob (see `common/deps.mk`).
 $(OOPS_OGG_LIB): $(OOPS_OGG_SRCS) $(lastword $(MAKEFILE_LIST))
 	@mkdir -p $(OOPS_OGG_BUILD)
 	@rm -f $@

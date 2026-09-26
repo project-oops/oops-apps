@@ -1,18 +1,12 @@
 # mesa-winsys-probe - the smallest title that links upstream Mesa and says how far it gets.
 #
-# It is not a demo. Its job is to be the thing that proves the link: oops-mesa's archives, its
-# winsys and runtime shims, the C++ support archive and oops-sdk all in one binary, built the way
-# a real title would build. Everything else in oops-mesa is verified by compiling; this is
-# verified by linking.
-#
-# It does not render. What it reports is exactly where the stack stops. That used to be known in
-# advance - GB_ADDR_CONFIG, which the winsys refused (oops-mesa worklog 010) - and since
-# 2026-09-16 it is not: the winsys answers that register from a derived value, so every step
-# worklog 010 enumerated is answered and the next stopping point is unpredicted.
+# It links oops-mesa's archives, its winsys and runtime shims, the C++ support archive and
+# oops-sdk into one binary the way a real title does. It does not render; it reports where
+# the stack stops.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
-# The renderer this title links (common/app.mk): the hosted Mesa stack (oops-mesa D002).
+# The renderer this title links (common/app.mk): the hosted Mesa stack (oops-mesa#D002).
 OOPS_RENDERER = mesa
 
 OOPS_FEATURES := display thread
@@ -21,33 +15,15 @@ PAYLOAD_SRCS = mesa_winsys_probe_main.c
 
 ENTRY_POINT := mesa_winsys_probe_start
 
-# A local link script, and it is temporary.
-#
-# Mesa uses thread-local storage - its debug layer and its shader backend among others - and
-# SELFish's `native_eboot.ld` emits no `PT_TLS` segment, because nothing in the collection has
-# ever needed one. Without it the link fails outright on every `__thread` symbol.
-#
-# `local_tls.ld` is that script with a TLS segment added, kept here so this title can be built
-# and the rest of the stack verified while the real change is decided. `REQ-20260915T0001Z-8d72`
-# on the SELFish bus asks for it, and asks the question this cannot answer: whether the target's
-# loader honours a `PT_TLS` segment in a title's own image at all. **Delete this line and this
-# file when that request resolves.**
+# SELFish's `native_eboot.ld` plus a PT_TLS segment: Mesa uses thread-local storage, and
+# without the segment the link fails on every `__thread` symbol.
 TARGET_LD_SCRIPT := $(abspath local_tls.ld)
 
-# The import manifest, generated rather than written.
-#
-# A title's module says which library each imported symbol resolves from. `common/symbols.txt`
-# is the shared list, 376 lines, and enough for a freestanding title importing a few dozen vendor
-# calls. This one imports 284, and 140 of them are not in that list.
-#
-# `oops-mesa/tools/generate-imports.sh` reads them out of the binary and asks obSCEne's mined
-# corpus where each lives, so nothing here is decided by hand: the corpus places 140, the shared
-# list already covers 373, and as of 2026-09-16 none is left unknown.
-#
-# Run `make imports` after a link, then `make title`. It is not optional and it is not a
-# convenience: without `build/imports.txt` mkmodule cannot name the library each import resolves
-# from, so it builds no vendor segment, and the container that results is refused by the loader
-# rather than failing here. app.mk now stops the build instead of packaging that quietly.
+# The import manifest names the library each imported symbol resolves from. A Mesa title
+# imports more than `common/symbols.txt` carries, so `oops-mesa/tools/generate-imports.sh`
+# reads the imports from the binary and places each from obSCEne's corpus. Run `make imports`
+# after a link, then `make title`: without `build/imports.txt` mkmodule builds no vendor
+# segment and the loader refuses the module.
 OOPS_MESA ?= $(abspath $(OOPS_APPS_ROOT)/../oops-mesa)
 SYMBOLS_FILE := $(abspath build/imports.txt)
 

@@ -1,8 +1,13 @@
+/*
+ * XMB skin - a horizontal category row crossed by a vertical item column, over
+ * animated sine-wave ribbons and drifting particles.
+ */
+
 #include "../skin.h"
 #include "../home.h"
 #include "oops/freestd.h"
 
-/* Dynamic particle and wave state for authentic XMB feel */
+/* Background animation state: the ribbon phase and the particle field */
 #define XMB_PARTICLE_COUNT 48
 
 typedef struct xmb_particle {
@@ -120,8 +125,7 @@ static int xmb_render_main(oops_surface_t *surf, const struct home_model *m,
         init_particles(sw, sh);
     }
 
-    /* ---- 1. Dynamic Sine-Wave Ribbons & Ambient Particles
-     * -------------------------------- */
+    /* Sine-wave ribbons */
     int rib_y_base = sh / 2;
     for (int w = 0; w < 3; w++) {
         int phase_offset = s_wave_phase + (w * 45);
@@ -158,8 +162,7 @@ static int xmb_render_main(oops_surface_t *surf, const struct home_model *m,
         drawn++;
     }
 
-    /* ---- 2. Top-Right Status Clock, Battery & Profile
-     * ----------------------------------- */
+    /* Top-right status: user, battery, clock */
     int top_y = 36;
     int rx = sw - 320;
     (void)oops_draw_text(surf, rx, top_y,
@@ -182,8 +185,7 @@ static int xmb_render_main(oops_surface_t *surf, const struct home_model *m,
     (void)oops_draw_text(surf, bat_x + 36, top_y, clk, theme->text, 1);
     drawn += 4;
 
-    /* ---- 3. Horizontal Category Row
-     * ----------------------------------------------------- */
+    /* Horizontal category row */
     int focus_cat_x = 360;
     int cat_row_y = 200;
     int active_cat = m->category_idx;
@@ -212,8 +214,7 @@ static int xmb_render_main(oops_surface_t *surf, const struct home_model *m,
     oops_draw_line_blend(surf, 40, cat_row_y + 44, sw - 40, cat_row_y + 44,
                          0x20FFFFFFu);
 
-    /* ---- 4. Vertical Item Column Intersecting at focus_cat_x
-     * ---------------------------- */
+    /* Vertical item column, crossing the category row at focus_cat_x */
     int total_items = home_get_category_item_count(m, skin, active_cat);
     int cur = m->category_cursor[active_cat];
     int center_item_y = 350;
@@ -270,8 +271,7 @@ static int xmb_render_main(oops_surface_t *surf, const struct home_model *m,
         drawn += 4;
     }
 
-    /* ---- 5. Bottom Controller Button Guide
-     * ---------------------------------------------- */
+    /* Controller button guide */
     int foot_y = sh - 46;
     (void)oops_draw_text(surf, 60, foot_y,
                          "[SELECT] ENTER / PLAY      [BACK] BACK      [OPTIONS] "
@@ -287,7 +287,7 @@ static int xmb_cursor_rect(const struct home_model *m, const struct home_skin *s
     (void)skin;
     int cur = m->category_cursor[m->category_idx];
     *x = 360 - 36;
-    *y = 350 + ((cur - cur) * 60) - 6; /* Active item is always at 350-6 */
+    *y = 350 + ((cur - cur) * 60) - 6; /* The selected item stays at row 350 */
     *w = 620;
     *h = 52;
     return 1;

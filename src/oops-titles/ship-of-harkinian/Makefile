@@ -1,28 +1,17 @@
 # Ship of Harkinian, through oops-sdk.
 #
-#   make survey   what this port still needs, measured against the tree that is checked out
-#   make elf      the payload - NOT YET, see the state section of README.md
+#   make survey          the GL entry points and dependencies the checked-out tree needs
+#   make compile-survey  compile every source with -fsyntax-only, grouped by first error
+#   make generated       the generated headers
 #
-# **This title does not build yet, and the Makefile says so rather than pretending.** The fetch
-# and the pin work; the sources do not compile against this toolchain until the SDK gains vertex
-# array objects and the dependencies below are vendored. `make survey` is what is useful today:
-# it measures the gap against the checked-out tree, so the number moves as the work lands instead
-# of being re-guessed.
-#
-# The order of work is in README.md. Read it before adding to this file.
+# The port plan is in README.md.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
-# --- the toolchain, because this title does not include `common/app.mk` yet ------
+# --- the toolchain ------------------------------------------------------------
 #
-# `app.mk` is what normally defines these, and a title that has no `elf` rule does not include it.
-# So they are defined here, with the same defaults `app.mk` uses.
-#
-# **This was not a formality.** The `survey` target below already named `$(OOPS_SDK_DIR)`, which
-# expanded to nothing, so its GL check globbed `/src/gl/*.c`, matched nothing, and printed MISSING
-# for every symbol - including `glBlitFramebuffer`, which `oops-gl` has had since 2026-09-25. An
-# arm that reports the same answer whether or not the thing is there is not a check, and this one
-# went unquestioned because it agreed with what was expected.
+# This title does not include `common/app.mk`, so it defines the toolchain variables here with
+# the same defaults. The survey's GL check reads `$(OOPS_SDK_DIR)`.
 OOPS_SDK ?= $(abspath $(OOPS_APPS_ROOT)/../oops-sdk)
 OOPS_SDK_DIR := $(abspath $(OOPS_SDK))
 OOPS_SDK_INCLUDE ?= -I$(OOPS_SDK_DIR)/include -I$(OOPS_SDK_DIR) -DOOPS_TARGET=3
@@ -31,59 +20,39 @@ TARGET_CC ?= clang
 TARGET_CXX ?= clang++
 AR ?= ar
 
-# The fetch runs while this file is read - see `common/upstream.mk`. It is included explicitly
-# because the survey below names files under `upstream/`, and a title that does that has to ask
-# for the fetch before the lists that use it.
+# The fetch runs while this file is read (`common/upstream.mk`). It is included before the
+# rules that name files under `upstream/`.
 include $(OOPS_APPS_ROOT)/common/upstream.mk
 
-# --- what is still missing --------------------------------------------------
+# --- GL entry points ------------------------------------------------------------
 #
-# **The GL gap, and it is the SDK's rather than this title's.**
-#
-# `libultraship`'s `gfx_opengl.cpp` calls 54 entry points and `oops-gl` defines all but the first
-# two below. The vertex-array family is *not* from that file - it sits there inside
-# `#if defined(__APPLE__) || defined(USE_OPENGLES)`, which this port does not compile. It is here
-# because **ImGui's GL3 backend uses vertex array objects unconditionally on desktop GL**, and
-# libultraship links that backend. Grepping the port measured the port; compiling the link
-# measured the link. See README.md.
-#
-# `glRenderbufferStorageMultisample` is further behind a runtime `msaa_level`, so the one that is
-# unconditionally load-bearing from `gfx_opengl.cpp` is `glBlitFramebuffer`.
+# The entry points the port calls beyond the common set, checked against `oops-gl` by
+# `survey`. The two framebuffer calls come from libultraship's `gfx_opengl.cpp`;
+# `glRenderbufferStorageMultisample` only runs with a non-zero `msaa_level`. The
+# vertex-array family comes from ImGui's GL3 backend, which uses vertex array objects
+# unconditionally on desktop GL (the ones in `gfx_opengl.cpp` sit behind `__APPLE__` or
+# `USE_OPENGLES`).
 SOH_GL_GAP := glBlitFramebuffer glRenderbufferStorageMultisample \
               glGenVertexArrays glBindVertexArray glDeleteVertexArrays glGetStringi
 
-# The third-party libraries upstream fetches, minus the Apple-only one. A name that already has a
-# directory under `src/oops-deps/` is done; the rest are the vendoring queue.
-#
-# `imgui` was missing from this list until a compile survey found it: it is declared and used
-# inside the `libultraship` submodule, so the grep that built this list - run over the
-# superproject - could not see it.
+# The third-party libraries upstream fetches, minus the Apple-only one, including those the
+# `libultraship` submodule declares (`imgui`). `survey` checks each for a directory under
+# `src/oops-deps/`.
 SOH_DEPS := sdl2 zlib libzip stb nlohmann-json thread-pool tinyxml2 spdlog \
             stormlib libgfxd prism-processor imgui
 
 # --- generated headers ------------------------------------------------------
 #
-# CMake hands libultraship two things this build has to produce another way. Both are generated
-# rather than checked in, for the reason each script gives: they are derived from files upstream
-# owns, and a stale copy of either is wrong in a way that compiles.
+# The CVAR names are generated from upstream's CMake files by `gen-cvars.sh`, so they follow
+# upstream. `ship/install_config.h` is a fixed choice and lives in `shim/include/`.
 #
-# `ship/install_config.h` is the exception - it is a *decision* rather than a derivation, so it
-# lives in `shim/include/` as ordinary source.
-# **`-include`, because upstream delivers these on the command line.** CMake passes the CVAR names
-# as `add_compile_definitions`, so no source includes a header for them - `Controller.cpp:69`
-# simply writes `CVAR_PREFIX_CONTROLLERS ".Port%d.HasConfig"` and expects the macro to be there.
-# Reproducing that as twenty-two `-D` flags would mean quoting each value through make and the
-# shell; one force-include of a generated header is the same thing with the quoting done once, in
-# C, where it belongs.
-# --- what the build selects ---------------------------------------------------
+# CMake passes the CVAR names as `add_compile_definitions` and no source includes a header for
+# them (`Controller.cpp:69` uses `CVAR_PREFIX_CONTROLLERS` directly), so the generated header
+# is force-included with `-include`, which avoids quoting each value through make and the
+# shell.
 #
-# `ENABLE_OPENGL` is how libultraship picks a renderer. Its CMake sets one of `ENABLE_OPENGL`,
-# `ENABLE_DX11`, `ENABLE_DX12` or the Metal path, and `Gui.cpp` includes the matching ImGui
-# backend behind that `#ifdef`. Without it the file compiles right up to
-# `ImGui_ImplSDL2_InitForOpenGL` and then does not know what that is - which reads like a missing
-# header and is really an unselected renderer.
-#
-# There is one renderer on this target, so this is not a choice so much as a statement.
+# `ENABLE_OPENGL` selects libultraship's renderer; `Gui.cpp` includes the matching ImGui
+# backend behind it. OpenGL is the only renderer on this target.
 SOH_DEFS := -DENABLE_OPENGL
 
 SOH_GEN_DIR := $(CURDIR)/build/gen
@@ -101,10 +70,7 @@ generated: $(SOH_CVARS_H)
 
 # --- the include set -----------------------------------------------------------
 #
-# Every dependency's build file, for the include variables each exports. This is the same set the
-# eventual `elf` rule needs, assembled here first because `compile-survey` below is what proves it
-# is right - a missing `-I` shows up as a file that does not compile, named, rather than as a
-# link-time surprise.
+# Every dependency's build file, for the include variables each exports.
 OOPS_LIBCXX ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libcxx)
 include $(OOPS_LIBCXX)/oops-libcxx.mk
 OOPS_SDL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/sdl2)
@@ -135,13 +101,7 @@ include $(OOPS_APPS_ROOT)/common/posix.mk
 include $(OOPS_APPS_ROOT)/common/rt.mk
 
 # The port's own headers, taken from `soh/CMakeLists.txt`'s `target_include_directories` and
-# `libultraship/src/CMakeLists.txt` rather than inferred.
-#
-# **Inferring them cost a survey.** A first pass guessed `upstream/` and `upstream/soh`, and 340 of
-# `soh/soh`'s 401 sources failed on `z64.h`, `z64item.h`, `variables.h` and `global.h` - every one
-# of which is in `soh/include/`, which was not on the list. That reads as a port with a vast gap
-# and is a harness with a missing `-I`. The rule this keeps re-teaching: read the build system's
-# own list, do not reconstruct it.
+# `libultraship/src/CMakeLists.txt`.
 SOH_OWN_INCLUDE := -I$(CURDIR)/upstream \
                    -I$(CURDIR)/upstream/libultraship/src \
                    -I$(CURDIR)/upstream/libultraship/include \
@@ -162,13 +122,9 @@ SOH_INCLUDE := $(SOH_OWN_INCLUDE) $(SOH_GEN_INCLUDE) $(SOH_DEFS) \
 # and `<cmath>` stops with an explicit error if it reaches the C ones first. It carries
 # `-nostdinc++ -nostdlibinc` itself.
 #
-# **`$(OOPS_POSIX_INCLUDE)` comes before `$(SOH_INCLUDE)`, and that is not cosmetic.** Both it and
-# `oops-deps/sdl2/include` contain a `unistd.h`. SDL's exists only to declare `_exit` for its own
-# `SDL.c`; the shim's declares the whole set a port uses. With SDL's directory first, spdlog's
-# `os-inl.h:395` calls `::getpid()` and there is no such declaration - nine files in one
-# subdirectory failed that way, and the error names `getpid` rather than the header, so nothing
-# points at the include path. The shim's header carries a comment about this hazard from the last
-# time it bit, in the other direction.
+# `$(OOPS_POSIX_INCLUDE)` comes before `$(SOH_INCLUDE)`: both it and `oops-deps/sdl2/include`
+# have a `unistd.h`, and SDL's declares only `_exit`. spdlog's `os-inl.h:395` needs the
+# shim's `getpid`.
 SOH_CXXFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -fPIC \
                -O2 -w -std=c++20 -D__PROSPERO__=1 \
                $(OOPS_LIBCXX_INCLUDE) $(OOPS_POSIX_INCLUDE) \
@@ -179,15 +135,11 @@ SOH_CXXFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostd
 #   make compile-survey            the whole port
 #   make compile-survey SOH_SURVEY_DIR=upstream/libultraship/src   one tree
 #
-# Every source on its own, `-fsyntax-only`, counted - and the failures grouped by their **first**
-# error, because one missing header produces a hundred of the rest and the question here is which
-# blockers exist rather than how many errors they cause. That grouping is what turned 83 failures
-# into "SDL2 prefix" and "ImGui" in one pass.
+# Every source on its own with `-fsyntax-only`, the failures grouped by their first error,
+# since one missing header causes the rest.
 #
-# **A clean survey is not a working port.** `-fsyntax-only` does not link, and a payload link does
-# not report an unresolved symbol - so a name that no object defines becomes a jump into nothing on
-# the console rather than an error here. The archives each get an `nm --undefined-only` census for
-# that reason; this instrument answers a narrower question than it looks like it does.
+# It does not link, and a payload link does not report unresolved symbols, so each archive
+# also needs an `nm --undefined-only` check.
 SOH_SURVEY_DIR ?= upstream/libultraship/src upstream/soh
 
 .PHONY: compile-survey
@@ -241,5 +193,5 @@ survey:
 	    fi; \
 	 done; printf '   -> %s vendored, %s to go\n' "$$have" "$$need"
 
-# `make` with no target should say what the state is rather than fail obscurely.
+# This title has no `elf` rule, so `make` runs the survey.
 .DEFAULT_GOAL := survey

@@ -1,30 +1,12 @@
 /*
  * GLFW and GLEW over oops-sdk, for Craft.
  *
- * The header next door says why this is a shim rather than a GLFW backend, and which of
- * GLFW's promises are deliberately not kept. This file is the other half: where the
- * input comes from.
+ * `GLFW/glfw3.h` says which of GLFW's promises are kept; this file supplies the window,
+ * the clock and the input. The USB keyboard and mouse and the pad are all read every
+ * frame and whichever moved wins, with no mode to select.
  *
- * # Two input devices, and the pad is not a fallback
- *
- * Craft is a keyboard-and-mouse game - WASD to walk, mouse to look, buttons to place
- * and break. This console has a USB keyboard and mouse when one is plugged in
- * (`oops/keyboard.h`, `oops/mouse.h`) and a pad always. Both are read, every frame, and
- * **whichever moved wins**: there is no mode to select and nothing to configure,
- * because a player who picks up the pad mid-game has not told anyone they were going
- * to.
- *
- * The pad mapping is the part with choices in it, so they are written down where the
- * mapping is.
- *
- * # Why the callbacks are dispatched from `glfwPollEvents` and not from the reader
- *
- * GLFW delivers key and character events by calling back into the application from
- * inside `glfwPollEvents`, and Craft's handlers assume that: `on_key` writes into the
- * chat line, and the typing state it reads is only consistent between frames. Reading
- * the device at some other moment and calling back immediately would put a keystroke
- * into the middle of a frame's logic. So the devices are drained here, into this file's
- * own queue, and the callbacks run from one place.
+ * Devices are drained and callbacks run only inside `glfwPollEvents`, as GLFW does,
+ * because Craft's handlers assume the typing state is consistent between frames.
  */
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -114,21 +96,9 @@ void glfwTerminate(void) {
     }
 }
 
-/* **The requested size is ignored and the display's own is returned**, which the header
- * says and Craft copes with: it reads the size back rather than assuming it got what it
- * asked for.
- *
- * **But it must still be asked for by number, not as zero.** This passed `0, 0` on the
- * reasoning that the display knows its own size, and `agc_display_open_adopting`
- * refuses a zero dimension outright - `last_error = -3`, before the first of its 33 log
- * points, so the refusal is silent. The display then reports 0x0, `glContextCreate`
- * falls back to its built-in 1920x1080, and the only symptom is `no framebuffer to run
- * the GPU clear test against` from the GL self-test several layers away. That cost five
- * hardware runs to find.
- *
- * `OOPS_DISPLAY_DEFAULT_*` is what the SDK's own `oops_gfx_create` substitutes for a
- * zero, so this is the same answer in the same words rather than a number invented
- * here. */
+/* The requested size is ignored and the display's own is returned; Craft reads the size
+ * back. The display is still opened with `OOPS_DISPLAY_DEFAULT_*`, as `oops_gfx_create`
+ * does, because `agc_display_open_adopting` silently refuses a zero dimension. */
 GLFWwindow *glfwCreateWindow(int width, int height, const char *title,
                              GLFWmonitor *monitor, GLFWwindow *share) {
     (void)width;
@@ -146,9 +116,8 @@ GLFWwindow *glfwCreateWindow(int width, int height, const char *title,
     s_window.gl = glContextCreate(s_window.display);
     if (!s_window.gl)
         return (GLFWwindow *)0;
-    /* **GL 2.0, because Craft is a GL 2.1 program.** oops-gl gives a context the entry
-     * points its version names and no others, so without this every `glCreateShader` in
-     * Craft is GL_INVALID_OPERATION and the first frame draws nothing. */
+    /* Craft is a GL 2.1 program, and oops-gl exposes only the entry points a context's
+     * version names, so shaders need at least 2.0. */
     glContextMakeCurrent(s_window.gl);
     glContextSetVersion(2, 0);
     return &s_window;
@@ -180,9 +149,7 @@ void glfwGetWindowSize(GLFWwindow *window, int *width, int *height) {
         *height = window ? window->height : 0;
 }
 
-/* **The same numbers as the window size.** GLFW separates them for retina displays,
- * where the framebuffer is larger than the window in screen coordinates. There is one
- * pixel grid here. */
+/* The same numbers as the window size: there is one pixel grid here. */
 void glfwGetFramebufferSize(GLFWwindow *window, int *width, int *height) {
     glfwGetWindowSize(window, width, height);
 }
@@ -221,16 +188,11 @@ void glfwSetTime(double time) {
  * ------------------------------------------------------------------------- */
 
 /*
- * **A USB HID usage code to Craft's key number.**
+ * A USB HID usage code (as `oops_key_event_t` carries it) to Craft's key number.
  *
- * Craft's `config.h` gives most controls as character literals - `'W'`, `'E'`, `'\t'` -
- * and passes them straight to `glfwGetKey`, which on a desktop works because GLFW's key
- * codes for the letters *are* their uppercase ASCII. So the letters and digits map to
- * ASCII here, and the named keys to the `GLFW_KEY_*` values in the header. Anything
- * else is dropped: it is a key Craft has no name for.
- *
- * The table is HID's own ordering (usage 0x04 is 'a'), which is what `oops_key_event_t`
- * carries.
+ * Craft's `config.h` passes character literals such as `'W'` to `glfwGetKey`, because
+ * GLFW's letter key codes are their uppercase ASCII. Letters and digits map to ASCII,
+ * named keys to `GLFW_KEY_*`, and anything else returns -1.
  */
 static int hid_to_glfw(unsigned int usage) {
     if (usage >= 0x04u && usage <= 0x1du)
@@ -346,8 +308,7 @@ static void drain_keyboard(struct GLFWwindow *w) {
         }
         if (key >= 0 && w->on_key)
             w->on_key((GLFWwindow *)w, key, 0, action, mods);
-        /* **The character callback is only for a press**, and only for a key that
-         * produces one. A release that also emitted would type every letter twice. */
+        /* The character callback fires only on a press of a key that produces one. */
         if (action == GLFW_PRESS && w->on_char) {
             const unsigned int ch = hid_to_char(events[i].usage, events[i].modifiers);
             if (ch)
@@ -384,24 +345,11 @@ static void drain_mouse(struct GLFWwindow *w) {
 }
 
 /*
- * **The pad, mapped to the same keys the keyboard produces** - so nothing downstream
- * knows which device a player used, and the two can be used in the same breath.
- *
- * The choices, and they are choices:
- *
- *   - **The left stick is WASD** and the right stick is the mouse, which is every
- * first-person console game and needs no defending. The right stick's scale is per
- * frame rather than per second, which is wrong when the frame rate moves and is what
- * Craft's own mouse handling does with a real mouse too.
- *   - **Cross jumps, Square breaks, Circle places.** Breaking is the left mouse button
- * on a desktop and placing is the right; Square and Circle sit under the thumb the same
- * way.
- *   - **L1 and R1 cycle the held block**, which is the mouse wheel - the one control
- * with no natural pad shape, and a pair of shoulder buttons is the least bad of them.
- *   - **Options opens the chat line**, which is `t` on a desktop. There is no on-screen
- * keyboard wired up here, so with no USB keyboard attached that line cannot be typed
- * into: the button is mapped anyway because the alternative is a control that silently
- * does not exist.
+ * The pad, mapped to the same keys and buttons the keyboard and mouse produce, so
+ * nothing downstream knows which device was used. Left stick is WASD, right stick is
+ * the mouse (scaled per frame, as mouse motion is). Cross jumps, Square breaks (left
+ * button), Circle places (right button), L1 and R1 cycle the held block, and Options
+ * opens the chat line (`t`).
  */
 #define PAD_STICK_DEADZONE 32
 #define PAD_LOOK_SCALE 0.35
@@ -438,9 +386,8 @@ static void drain_pad(struct GLFWwindow *w) {
     if (pad.buttons & OOPS_BUTTON_OPTIONS)
         w->key_down['T'] = 1;
 
-    /* The two that are buttons rather than keys, so they go through the same edge
-     * detection the mouse does - Craft breaks and places on the transition, not on the
-     * hold. */
+    /* Break and place are mouse buttons, edge-detected like the mouse, because Craft
+     * acts on the transition rather than the hold. */
     static const struct {
         unsigned int mask;
         int button;
@@ -462,10 +409,8 @@ static void drain_pad(struct GLFWwindow *w) {
 
 void glfwPollEvents(void) {
     struct GLFWwindow *w = &s_window;
-    /* **The pad's held keys are cleared first and the keyboard's are not.** A pad
-     * reports the whole of its state every poll, so "not pressed now" is information; a
-     * keyboard reports transitions, so a key stays down until its release arrives. The
-     * four the pad writes are the four cleared. */
+    /* The keys the pad writes are cleared first: a pad reports its whole state every
+     * poll, while a keyboard reports transitions and a key stays down until release. */
     w->key_down['W'] = 0;
     w->key_down['A'] = 0;
     w->key_down['S'] = 0;
@@ -503,8 +448,7 @@ int glfwGetInputMode(GLFWwindow *window, int mode) {
     return 0;
 }
 
-/* Nothing to paste from. Craft checks for NULL - it is the paste key in the chat line.
- */
+/* Nothing to paste from; Craft's chat-line paste checks for NULL. */
 const char *glfwGetClipboardString(GLFWwindow *window) {
     (void)window;
     return (const char *)0;

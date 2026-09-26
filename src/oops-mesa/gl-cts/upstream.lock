@@ -1,49 +1,12 @@
 # The OpenGL Conformance Test Suite, from Khronos.
 #
-# **This is the only thing in the collection that can say the word "conformance".** Everything
-# else here measures what this project wrote against what this project expected; the worth of a
-# CTS result is that the tests are somebody else's and the answer is not ours to arrange. The
-# demos next door prove a feature draws. This decides whether the claim in the README is true.
+# Pinned to the `opengl-cts-4.6.8.1` release so pass tables are comparable. The hash is the
+# peeled tag (`^{}`), which is what a checkout reports as `rev-parse HEAD`.
 #
-# **Pinned to a release tag, not to main.** `opengl-cts-4.6.8.1` is a released conformance
-# package; main is a moving tree and a pass table against one cannot be compared with the table
-# before it. Same reasoning as mesa-demos, and it matters more here.
-#
-# **The hash is the PEELED tag.** `git ls-remote` gives
-# `f7eefdfcae4a19fa69ad7df0c00da8c1a65723a3` for `refs/tags/opengl-cts-4.6.8.1` and
-# `067e8832315e79817ede1c4863804e440f5d1c80` for the `^{}` form. The second is what a checkout
-# reports as `rev-parse HEAD` and it is the one below - verified by cloning the tag and asking.
-# The tag object's own hash has been wrong in two locks in this collection already.
-#
-# # The sparse set, and why it is not the whole tree
-#
-# `framework/` is 10 MB and is the part being ported: `delibs` (the C base libraries), `common`
-# (tcu), `opengl` (glu), `qphelper` (the `.qpa` log writer) and `referencerenderer`.
-#
-# `external/openglcts` is **177 MB** and holds the test modules and their data - the tests
-# themselves, and the shaders and reference images they compare against. It was left out until
-# the framework built and ran, because a 177 MB fetch on every clean checkout to compile nothing
-# from it is a cost with no return.
-#
-# **The framework runs as of 2026-09-24** - dEQP starts on the console, builds the platform,
-# opens its result log and exits 0, with zero cases because no test package is registered. That
-# is exactly what this line fixes, so it is in.
-#
-# `modules/glshared` is dEQP's shared GL test utilities, and it is here because four tests in
-# `external/openglcts/modules/common` include it directly - `glcShaderConstExpr`,
-# `glcShaderMacro`, `glcPixelStorageModes` and `glcAggressiveShaderOptimizations` want
-# `glsShaderExecUtil.hpp` and `glsTextureTestUtil.hpp`. Those four are registered in the GL
-# packages like any other, so leaving the directory out would not make the suite smaller, it
-# would make it *wrong* - four cases missing from a table that claims to be upstream's.
-#
-# Not wanted at all: `external/vulkancts`, `external/amber`, `external/vulkan-*` and the video
-# sample fetchers. This is the GL suite.
-#
-# Also not fetched, and this one is a gap rather than a decision: `external/glslang` and
-# `external/spirv-tools`, which upstream pulls with its own `external/fetch_sources.py` rather
-# than carrying in the tree, so no sparse path can ask for them. `glcSpirvUtils.cpp` is the only
-# file that needs them - it compiles GLSL to SPIR-V for the `GL_ARB_gl_spirv` tests - and
-# `shim/gl_cts_spirv_stub.cpp` stands in for it. See that file for what the tests report.
+# Sparse: `framework/` (delibs, tcu, glu, qphelper, referencerenderer), `external/openglcts`
+# (the GL test modules and their data), and `modules/glshared`, which four openglcts tests
+# include directly. glslang and spirv-tools are fetched by upstream's own script, so no
+# sparse path reaches them; `shim/gl_cts_spirv_stub.cpp` stands in for `glcSpirvUtils.cpp`.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/KhronosGroup/VK-GL-CTS.git
 UPSTREAM_REV=067e8832315e79817ede1c4863804e440f5d1c80

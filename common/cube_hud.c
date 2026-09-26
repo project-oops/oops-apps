@@ -34,20 +34,16 @@ void oops_cube_hud_draw(oops_hud_t *hud, const oops_cube_hud_t *info) {
 
     oops_hud_begin(hud);
 
-    /* A dimmed panel behind the text, with a bright top edge. */
     oops_hud_rect(hud, 24, 24, 900, 212, HUD_PANEL);
     oops_hud_rect(hud, 24, 24, 900, 3, HUD_CYAN);
 
-    /* Title, large. */
     oops_hud_text(hud, 40, 38, 3, HUD_WHITE, info->title ? info->title : "CUBE");
 
-    /* Backend, API and build. */
     (void)oops_snprintf(line, sizeof line, "%s  |  %s  |  build %s",
                         info->backend ? info->backend : "?",
                         info->api ? info->api : "?", info->build ? info->build : "dev");
     oops_hud_text(hud, 40, 76, 1, HUD_BLUE, line);
 
-    /* Resolution, frame counter and rate. */
     if (info->us_per_frame != 0u) {
         const unsigned fps = (1000000u + info->us_per_frame / 2u) / info->us_per_frame;
         (void)oops_snprintf(line, sizeof line, "%ux%u   frame %u   %u fps%s",
@@ -60,24 +56,21 @@ void oops_cube_hud_draw(oops_hud_t *hud, const oops_cube_hud_t *info) {
     }
     oops_hud_text(hud, 40, 100, 1, HUD_WHITE, line);
 
-    /* Geometry. */
     (void)oops_snprintf(line, sizeof line, "Mesh: %s   Tris: %u   Verts: %u",
                         info->mesh ? info->mesh : "cube", info->tris, info->verts);
     oops_hud_text(hud, 40, 124, 1, HUD_AMBER, line);
 
-    /* The per-stack status line, in its own colour. */
+    /* The per-stack status line, in the caller's colour. */
     if (info->status != NULL) {
         oops_hud_text(hud, 40, 148, 1,
                       info->status_color ? info->status_color : HUD_GREY, info->status);
     }
 
-    /* Live pipeline toggles. */
     (void)oops_snprintf(line, sizeof line, "Cull %s   Light %s   Tex %s   Depth %s",
                         onoff(info->cull), onoff(info->lighting), onoff(info->texture),
                         onoff(info->depth));
     oops_hud_text(hud, 40, 172, 1, HUD_CYAN, line);
 
-    /* Controls. */
     if (info->controls != NULL) {
         oops_hud_text(hud, 40, 196, 1, HUD_GREY, info->controls);
     }

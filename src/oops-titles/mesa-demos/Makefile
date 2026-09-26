@@ -5,82 +5,44 @@
 #   make title              # the default, `gears`
 #   make title DEMO=engine  # any other name from upstream/src/demos/
 #
-# # Why one demo per build rather than a menu
-#
-# A menu would be our code, and every line of ours between the console and the demo is a line
-# that can be blamed when something does not draw. The value of this title is that the program is
-# *not ours*: if `gears` is wrong here and right on a desktop, the difference is oops-mesa. A
-# picker would put a frame around that, and the thing being measured is the picture inside it.
-#
-# It also keeps the title honest about what it is. `DEMO=` in the build is a measurement
-# parameter, the way a probe's arm is, and the title id stays the same because the answer being
-# recorded is "does this console run mesa-demos", not "does it run gears".
+# No menu: none of the code between the console and the demo is ours, so a demo that draws
+# wrong here and right on a desktop points at oops-mesa.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
-# **This is the line the whole title exists for.** `oops-sdk`'s GLUT names no backend - it goes
-# through `oops/gfx.h` - so this one word is the difference between these demos running on
-# oops-gl's own OpenGL and on upstream Mesa with radeonsi and ACO. (oops-mesa#D013, oops-sdk#D012)
+# oops-sdk's GLUT names no backend (it goes through `oops/gfx.h`), so this selects upstream
+# Mesa with radeonsi and ACO instead of oops-gl (oops-mesa#D013).
 OOPS_RENDERER = mesa
 
 DEMO ?= gears
 
 DEMO_SRC := upstream/src/demos/$(DEMO).c
 
-# `src/util` is header-only for the simpler demos: `glut_wrap.h` is an `#include <GL/glut.h>` with
-# two `#ifdef`s around it, and it finds oops-sdk's GLUT header without knowing anything about it.
-# Demos that need `readtex.c`, `shaderutil.c` or `matrix.c` will fail to link and name what is
-# missing, and this list grows from that rather than from `ls src/util` - the same discipline
-# `src/oops-deps/libcxx/oops-libcxx.mk` states for its four-of-forty-five source list.
-#
-# `shim/include` comes first so `glad/glad.h` resolves to ours. mesa-demos 9.0.0 loads GL through
-# glad, which 27 of the 56 demos include; that header is a loader this static link does not need,
-# but its *reporting* half is real and is answered from the driver. See the header for why those
-# flags are queried rather than defined to 1.
+# `upstream/src/util`'s `glut_wrap.h` includes <GL/glut.h>, which resolves to oops-sdk's.
+# `shim/include` comes first so `glad/glad.h` resolves to the shim, which answers glad's
+# version and extension flags from the driver.
 MESA_DEMOS_CFLAGS := -Ishim/include -Iupstream/src/util -Iupstream/src
 
-# The demo's name, for the two log lines the shim prints. Stringified here rather than in the
-# shim because the shim does not know which demo it was built with.
+# The demo's name, for the log lines the shim prints.
 MESA_DEMOS_CFLAGS += -DOOPS_DEMOS_NAME=\"$(DEMO)\"
 
-# **And a stamp, so that name cannot go stale.**
-#
-# `DEMO=` changes a `-D`, not a source file, and make compares timestamps. So switching demos
-# relinked the right `demos/<name>.o` while keeping yesterday's `mesa_demos_entry.o` - and that
-# object is the one with the name compiled into it. On 2026-09-23 a `shadowtex` build announced
-# itself as `starting fbotexture`: the correct demo ran, and the single line that says which demo
-# a run *is* was a lie. A log that cannot answer the question asked of it is the failure this
-# title exists to avoid.
-#
-# The stamp holds the current demo name and is rewritten only when it differs, so it is touched on
-# a switch and left alone on a rebuild. Anything carrying `OOPS_DEMOS_NAME` depends on it.
+# `DEMO=` changes a `-D`, not a file, so a stamp holding the demo name is rewritten when it
+# differs and the object carrying `OOPS_DEMOS_NAME` depends on it.
 DEMO_STAMP := build/.demo-name
 $(shell mkdir -p build 2>/dev/null; \
         [ "$$(cat $(DEMO_STAMP) 2>/dev/null)" = "$(DEMO)" ] || printf '%s' "$(DEMO)" > $(DEMO_STAMP))
 
-# Where the demos look for their textures and models. Upstream defaults this to `../data/`
-# relative to the build tree (`upstream/meson.build:30`) and the demos concatenate it directly -
-# `#define TEXTURE_FILE DEMOS_DATA_DIR "reflect.rgb"` - so the trailing slash is load-bearing.
-#
-# `/app0/` is the title's own directory on the console. **The files are not there yet**: they
-# live in `upstream/src/data` (14 files, 2.1 MB) and `make stage-data` copies them into the
-# packaged title. Defining this makes the eight data-using demos *compile*; it does not make
-# them find anything at run time until that step has run, and the README says so rather than
-# letting a build success imply an asset.
+# Where the demos look for textures and models. The demos concatenate it directly
+# (`DEMOS_DATA_DIR "reflect.rgb"`, `upstream/meson.build:30`), so it ends in a slash.
+# `/app0/` is the title's directory on the console; `make stage-data` copies the files there.
 MESA_DEMOS_DATA_DIR ?= /app0/data/
 MESA_DEMOS_CFLAGS += -DDEMOS_DATA_DIR=\"$(MESA_DEMOS_DATA_DIR)\"
 
-# The proportional GLUT font names, mapped to the face oops-sdk has. Force-included rather than
-# patched into `glut_wrap.h`, because `upstream/` is fetched output and is never edited - the
-# patch rule in `src/oops-titles/README.md` says a thing that can be answered from outside the
-# tree must be. The header explains why the mapping lives in this title and not in the SDK.
+# The proportional GLUT font names, mapped to the face oops-sdk has. Force-included because
+# `upstream/` is fetched output and is never edited.
 MESA_DEMOS_CFLAGS += -include $(abspath shim/include/glut_proportional_fonts.h)
 
-# Upstream's warnings are upstream's. These are the same suppressions Craft's port carries, for
-# the same reason: this repository's `-Wall -Wextra -Werror` is a statement about code we write,
-# and turning it on somebody else's twenty-year-old demo produces a patch queue that says nothing
-# about the console. `-Wno-missing-prototypes` in particular is unavoidable - a demo's `main` and
-# its callbacks are declared nowhere because nothing else calls them.
+# This repository's `-Wall -Wextra -Werror` covers code written here, not upstream's demos.
 MESA_DEMOS_WARNINGS := -Wno-strict-prototypes -Wno-missing-prototypes -Wno-conversion \
                        -Wno-sign-conversion -Wno-shorten-64-to-32 -Wno-comment \
                        -Wno-unused-parameter -Wno-unused-but-set-variable \
@@ -90,19 +52,9 @@ MESA_DEMOS_WARNINGS := -Wno-strict-prototypes -Wno-missing-prototypes -Wno-conve
 
 EXTRA_TARGET_CFLAGS += $(MESA_DEMOS_CFLAGS) $(MESA_DEMOS_WARNINGS)
 
-# The SDK this title needs, listed rather than linked from an archive - the arrangement every
-# hosted title here uses, and `OOPS_RENDERER = mesa` adds none of it (it sets `USE_MESA` and
-# nothing else, because oops-gl's sources would collide with Mesa's own GL).
-#
-# **`src/gl/glut.c` is the interesting entry and the reason this title works at all.** It is in
-# oops-sdk's `gl/` directory but it is not part of oops-gl: it names no backend, calls
-# `oops_gfx_create`/`_present`/`_extent` and otherwise plain GL, so linked beside Mesa it drives
-# Mesa. None of the rest of `src/gl/` comes with it, which is what keeps the two OpenGL
-# implementations out of the same link.
-#
-# The list below is what `gears` resolves against and no more. A demo that needs something else
-# will fail `make imports` by name - that check reads the ELF's undefined symbols and refuses to
-# write a manifest with a gap in it - and this grows from that rather than from `ls src/`.
+# The oops-sdk features this title links. `OOPS_RENDERER = mesa` adds none, so oops-gl stays
+# out of the link; oops-sdk's GLUT calls `oops_gfx_*` and plain GL, so beside Mesa it drives
+# Mesa. `make imports` names any symbol a demo needs that is missing.
 OOPS_FEATURES := glu glut display thread suspend input keyboard mouse
 
 PAYLOAD_SRCS = shim/mesa_demos_entry.c shim/glad_from_driver.c \
@@ -110,28 +62,19 @@ PAYLOAD_SRCS = shim/mesa_demos_entry.c shim/glad_from_driver.c \
                upstream/src/util/readtex.c \
                upstream/src/util/showbuffer.c
 
-# The same local link script the Mesa probes and `mesa-cube` carry, taken verbatim. SELFish's
-# `native_eboot.ld` emits no `PT_TLS` segment, Mesa's GL dispatch is thread-local by construction,
-# and the link fails with `has an STT_TLS symbol but doesn't have a PT_TLS segment` without it -
-# which is exactly how this title first failed. It also carries the `.init_array` output sections
-# with `PROVIDE_HIDDEN` bounds, which the shim's `oops_mesa_run_init_array()` walks. The copy goes
-# when `REQ-20260915T0001Z-8d72` on the SELFish bus resolves and the shared script grows both.
+# SELFish's `native_eboot.ld` plus a PT_TLS segment, which Mesa's thread-local GL dispatch
+# needs, and `.init_array` bounds for `oops_mesa_run_init_array()`.
 TARGET_LD_SCRIPT := $(abspath local_tls.ld)
 
-# The import manifest, generated rather than written - the arrangement every Mesa-linked title
-# here uses, because such a title imports far more than `common/symbols.txt` carries and every
-# attribution comes from obSCEne's mined corpus rather than anyone's judgement.
-#
-# Run `make imports` after a link, then `make title`. Not optional: without `build/imports.txt`
-# mkmodule builds no vendor segment and the container is refused when it loads.
+# The import manifest is generated from obSCEne's corpus; a Mesa title imports more than
+# `common/symbols.txt` carries. Run `make imports` after a link, then `make title`: without
+# `build/imports.txt` mkmodule builds no vendor segment and the loader refuses the module.
 OOPS_MESA ?= $(abspath $(OOPS_APPS_ROOT)/../oops-mesa)
 SYMBOLS_FILE := $(abspath build/imports.txt)
 
 include $(OOPS_APPS_ROOT)/common/app.mk
 
-# The one object with `OOPS_DEMOS_NAME` compiled into it. Placed after the include because
-# `$(BUILD)` is app.mk's. The demo's own object is named after the demo, so it is never stale;
-# this is the only file whose contents depend on `DEMO` without its path doing so.
+# The one object with `OOPS_DEMOS_NAME` compiled into it; after the include for `$(BUILD)`.
 $(BUILD)/obj/app/shim/mesa_demos_entry.o: $(DEMO_STAMP)
 
 $(SYMBOLS_FILE): $(BUILD)/$(APP_NAME).elf
@@ -147,14 +90,8 @@ imports: $(BUILD)/$(APP_NAME).elf
 	@OOPS_APPS_SYMBOLS=$(OOPS_APPS_ROOT)/common/symbols.txt \
 	  bash $(OOPS_MESA)/tools/generate-imports.sh $< $(SYMBOLS_FILE)
 
-# Stage the demos' textures and models into the packaged title.
-#
-# Separate from `title` on purpose: `make title` is what the sweep and every other consumer runs,
-# and it must not depend on 2.1 MB of assets that only eight of the 56 demos read. Run this after
-# `make title` when packaging one of those eight for hardware.
-#
-# `/app0/` is the title directory on the console, so this lands at the path
-# `MESA_DEMOS_DATA_DIR` names.
+# Stage the demos' textures and models into the packaged title, at MESA_DEMOS_DATA_DIR.
+# Separate from `title`, which does not depend on assets most demos never read.
 .PHONY: stage-data
 stage-data:
 	@test -d $(BUILD)/title/$(TITLE_ID) || { \

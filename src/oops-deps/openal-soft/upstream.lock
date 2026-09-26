@@ -1,22 +1,12 @@
 # OpenAL Soft's origin. Read by `common/upstream-fetch.sh`, fetched by `common/deps-fetch.sh`.
 #
-# **`1.23.1`, not the newer 1.24 line, and the reason is what 1.24 brings with it.** 1.24 moved
-# to C++17, vendors `fmt`, and adds a `common/filesystem.cpp` over `std::filesystem` - and the
-# libc++ here compiles no `<filesystem>` operations. 1.23.1 is C++14, has no filesystem layer
-# and no bundled formatting library: a smaller surface that asks the platform for less.
-# Measured by cloning both tags and grepping, 2026-09-25.
+# `1.23.1` rather than 1.24: 1.24 is C++17, vendors `fmt` and adds `common/filesystem.cpp` over
+# `std::filesystem`, which the libc++ here does not provide. 1.23.1 is C++14 with neither.
 #
-# **A lightweight tag**: `git ls-remote --tags` gives `refs/tags/1.23.1` with no peeled `^{}`
-# line, so the hash below is the commit directly.
+# A lightweight tag: `refs/tags/1.23.1` has no peeled `^{}` line, so the hash is the commit.
 #
-# **Why OpenAL at all, rather than SDL_mixer which is already here.** SuperTux is written against
-# the OpenAL API - sources, buffers, a streaming queue, a listener - and so is SuperTuxKart.
-# Neither can be served by a different API without rewriting its audio layer; `oops-deps/README.md`
-# rules out a second, hand-written OpenAL for the same reason it rules out any reimplementation.
-#
-# **Output goes through SDL2.** OpenAL Soft's own `alc/backends/sdl2.cpp` opens an SDL audio
-# device and mixes in its callback, and SDL2's audio here is `oops-deps/sdl2`'s Prospero backend.
-# The null and loopback backends come with it because upstream always builds them.
+# SuperTux and SuperTuxKart are written against the OpenAL API. Output goes through upstream's
+# `alc/backends/sdl2.cpp` to `oops-deps/sdl2`'s Prospero audio backend.
 #
 # `UPSTREAM_SPARSE` takes the library and leaves the examples, utilities and HRTF tables behind.
 UPSTREAM_KIND=git

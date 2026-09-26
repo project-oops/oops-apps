@@ -13,7 +13,7 @@
  * to obSCEne's input probe: a person looks and judges, there is no verdict.
  *
  * Render is a pure function of the state, so the whole diagram draws into a plain
- * buffer and is checked on a host - the seam that makes it testable off the console.
+ * buffer and is checked on a host.
  */
 
 /* What the visualiser draws, gathered so render stays a pure function of it. */

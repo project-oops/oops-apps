@@ -1,5 +1,5 @@
-# oops-apps shared application Makefile helper
-# Include this file in each application's Makefile:
+# The shared build for every app: sources, renderer, packaging and the host self-test.
+# Each app's Makefile includes it:
 #   OOPS_APPS_ROOT ?= $(abspath ../..)
 #   include $(OOPS_APPS_ROOT)/common/app.mk
 
@@ -10,30 +10,13 @@ SELFISH ?= $(abspath $(OOPS_APPS_ROOT)/../selfish)
 include $(OOPS_SDK)/oops-sdk.mk
 OOPS_SDK_DIR := $(abspath $(OOPS_SDK))
 
-# Object rules and the `-MMD` depfiles that make a header a prerequisite of what it is compiled
-# into. Guarded, so a title that included it itself (neverball, for its own archive) is
-# unaffected.
+# Object rules and `-MMD` depfiles. Guarded, so a title that includes it itself is unaffected.
 include $(OOPS_APPS_ROOT)/common/deps.mk
 
-# **oops-gl's sources, listed once.**
-#
-# Apps that use OpenGL compile the library out of the SDK tree rather than linking its archive,
-# because a host self-test needs the same code the payload runs and the archive is a
-# freestanding cross-build. Each of them used to carry its own copy of this list.
-#
-# That went wrong the first time the library gained a file. On 2026-09-21 the GL 2.0 shader
-# objects arrived as five new sources, and every app's link broke - **one at a time**, as each
-# was next built, with an undefined-symbol error naming a function nobody had heard of rather
-# than a missing file. One list is one place to add a source, and it is the same reasoning as
-# `an app is a directory with a Makefile`: nothing to keep in step by hand.
-#
-# GLU, GLUT and the font are *not* here. They are separate libraries a program chooses, and an
-# app that does not call them should not link them - `glut-demo` adds them itself.
-#
-# `math.c` **is** here, because the GL layer needs it: the GLSL interpreter's `sin`, `pow` and
-# `floor` are the SDK's own, since a freestanding target has no libm. An app that also lists it
-# would compile it twice and fail the link on duplicate symbols, so the apps that used to list
-# it no longer do.
+# oops-gl's sources, compiled from the SDK tree so the host self-test runs the payload's code.
+# GLU, GLUT and the font are separate libraries an app adds itself (as `glut-demo` does).
+# `math.c` is included because the GLSL interpreter needs the SDK's own libm; an app must not
+# list it again, or the link fails on duplicate symbols.
 OOPS_GL_SRCS := \
     $(OOPS_SDK_DIR)/src/math/math.c \
     $(OOPS_SDK_DIR)/src/gl/gl_context.c \
@@ -62,22 +45,11 @@ OOPS_GL_SRCS := \
 # Load project-level configuration (app.env) if present
 -include app.env
 
-# The renderer a title links, chosen by one line: `OOPS_RENDERER = gl1 | gl2 | mesa`.
-#
-# This is the front door end users are meant to use. It hides two different mechanisms behind one
-# name: a `gl1`/`gl2` title links oops-gl's sources (`OOPS_GL_SRCS`), while a `mesa` title brings up
-# the hosted Mesa stack (`USE_MESA`, below). Both provide the same `oops/gfx.h` API (oops-sdk D012),
-# so the title's own source is identical either way - only this line changes.
-#
-#   OOPS_RENDERER = gl1     fixed-function OpenGL 1.x, freestanding
-#   OOPS_RENDERER = gl2     programmable OpenGL 2.0, freestanding
-#   OOPS_RENDERER = mesa    OpenGL through upstream Mesa, hosted (own C runtime, oops-mesa D002)
-#
-# `mesa` implies a hosted title, which is a real difference in how it is built and packaged - the
-# `USE_MESA` block below spells it out. A title that builds *only* a host self-test (FORMATS
-# check-only, such as `gl2-cube`) does not build a payload, so it lists oops-gl in `HOST_TEST_SRCS`
-# itself and leaves this unset. `USE_MESA = 1` still works on its own for anything this does not
-# cover; `OOPS_RENDERER = mesa` is the documented spelling of it.
+# The renderer a title links. `gl1` (fixed-function GL 1.x) and `gl2` (GL 2.0) link oops-gl's
+# freestanding sources; `mesa` sets `USE_MESA` for hosted upstream Mesa (oops-mesa D002). All
+# three provide the same `oops/gfx.h` API (oops-sdk D012), so title source does not change.
+# A check-only title (such as `gl2-cube`) leaves this unset and lists oops-gl in
+# `HOST_TEST_SRCS` itself.
 ifdef OOPS_RENDERER
     ifeq ($(OOPS_RENDERER),mesa)
         USE_MESA := 1
@@ -90,55 +62,30 @@ ifdef OOPS_RENDERER
     endif
 endif
 
-# **OOPS_FEATURES: declare a capability, not the SDK sources behind it.** A title lists the
-# subsystems it uses - `OOPS_FEATURES = keyboard net http` - and the build pulls each one's SDK
-# sources (and, later, its symbol claims) for it, instead of the app hand-listing
-# `$(OOPS_SDK_DIR)/src/...` files and having to know which `libSce*` each imports. It is the
-# general form of the `OOPS_RENDERER` switch above, and it is what an app *should* use: intent,
-# not implementation, so the SDK can refactor a subsystem's files without every app's link
-# breaking one at a time (which is exactly what happened to the GL sources - see OOPS_GL_SRCS).
-#
-# **The mapping is the SDK's.** The per-feature groups (`OOPS_FEATURE_<name>_SRCS` / `_SYMS`) and
-# the roster (`OOPS_FEATURES_AVAILABLE`) are defined by the SDK in `oops-sdk.mk`, because it owns
-# the sources and knows their imports; this is only the consumer.
-#
-# **Inert until that table ships.** With no `OOPS_FEATURES_AVAILABLE` in scope, an `OOPS_FEATURES`
-# line warns and is ignored rather than breaking the build, so this half can land ahead of the
-# SDK half. Once the table exists, an unknown feature name is a hard error. Every existing app
-# sets no `OOPS_FEATURES`, so for them this whole block is a no-op today; migrating them onto it
-# (deleting their hand-listed SDK sources) is the follow-up once the SDK side is in.
+# The SDK subsystems a title uses (`OOPS_FEATURES = keyboard net http`), in place of
+# hand-listed SDK sources. `oops-sdk.mk` defines the roster (`OOPS_FEATURES_AVAILABLE`) and
+# each feature's `OOPS_FEATURE_<name>_SRCS` / `_SYMS`. Without the roster the line warns and
+# is ignored; with it, an unknown name is an error.
 ifdef OOPS_FEATURES
     ifdef OOPS_FEATURES_AVAILABLE
         $(foreach f,$(OOPS_FEATURES),\
             $(if $(filter $(f),$(OOPS_FEATURES_AVAILABLE)),,\
                 $(error OOPS_FEATURES: '$(f)' is not a known feature; the SDK offers: $(OOPS_FEATURES_AVAILABLE))))
         PAYLOAD_SRCS += $(foreach f,$(OOPS_FEATURES),$(OOPS_FEATURE_$(f)_SRCS))
-        # Collected for packaging: folded into mkmodule's import claims once the SDK ships
-        # per-feature symbol fragments. Until then mkmodule uses the flat common/symbols.txt.
+        # Collected for packaging; mkmodule's import claims come from common/symbols.txt.
         OOPS_FEATURE_SYMS += $(foreach f,$(OOPS_FEATURES),$(OOPS_FEATURE_$(f)_SYMS))
     else
         $(warning OOPS_FEATURES is set ($(OOPS_FEATURES)) but the SDK feature table (OOPS_FEATURES_AVAILABLE) is not available yet - ignoring it for now)
     endif
 endif
 
-# **A title whose source is somebody else's** (`src/oops-titles/`), fetched rather than
-# committed. `common/upstream.mk` is the whole of it, and it says why it is its own file: a
-# title that names files under `upstream/` while its own Makefile is being read has to be able
-# to ask for the fetch *before* this line, and two of them do. Guarded, so a title that already
-# included it pays one `ifndef` here.
+# A ported title's fetched upstream source (`src/oops-titles/`). Guarded, so a title that
+# includes it earlier in its own Makefile is unaffected.
 include $(OOPS_APPS_ROOT)/common/upstream.mk
 
-# OpenGL through Mesa, for a title that asks for it.
-#
-# A title opts in with `USE_MESA = 1` in its own Makefile or app.env. Everything it brings is
-# additive: Mesa's headers, the winsys and runtime shims, and the archives in the order Mesa
-# links them. Nothing changes for a title that does not ask.
-#
-# **A title that sets this is hosted and is not freestanding.** Mesa calls `malloc`, `snprintf`
-# and their kin by their published names, and the platform's own C library answers at load. The
-# rest of oops-apps links no C library at all. That divergence is oops-mesa's D002, confined to
-# titles that set this switch, and `OOPS_MESA_HOSTED` is defined so the title and its packaging
-# can both say which kind they are.
+# OpenGL through Mesa, for a title that sets `USE_MESA = 1`: Mesa's headers, the winsys and
+# runtime shims, and the archives in Mesa's link order. Such a title is hosted - Mesa calls
+# the platform C library by name at load, while every other app links none (oops-mesa D002).
 ifeq ($(USE_MESA),1)
     OOPS_MESA ?= $(abspath $(OOPS_APPS_ROOT)/../oops-mesa)
     ifeq ($(wildcard $(OOPS_MESA)/oops-mesa.mk),)
@@ -150,30 +97,15 @@ ifeq ($(USE_MESA),1)
     EXTRA_TARGET_LDFLAGS += $(OOPS_MESA_LIBS) $(OOPS_MESA_SYSLIBS)
     PAYLOAD_SRCS         += $(OOPS_MESA_SRCS)
 
-    # The archives are inputs to the link, so the title has to relink when they change. Naming
-    # them in LDFLAGS alone does not do that: make sees a flag, not a file, and a title whose own
-    # sources are untouched is considered up to date however much Mesa underneath it moved.
-    #
-    # That is not theoretical. On 2026-09-17 a Mesa patch was built into the archives, the title
-    # was rebuilt, packaged and deployed, and the console ran the *previous* module - the wrap
-    # step had faithfully wrapped a stale ELF. The log came back identical, which read as "the
-    # fix did nothing" when the fix had never been in the binary. A build that silently ships the
-    # last one is worse than a build that fails.
-    #
-    # Flags are filtered out rather than assumed absent. `OOPS_MESA_LIBS` is mostly a list of
-    # archive paths, but it also carries the `--whole-archive` pair that brackets the GL entry
-    # points, and a flag named as a prerequisite is a target make has no rule for. Only the files
-    # are dependencies; the flags are already in LDFLAGS above.
+    # The archives are link prerequisites, so the title relinks when Mesa changes. The
+    # `--whole-archive` flags in `OOPS_MESA_LIBS` are filtered out, since make has no rule
+    # for a flag.
     PAYLOAD_EXTRA_DEPS   += $(filter-out -%,$(OOPS_MESA_LIBS))
 endif
 
-# Application identity & metadata defaults
-#
-# `TITLE_CATEGORY` is the *platform* category the title is packaged with (`big-app`, ...). It is
-# not the same thing as `KIND`, an optional app.env field - `game`, `demo`, `probe`, `utility`,
-# `payload` - that says what the app *is*, for grouping in the oops-apps index (tools/
-# build-apps-index.sh). `KIND` is metadata only; the build never reads it, and the index infers
-# it from the app's directory group when it is unset.
+# Application identity and metadata defaults. `TITLE_CATEGORY` is the platform category the
+# title is packaged with; the app.env `KIND` field (game, demo, probe, utility, payload) only
+# groups the apps index (tools/build-apps-index.sh), and the build never reads it.
 APP_NAME       ?= $(notdir $(CURDIR))
 TITLE_NAME     ?= $(APP_NAME)
 TITLE_CATEGORY ?= big-app
@@ -184,36 +116,15 @@ TITLE_SUBTITLE ?= $(APP_SUBTITLE)
 FORMATS        ?= elf
 ENTRY_POINT    ?= $(subst -,_,$(APP_NAME))_start
 
-# Target-agnostic Title ID synthesis (reserving 3 characters for the target tag: ORB/NEO/PRO/TRI)
-# Sony Title ID format requires strictly 9 characters: 4 letters + 5 digits ([A-Z]{4}[0-9]{5}).
-# The 3-character target tag occupies indices 0..2, followed by 1 app letter and 5 digits.
+# Title ID synthesis. A title ID is four capital letters and five digits ([A-Z]{4}[0-9]{5});
+# the synthesised one is the 3-character target tag (ORB/NEO/PRO/TRI), one app letter and
+# five digits.
 ifeq ($(EXPLICIT_TITLE_ID),1)
     TITLE_ID ?= OOPS00001
 
-    # The four letters are the app's own mnemonic - GLCB, SCSH, GALR, MESA - and they must not be
-    # one of the vendor's. A vendor prefix is not ours to use, and it is the sort of mistake that
-    # is invisible in the build and expensive on the hardware: on 2026-09-17 two titles carrying
-    # `PPSA` were refused by the loader at `sceSblAuthMgrAuthHeader` with nothing in the log
-    # naming the identifier, and several hours went into the module before the prefix was noticed.
-    #
-    # Checked here rather than left to review, because the build is the only place that sees
-    # every app.
-    #
-    # **This was a warning until 2026-09-17, and the reason it was a warning has been measured.**
-    # It said: `gl1-probe` and `gl2-cube` carry GL1P and GL2C, which put digits in the letter
-    # positions, and whether the loader minds is not known - neither has been deployed. That was
-    # the right call to make on no evidence. There is evidence now. gl1-probe was deployed with
-    # `GL1P00001`: every file staged onto the target, the directory was complete and correct, and
-    # the console refused it in its own log and nowhere else -
-    #
-    #     20 Invalid TitleId : [GL1P00001]
-    #     AppPromote Error [GL1P00001] ret = [0x80bd000a]
-    #     AppInstallTitleDirMain GL1P00001 0x80bd000a
-    #
-    # while GLCB, MESA, TLSP and PLDM - four letters each - indexed normally alongside it. So the
-    # loader does mind, the failure is silent on the host side, and the only symptom is a title
-    # that stages perfectly and never appears. That is exactly the kind of thing this file exists
-    # to stop, so it is an error.
+    # The four letters are the app's own mnemonic (GLCB, SCSH, GALR). The console stages an id
+    # of any other shape without complaint and never indexes it (its log reports "Invalid
+    # TitleId", ret 0x80bd000a), so a malformed id is a build error.
     TITLE_ID_SHAPE := $(shell printf '%s' '$(TITLE_ID)' | grep -cE '^[A-Z]{4}[0-9]{5}$$')
     ifneq ($(TITLE_ID_SHAPE),1)
         $(error TITLE_ID "$(TITLE_ID)" is not four capital letters followed by five digits. \
@@ -222,7 +133,8 @@ ifeq ($(EXPLICIT_TITLE_ID),1)
                 apps do: gl1-cube is GLCB, seashell is SCSH, gallery is GALR)
     endif
 
-    # Reserved by the vendor for retail titles and system applications.
+    # Reserved by the vendor for retail titles and system applications; the loader refuses a
+    # homebrew title carrying one at `sceSblAuthMgrAuthHeader`.
     TITLE_ID_PREFIX := $(shell printf '%s' '$(TITLE_ID)' | cut -c1-4)
     ifneq ($(filter $(TITLE_ID_PREFIX),PPSA PPSC CUSA PCSA PCSB PCSC PCSD PCSE PCSF PCSG NPXS),)
         $(error TITLE_ID "$(TITLE_ID)" uses "$(TITLE_ID_PREFIX)", which the vendor reserves. \
@@ -245,33 +157,10 @@ APP_UPPER := $(shell echo $(APP_NAME) | tr a-z- A-Z_)
 BUILD ?= build
 DIST  ?= dist
 
-# **The paths baked into every `.d` file, and what happens when they move.**
-#
-# `-MMD` records an object's prerequisites as absolute paths, so a depfile written under WSL names
-# the checkout at its WSL mount while one written under Docker names it `/w/oops-sdk/...`. Build
-# the same app both ways - which this collection does by design, `silkeh/clang` being
-# authoritative and `oops-builder` permitted - and the second `make` reads the first's depfiles,
-# needs a source at a path that does not exist here, and stops:
-#
-#     make: *** No rule to make target '/w/oops-sdk/src/math/math.c',
-#               needed by 'build/obj/oops/oops-sdk/src/math/math.o'.  Stop.
-#
-# **`-MP` does not save this.** It emits a phony target for every *header* in the list and not for
-# the source itself, which is exactly the prerequisite that fails. That is why the symptom is
-# always a `.c` and never a `.h`.
-#
-# It is neither hypothetical nor rare: on 2026-09-24 ten build directories across the collection
-# were poisoned this way, twice in one afternoon, and every affected app failed until somebody
-# deleted `build/` by hand. The diagnosis costs far more than the fix, because the error names a
-# file nobody wrote at a path nobody configured, and it appears in an app whose own sources are
-# untouched.
-#
-# So the roots that get written into depfiles are recorded beside the objects, and a build whose
-# roots differ from the recorded ones throws the objects away first. Nothing is lost by that:
-# different roots mean different `-I` paths, so every object was going to be rebuilt anyway - the
-# only casualty is a tree make has already proved it cannot read.
-#
-# The stamp lives inside `$(BUILD)`, so it is removed by `clean` along with what it describes.
+# Depfiles record absolute paths, which differ between the Docker and WSL runners, and `-MP`
+# covers headers but not the source itself. The roots are stamped inside `$(BUILD)`, and a
+# build under different roots clears `$(BUILD)` first; different roots mean different `-I`
+# paths, so every object rebuilds anyway.
 OOPS_BUILD_ROOTS := $(OOPS_SDK_DIR)|$(OOPS_APPS_ROOT)|$(SELFISH)
 OOPS_BUILD_ROOTS_STAMP := $(BUILD)/.oops-build-roots
 ifneq ($(strip $(shell cat $(OOPS_BUILD_ROOTS_STAMP) 2>/dev/null)),$(strip $(OOPS_BUILD_ROOTS)))
@@ -282,12 +171,8 @@ $(shell rm -rf $(BUILD))
 $(shell mkdir -p $(BUILD) && echo '$(OOPS_BUILD_ROOTS)' > $(OOPS_BUILD_ROOTS_STAMP))
 endif
 
-# Toolchains and compiler flags
-#
-# **Bare `clang` is not the pin, and used to be mistaken for one.** Which compiler this
-# resolves to depends on the runner - it was clang 21 under WSL `oops-builder` and clang 18
-# under Docker `silkeh/clang:18` on the same day. `toolchain.mk`, included below once
-# `TARGET_CC` is also set, turns the pin from a spelling into a check. (oops-mesa#D013)
+# Toolchains and compiler flags. Bare `clang` resolves per runner; `toolchain.mk`, included
+# once `TARGET_CC` is set, checks the pin (oops-mesa#D013).
 CC = clang
 CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion \
           -Wstrict-prototypes -Wmissing-prototypes -O1 -DOOPS_HOST_BUILD \
@@ -296,45 +181,14 @@ CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion
 
 TARGET_CC = clang
 
-# Both compilers are now set, so the pin can be checked. See oops-mesa#D013.
+# Both compilers are set, so the pin is checked here.
 include $(OOPS_APPS_ROOT)/toolchain.mk
 
-# **The target gets oops-sdk's `include/libc` as well** (2026-09-20): <math.h>, <string.h> and
-# <stdlib.h> under the names a port's own code calls. It is on the *target* path only - the host
-# build above must keep the real C library, or a host test that includes <string.h> gets a
-# freestanding one instead.
-#
-# **Freestanding titles only.** A hosted title (USE_MESA) takes its target C library from the Mesa
-# sysroot, whose <time.h> and the rest are the real ones; oops-sdk's freestanding libc headers on
-# top of them collide - the sysroot's `__clock_t` is `int`, this libc's `clock_t` is `int64_t`, and
-# the redefinition breaks every target compile. So a hosted title does not get this path.
-#
-# **`-nostdlibinc` rides the same fork, and for the same reason turned around.**
-#
-# `-nostdlib` above is the *linker* flag. Without `-nostdlibinc` beside it the header search path
-# is untouched, so a freestanding target compile falls through to the build machine's
-# `/usr/include` - and a program that is not allowed to link the host's C library spends the whole
-# compile reading its headers.
-#
-# **The mild failure is a confusing error.** Craft's `client.c`, `sqlite3.c` and `tinycthread.c`
-# each want a header oops-sdk does not have, and without this flag all three died on
-# `'bits/wordsize.h' file not found` - a glibc internal, three levels below the missing header,
-# reached because clang had already accepted glibc's `netdb.h`, `fcntl.h` and `signal.h` and was
-# following them inward. With it, each one names the header it actually asked for.
-#
-# **The failure that matters makes no noise at all**: a source whose headers glibc happens to
-# satisfy compiles cleanly against declarations this target will never link, and nothing says so.
-# A freestanding build that can reach the host's libc headers is not freestanding; it is a build
-# that happens to agree with its host.
-#
-# **Freestanding only, and that is not a hedge.** A hosted title compiles with
-# `--sysroot=oops-mesa/toolchain/sysroot`, and `-nostdlibinc` suppresses the standard include
-# search *inside the sysroot* as well - so it removes precisely the C library a hosted title is
-# meant to use. Measured before this landed: the three `src/oops-mesa` apps lost 62 of 87 target
-# translation units to `'stdio.h' file not found` and friends, while every freestanding app was
-# untouched - 509 target translation units across 17 apps, zero failures. Neverball had already
-# reached this conclusion alone and put `-nostdlibinc` in its own archive flags, though not on the
-# shim sources beside it; those are covered from here.
+# A freestanding target compile gets oops-sdk's `include/libc` and `-nostdlibinc`, so it never
+# reads the build machine's `/usr/include` and a missing header is named as missing. The host
+# build keeps the real C library. A hosted title (USE_MESA) gets neither: its C library headers
+# come from the Mesa sysroot, which `-nostdlibinc` would hide and oops-sdk's headers collide
+# with (`clock_t`).
 ifeq ($(USE_MESA),1)
 OOPS_SDK_LIBC_INCLUDE ?=
 OOPS_TARGET_NOSTDLIBINC ?=
@@ -348,7 +202,7 @@ TARGET_CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-con
                  -fno-stack-protector -fvisibility=hidden $(OOPS_TARGET_NOSTDLIBINC) \
                  $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) $(EXTRA_TARGET_CFLAGS)
 
-# Standardized application telemetry & log identity macros
+# Application identity macros for telemetry and logs.
 ifeq ($(strip $(BUILD_VERSION)),)
     ifneq ($(strip $(CI)$(GITHUB_ACTIONS)),)
         GIT_COMMIT := $(shell git -C $(OOPS_APPS_ROOT) rev-parse --short HEAD 2>/dev/null)
@@ -361,18 +215,9 @@ endif
 TARGET_CFLAGS += -DOOPS_APP_ID=\"$(TITLE_ID)\" -DOOPS_APP_NAME=\"$(APP_NAME)\" -D'OOPS_APP_VERSION="$(BUILD_VERSION)"'
 CFLAGS        += -DOOPS_APP_ID=\"$(TITLE_ID)\" -DOOPS_APP_NAME=\"$(APP_NAME)\" -D'OOPS_APP_VERSION="$(BUILD_VERSION)"'
 
-# A hosted title drops the freestanding flags, and only those.
-#
-# `-ffreestanding` tells the compiler there is no standard library and `-fno-builtin` stops it
-# recognising `memcpy` and its kin. Mesa is written for a hosted environment and needs both gone.
-#
-# `-nostdlib` stays, and the difference matters. It is a *link* flag, and nothing here links a C
-# library: the platform's own answers `malloc` and its kin at load, exactly as oops-sdk's vendor
-# calls are answered. Dropping it too makes the linker go looking for `crtbeginS.o`, `libgcc` and
-# `libc` on the build machine, none of which belong in this binary.
-#
-# Filtered here rather than by a different default above, so a title that overrode
-# `TARGET_CFLAGS` itself gets the same treatment.
+# A hosted title drops `-ffreestanding` and `-fno-builtin`, which Mesa cannot build under.
+# `-nostdlib` stays: the platform C library resolves at load, and the linker must not pull in
+# the build machine's crt files or libc. Filtered, so an overridden `TARGET_CFLAGS` is covered.
 ifeq ($(USE_MESA),1)
     TARGET_CFLAGS := $(filter-out -ffreestanding -fno-builtin,$(TARGET_CFLAGS))
 endif
@@ -383,16 +228,8 @@ LLD_FLAG := $(if $(filter yes,$(LLD_AVAILABLE)),-fuse-ld=lld,)
 TARGET_LD_SCRIPT ?= $(if $(filter 1 2,$(OOPS_TARGET_NUM)),$(SELFISH)/link/eboot.ld,$(SELFISH)/link/native_eboot.ld)
 TARGET_LD_FLAG   := $(if $(wildcard $(TARGET_LD_SCRIPT)),-T $(TARGET_LD_SCRIPT),)
 
-# A link map beside every module.
-#
-# The module-fixup step leaves no symbol table a reader can use, so a crash on the console reports
-# its backtrace as bare addresses and there is nothing on this side to turn them into names. That
-# is not a small loss: on 2026-09-17 a `PRX_RUNTIME_ERROR` gave five perfectly good frames and the
-# only way to read them would have been to relink and hope the layout matched.
-#
-# The map is written at link time, so it describes the module that was actually built rather than
-# one reconstructed afterwards. A crash address is the load base (`0x400000`) plus the offset the
-# map lists. It costs a file next to the ELF and nothing at run time.
+# A link map beside every module, since the packaged module has no usable symbol table. A
+# console crash address is the load base (`0x400000`) plus the offset the map lists.
 TARGET_LDFLAGS ?= $(LLD_FLAG) -shared -Wl,-Bsymbolic -Wl,-e,$(ENTRY_POINT) \
                   -Wl,--unresolved-symbols=ignore-all \
                   -Wl,-z,norelro -Wl,-z,noexecstack \
@@ -401,7 +238,7 @@ TARGET_LDFLAGS ?= $(LLD_FLAG) -shared -Wl,-Bsymbolic -Wl,-e,$(ENTRY_POINT) \
                   $(TARGET_LD_FLAG) \
                   $(EXTRA_TARGET_LDFLAGS)
 
-# Release artifact names encoding the four axes (OOPS CONVENTIONS.md section 2)
+# Release artifact names encoding the four axes (OOPS CONVENTIONS.md section 2).
 ifeq ($(APP_NAME),home)
     ELF_ARTIFACT ?= $(DIST)/$(APP_NAME)-launcher-$(TARGET).elf
 else
@@ -433,22 +270,9 @@ else
 all: $(if $(HOST_TEST_SRCS),$(BUILD)/$(APP_NAME)_selftest)
 endif
 
-# **`make` does not package, and the packaged output is what gets deployed.**
-#
-# `all` builds the ELF. `eboot.bin` and the title directory are made by `eboot`, `title` and
-# `dist`, so a `make` that relinks leaves a *correct* ELF beside an eboot built from the previous
-# one - and says nothing, because from `all`'s point of view nothing is wrong. The next
-# `pros restore` then stages the old payload and reports `0 files ... unchanged`, which is the
-# same silence this file spent 2026-09-23 removing one layer down.
-#
-# Making `all` package would be the wrong fix: it would run `selfish` and zip a title directory
-# on every build, including the many that are only a `check`. So it says so instead, and only
-# when there is something to say - the warning needs a packaged file that already exists and is
-# strictly older than the module beside it.
-#
-# `find -newer` rather than `test -nt`, which is not in POSIX `test` and this recipe runs under
-# whatever `/bin/sh` is. Strictly older, so a package written in the same coarse-grained second
-# as the link that fed it is not reported.
+# `all` builds the ELF but does not package it (`eboot`, `title` and `dist` do). It notes any
+# existing package strictly older than the ELF, since restoring that deploys the previous code.
+# `find -newer`, because `test -nt` is not POSIX.
 ifneq ($(strip $(PAYLOAD_SRCS)),)
 all:
 	@elf="$(BUILD)/$(APP_NAME).elf"; stale=""; \
@@ -467,47 +291,8 @@ endif
 $(BUILD):
 	@mkdir -p $(BUILD)
 
-# Host test gate
-#
-# The self-test compiles the same SDK sources the payload does, so it has the same header
-# problem and the same reason to care: this is the gate that is supposed to vouch for the code,
-# and a gate that reran an unchanged binary would pass on the *previous* version of a fix. See
-# `common/deps.mk`.
-#
-# Its objects live in `hostobj/` rather than beside the payload's, because most of these sources
-# are the *same files* compiled under a different compiler and a different set of flags - one
-# freestanding for the console, one hosted for this machine. Sharing a directory would mean
-# whichever built last decided what the other linked.
-# **A shared source the self-test links and the payload does not.**
-#
-# The two lists are allowed to differ, and mostly do: the payload has `display.c`, the AGC path
-# and the syscall layer, which a host test replaces with its own harness. The asymmetry that is
-# always a mistake runs the other way - a source out of `oops-sdk` or `common/` that the *host*
-# test links and the payload does not - because then the host resolves a symbol the payload
-# cannot, and the two builds disagree about what the program is made of.
-#
-# **That failure is quiet in the worst way.** It happened twice on 2026-09-24, to `gl1-probe` and
-# `gl1-cube`: `gl_glu.c` was added to `HOST_TEST_SRCS` and not to `PAYLOAD_SRCS`, so `make check`
-# linked GLU and passed every check while the payload link failed on an undefined `gluPickMatrix`
-# and `gluPerspective`. An app that passes its own test suite and cannot be built is the shape of
-# thing a person stops looking at.
-#
-# The undefined-symbol gate below does catch it, but only at the payload link - which is `make
-# title`, after the point at which a change looks finished. This catches it while the makefile is
-# being read, so `make`, `make check` and an editor's build all stop at the same place and name
-# the file.
-#
-# Measured before it was turned on: every app in the collection that builds both a self-test and
-# a payload was already symmetric under this rule, so it costs nothing today and only ever fires
-# on the mistake. `$(abspath)` because the two lists may spell the same file differently -
-# `$(OOPS_SDK_DIR)` against `$(OOPS_SDK)` - and a textual compare would call those two files.
-#
-# A deliberate exception - a host source with no payload counterpart, a mock the harness needs -
-# goes in `OOPS_HOST_ONLY_SRCS_OK` in the app's own Makefile, which keeps the decision beside the
-# thing it is about.
-# Every payload gets these whether it lists them or not. `OOPS_FEATURE_base_SRCS`
-# from oops-sdk.mk defines the implicit core runtime (system, freestd, syscall, offsets,
-# fs, sysmodule, procparam, memory, heap, time).
+# The core runtime every payload links, from oops-sdk.mk's `OOPS_FEATURE_base_SRCS` when it
+# is defined.
 CORE_SDK_SRCS := $(if $(OOPS_FEATURE_base_SRCS),$(OOPS_FEATURE_base_SRCS),\
                  $(OOPS_SDK_DIR)/src/system/system.c \
                  $(OOPS_SDK_DIR)/src/system/freestd.c \
@@ -519,16 +304,19 @@ CORE_SDK_SRCS := $(if $(OOPS_FEATURE_base_SRCS),$(OOPS_FEATURE_base_SRCS),\
                  $(OOPS_SDK_DIR)/src/memory/memory.c \
                  $(OOPS_SDK_DIR)/src/memory/heap.c \
                  $(OOPS_SDK_DIR)/src/time/time.c)
-# `libc.c`, `math.c` and `scanf.c` are the freestanding C library a non-Mesa port's own code
-# stands on. A hosted title (USE_MESA) gets that C library from the Mesa sysroot and links
-# FreeBSD's own libm, so adding oops-sdk's would duplicate and collide - they are for
-# freestanding titles only.
+# The freestanding C library. A hosted title (USE_MESA) takes its own from the Mesa sysroot.
 ifneq ($(USE_MESA),1)
 CORE_SDK_SRCS += $(OOPS_SDK_DIR)/src/system/libc.c \
                  $(OOPS_SDK_DIR)/src/system/scanf.c \
                  $(OOPS_SDK_DIR)/src/math/math.c
 endif
 
+# Host test gate. Its objects live in `hostobj/`, since the same sources compile hosted here
+# and freestanding for the payload.
+#
+# A shared source (oops-sdk or common/) the self-test links and the payload does not is an
+# error at parse time, so `make check` cannot pass on a payload that fails to link. Paths are
+# compared via `$(abspath)`; an intended host-only source goes in `OOPS_HOST_ONLY_SRCS_OK`.
 ifneq ($(strip $(HOST_TEST_SRCS)),)
 ifneq ($(strip $(PAYLOAD_SRCS)),)
 OOPS_SHARED_PREFIXES := $(OOPS_SDK_DIR)/% $(OOPS_APPS_ROOT)/common/%
@@ -558,7 +346,7 @@ check:
 	@echo "$(APP_NAME): no host selftest defined"
 endif
 
-# Freestanding target skeleton compilation (object-only)
+# Freestanding target skeleton compilation (object only).
 skeleton: | $(BUILD)
 ifneq ($(strip $(PAYLOAD_SRCS)),)
 	$(TARGET_CC) $(TARGET_CFLAGS) -c -o $(BUILD)/$(APP_NAME).o $(firstword $(PAYLOAD_SRCS))
@@ -569,82 +357,26 @@ endif
 
 TARGET_SYS_SRCS ?= $(filter-out $(PAYLOAD_SRCS), $(wildcard $(CORE_SDK_SRCS)))
 
-# ---------------------------------------------------------------------------
-# The undefined-symbol check, run on every payload link
+# The undefined-symbol check, run on every payload link. The link must ignore unresolved
+# symbols, because the console's modules resolve `sce*` imports at load; so a symbol nothing
+# defines fails the build here, and the ELF is deleted.
 #
-# **A payload link ignores unresolved symbols and has to.** The console's own modules resolve
-# `sce*` imports when the payload loads, so `--unresolved-symbols=ignore-all` is not optional -
-# and the consequence is that a call to a function nobody defines **links cleanly** and faults on
-# the console, which is the most expensive place to find out.
-#
-# `docs/PORTING.md` has told a porter to run `nm -u` by hand since that guide existed. Three
-# times in one day it caught something here that nothing else would have: `libc.c` missing from a
-# source list, then `glut_font.c`, then `scanf.c`. A check that has to be remembered is a check
-# that is not run, so it runs here, and a symbol that nothing defines now fails the build.
-#
-# The ELF is deleted when it fails. A payload that faults on the console should not be sitting in
-# `build/` looking finished.
-#
-# `UNDEF_ALLOW` is the imports the loader really does resolve; an app with a module of its own
-# adds to `EXTRA_UNDEF_ALLOW` rather than editing this.
-# `__error` joined the list on 2026-09-21. It is the POSIX errno accessor, not a `sce*` name, and
-# the platform exports it from the same FreeBSD-derived set as the socket calls `oops-sdk`'s
-# `net.c` already binds weakly - obSCEne measured it callable on firmware 12.40 (sweep
-# 20260909-083918). The socket and signal calls joined alongside it on 2026-09-22: `net.c` and
-# signal traps bind them weakly, and `common/symbols.txt` maps them to libkernel.
-#
-# `recvfrom` joined on 2026-09-26, with `net.c`'s weak reference to it - so that a UDP port can be
-# told who sent a datagram, which `oops_recvfrom` could not answer before. `_recvfrom` is now mapped
-# in `common/symbols.txt`; only that spelling, because that is the one obSCEne measured.
-#
-# **Which report to believe was the whole of the work here.** `obscene/build/host-report.txt` says
-# `_recvfrom|absent`, and `obscene/data/obscene-report.txt` says `present`. The first is a host run
-# with no export table to read: it reports all 875 of its symbols absent, including `_bind` and
-# `_sendto`, which are in `symbols.txt` and demonstrably work on the console. The second is the
-# hardware run, and reports all 895 present. An arm that answers "absent" for everything cannot tell
-# you anything about one name.
-#
-# **The guard caught the missing entry on craft's link the moment `net.c` asked for it**, which is
-# the check working - a payload link ignores unresolved symbols, so without this it would have been
-# a jump into nothing at the first datagram.
-#
-# `oops_keyboard_poll_buttons` is the one **first-party** name here, and it is deliberate. `input.c`
-# folds a keyboard's buttons into the pad poll (oops-sdk `REQ-...b4d7`) by a *weak* reference to it,
-# so keyboard.c satisfies it when a title links keyboard.c and it resolves to null (skipped) when a
-# title does not. Allow-listing the weak undef is what lets a pad-only title link input.c without
-# dragging keyboard.c in - the alternative was every such title carrying keyboard.c by hand, or a
-# hosted title (undef-check off) faulting on the first poll. A title that calls the symbol *itself*
-# still gets a strong reference through `<oops/keyboard.h>`, which this does not exempt.
+# `UNDEF_ALLOW` is the imports the loader resolves; an app with its own module adds to
+# `EXTRA_UNDEF_ALLOW`. Beyond `sce*` it holds `__error` and the socket and signal calls that
+# oops-sdk binds weakly, mapped to libkernel in `common/symbols.txt` and present in
+# `obscene/data/obscene-report.txt`. `oops_keyboard_poll_buttons` is a weak reference from
+# `input.c` that resolves to null when a title does not link keyboard.c.
 UNDEF_ALLOW ?= ^sce[A-Z]|^sysctlbyname$$|^__error$$|^__errno$$|^__sys_socketex$$|^oops_keyboard_poll_buttons$$|^_?(accept|bind|close|connect|listen|recv|recvfrom|sendto|setsockopt|sigaction|sigprocmask)$$
 NM ?= nm
 
-# **A hosted title is the case this cannot judge.** `USE_MESA` links against the Mesa sysroot and
-# the console's FreeBSD C library resolves `strtoul`, `vsnprintf`, `syslog` and a hundred others
-# at load, exactly as it resolves `sce*` - so for those titles an undefined libc name is correct
-# and the check has nothing to tell them apart by. It is off there, and says so on every link
-# rather than passing quietly: a check that looks like it ran and did not is worse than none.
-# A hosted title that wants it back sets `UNDEF_CHECK=1` and lists its sysroot's exports in
+# Off for a hosted title (USE_MESA), whose libc names resolve at load, and reported as off on
+# every link. Such a title may set `UNDEF_CHECK=1` and list its sysroot's exports in
 # `EXTRA_UNDEF_ALLOW`.
 UNDEF_CHECK ?= $(if $(filter 1,$(USE_MESA)),0,1)
 
-# Full freestanding target payload ELF.
-#
-# **The makefiles are prerequisites**, which they were not until 2026-09-20. A payload's ELF
-# depends on its sources, so adding a file to `CORE_SDK_SRCS` did not relink what was already
-# built - and the undefined-symbol check then answered about the previous build, which is exactly
-# how it looked like a fix had not worked.
-#
-# **The headers are prerequisites too**, which they were not until 2026-09-23, and the symptom
-# was the same one a level quieter: an SDK *header* change relinked nothing, `selfish` wrapped
-# the ELF that was already there, and `pros restore` reported `0 files ... unchanged` while the
-# console went on running the previous code. They cannot be listed here, so each source is
-# compiled to its own object with `-MMD -MP` and the depfiles are read back in. The link is
-# otherwise the command it always was: the same flags, the same order, and - checked with
-# `BUILD_VERSION` pinned so the embedded timestamp could not hide a difference - the same bytes
-# out. `common/deps.mk` is the whole of the reasoning.
-#
-# The sources are no longer named here as prerequisites, because the objects are, and each
-# object names its source. A relink now costs one compile rather than forty-five.
+# Full freestanding target payload ELF. Its prerequisites are the objects (each naming its
+# source and, through `-MMD` depfiles, its headers) and the makefiles, so a change to any of
+# them relinks it (`common/deps.mk`).
 ifneq ($(strip $(PAYLOAD_SRCS)),)
 OOPS_PAYLOAD_OBJS := $(call oops_objs,$(BUILD)/obj,$(PAYLOAD_SRCS) $(TARGET_SYS_SRCS))
 -include $(OOPS_PAYLOAD_OBJS:.o=.d)
@@ -677,16 +409,9 @@ $(BUILD)/$(APP_NAME).elf: $(OOPS_PAYLOAD_OBJS) $(PAYLOAD_EXTRA_DEPS) \
 elf: $(BUILD)/$(APP_NAME).elf
 endif
 
-# Tag target ELF with fixed module metadata via obscene-tool mkmodule.
-#
-# A missing symbols file is fatal, not a reason to skip. It used to be part of the same guard as
-# the tool itself, so a project that names a symbols file it has not generated yet built, packaged
-# and deployed an ELF that mkmodule never touched - no `PT_SCE_DYNLIBDATA`, so the loader refuses
-# it with "found illegal segment header" and nothing before the console says a word. mesa-winsys-probe
-# generates its symbols file with `make imports`, and skipping that step cost a launch.
-#
-# An absent *tool* is still tolerated, because a checkout without obSCEne built is a real state and
-# the target ELF is still worth having. An absent *input the project asked for* is not.
+# Tag the target ELF with module metadata via obscene-tool mkmodule. An absent tool is skipped;
+# an absent symbols file is fatal, because an untagged ELF has no `PT_SCE_DYNLIBDATA` and the
+# loader refuses it with "found illegal segment header".
 $(BUILD)/.mkmodule-fixed.stamp: $(BUILD)/$(APP_NAME).elf $(SYMBOLS_FILE)
 	@if [ -n "$(MKMODULE_BIN)" ] && $(MKMODULE_BIN) --help >/dev/null 2>&1; then \
 	    if [ ! -f "$(SYMBOLS_FILE)" ]; then \
@@ -701,7 +426,7 @@ $(BUILD)/.mkmodule-fixed.stamp: $(BUILD)/$(APP_NAME).elf $(SYMBOLS_FILE)
 	fi
 	@touch $@
 
-# Wrap target ELF into a signed executable container (eboot.bin) via selfish
+# Wrap the target ELF into a signed executable container (eboot.bin) via selfish.
 eboot: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	@mkdir -p $(DIST)
 	@if [ -n "$(SELFISH_BIN)" ]; then \
@@ -713,15 +438,9 @@ eboot: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	    echo "selfish not found at $(SELFISH) - build it with cargo build -p selfish-cli"; \
 	fi
 
-# Package target ELF into a native PS5 title directory (.zip) via selfish
-#
-# **The zip at the end is probed by running python3, not by finding it.** Windows installs an App
-# Execution Alias at `WindowsApps/python3` whether or not Python is installed: `command -v python3`
-# finds it, and running it prints "Python was not found; run without arguments to install from the
-# Microsoft Store" and exits 49. That made the `elif` take a branch that cannot work *and* skip the
-# GNU-tar guard below it, so a title packaged from Git Bash on this machine got no archive at all
-# and the "created" line printed anyway. `python3 -c 'import zipfile'` asks the question the branch
-# actually depends on, so the stub falls through to the guard and the guard says to install `zip`.
+# Package the target ELF into a native PS5 title directory (.zip) via selfish. python3 is
+# probed by running `import zipfile`, because Windows' App Execution Alias stub is found on
+# PATH whether or not Python is installed.
 title: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	@mkdir -p $(DIST) $(BUILD)/title
 	@if [ -n "$(SELFISH_BIN)" ]; then \
@@ -786,20 +505,9 @@ title: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 
 ifneq ($(filter-out check-only,$(FORMATS)),)
 ifneq ($(strip $(PAYLOAD_SRCS)),)
-# Release staging: stages artifacts for each requested format in $(FORMATS)
-#
-# **The stamp is a prerequisite because `mkmodule` rewrites the ELF in place.** Without it, the
-# `elf` case below copied `$(BUILD)/$(APP_NAME).elf` *before* the `eboot` and `title` cases had
-# caused it to be tagged, so `make dist` staged a different `.elf` on its first run than on its
-# second, from the same tree with no source change - measured on 2026-09-23, md5 `c7e1f856d879`
-# then `8eb9be684ac3`.
-#
-# The first-run one is the untouched link. Its `PT_SCE_DYNLIBDATA` is *present and empty* -
-# offset 0, size 0, because the linker script reserves the segment and `mkmodule` is what fills
-# it (0x7e80 bytes here) and rewrites `PT_DYNAMIC` down to the loader's form. That is the
-# container the stamp rule above describes: staged perfectly, refused at load, nothing said on
-# this side. So the release artifact was the right one only on a *rebuild* and the wrong one on
-# a clean build, which is the wrong way round for the copy that gets published.
+# Release staging for each format in $(FORMATS). The mkmodule stamp is a prerequisite
+# because mkmodule rewrites the ELF in place (it fills the empty `PT_SCE_DYNLIBDATA` the linker
+# script reserves), so the staged `.elf` is always the tagged one.
 dist: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	@mkdir -p $(DIST)
 	@for fmt in $(FORMATS); do \

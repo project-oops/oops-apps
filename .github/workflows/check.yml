@@ -1,13 +1,8 @@
 name: check
 
-# Every job begins the same three steps: check out the collection, check this repository
-# out *into* it, and ask `oops bootstrap` for the siblings this project needs. See the
-# collection's docs/BUILDING.md.
-#
-# oops-apps needs oops-sdk - the apps are built on it - so bootstrap fetches it. The apps
-# cross-compile for the target, exactly like obSCEne, which is why this installs clang and lld
-# and never sets a job-level working-directory (a past bug: `defaults.run.working-directory`
-# made `OOPS/bin/oops` resolve inside the project and vanish).
+# Checks out the collection, this repository inside it, and bootstraps oops-sdk (see the
+# collection's docs/BUILDING.md). There is no job-level working-directory, because
+# `OOPS/bin/oops` resolves from the checkout root.
 
 on:
   push:
@@ -21,21 +16,11 @@ jobs:
   build:
     name: every app builds
     runs-on: ubuntu-latest
-    # **The pinned compiler, for the same reason `release.yml` carries it.**
-    #
-    # `toolchain.mk` pins the collection to clang 21 and names the two runners that carry the
-    # pin - WSL `oops-builder` and this container. Ubuntu's `clang` package is 18, so from the
-    # day the pin landed this gate stopped at the first app with "the host compiler reports
-    # major 18" and compiled nothing at all: every app's build, every app's self-test and the
-    # whole naming-convention sweep below have been unreached since.
-    #
-    # A gate that cannot start its compiler is not a lenient gate, it is an absent one - and it
-    # is worse than absent, because it still reports. The container is what makes the red mean
-    # something again.
+    # The clang 21 pin from `toolchain.mk`; Ubuntu's own `clang` package is an older major.
     container: silkeh/clang:21
     steps:
-      # Before `actions/checkout`, which silently falls back to a REST download without git -
-      # and a download has no submodules, which this build needs.
+      # Before `actions/checkout`, which without git falls back to a download with no
+      # submodules.
       - name: Tools the container does not ship
         run: |
           apt-get update -qq
@@ -57,9 +42,8 @@ jobs:
         run: ./bin/oops-apps fmt --check
         working-directory: OOPS/oops-apps
 
-      # The vendored dependency trees, as in `release.yml`: `common/upstream.mk` fetches a
-      # *title's* own upstream at parse time and nothing fetched the dependencies', so a title
-      # with vendored dependencies asks make for sources that were never downloaded.
+      # The vendored dependency trees; `common/upstream.mk` fetches only a title's own
+      # upstream.
       - name: The dependency trees this build is pinned to
         run: ./common/deps-fetch.sh
         working-directory: OOPS/oops-apps
@@ -67,13 +51,10 @@ jobs:
       - name: Siblings this build needs
         run: OOPS/bin/oops bootstrap oops-apps
         env:
-          # Empty unless the org secret exists, and empty is the old behaviour.
+          # Empty unless the org secret exists.
           OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
 
-      # `build` builds every app; `check` runs each app's own gate (the host self-tests). Both
-      # go through `bin/oops-apps`, which is the same command reached the same way a person
-      # reaches it. An app is a directory with a Makefile, so a new app is built here the day
-      # it exists, with nothing to add to a list.
+      # `build` builds every app; `check` runs each app's own gate (the host self-tests).
       - name: Build every app
         run: ./bin/oops-apps build
         working-directory: OOPS/oops-apps
@@ -81,8 +62,7 @@ jobs:
         run: ./bin/oops-apps check
         working-directory: OOPS/oops-apps
       - name: Stage every app and verify naming conventions
-        # `shell: bash` because the verification below uses `shopt` - the container's default
-        # `sh` is dash, which has no such builtin and failed the step with `shopt: not found`.
+        # bash for `shopt`; the container's default `sh` is dash.
         shell: bash
         run: |
           ./bin/oops-apps dist

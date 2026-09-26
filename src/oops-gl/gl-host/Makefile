@@ -3,9 +3,8 @@
 #   make            build liboopsGL.so
 #   make clean
 #
-# Host-only and deliberately standalone: this builds a Linux shared library for LD_PRELOAD, not
-# a console payload, so it does not go through common/app.mk - there is no title to package, no
-# payload to sign and no target triple involved.
+# Host-only and standalone: this builds a Linux shared library for LD_PRELOAD, not a console
+# payload, so it does not go through common/app.mk.
 #
 # Usage, from wherever the program under test lives:
 #
@@ -26,10 +25,8 @@ SRCS = $(wildcard $(OOPS_SDK_DIR)/src/gl/*.c) \
        $(OOPS_SDK_DIR)/src/system/freestd.c \
        gl_host_shim.c
 
-# **Default visibility, unlike every other build of these sources.** The console payload hides
-# its symbols because nothing outside it links against them; here the whole point is that a
-# program already compiled against GL finds these and not the system's, which cannot happen if
-# they are hidden.
+# Default visibility, unlike the payload builds of these sources: a program already compiled
+# against GL must find these symbols rather than the system's.
 CFLAGS  = -std=c11 -O1 -g -fPIC -Wall -Wextra \
           -DOOPS_HOST_BUILD -DOOPS_TARGET=3 \
           -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L \

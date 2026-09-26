@@ -2,22 +2,11 @@
  * gl2-probe: the host runner.
  *
  * Runs the check suite against oops-gl's software reference and prints a row per check.
+ * `gl2_probe_main.c` runs the same suite on the console; a check that passes in one
+ * place and fails in the other is a hardware-path fault.
  *
- * **This is one half of a pair, and the other half is `gl2_probe_main.c`.** gl1-probe's
- * value is that the same suite runs here and on a console, so a check that passes in
- * one place and fails in the other is a hardware-path bug - and that is what this suite
- * is for too. The console path for a GL 2.0 program was measured through 2026-09-21:
- * obSCEne's `REQ-...-4e77` ran shaders this compiler generated and they retired with
- * their interpolated parameters intact, `REQ-...-6c0d` did the same for a uniform
- * block, and `REQ-...-2a45` for a sample under whole-quad mode. gl2-cube then put one
- * on hardware through oops-gl's own draw path rather than a fixture.
- *
- * This runner prints a table and returns; the payload's cannot assume it will get to
- * return, which is why the two report differently and why the suite itself owns
- * neither.
- *
- * It prints every row rather than only the failures, because a suite that prints
- * nothing when it passes gives no way to tell "all green" from "did not run".
+ * Every row is printed, not only failures, so "all green" reads differently from "did
+ * not run".
  */
 
 #include "gl2_probe.h"
@@ -33,7 +22,7 @@
 #define FB_H 1080
 
 /* The display the checks draw into. Full size, because the probe region is a corner of
- * a real display rather than a display of its own - see gl2_probe.c. */
+ * a real display - see gl2_probe.c. */
 static uint32_t *s_host_fb;
 static int s_host_disp_dummy = 1;
 static unsigned int s_host_w = FB_W;
@@ -104,10 +93,7 @@ int main(void) {
         if (results[i].passed)
             passed++;
     }
-    printf("gl2-probe selftest: %d/%d passed (host software reference; the console "
-           "path runs - "
-           "obSCEne REQ-...-4e77 - and samples since REQ-...-2a45)\n",
-           passed, n);
+    printf("gl2-probe selftest: %d/%d passed (host software reference)\n", passed, n);
     free(s_host_fb);
     s_host_fb = (uint32_t *)0;
     return passed == n ? 0 : 1;

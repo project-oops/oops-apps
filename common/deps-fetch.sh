@@ -1,27 +1,10 @@
 #!/usr/bin/env sh
 # Put every pinned dependency tree under `src/oops-deps/` on disk.
 #
-# A dependency is vendored the same way a title's upstream is: an `upstream.lock` naming a kind,
-# a URL and a revision, an `upstream/` directory it lands in, and a `patches/` directory applied
-# on top. `common/upstream-fetch.sh` does one of them and is idempotent - it records what it
-# fetched in a stamp and exits 0 when the stamp already matches - so this is a loop over the
-# locks and nothing more.
-#
-# **Why it exists.** `common/upstream.mk` fetches a *title's* own upstream at Makefile-parse
-# time, and only for a lock in the app's own directory. Dependencies are not apps, so nothing
-# fetched theirs: four of them carry a hand-run `make <dep>-upstream` target and five carry no
-# way at all. On a developer's machine the trees are already there from the day they were first
-# needed, and the gap is invisible.
-#
-# It was not invisible in CI, it was just silent. Neverball's build asked for
-# `sdl2-ttf/upstream/SDL_ttf.c`, make answered "No rule to make target", and the release
-# workflow reported a title with nothing to ship - so a title with eight vendored dependencies
-# had never once been built there, under four days of green ticks.
-#
-# Fetching every lock rather than only the ones an app names is deliberate: which dependencies a
-# title uses is known to its Makefile and not to a shell script, and a clone that is already at
-# its revision costs a stamp comparison. Being right without being told is worth more here than
-# being minimal.
+# Each dependency carries an `upstream.lock`, and `common/upstream-fetch.sh` fetches it into
+# `upstream/` with `patches/` applied. `common/upstream.mk` fetches only a title's own lock, so
+# this covers the dependencies. Every lock is fetched, since only a title's Makefile knows which
+# it uses; a tree already at its revision costs a stamp comparison.
 set -eu
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

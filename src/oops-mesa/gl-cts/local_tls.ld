@@ -32,11 +32,10 @@ SECTIONS
     .rodata         : { *(.rodata .rodata.*) } :data
 
     /*
-     * C++ dynamic-initialiser tables. There are no crt start-up objects here to walk these, so a
-     * title runs them itself (oops-mesa `abi.c`, `oops_mesa_run_init_array`) using the bounds
-     * symbols placed here. Without this, dynamically-initialised Mesa globals - ACO's opcode
-     * table among them - stay zeroed (oops-mesa worklog 062). Writable because each entry carries
-     * a RELATIVE relocation the loader applies.
+     * C++ dynamic-initialiser tables. No crt start-up objects walk these; a title runs them
+     * with `oops_mesa_run_init_array` (oops-mesa `abi.c`) using these bounds, or dynamically
+     * initialised Mesa globals such as ACO's opcode table stay zeroed. Writable because each
+     * entry carries a RELATIVE relocation the loader applies.
      */
     . = ALIGN(8);
     .preinit_array  : {
@@ -71,42 +70,11 @@ SECTIONS
     .dynamic        : { *(.dynamic); . += 0x20000; } :data :dynamic
 
     /*
-     * `.eh_frame` is **not** discarded here, and the copy of this comment that said it was
-     * is what cost a hardware run on 2026-09-24.
-     *
-     * The other copies of this file - `mesa-cube`, `mesa-demos`, the two Mesa probes - do
-     * discard it, deliberately and correctly: they link no unwinder, `oops-libunwind.mk` is
-     * included by `cxx-throw` and by nothing else there, so the section has no reader in the
-     * image and keeping it is pure size. On `mesa-demos` it measured 1.33 MB. SELFish's
-     * `link/native_eboot.ld`, which every copy of this file is derived from, keeps it; the
-     * two are meant to differ, and selfish#D105 says why.
-     *
-     * **This title is the exception that comment anticipated.** It sets
-     * `OOPS_CXX_EXCEPTIONS = 1` and includes `oops-libunwind.mk`, because dEQP is built on
-     * exceptions from end to end: `tcu::NotSupportedError` is how a test says it did not
-     * run, `tcu::ResourceError` is how it says a file was missing, and `tcuMain.cpp:93` is
-     * a `catch (const std::exception &)` around the entire run.
-     *
-     * Discarding the section beat the `KEEP` in `oops-deps/libcxx/link/eh-frame.ld`, so
-     * `__eh_frame_start` and `__eh_frame_end` came out equal, the freestanding libunwind
-     * (`_LIBUNWIND_IS_BAREMETAL` scans between those two rather than using
-     * `dl_iterate_phdr`) took a zero-byte range as its whole frame table, and the unwinder
-     * could not leave the frame that threw. On hardware that was:
-     *
-     *     [OOPS-GL] the DRI frontend would not create a screen
-     *     [cxx] std::terminate reached - an exception found no handler, or a handler threw
-     *     # reason:  abort is called(system)
-     *
-     * - a `throw` from `glu::createRenderContext` passing straight through `tcuMain`'s
-     * `catch` into `abort`. **Every dEQP exception was fatal**, so the suite could never
-     * have reported a NotSupported, which is most of what a first run produces.
-     *
-     * The inherited comment named this exact case and said what to do about it. It was
-     * read as describing the other titles.
-     *
-     * **Check the width of the range, not the presence of its symbols.** Four non-zero
-     * symbols is what passed on every broken build; `__eh_frame_end - __eh_frame_start`
-     * is the only arm that fails when this is wrong.
+     * `.eh_frame` is kept: this title links libunwind (OOPS_CXX_EXCEPTIONS), and dEQP
+     * reports results through exceptions (`tcu::NotSupportedError`, `tcuMain.cpp:93`). A
+     * discard beats the `KEEP` in `oops-deps/libcxx/link/eh-frame.ld` and leaves a zero-byte
+     * frame table, so every throw reaches std::terminate. Check `__eh_frame_end -
+     * __eh_frame_start`, not the symbols' presence. The other Mesa titles discard it.
      */
 
     /DISCARD/ : {

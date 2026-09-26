@@ -1,11 +1,11 @@
 /*
- * sandbox-daemon — decoupled on-demand filesystem namespace elevation service.
+ * sandbox-daemon - decoupled on-demand filesystem namespace elevation service.
  *
  * Runs as a background ELF under pldmgr / elfldr (category daemon, root privilege).
  * Receives kernel R/W primitives via payload_args_t from the session loader.
  *
  * Architecture:
- *   1. Dynamic allproc discovery — scans [kdata+0x2600000, kdata+0x2B00000] for a
+ *   1. Dynamic allproc discovery - scans [kdata+0x2600000, kdata+0x2B00000] for a
  *      valid proc chain containing the daemon's own PID, then sets krw_allproc_addr().
  *   2. Resolves rootvnode from PID 1 (mini-syscore) fd_rdir.
  *   3. Listens on TCP 127.0.0.1:9069 for client handshake requests.

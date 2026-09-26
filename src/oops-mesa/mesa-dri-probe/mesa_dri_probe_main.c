@@ -1,60 +1,21 @@
 /*
  * mesa-dri-probe - brings GL up through the Gallium DRI frontend and says how far it
- * gets.
+ * gets. The frontend creates its own screen, so `mesa-winsys-probe` stays the control.
  *
- * # What this is for
- *
- * oops-mesa's platform shim has existed since 2026-09-17 and nothing has ever called
- * it. It compiles, it links, and a title packages with the whole frontend in it - but
- * `oops_gl_create` has never run, so every statement about it is a statement about
- * source code (oops-mesa worklog 041 and 042 both say so in as many words). This is the
- * title that changes that.
- *
- * It is the frontend's counterpart to `mesa-winsys-probe`, which walks the winsys path
- * directly. The two are separate titles on purpose: the frontend creates its own
- * screen, so one title doing both would have two screens and no clean attribution for a
- * failure. `mesa-winsys-probe` stays the control.
- *
- * # What it reports, and the order is the point
- *
- * Every step below is a line in the log, and the last line that appears is the answer.
- * The frontend's own failures are reported by the shim, which names the step it stopped
- * on, so this file does not duplicate that - it reports what the shim could not know:
- * whether the handle came back, whether GL then answers, and whether presentation is
- * refused for the reason it is expected to be refused for.
- *
- * It renders only what it can verify, in three steps that each add one thing to the one
- * before:
- *
- * 1. **Fixed function** - a clear to a known colour and a triangle over the centre,
- * read back with glReadPixels (which detiles through Mesa and reads the drawable's own
- * colour buffer, not the display scanout) - one pixel inside the triangle, one in the
- * corner outside it.
- * 2. **The programmable pipeline** - a GLSL 330 vertex and fragment shader drawing a
- *    colour-interpolated triangle from a vertex buffer, which is what fixed function
- * does not reach: the GLSL compiler, program linking, and real vertex attributes.
- * 3. **The frame hash** - FNV-1a over every pixel of the finished frame, which is
- * roadmap unit 6's acceptance gate and the step a single sampled pixel cannot stand in
- * for.
- *
- * The flip half is no longer an open question: presentation works and the frame reaches
- * the panel (oops-mesa worklog 065). A frame that did not retire is a failure and never
- * a fallback to software (CLAUDE.md, principle 4), so nothing here fakes a result - the
- * readback is the check.
+ * Each step is a log line and the last one is the answer; the shim names any frontend
+ * step it stops on. After `oops_gl_create` it reports the GL strings, then renders
+ * what it can verify by readback: a fixed-function clear and triangle, a GLSL 330
+ * colour-interpolated triangle, and an FNV-1a hash of the whole frame. Then it
+ * presents.
+ * A frame that does not retire is a failure, never a software fallback.
  */
 
 #include "oops/system.h"
 
 #include "oops_platform.h"
 
-/*
- * GL's own headers, from the same `mesa/include` a title already compiles against.
- *
- * They are included with the conversion warnings off for the reason mesa-winsys-probe's
- * includes are: this title compiles at `-Wconversion -Wsign-conversion -Werror`, and
- * upstream's headers are not ours to make clean. The suppression covers the includes
- * and nothing after them.
- */
+/* GL's own headers, with the conversion warnings upstream does not build under
+ * suppressed for the includes only. */
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wconversion"
 #pragma clang diagnostic ignored "-Wsign-conversion"
@@ -69,62 +30,21 @@
 
 #define TAG "DRI-PROBE"
 
-/*
- * How a title finishes here, which is by not finishing.
- *
- * The measurement is obSCEne `REQ-20260917T1450Z-2e71` and it is written up where the
- * shared helper is declared, in `oops-sdk/include/oops/system.h`: no userland call
- * terminates a `big-app` process, `_exit` raises `SIGSYS` for want of permission on
- * syscall 1, and returning faults at `rip: 0x0` because the dynamic linker provides no
- * caller frame. Printing the last line and idling for the host to close the app is the
- * conforming pattern, and it produces no coredump, no crash report and no hung GPU
- * ring.
- *
- * Before this was known, every title here returned and took a crash report at the end
- * of a successful run. It was always *after* the results, so it cost no measurement -
- * but it cost a clean log tail, and it made a good run look like a bad one.
- *
- * The line is said here so it carries this title's tag; the idling is the helper's.
- */
+/* A big-app cannot exit; it logs a last line, then idles until the host closes it. */
 _Noreturn static void park(void) {
     oops_log_info(TAG, "idle and finished - close this title from the host");
     oops_system_park_until_closed();
 }
 
-/*
- * The extent, and why it is small.
- *
- * 1280x720 is not a display mode here and does not have to be: the extent is the
- * title's to choose and the compositor scales, which is the cheaper path at 4K and is
- * the reason `oops_gl_create` takes it as an argument rather than reading it from the
- * display (oops-mesa D009, and the note on `oops_gl_create`).
- *
- * Small is deliberate for a first run. The drawable's colour buffer is allocated by
- * Mesa through `dri_create_image`, and this is the first time anything will have asked
- * the winsys for GPU memory on this path - worklog 022 established the startup path
- * allocates none. A 3.5 MB buffer failing is easier to read than a 33 MB one, and
- * nothing about the path under test changes with the size.
- */
-/* 1920x1080 so the drawable matches the display's own scanout size: the flip half reads
- * the whole drawable back and hands it to the display, which wants an image the
- * framebuffer's size, and the AGC display promotes 1280x720 to 1080p internally - so a
- * 720p drawable would not fill it. */
+/* 1920x1080, the display's scanout size: presentation hands the whole drawable to the
+ * display, which wants an image the framebuffer's size. */
 #define PROBE_WIDTH 1920u
 #define PROBE_HEIGHT 1080u
 
 /*
- * Report one GL string.
- *
- * `glGetString` is the cheapest call that proves the whole dispatch chain, and it is
- * worth being precise about what a null answer means. The frontend's GL entry points
- * reach the driver through libglapi's **thread-local** dispatch table, so a null here
- * does not say "GL is broken" - it says the table this thread sees has no function in
- * that slot, which on this platform is the thread local storage question worklog 040
- * settled. That is a different failure from a context that never became current, and
- * `oops_gl_create` has already reported the second kind if it happened.
- *
- * So: the string is the interesting result, and null is reported as null rather than
- * smoothed over.
+ * Report one GL string. GL calls reach the driver through libglapi's thread-local
+ * dispatch table, so a null means this thread's table has no entry - distinct from a
+ * context that never became current, which `oops_gl_create` reports.
  */
 static void report_string(const char *label, GLenum name) {
     const GLubyte *s = glGetString(name);
@@ -142,20 +62,10 @@ static void report_string(const char *label, GLenum name) {
 void mesa_dri_probe_start(void);
 
 /*
- * The first render on this platform: clear to a known colour, draw a triangle over the
- * centre, and read two pixels back - one inside the triangle, one in the corner outside
- * it.
- *
- * The clear already reads back pixel-exact (worklog 064). The triangle is the next step
- * up: it drives the fixed-function vertex path (which radeonsi lowers to an
- * ACO-compiled shader), rasterisation and the fragment path - the rest of the 3D
- * pipeline. It is drawn in normalised device coordinates, so the default identity
- * projection maps it to the viewport with no matrix setup. glReadPixels detiles through
- * Mesa and reads the drawable's own colour buffer, not the display scanout, so the
- * check holds without the flip half. Two pixels make it a real test: the centre must be
- * the triangle's colour and the corner must still be the clear colour, so neither a
- * missing draw nor a whole-surface fill can pass. No result is faked - the readback is
- * the check (CLAUDE.md principle 4).
+ * Fixed function: clear to a known colour, draw a triangle in normalised device
+ * coordinates, and read back the centre (the triangle) and a corner (the clear), so
+ * neither a missing draw nor a whole-surface fill passes. glReadPixels reads the
+ * drawable's own colour buffer, not the scanout.
  */
 static void probe_first_render(struct oops_gl *gl) {
     uint32_t w = 0;
@@ -194,14 +104,9 @@ static void probe_first_render(struct oops_gl *gl) {
 }
 
 /*
- * The programmable pipeline: a GLSL vertex + fragment shader drawing a
- * colour-interpolated triangle from a vertex buffer. This is what fixed-function does
- * not exercise - the GLSL compiler (whose builtin tables the .init_array fix
- * initialises), program linking, a VBO with two vertex attributes, and per-vertex
- * colour interpolation in a real fragment shader. The three vertices are red, green and
- * blue, so the centre pixel is a blend of all three - a value neither a clear nor a
- * flat draw could produce, which is the check that the interpolation actually ran. It
- * overwrites the fixed-function frame, so this is what reaches the screen.
+ * The programmable pipeline: GLSL compile and link, a VBO with two attributes, and
+ * per-vertex colour interpolation. The vertices are red, green and blue, so the centre
+ * is a blend no clear or flat draw produces. This frame is the one presented.
  */
 static void probe_glsl_render(struct oops_gl *gl) {
     static const char *const vs_src =
@@ -278,60 +183,19 @@ static void probe_glsl_render(struct oops_gl *gl) {
 }
 
 /*
- * The word the GLSL frame clears to, in the `0xAARRGGBB` form the readback below
- * produces.
- *
- * `glClearColor(0.05, 0.05, 0.08, 1.0)` at 8 bits per channel is `round(0.05 * 255) =
- * 13` (0x0d) for red and green and `round(0.08 * 255) = 20` (0x14) for blue, alpha
- * 0xff. It is a constant here only so `mod-pixels` has something to count against, the
- * way gl1-cube's does; the corner pixel is reported beside it as the *measured* value,
- * so if this constant is ever wrong the log says so instead of quietly miscounting.
+ * The GLSL frame's clear, `glClearColor(0.05, 0.05, 0.08, 1.0)`, as the `0xAARRGGBB`
+ * word the readback produces; `mod-pixels` counts against it. The corner pixel is
+ * logged beside it as the measured value.
  */
 #define PROBE_CLEAR_WORD 0xff0d0d14u
 
 /*
- * Unit 6's acceptance gate: a hash of the whole frame.
- *
- * The centre pixel above proves the interpolation ran. It does not prove the *frame* is
- * right - one pixel is one pixel, and a frame that is correct in the middle and torn
- * everywhere else passes it. The gate the roadmap actually sets for unit 6 is "a title
- * draws and hashes a known frame", and this is that hash.
- *
- * # The algorithm is the collection's, deliberately
- *
- * FNV-1a, 32 bits, `0x811c9dc5` basis and `0x01000193` prime, stepped **one 32-bit
- * pixel word at a time** - not one byte at a time, which is a different number over the
- * same buffer. That is what `oops-apps/src/oops-gl/gl1-cube` does and what
- * `oops-sdk/docs/hardware/`'s oracle record defines, and Prosperous D008 says in as
- * many words that this stays six copied lines rather than becoming a shared API. It
- * travels with the same two siblings that record does - `mod-pixels` and the centre
- * pixel - because a bare hash that has changed tells you nothing about *how*.
- *
- * # What this hash is, and what it is not
- *
- * It is **a new oracle for this title's own frame**, not a comparison against
- * gl1-cube's. Those recorded values (`0x9dbfe189`, `0xc51cec32`) are tied to that
- * title's clear colour and its cube; this frame is a different picture entirely, so a
- * matching number would be a coincidence and a differing one means nothing. What makes
- * it a gate is **reproducibility**: the clear, the three vertex colours and the vertex
- * positions are all fixed, so two runs of this binary must produce the same word. The
- * first run establishes it; every run after checks it.
- *
- * Two things about the buffer, both of which change the number and neither of which is
- * a fault:
- *
- * - It is read `GL_BGRA`, so the words are `0xAARRGGBB` - the same order the oracle
- * record uses and the same call `oops_gl_present` makes, rather than a second format to
- * reason about.
- * - `glReadPixels` reads **bottom-up** while the scanout is top-down. This hashes the
- * readback in its own order, so it is a hash of the frame radeonsi rendered, not of
- * what the panel shows. For a render gate that is the right end of the pipe: the
- * row-swap that orients it for scanout happens in the shim afterwards and is not under
- * test here.
- *
- * It is a full-frame pass, stated in the line because gl1-cube also has a 1-in-64
- * sampled mode and the two numbers are not comparable - a reader who mistook one for
- * the other would conclude the frame had changed when it had not.
+ * A hash of the whole frame: FNV-1a/32 stepped one 32-bit pixel word at a time, as
+ * gl1-cube and the oops-sdk oracle record define it (prosperous#D008), logged with
+ * `mod-pixels` and the centre pixel. Every input is fixed, so runs of this binary must
+ * agree. The words are `GL_BGRA` (`0xAARRGGBB`) in glReadPixels' bottom-up order: the
+ * frame radeonsi rendered, before the shim's row swap. The line says full-frame because
+ * gl1-cube also logs a sampled hash.
  */
 static void probe_frame_hash(struct oops_gl *gl) {
     uint32_t w = 0;
@@ -341,8 +205,7 @@ static void probe_frame_hash(struct oops_gl *gl) {
     const size_t pixels = (size_t)w * (size_t)h;
     uint32_t *fb = (uint32_t *)malloc(pixels * sizeof *fb);
     if (fb == NULL) {
-        /* Said, not smoothed over: no hash this run is a missing measurement, not a
-         * passing one. */
+        /* No hash is a missing measurement, not a passing one. */
         oops_log_info(
             TAG,
             "frame hash: the readback buffer would not allocate; no hash this run");
@@ -362,10 +225,8 @@ static void probe_frame_hash(struct oops_gl *gl) {
         frame_hash *= 0x01000193u;
     }
 
-    /* The centre, as a word, so it can be checked against the R/G/B the line above
-     * reported - the same pixel read twice through two different formats should agree,
-     * and if it does not, one of the two readback paths is wrong. The corner is the
-     * measured clear. */
+    /* The centre as a word, to agree with the R/G/B logged above through the other
+     * readback format. The corner is the measured clear. */
     const uint32_t centre_pix = fb[(size_t)(h / 2u) * (size_t)w + (size_t)(w / 2u)];
     const uint32_t corner_pix = fb[0];
 
@@ -384,11 +245,8 @@ static void probe_frame_hash(struct oops_gl *gl) {
 }
 
 /*
- * Run the C++ dynamic initialisers. This module has no crt start-up object to walk
- * `.init_array`, and Mesa has globals that stay zeroed until it does - ACO's opcode
- * table `instr_info` among them, which left every emitted instruction with opcode 0 and
- * faulted the GPU (oops-mesa worklog 062). Defined in oops-mesa's runtime shim
- * (`abi.c`).
+ * Runs the C++ dynamic initialisers (oops-mesa `abi.c`). No crt start-up object walks
+ * `.init_array`, and ACO's opcode table `instr_info` stays zeroed until it runs.
  */
 extern void oops_mesa_run_init_array(void);
 
@@ -401,12 +259,7 @@ void mesa_dri_probe_start(void) {
     struct oops_gl *gl = oops_gl_create(PROBE_WIDTH, PROBE_HEIGHT);
 
     if (gl == NULL) {
-        /*
-         * States no cause, deliberately. `oops_gl_create` logs the step it stopped on -
-         * the winsys, the screen, the config, the drawable, the context or make-current
-         * - and that line is the result. Adding a guess here would put two accounts of
-         * one failure in the log, and the shim's is the one with the information.
-         */
+        /* No cause here: `oops_gl_create` logs the step it stopped on. */
         oops_log_info(TAG,
                       "GL did not come up; the shim's last line above names the step");
         oops_log_info(TAG, "done");
@@ -427,48 +280,30 @@ void mesa_dri_probe_start(void) {
                       "the drawable reports a different extent than was asked for");
     }
 
-    /* The first GL call ever made on this platform, whatever it answers. */
+    /* The first GL calls, whatever they answer. */
     report_string("GL_VERSION:", GL_VERSION);
     report_string("GL_RENDERER:", GL_RENDERER);
     report_string("GL_VENDOR:", GL_VENDOR);
 
-    /* The first render: a clear to a known colour, verified by reading it back. */
     probe_first_render(gl);
 
-    /* The programmable pipeline: a GLSL colour-interpolated triangle, which overwrites
-     * the frame above and is what gets presented. */
+    /* Overwrites the frame above; this is what gets presented. */
     probe_glsl_render(gl);
 
-    /* Unit 6's gate, taken of the frame that is about to be presented and after its
-     * `glFinish`, so it hashes finished work rather than a frame still in flight. */
+    /* Hashes the frame about to be presented, after its `glFinish`. */
     probe_frame_hash(gl);
 
     /*
-     * Presentation, which is expected to succeed.
-     *
-     * This comment used to say the opposite, and the reversal is worth keeping rather
-     * than editing away: the flip was held up by whether `sceVideoOutRegisterBuffers2`
-     * constrains a buffer's address, a question that could not be asked until a surface
-     * existed. A surface exists now, the question was answered by asking it, and the
-     * frame reaches the panel (oops-mesa worklog 065).
-     *
-     * `oops_gl_present` does both halves: it flushes the drawable (`dri_flush_drawable`
-     * - not `driSwapBuffers`, which is swrast/kopper-only and is null for an image
-     * loader, worklog 063), reads the finished frame back, row-swaps it (glReadPixels
-     * is bottom-up and scanout is top-down) and hands it to the display. `false` is now
-     * the surprise, and the shim's own line above names the step it stopped on if it
-     * happens.
+     * `oops_gl_present` flushes the drawable (`dri_flush_drawable`; `driSwapBuffers` is
+     * null for an image loader), reads the frame back, row-swaps it for the top-down
+     * scanout and hands it to the display. On failure the shim names the step.
      */
     if (oops_gl_present(gl)) {
         oops_log_info(TAG, "presentation succeeded: the frame is on the display");
         oops_log_info(TAG, "holding it on screen - close this title from the host");
         /*
-         * Do not tear down on success. Closing the display releases the scanout buffers
-         * and blanks the screen, so a single flip followed by teardown shows the frame
-         * for one frame and then black - which is what the first run looked like. The
-         * video-out holds the last flipped buffer while the title idles, so parking
-         * with the display still open keeps the frame visible. The context and display
-         * leak, which is fine for a title that idles until the host closes it.
+         * No teardown on success: closing the display releases the scanout buffers and
+         * blanks the screen. Parking with it open keeps the last flipped frame visible.
          */
         park();
     }

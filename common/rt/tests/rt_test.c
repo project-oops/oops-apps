@@ -1,30 +1,12 @@
 /*
- * `common/rt/rt.c` against the host's native operators.
+ * common/rt/rt.c against the host's native operators. Run it with ./run.sh beside it.
  *
- * Run it with the script beside this file:
+ * On x86-64, / on an unsigned __int128 is a call to __udivti3, so run.sh compiles rt.c
+ * under oops_test_* names and / and % here bind to the toolchain's compiler-rt.
+ * oracle_is_distinct() confirms that at run time.
  *
- *   ./run.sh
- *
- * # The oracle cannot be the subject, and by default it is
- *
- * On x86-64 the expression `a / b` on an `unsigned __int128` **is a call to
- * `__udivti3`** - the compiler does not have a 128-bit divide instruction to emit. So
- * linking `rt.c` into this test unchanged makes the host's `/` resolve to the very
- * function under test, and every comparison becomes `f(a,b) == f(a,b)`. That version of
- * this file reported 998,996 checks and 0 failures while proving nothing whatsoever.
- *
- * `run.sh` therefore compiles `rt.c` with its three names redefined to `oops_test_*`,
- * leaving
- * `/` and `%` here to bind to the toolchain's own compiler-rt. `oracle_is_distinct()`
- * below checks that this actually happened rather than trusting the build line, because
- * the failure mode of forgetting it is a silent pass.
- *
- * # And the oracle has to be the operator
- *
- * Checking `q * b + r == a` instead would pass for a routine that is consistently wrong
- * in both quotient and remainder - which is exactly what a shift-and-subtract loop
- * produces when its shift count is off by one. Only comparing against a division that
- * was implemented independently can catch that.
+ * The oracle is the operator, not q * b + r == a, which passes for a loop that is
+ * consistently wrong in both quotient and remainder.
  */
 #include <stdio.h>
 
@@ -42,11 +24,11 @@ static int failures = 0;
 static unsigned long long checks = 0;
 
 static void print_u128(oops_tu_int v) {
-    /* Decimal would need the very division under test. Hex halves say everything a
-     * failure needs and cannot be wrong for the same reason the subject is. */
+    /* Hex halves, because decimal would need the division under test. */
     printf("0x%016llx%016llx", (unsigned long long)(v >> 64), (unsigned long long)v);
 }
 
+/* All three helpers agree with the native / and % for one pair. */
 static void check(oops_tu_int a, oops_tu_int b) {
     oops_tu_int wq, wr, gq, gr, mq, mr;
 
@@ -83,9 +65,7 @@ static void check(oops_tu_int a, oops_tu_int b) {
     failures++;
 }
 
-/* xorshift64*, so the sweep is the same every run - a randomised test that only fails
- * sometimes is worse than no test, because the run that passes is the one that gets
- * believed. */
+/* xorshift64* with a fixed seed, so the sweep is the same every run. */
 static unsigned long long rng_state = 0x243f6a8885a308d3ull;
 static unsigned long long rng(void) {
     rng_state ^= rng_state >> 12;
@@ -98,17 +78,12 @@ static oops_tu_int rng128(void) {
 }
 
 /*
- * Is `/` in this file something other than the function being tested?
- *
- * The addresses have to differ. If `run.sh` were run without its renames, or a future
- * build rule dropped them, `__udivti3` here would be `rt.c`'s definition and this
- * returns 0 - which is the whole point: the test that cannot fail is the one that
- * reports it.
+ * The native / is not the function under test. Without run.sh's renames __udivti3
+ * here is rt.c's own definition and this returns 0.
  */
 typedef oops_tu_int (*oops_div_fn)(oops_tu_int, oops_tu_int);
 static int oracle_is_distinct(void) {
-    /* `volatile`, or clang folds the comparison of two distinct declarations to true at
-     * compile time and the check disappears into the binary as a constant. */
+    /* volatile, or clang folds the comparison of two distinct declarations to true. */
     oops_div_fn volatile oracle = __udivti3;
     oops_div_fn volatile subject = oops_test_udivti3;
     return oracle != subject;
@@ -126,9 +101,8 @@ int main(void) {
         return 1;
     }
 
-    /* The edges: zero and one, the two word boundaries in both directions, all-ones,
-     * and the values either side of each power of two - which is where a leading-zero
-     * count is wrong if it is wrong at all. */
+    /* Edge pairs: zero and one, the word boundaries, all-ones, and the values either
+     * side of powers of two, where a wrong leading-zero count shows. */
     edge[n++] = 0;
     edge[n++] = 1;
     edge[n++] = 2;
@@ -153,8 +127,8 @@ int main(void) {
         }
     }
 
-    /* Random pairs, plus each against a small divisor and a single-word divisor: the
-     * three shapes that take different branches through the loop's shift count. */
+    /* Random pairs, plus small and single-word divisors: the shapes that take
+     * different branches through the loop's shift count. */
     for (k = 0; k < 200000ull; k++) {
         oops_tu_int a = rng128();
         oops_tu_int b = rng128();

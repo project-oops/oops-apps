@@ -1,12 +1,13 @@
 /*
  * home payload entry.
  *
- * Executed by a homebrew ELF loader (elfldr) with payload_args in rdi. Opens the
- * display and the pad, then loops: read the pad, apply it to the model, draw, flip.
+ * Runs from a homebrew ELF loader with payload_args in rdi. Opens the display and the
+ * pad, then loops: read the pad, apply it to the model, draw, flip.
  *
- * The model, the skins and the drawing are `home.c`, shared with the host self-test.
- * This file is the console-only part: the display, the input, the loop, and **the host
- * dispatch** - the seam where a shell action becomes something a machine actually does.
+ * The model, the skins and the drawing are home.c, shared with the host self-test.
+ * This file is the console-only part: the display, the input, the loop, title
+ * discovery, settings persistence, and the host dispatch that turns a shell action
+ * into a system call.
  */
 
 #include "oops/display.h"
@@ -30,10 +31,8 @@
 #define TAG OOPS_APP_ID
 
 /*
- * Dynamic Real Filesystem Title & Payload Scanner.
- *
- * Scans on-disk storage locations for real installed native / legacy titles, homebrew,
- * and staged ELFs, extracting true title names and versions from param.json.
+ * Title discovery. Scans the internal and USB storage locations for installed titles
+ * and homebrew, taking names and versions from each title's param.json.
  */
 static home_title_t s_scanned[HOME_MAX_TITLES];
 static char s_ids[HOME_MAX_TITLES][20];
@@ -407,7 +406,7 @@ static void scan_dir_for_titles(const char *dir_path, const char *default_catego
     char dents[4096];
     int total_entries = 0;
     long basep = 0;
-    int syscall_num = 554; /* Start with modern FreeBSD 12 SYS_getdirentries */
+    int syscall_num = 554; /* FreeBSD 12 getdirentries; 196 and 272 are older forms */
 
     for (;;) {
 #ifndef OOPS_HOST_BUILD
@@ -415,12 +414,12 @@ static void scan_dir_for_titles(const char *dir_path, const char *default_catego
         if (syscall_num == 554) {
             n = sys_call(554, fd, (long)dents, sizeof(dents), (long)&basep, 0, 0);
             if (n <= 0) {
-                /* If 554 returns <= 0 on initial call, fallback to 196 */
+                /* 554 returned nothing on the first call: fall back to 196 */
                 n = sys_call(196, fd, (long)dents, sizeof(dents), (long)&basep, 0, 0);
                 if (n > 0) {
                     syscall_num = 196;
                 } else {
-                    /* Fallback to 272 (freebsd11_getdents) */
+                    /* Then to 272 (freebsd11_getdents) */
                     n = sys_call(272, fd, (long)dents, sizeof(dents), 0, 0, 0);
                     if (n > 0) {
                         syscall_num = 272;
@@ -444,8 +443,7 @@ static void scan_dir_for_titles(const char *dir_path, const char *default_catego
             uint16_t namlen = 0;
             const char *name = NULL;
 
-            /* Check if freebsd11_dirent layout (reclen at +4, namlen at +7, name at +8)
-             */
+            /* freebsd11 dirent: reclen at +4, namlen at +7, name at +8 */
             uint16_t r4 = *(const uint16_t *)(dents + pos + 4);
             uint8_t n7 = *(const uint8_t *)(dents + pos + 7);
             if (r4 >= 8 && r4 <= 1024 && n7 > 0 && n7 <= (r4 - 8)) {
@@ -453,8 +451,7 @@ static void scan_dir_for_titles(const char *dir_path, const char *default_catego
                 namlen = (uint16_t)n7;
                 name = (const char *)(dents + pos + 8);
             } else if (pos + 24 <= n) {
-                /* Modern FreeBSD 12+ ino64 dirent (reclen at +16, namlen at +20, name
-                 * at +24) */
+                /* FreeBSD 12 ino64 dirent: reclen at +16, namlen at +20, name at +24 */
                 uint16_t r16 = *(const uint16_t *)(dents + pos + 16);
                 uint16_t n20 = *(const uint16_t *)(dents + pos + 20);
                 if (r16 >= 24 && r16 <= 1024 && n20 > 0 && n20 <= (r16 - 24)) {
@@ -495,7 +492,7 @@ static int scan_storage_for_titles(home_model_t *model, int notify_on_discovery)
         return 0;
     int prev_count = s_scanned_count;
 
-    /* 1. Real dynamic discovery from console storage & external USB */
+    /* 1. Directory scans of internal storage and USB */
     scan_dir_for_titles("/user/appmeta", NULL);
     scan_dir_for_titles("/data/homebrew", "HOMEBREW");
     scan_dir_for_titles("/user/app", NULL);
@@ -506,7 +503,7 @@ static int scan_storage_for_titles(home_model_t *model, int notify_on_discovery)
     scan_dir_for_titles("/mnt/usb1/homebrew", "HOMEBREW (USB)");
     scan_dir_for_titles("/mnt/usb1/app", NULL);
 
-    /* 2. Direct-path probing fallback: verify candidates directly on disk */
+    /* 2. Known ids probed by path, for directories a scan cannot list */
     static const char *const probe_candidates[] = {
         "GLCB00001", "PPSA21564", "PPSA02664", "PPSA04263", "PPSA03416", "PPSA25872",
         "PPSA28061", "PPSA01650", "PPSA90010", "PPSA90000", "PPSA00001", "GALR00001",
@@ -587,7 +584,7 @@ static void home_scan_installed_titles(home_model_t *model) {
 
     (void)scan_storage_for_titles(model, 0);
 
-    /* Clear all placeholder activity, friends, saves, and captures */
+    /* Drop the model's placeholder activities, friends, saves and captures */
     model->activity_count = 0;
     model->friend_count = 0;
     model->save_count = 0;
@@ -604,7 +601,7 @@ static void load_settings(home_model_t *m) {
     /* 1. Try standard oops-sdk savedata slot */
     if (oops_savedata_load_file("SETTINGS", "settings.bin", &data, &sz) != 0 ||
         data == NULL) {
-        /* 2. Migration fallback: check legacy filesystem paths */
+        /* 2. Fall back to the plain filesystem locations */
         if (oops_fs_read_all("/data/homebrew/SCSH00001/settings.bin", &data, &sz) ==
                 0 &&
             data != NULL) {
@@ -694,11 +691,8 @@ static void save_settings(const home_model_t *m) {
 }
 
 /*
- * The host dispatch seam.
- *
- * In Orbistoun, this dispatch hooks directly into emulator services (process loader,
- * package manager, save state manager, frame grabber). On console hardware, these call
- * into system daemons. Returning 1 tells the model the action was handled.
+ * The console host dispatch: each action becomes a system call or a toast.
+ * Returning 1 tells the model the action was handled.
  */
 static int console_perform(void *ctx, home_action_t action, int arg) {
     home_model_t *m = (home_model_t *)ctx;
@@ -899,18 +893,17 @@ static int console_perform(void *ctx, home_action_t action, int arg) {
     }
 }
 
-/* Buttons a pad sample contributes, sticks folded onto the d-pad.
- * Guarded against uninitialized stick memory (-128) and stick drift.
- * Uses a high deadzone threshold of 95 (~75% deflection, matching ItemzFlow)
- * and gives physical D-pad presses strict priority so analog stick drift can
- * never override or block digital navigation. */
+/*
+ * Buttons a pad sample contributes, with the left stick folded onto the d-pad.
+ * The stick counts past 95 (about 75% deflection) and only while no d-pad button is
+ * held, so drift never overrides the d-pad. An unconnected pad with sticks at -128
+ * is uninitialised memory and contributes no stick.
+ */
 static uint32_t pad_buttons(const oops_pad_state_t *pad) {
     if (pad == 0) {
         return 0u;
     }
     uint32_t b = pad->buttons;
-    /* Only fold sticks if digital D-pad is not actively pressed and stick is
-     * deflected past 95 (~75% deflection) */
     uint32_t dpad =
         b & (OOPS_BUTTON_UP | OOPS_BUTTON_DOWN | OOPS_BUTTON_LEFT | OOPS_BUTTON_RIGHT);
     if (dpad == 0u &&
@@ -981,20 +974,20 @@ int seashell_start(const payload_args_t *args) {
     host.perform = console_perform;
     home_set_host(&model, &host);
 
-    /* Request filesystem namespace elevation to access global /user and /data */
+    /* Leave the sandbox namespace to reach the global /user and /data */
     if (oops_system_escape_sandbox() == 0) {
         oops_log_info(TAG, "namespace initialized: global filesystem storage active");
     } else {
         oops_log_info(TAG, "sandbox escape unavailable: continuing in restricted mode");
     }
 
-    /* Dynamically probe for on-disk titles and payloads */
+    /* Discover installed titles */
     home_scan_installed_titles(&model);
 
     /* Restore persistent theme, mode, and pinned favorites */
     load_settings(&model);
 
-    /* Diagnostic: show title count on screen since klog is silent in jail */
+    /* The title count goes on screen because klog is silent inside the sandbox */
     if (model.title_count > 0) {
         char toast[64];
         oops_snprintf(toast, sizeof(toast), "Found %d titles", model.title_count);
@@ -1016,18 +1009,13 @@ int seashell_start(const payload_args_t *args) {
         uint64_t t0 = oops_time_get_us();
         uint32_t buttons = 0u;
 
-        /*
-         * Controller polling:
-         * Polled once per frame, locked to 60 FPS by oops_display_flip().
-         * Paced synchronously to display VSYNC (~16.6ms intervals).
-         */
+        /* The pad is polled once per frame; the flip paces frames to 60 Hz */
         oops_pad_state_t pad;
         int poll_rc = oops_input_poll(0, &pad);
         if (poll_rc == 0) {
             buttons |= pad_buttons(&pad);
         } else {
-            /* If port 0 is unavailable, check secondary ports with 60-frame throttling
-             */
+            /* Port 0 unavailable: try the other ports once every 60 frames */
             static int s_sec_poll_tick = 0;
             if ((s_sec_poll_tick++ % 60) == 0) {
                 for (unsigned int port = 1; port < 4; port++) {
@@ -1043,7 +1031,7 @@ int seashell_start(const payload_args_t *args) {
         buttons |= oops_keyboard_poll_buttons();
         uint64_t t_kbd = oops_time_get_us();
 
-        /* Verbose input diagnostics telemetry */
+        /* Input log: on change, every 30 frames while held, every 300 frames idle */
         static uint32_t s_last_logged_buttons = 0xFFFFFFFFu;
         static int s_input_tick = 0;
         s_input_tick++;
@@ -1064,7 +1052,7 @@ int seashell_start(const payload_args_t *args) {
             (void)home_input_apply(&input, &model, buttons);
         }
 
-        /* Periodically tick system power/watchdog every 60 frames (~1 sec) */
+        /* Tick the system power watchdog every 60 frames (about one second) */
         if ((s_input_tick % 60) == 0) {
             (void)oops_system_power_tick();
         }
@@ -1073,10 +1061,8 @@ int seashell_start(const payload_args_t *args) {
         uint64_t t_app = oops_time_get_us();
 
         /*
-         * Render and flip every frame:
-         * Paces the loop to 60 FPS VSYNC via agc_wait_for_flips() inside
-         * oops_display_flip(). Completely eliminates jitter, dropped inputs, and
-         * desync.
+         * Render and flip every frame. oops_display_flip() waits for the flip
+         * (agc_wait_for_flips), which paces the loop to the 60 Hz display.
          */
         oops_surface_t surf = oops_display_get_surface(disp);
         if (surf.pixels != 0) {

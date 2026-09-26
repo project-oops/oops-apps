@@ -5,9 +5,7 @@
  * display and the pad, then loops: read the pad, page on L1/R1, exit on circle, draw
  * the page, flip.
  *
- * The drawing is gallery.c, shared with the host self-test. This file is the part that
- * only runs on the console: the display, the input, and the loop that ties them
- * together.
+ * The drawing is gallery.c, shared with the host self-test; this is the console half.
  */
 
 #include "oops/display.h"
@@ -76,9 +74,8 @@ int gallery_start(const payload_args_t *args) {
         tone_chunk[i * 2 + 1] = val;
     }
 
-    /* The capability matrix is fixed for the run: which media-decode and input-device
-     * subsystems resolved on this console. Gathered once, after the pad is open so the
-     * adaptive-trigger check has a port to ask about. */
+    /* The capability matrix is fixed for the run. Gathered once, after the pad is open
+     * so the adaptive-trigger check has a port to ask about. */
     state.caps.agc_gpu = oops_display_is_gpu_accelerated(disp);
     state.caps.videodec = oops_videodec_available();
     state.caps.audiodec = oops_audiodec_available();
@@ -87,7 +84,6 @@ int gallery_start(const payload_args_t *args) {
     state.caps.mouse = oops_mouse_available();
     state.caps.adaptive_triggers = oops_input_adaptive_triggers_available(0);
 
-    /* Gather runtime subsystem states */
     oops_heap_stats_t heap_stats;
     if (oops_heap_get_stats(&heap_stats) == 0) {
         state.runtime.heap_allocated = heap_stats.current_allocated_bytes;

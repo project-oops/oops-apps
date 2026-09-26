@@ -2,15 +2,12 @@
  * `boost::optional`, as `std::optional` with the four spellings SuperTux uses that the
  * standard one does not have.
  *
- * SuperTux names `boost::optional` about 170 times and uses it the way C++17 uses
- * `std::optional` - `*`, `->`, `if (opt)`, `reset`, `emplace`, assigning `boost::none`.
- * What the standard renamed is `get()` (now `*`), `get_value_or` (now `value_or`),
- * `get_ptr()`, and the in-place factory `reader_mapping.cpp` assigns from. Deriving
- * from `std::optional` keeps every other operation exactly the standard's rather than a
- * second implementation of it.
+ * Those are `get()`, `get_value_or`, `get_ptr()` and assignment from the in-place
+ * factory `reader_mapping.cpp` uses. Deriving from `std::optional` keeps every other
+ * operation the standard's.
  *
- * This is the port's shim and not a Boost: `../../../docs/PORTING.md`, *The stack*, has
- * why the slice is answered here rather than pinned.
+ * `../../../docs/PORTING.md`, The stack, explains why Boost is shimmed rather than
+ * pinned.
  */
 #ifndef STX_SHIM_BOOST_OPTIONAL_HPP
 #define STX_SHIM_BOOST_OPTIONAL_HPP
@@ -22,10 +19,8 @@
 
 #include <boost/utility/typed_in_place_factory.hpp>
 
-/* `BOOST_FALLTHROUGH` is Boost's spelling of `[[fallthrough]]`, from
- * `<boost/config.hpp>`. Three SuperTux files use it without including anything of
- * Boost's directly - they reach it through `util/reader_mapping.hpp`'s
- * `<boost/optional.hpp>` - so this is where it has to be. */
+/* `BOOST_FALLTHROUGH` is Boost's `[[fallthrough]]`, from `<boost/config.hpp>`. SuperTux
+ * files reach it only through `util/reader_mapping.hpp`'s `<boost/optional.hpp>`. */
 #ifndef BOOST_FALLTHROUGH
 #define BOOST_FALLTHROUGH [[fallthrough]]
 #endif
@@ -56,11 +51,9 @@ template <typename T> class optional : public std::optional<T> {
     optional &operator=(const optional &) = default;
     optional &operator=(optional &&) = default;
 
-    /* **Assignment is spelled out rather than inherited.** Inheriting `std::optional`'s
-     * `operator=` alongside the converting constructors made `opt = true` ambiguous -
-     * the value could reach the base's `operator=(U&&)` directly, or be converted to
-     * `optional` and reach the defaulted copy - and clang rightly refused to choose.
-     * These two are the whole set. */
+    /* Assignment is declared here rather than inherited: with the inherited converting
+     * constructors, the base's `operator=(U&&)` and the defaulted copy would make
+     * `opt = true` ambiguous. */
     optional &operator=(std::nullopt_t) noexcept {
         this->reset();
         return *this;
@@ -82,10 +75,8 @@ template <typename T> class optional : public std::optional<T> {
     optional(const std::optional<T> &o) : std::optional<T>(o) {}
     optional(std::optional<T> &&o) : std::optional<T>(std::move(o)) {}
 
-    /* **Constructs in place, which is the point.** `ReaderMapping` holds references and
-     * cannot be assigned, so `opt = ReaderMapping(doc, sx)` would not compile; the
-     * factory carries the arguments instead and the object is built where it will live.
-     */
+    /* Constructs in place: `ReaderMapping` holds references and cannot be assigned, so
+     * the factory carries its constructor arguments instead. */
     template <typename... A>
     optional &operator=(const typed_in_place_factory<T, A...> &f) {
         std::apply([this](const A &...a) { this->emplace(a...); }, f.args);

@@ -6,15 +6,10 @@
  * core GL 1.x and ships no extension header, so this supplies the pair and nothing
  * else.
  *
- * **Types only, deliberately.** `GL_EXT_compiled_vertex_array` is not implemented by
- * oops-gl, and `ogl.h` `#undef`s the feature macro immediately above these lines anyway
- * - ETR looks the functions up at run time through `SDL_GL_GetProcAddress`, which this
- * SDK's backend answers with NULL because every entry point is statically linked. So
- * ETR sees the extension as absent and takes its non-extension path, which is the
- * truth.
- *
- * Declaring the *functions* here instead would be the mistake: they would link against
- * nothing and a payload link does not complain.
+ * Types only. oops-gl does not implement `GL_EXT_compiled_vertex_array`; ETR looks
+ * the functions up through `SDL_GL_GetProcAddress`, which returns NULL here, so ETR
+ * takes its non-extension path. Declared functions would link against nothing, and a
+ * payload link does not report that.
  */
 #ifndef OOPS_ETR_GL_GLEXT_H
 #define OOPS_ETR_GL_GLEXT_H

@@ -1,8 +1,7 @@
 /*
  * `boost::posix_time::second_clock::local_time().date()` - today, for
  * `GameConfig::is_christmas`.
- * `../gregorian/gregorian.hpp` has the whole account, including why "local" is UTC
- * here.
+ * Local time is UTC here; see `../gregorian/gregorian.hpp`.
  */
 #ifndef STX_SHIM_BOOST_DATE_TIME_POSIX_TIME_TYPES_HPP
 #define STX_SHIM_BOOST_DATE_TIME_POSIX_TIME_TYPES_HPP

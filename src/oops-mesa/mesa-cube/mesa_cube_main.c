@@ -61,9 +61,7 @@ typedef struct cube {
     float angle;
 } cube_t;
 
-/* A big-app process cannot end itself: _exit is refused and returning from the entry
- * point has no caller frame. It logs a last line and idles until the host closes it
- * (oops_system_park_until_closed). */
+/* A big-app cannot exit; it logs a last line, then idles until the host closes it. */
 _Noreturn static void park(const char *why) {
     oops_log_info(TAG, "%s", why);
     oops_system_park_until_closed();

@@ -1,10 +1,6 @@
 /*
- * libogg generates this from `config_types.h.in` with four integer widths substituted.
- * The build system that does it is autotools, which we do not run - so here are the
- * four answers for this target, which is LP64 x86-64.
- *
- * Nothing about them is a choice: `ogg_int64_t` has to be 64 bits because the format
- * says so, and these spellings are what `<stdint.h>` calls the same things.
+ * libogg's `config_types.h`, which autotools generates from `config_types.h.in`, with
+ * the integer widths for this LP64 x86-64 target spelled through `<stdint.h>`.
  */
 #ifndef __CONFIG_TYPES_H__
 #define __CONFIG_TYPES_H__

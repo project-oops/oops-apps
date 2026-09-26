@@ -1,12 +1,9 @@
 #!/bin/sh
-# Build and run the `common/rt` test on the host.
+# Build and run the common/rt test on the host.
 #
-# **The renames are the point of this script.** `rt.c` implements the helpers that the host's own
-# `/` and `%` on a 128-bit value compile down to, so linking it in under its real names makes the
-# test compare a function against itself. Compiling it as `oops_test_*` leaves the operators here
-# bound to the toolchain's compiler-rt, which is an implementation nobody in this tree wrote.
-#
-# `rt_test.c` re-checks this at run time and refuses to report a pass without it.
+# rt.c is compiled under oops_test_* names so the host's own 128-bit / and % stay bound
+# to the toolchain's compiler-rt; under the real names the test would compare rt.c
+# against itself. rt_test.c re-checks this at run time.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 CC=${CC:-clang}

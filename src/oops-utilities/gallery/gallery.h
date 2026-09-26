@@ -9,8 +9,7 @@
  * The subsystem gallery: one page per SDK subsystem, driven by hand.
  *
  * Render is a pure function of a page number and the state to show, so every page can
- * be drawn into a plain buffer and checked on a host - the seam that makes a drawing
- * app testable off the console, exactly as the SDK itself is built.
+ * be drawn into a plain buffer and checked on a host.
  */
 
 enum {
@@ -26,11 +25,8 @@ enum {
 
 /*
  * What this console offers the SDK, gathered so the render stays pure. Each field is a
- * plain yes/no the payload fills from the matching oops_*_available() call - the
- * consumer-side readout of the media-decode and input-device subsystems. The paths
- * whose data layouts are still capture-gated report their capability honestly here
- * (available means the library and entry points resolved), not whether a full
- * decode/read yet works.
+ * yes/no the payload fills from the matching oops_*_available() call. Available means
+ * the library and entry points resolved, not that a full decode or read works.
  */
 typedef struct gallery_caps {
     int videodec;          /* oops_videodec_available */

@@ -3,26 +3,26 @@
 #   make elf      the plain-ELF payload a homebrew loader runs
 #   make title    complete title package (.zip)
 #
-# **The data has to be built before this will run**, and that is not optional. Neverball ships
-# 407 `.map` files and no `.sol`: its levels are compiled by `mapc`, a **host** tool built from
-# thirteen of its own sources. `make data` below does it. A payload without that has no levels.
+#   make data     compile the levels (required before a package runs)
+#   make package  the title package with Neverball's data, which is what runs
+#
+# Neverball ships `.map` files and no `.sol`: its levels are compiled by `mapc`, a host tool
+# built from its own sources.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
-# Fixed-function OpenGL, freestanding. This is `common/app.mk`'s front door for choosing a
-# renderer; it adds oops-gl's sources itself, so this title does not list them.
+# Fixed-function OpenGL; `common/app.mk` adds oops-gl's sources itself.
 OOPS_RENDERER = gl1
 
-# The SDK sources this title compiles carry no `-O` of their own, and unoptimised oops-gl costs
-# this title around 7.7us per draw call at ten thousand draws a frame. Neverball's own archive
-# already asks for -O2 below.
+# The SDK sources this title compiles carry no `-O` of their own, and unoptimised oops-gl is
+# too slow for Neverball's draw-call count. Neverball's own archive asks for -O2 below.
 EXTRA_TARGET_CFLAGS += -O2
 
 # --- the stack ------------------------------------------------------------
 #
-# Eight dependencies, each pinned in `src/oops-deps/`. The order matters where one needs
-# another's headers on the path: SDL2 before its mixer and ttf, FreeType before ttf, zlib and
-# libogg are pulled in by libpng and libvorbis themselves.
+# Each dependency is pinned in `src/oops-deps/`. The order matters where one needs another's
+# headers on the path: SDL2 before its mixer and ttf, FreeType before ttf. zlib and libogg
+# are pulled in by libpng and libvorbis themselves.
 OOPS_SDL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/sdl2)
 include $(OOPS_SDL)/oops-sdl.mk
 
@@ -41,26 +41,21 @@ include $(OOPS_JPEG)/oops-libjpeg.mk
 OOPS_VORBIS ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libvorbis)
 include $(OOPS_VORBIS)/oops-libvorbis.mk
 
-# The shared POSIX shim - `stat`, `opendir`, `readdir`, `getcwd`. Shared with Extreme Tux Racer.
+# The shared POSIX shim - `stat`, `opendir`, `readdir`, `getcwd`.
 include $(OOPS_APPS_ROOT)/common/posix.mk
 
-# Included here rather than left to `app.mk` below, because the archive rule further down uses
-# `oops_depgen` and `app.mk` is read after it. Guarded, so including it twice costs nothing.
+# Included here rather than left to `app.mk`, because the archive rule below uses
+# `oops_depgen` and `app.mk` is read after it. The include is guarded.
 include $(OOPS_APPS_ROOT)/common/deps.mk
 
 # --- flags ----------------------------------------------------------------
 #
-# `ENABLE_NLS=0` drops gettext. The filesystem is stdio rather than PhysicsFS, which is
-# upstream's own supported switch and is why `share/fs_stdio.c` is in the list below and
-# `fs_physfs.c` is not.
+# `ENABLE_NLS=0` drops gettext. The filesystem is stdio rather than PhysicsFS, upstream's own
+# switch, so `share/fs_stdio.c` is in the list below and `fs_physfs.c` is not.
 #
-# **No `OOPS_POSIX_HOME`.** It was set to `/data/neverball` while savedata was being chased, and
-# it did nothing for this title: `OOPS_POSIX_HOME` is what `getpwuid` reports as the home
-# directory, and Neverball's `pick_home_path` (share/base_config.c:70) reads `getenv("HOME")`
-# and falls back to `fs_base_dir()` without ever calling `getpwuid`. All it achieved was an
-# empty `/data/neverball` created on the console at every launch. The write directory is
-# `/app0/.neverball`, which `config_paths` makes and `config_save` fills.
-#
+# No `OOPS_POSIX_HOME`: it only affects `getpwuid`, and `pick_home_path`
+# (share/base_config.c:70) reads `getenv("HOME")` and falls back to `fs_base_dir()`. The
+# write directory is `/app0/.neverball`.
 NB_CFLAGS := -DENABLE_NLS=0 -DZ_SOLO \
              -Ishim/include -Iupstream/share \
              -I$(OOPS_APPS_ROOT)/common \
@@ -71,30 +66,19 @@ NB_CFLAGS := -DENABLE_NLS=0 -DZ_SOLO \
 EXTRA_TARGET_CFLAGS  += $(NB_CFLAGS)
 EXTRA_TARGET_LDFLAGS += $(OOPS_SDL_LDFLAGS) $(OOPS_TTF_LDFLAGS) $(OOPS_FT_LDFLAGS) \
                         $(OOPS_PNG_LDFLAGS) $(OOPS_JPEG_LDFLAGS) $(OOPS_VORBIS_LDFLAGS)
-# `zlib` and `libogg` are named here although this title never mentions them: `oops-libpng.mk`
-# and `oops-libvorbis.mk` include them and put their archives on the link line, but a *flag* is
-# not a prerequisite - make will not build a file just because a linker was told about it. Left
-# out, the first link fails on two archives that nothing had been asked to produce.
+# `zlib` and `libogg` are named here because the link flags from `oops-libpng.mk` and
+# `oops-libvorbis.mk` name their archives, and a flag is not a prerequisite make will build.
 PAYLOAD_EXTRA_DEPS   += $(OOPS_SDL_LIB) $(OOPS_TTF_LIB) $(OOPS_FT_LIB) \
                         $(OOPS_PNG_LIB) $(OOPS_ZLIB_LIB) $(OOPS_JPEG_LIB) \
                         $(OOPS_VORBIS_LIB) $(OOPS_OGG_LIB)
 
 # --- sources --------------------------------------------------------------
 #
-# **This is upstream's own `BALL_OBJS`**, not a glob. A glob over `share/` sweeps in `mapc.c`
-# (a host tool with its own `main`), `fs_physfs.c`, `hmd_openhmd.c` and the two tilt files - all
-# of which the switches above exclude and none of which would compile. Reading upstream's build
-# is cheaper than discovering that from link errors, which is the same lesson libvorbis taught.
-#
-# `solid_sim_sol` and `tilt_null` are the two upstream adds further down its own Makefile rather
-# than in `BALL_OBJS` itself, which is why reading only that variable left them out: the physics
-# solver is chosen at line 337 and the tilt backend at 351-356, where `tilt_null.c` is the arm
-# for a build with no Wiimote and no accelerometer. Ours is that arm.
-# **`tilt_null` is not here, and that is the motion-control feature.** Upstream picks a tilt
-# backend out of `tilt_wii.c`, `tilt_loop.c` and `tilt_null.c` at its Makefile:349-357, and the
-# null one is the arm for a build with no sensor. This port has a sensor - the pad's IMU - so it
-# supplies a fourth arm, `shim/nb_tilt_dualsense.c`, in PAYLOAD_SRCS below. Choosing a backend is
-# what this switch is for, so the feature costs no patch at all.
+# Upstream's own `BALL_OBJS`, not a glob: a glob over `share/` sweeps in `mapc.c` (a host
+# tool with its own `main`), `fs_physfs.c`, `hmd_openhmd.c` and the tilt backends.
+# `solid_sim_sol` is the physics solver upstream adds at Makefile:337.
+# The tilt backend upstream picks at Makefile:349-357 is replaced by a fourth arm for the
+# pad's IMU, `shim/nb_tilt_dualsense.c` in PAYLOAD_SRCS below, so tilt needs no patch.
 NB_SHARE := lang st_common vec3 base_image image solid_base solid_vary solid_draw solid_all \
             solid_sim_sol hmd_null hmd_common \
             mtrl part geom ball gui font theme base_config config video glext binary state \
@@ -110,26 +94,13 @@ NB_SRCS := $(addprefix upstream/share/,$(addsuffix .c,$(NB_SHARE))) \
 
 # --- upstream's C, under upstream's flags ---------------------------------
 #
-# **Neverball's own sources build into an archive, not into `PAYLOAD_SRCS`**, for the reason
-# `oops-sdl.mk` and `common/cxx.mk` give: this repository compiles with `-Werror -Wconversion
-# -Wsign-conversion -Wmissing-field-initializers`, and a 2010 C codebase does not survive that.
-#
-# The first attempt put these in `PAYLOAD_SRCS` and added `-Wno-` flags as each class appeared -
-# field initializers, then sign comparisons, and there is no end to that list. Worse, every flag
-# added to silence upstream also silences it for `shim/nb_start.c`, which **is** ours and should
-# be held to the repository's standard. An archive separates the two properly.
+# Neverball's sources build into an archive, not `PAYLOAD_SRCS`: this repository compiles with
+# `-Werror -Wconversion -Wsign-conversion -Wmissing-field-initializers`, which upstream does
+# not meet, and our shim sources stay under those flags.
 OOPS_NB_BUILD := build/nb
 OOPS_NB_LIB := $(OOPS_NB_BUILD)/libneverball.a
-# **`-fcommon` is not optional here.** Neverball declares globals like `text_input` in headers
-# without `extern`, which C calls a tentative definition: every translation unit that includes
-# the header emits one, and the linker was expected to merge them. GCC did that by default until
-# version 10 and clang does not, so without this the link fails on a duplicate symbol in each of
-# the four files that include `text.h`.
-#
-# The alternative is patching upstream's headers to add `extern` and picking one file to hold
-# each variable - a real change to somebody else's code, for a compiler default that changed
-# after it was written. A flag that says "behave like the compiler this was written for" is the
-# smaller and more honest answer.
+# `-fcommon`: Neverball declares globals such as `text_input` in headers without `extern`
+# (tentative definitions), which clang does not merge by default.
 OOPS_NB_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                  -nostdlibinc -fPIC -O2 -w -std=c99 -fcommon $(NB_CFLAGS) \
                  $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
@@ -139,17 +110,9 @@ OOPS_NB_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nos
 EXTRA_TARGET_LDFLAGS += -Wl,--whole-archive $(OOPS_NB_LIB) -Wl,--no-whole-archive
 PAYLOAD_EXTRA_DEPS   += $(OOPS_NB_LIB)
 
-# The 74 upstream sources here reach 152 headers between `shim/include`, `upstream/share` and
-# `oops-sdk` - 11 of them the SDK's - and a change to any of them has to rebuild the archive.
-# `common/deps.mk` has the whole reasoning and the measurement. It matters more here than
-# anywhere else: this archive carries `main`, so a stale one is the entire game.
-#
-# **The objects are named, not numbered and globbed.** They used to be `nb1.o`..`nb74.o` in the
-# order the recipe visited `NB_SRCS`, collected with `nb*.o`. Adding or removing one file from
-# `NB_SHARE` or `NB_BALL` renumbered every object after it, so the whole archive recompiled; and
-# removing one left `nb74.o` behind for the glob to pick up, so the dropped file's code stayed
-# in the archive and the link stayed clean. Now each object is named after its source and `ar`
-# is handed the list.
+# Header dependencies are tracked (`common/deps.mk`), since this archive carries `main`.
+# Each object is named after its source and `ar` is handed the list, so a source removed
+# from `NB_SHARE` or `NB_BALL` leaves nothing behind in the archive.
 OOPS_NB_OBJS := $(call oops_objs,$(OOPS_NB_BUILD)/obj,$(NB_SRCS))
 $(call oops_ar_check,$(OOPS_NB_OBJS))
 -include $(OOPS_NB_OBJS:.o=.d)
@@ -161,18 +124,10 @@ $(OOPS_NB_LIB): $(OOPS_NB_OBJS) $(oops_makefiles)
 	@a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $(OOPS_NB_OBJS)
 	@echo "neverball: $@ ($(words $(OOPS_NB_OBJS)) objects)"
 
-# `shim/nb_diag.c` is here rather than in `NB_SHARE` deliberately: it holds the format strings
-# behind the one patch this title carries, and the archive above compiles with `-w`. In
-# `PAYLOAD_SRCS` it gets `-Werror -Wformat` like the rest of our code. See `shim/include/nb_diag.h`.
-# `src/system/savedata.c` was here while the title was thought to need mounted storage for the
-# player's name. It does not - see the header of `shim/nb_start.c` - and nothing calls
-# `oops_savedata_*` any more, so it is not compiled in.
-# **The feature table, not a list of SDK sources.** A title says what it needs and
-# `common/app.mk` supplies it through `CORE_SDK_SRCS`. Declaring both is a link failure on
-# duplicate symbols, so the list that used to be here is gone rather than kept beside it.
-#
-# `thread` is here for `common/haptics.c`, whose decay thread sleeps between ticks. There is no
-# `time` feature - the clock and `oops_time_sleep_ms` come with `base`, which every payload has.
+# `shim/nb_diag.c` holds the format strings behind this title's patch; in `PAYLOAD_SRCS` it
+# gets `-Werror -Wformat`, which the `-w` archive would not. See `shim/include/nb_diag.h`.
+# SDK sources come from the feature table through `common/app.mk`; listing them too would
+# duplicate symbols. `thread` is for `common/haptics.c`'s decay thread.
 OOPS_FEATURES := display input keyboard mouse audio suspend thread draw
 
 PAYLOAD_SRCS = shim/nb_start.c \
@@ -187,26 +142,16 @@ include $(OOPS_APPS_ROOT)/common/app.mk
 
 # --- the data -------------------------------------------------------------
 #
-# `mapc` is a host tool: it runs on the build machine, reads a `.map` and writes a `.sol` beside
-# the rest of the data. It is built with the host compiler against the *same pinned* zlib, libpng
-# and libjpeg sources the payload uses - the build machine has no dev packages for those, and
-# reaching for them would put a dependency outside the lock files.
-#
-# `scripts/mapc.sh` does the whole of it. It is a separate target because it takes minutes and
-# nothing else needs re-running when only the payload changes.
+# `mapc` is a host tool that reads a `.map` and writes a `.sol` beside the rest of the data.
+# It is built with the host compiler against the same pinned zlib, libpng and libjpeg sources
+# the payload uses, so no dependency sits outside the lock files. `scripts/mapc.sh` does it;
+# it is a separate target because it is slow and independent of the payload.
 .PHONY: data data-clean package
 data:
 	@bash scripts/mapc.sh
 
-# **`make package` is the one to run**, not `make title`.
-#
-# `common/app.mk` builds a title directory out of the payload and `sce_sys/`, which is everything
-# an app written here needs. A *port* also ships the program's own content, and Neverball's is
-# 252 MB of levels, textures, fonts and music that it will not start without. `app.mk` has no
-# hook for that and should not grow one for a single title, so this copies it afterwards.
-#
-# The data must be compiled first: `make data` turns 407 `.map` files into the `.sol` the game
-# actually loads, and a package built before that runs has textures and no levels.
+# `make package` adds Neverball's content (levels, textures, fonts, music) to the title
+# package built by `common/app.mk`. `make data` must run first, or the package has no levels.
 package: title
 	@test -d upstream/data || { echo "neverball: no upstream/data - run make first" >&2; exit 1; }
 	@if [ "$$(find upstream/data -name '*.sol' | wc -l)" -eq 0 ]; then \

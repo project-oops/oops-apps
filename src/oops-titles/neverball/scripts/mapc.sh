@@ -1,27 +1,13 @@
 #!/usr/bin/env bash
-# Build Neverball's map compiler on the host, and compile its 407 levels.
+# Build Neverball's map compiler on the host, and compile its levels.
 #
-# Neverball ships `.map` sources and no `.sol`: the levels are compiled by `mapc`, a tool that
-# runs on the **build machine**, not on the console. Without this the payload has no levels at
-# all, so this is part of building the title rather than an optional extra.
+# Neverball ships `.map` sources and no `.sol`; `mapc` compiles them on the build machine.
+# `mapc` reads PNG and JPEG textures for their sizes, so it is linked against the same pinned
+# zlib, libpng and libjpeg sources the payload uses, built with the host compiler.
 #
-# # Why it builds its own zlib, libpng and libjpeg
-#
-# `mapc` reads PNG and JPEG textures to work out their sizes, so it needs those libraries -
-# natively, for the build machine. The builder has no dev packages for them, and installing some
-# would put a dependency outside the lock files that everything else here obeys.
-#
-# So it compiles the **same pinned sources** the payload uses, with the host compiler and no
-# target flags. Same revisions, same code, different machine - which also means a bump to those
-# locks is picked up here without anybody remembering to.
-#
-# # The JPEG wrappers
-#
-# libjpeg-turbo 3.x compiles a dozen of its sources once per sample precision, through one-line
-# wrappers that CMake generates from `src/wrapper/template.c`. We do not run its CMake, so they
-# are written below - two lines each, exactly what the template produces. Without them the link
-# fails on eighteen undefined `j12*` symbols, because `jdmaster.c` dispatches on an image's
-# precision at run time and so needs all of them to exist.
+# libjpeg-turbo compiles some sources once per sample precision through wrappers CMake
+# generates from `src/wrapper/template.c`. Its CMake does not run here, so the wrappers are
+# written below; `jdmaster.c` dispatches on precision at run time and needs all of them.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

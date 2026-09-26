@@ -1,4 +1,4 @@
-# SDL2_mixer build integration. Include from a title's Makefile **after** `oops-sdl.mk` and
+# SDL2_mixer build integration. Include from a title's Makefile after `oops-sdl.mk` and
 # before `common/app.mk`:
 #
 #   OOPS_MIX ?= $(abspath ../../oops-deps/sdl2-mixer)
@@ -8,47 +8,11 @@
 #   EXTRA_TARGET_LDFLAGS += $(OOPS_MIX_LDFLAGS)
 #   PAYLOAD_EXTRA_DEPS   += $(OOPS_MIX_LIB)
 #
-# It needs SDL2's headers, which `oops-sdl.mk` puts on the path - this file does not include that
-# one itself, because a title that wants a mixer has already decided which SDL it is using.
-#
-# # WAV and Vorbis, and nothing else
-#
-# `MUSIC_WAV` is SDL_mixer's own decoder. **`MUSIC_OGG` plus `OGG_USE_STB`** is the bundled
-# `stb_vorbis`, which decodes Ogg Vorbis with **no external libvorbis at all** - upstream's own
-# option, and one fewer pinned dependency for the same files.
-#
-# MP3, FLAC, Opus, MIDI, MOD and Timidity are off. Extreme Tux Racer ships ten `.wav` and ten
-# `.ogg` and nothing else; a decoder no title has a file for is still a parser of untrusted bytes
-# and still something to carry across a bump.
-#
-# **`MUSIC_OGG` selects Ogg; `OGG_USE_STB` chooses which decoder answers for it.** They are not two
-# decoders to pick between - this revision makes them one switch and one selector:
-#
-#     music_ogg.c      #if defined(MUSIC_OGG) && !defined(OGG_USE_STB)   <- libvorbis
-#     music_ogg_stb.c  #if defined(MUSIC_OGG) &&  defined(OGG_USE_STB)   <- bundled stb_vorbis
-#
-# and **both define the same `Mix_MusicInterface_OGG`**, which `music.c` registers under
-# `#ifdef MUSIC_OGG` alone. There is no `MUSIC_OGG_STB` anywhere in this tree.
-#
-# This file used to define `MUSIC_OGG_STB` and not `MUSIC_OGG`, on the reasoning that dropping
-# `MUSIC_OGG` was what kept the libvorbis back end out. Half right, and the wrong half: the define
-# it dropped is also the one that registers the interface. `music_ogg_stb.c` compiled to nothing
-# behind a guard it never satisfied, no Ogg handler was registered, and `Mix_LoadMUS` answered
-# NULL for every `.ogg` in the game - measured on hardware 2026-09-25, eleven of eleven, with no
-# failed `open` anywhere near them because the files were read perfectly well.
-#
-# The lesson is the file list, not the flag: `music_ogg.c` is **not** in `OOPS_MIX_SRCS`, and that
-# is what keeps libvorbis out. A define that silently compiles a translation unit to nothing looks
-# exactly like a define that works.
-#
-# **`mp3utils.c` is built although MP3 is off**, which is not a contradiction: it is where
-# `read_id3v2_from_mem` lives, and `music_wav.c` calls it to step over an ID3 tag on a WAV. The
-# file is tag parsing rather than an MP3 decoder, and the decoder is still absent.
-#
-# **`remap_channels.c` for the same reason**: `music_ogg_stb.c` calls `remap_channels_vorbis_flt`
-# to put Vorbis' channel order into SDL's, so it is part of the Ogg path rather than a codec of
-# its own. The undefined-symbol check in `common/app.mk` is what named it - a payload link ignores
-# unresolved symbols, so without that check this would have linked and faulted on the console.
+# Only WAV and Ogg Vorbis are built. `MUSIC_OGG` registers `Mix_MusicInterface_OGG` in `music.c`;
+# `OGG_USE_STB` selects `music_ogg_stb.c` (bundled stb_vorbis) over `music_ogg.c` (libvorbis),
+# and `music_ogg.c` is left out of `OOPS_MIX_SRCS`. `mp3utils.c` is not an MP3 decoder: it holds
+# `read_id3v2_from_mem`, which `music_wav.c` calls. `remap_channels.c` is called by
+# `music_ogg_stb.c` to map Vorbis channel order to SDL's.
 
 ifndef OOPS_MIX_DIR
 OOPS_MIX_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
@@ -81,7 +45,7 @@ OOPS_MIX_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -no
                   $(OOPS_MIX_INCLUDE) $(OOPS_SDL_INCLUDE) \
                   $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
 
-# `ar` is handed the list rather than the directory - `common/deps.mk` says what the glob cost.
+# `ar` is handed the list rather than the directory (see `common/deps.mk`).
 $(OOPS_MIX_LIB): $(OOPS_MIX_SRCS) $(lastword $(MAKEFILE_LIST))
 	@mkdir -p $(OOPS_MIX_BUILD)
 	@rm -f $@

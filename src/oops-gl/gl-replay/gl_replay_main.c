@@ -3,16 +3,9 @@
  * machine.
  *
  * `oops_gl_capture_frame` writes one of a title's frames to a file on the console. This
- * reads that file back and draws it here, where the rasteriser is the reference
- * implementation and where there is no console in the loop at all. The image it writes
- * is what the frame is *supposed* to look like; the difference from a screenshot of the
- * same frame is the bug.
- *
- * **Why this exists.** A conformance suite tests what somebody thought to write down.
- * Ninety-odd checks in `gl1-probe` pass on hardware while a real port renders wrong,
- * which is not a failure of the suite - it is the suite reaching its edge, because the
- * port is wrong in a combination nobody wrote down. A capture is not written by
- * anybody: it is what the program did.
+ * reads it back and draws it with the reference rasteriser, so the image is what the
+ * frame should look like and its difference from a screenshot is the defect. A capture
+ * covers call combinations a conformance suite does not enumerate.
  *
  *   make check                 the round trip, in process, as a build gate
  *   ./build/gl-replay_selftest FRAME.oglcap [OUT.ppm]
@@ -27,10 +20,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The same host display the other check-only apps use: a plain buffer, because
- * oops-sdk's real one talks to a backend that is not on a build machine. Full HD, so
- * the row stride is the one a captured frame was drawn against rather than a smaller
- * lie. */
+/* A plain-buffer host display standing in for oops-sdk's hardware one. Full HD, so the
+ * row stride is the one a captured frame was drawn against. */
 static uint32_t s_host_fb[1920 * 1080];
 static int s_host_disp_dummy = 1;
 static unsigned int s_host_w = 1920;
@@ -98,9 +89,8 @@ static int write_ppm(const char *path, unsigned w, unsigned h) {
     return 1;
 }
 
-/* The build gate: capture a small drawing in process, replay it into a wiped buffer,
- * and demand the same pixels. It is the claim the whole tool rests on, so it runs on
- * every build rather than only when somebody remembers to point it at a file. */
+/* The build gate: a small drawing captured in process and replayed into a wiped buffer
+ * gives the same pixels. */
 static int selftest(void) {
     enum { W = 64, H = 64 };
     oops_display_t *disp = oops_display_open(OOPS_DISPLAY_BACKEND_AUTO, W, H);

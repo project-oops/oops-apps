@@ -5,34 +5,22 @@
 #
 #   gen-cvars.sh <upstream-dir> <output.h>
 #
-# # What these are
+# A CVAR name is the key a setting is stored under in the player's configuration file
+# (`gSettings.Controllers.Port1.HasConfig`), shared with other Ship of Harkinian builds. A
+# wrong prefix compiles and runs but ignores the player's settings. libultraship builds the
+# names from macros that CMake supplies through `add_compile_definitions`.
 #
-# A CVAR name is the key a setting is stored under in the user's configuration file:
-# `gSettings.Controllers.Port1.HasConfig`. libultraship writes them as macros concatenated with
-# string literals (`CVAR_PREFIX_CONTROLLERS ".Port%d.HasConfig"`), and CMake supplies the macros
-# through `add_compile_definitions`. 31 of the runtime's 138 sources stop without them.
-#
-# **These are not internal names, and getting one wrong is not a compile error.** They are the
-# on-disk format of a save file that other Ship of Harkinian builds also read. A build that
-# invented its own prefix would run perfectly and silently ignore every setting the player had.
-#
-# # Why a generator and not a list
-#
-# The values come from three CMake files, in this order, under CMake's cache rule that **the first
-# `set(... CACHE ...)` wins**:
+# The values come from three CMake files, read in this order; CMake's cache keeps the first
+# `set(... CACHE ...)` of a name:
 #
 #   CMake/soh-cvars.cmake            the prefixes - CVAR_PREFIX_SETTING is "gSettings"
 #   CMake/lus-cvars.cmake            the superproject's values, built from those prefixes
-#   libultraship/cmake/cvars.cmake   libultraship's standalone defaults, and the list of which
-#                                    names actually become definitions
+#   libultraship/cmake/cvars.cmake   libultraship's standalone defaults, and the list of
+#                                    names that become definitions
 #
-# The third file is where a reader would naturally look, and it is the one whose values are
-# **not** used: `CVAR_PREFIX_CONTROLLERS` is `gControllers` there and `gSettings.Controllers` in
-# the build SoH ships. A transcribed list would have taken the wrong one.
-#
-# So this resolves the chain rather than recording its result, and emits exactly the names in
-# `add_compile_definitions`, so a bump that adds one is picked up and a bump that removes one does
-# not leave a stale macro behind.
+# The third file's values lose: its CVAR_PREFIX_CONTROLLERS is `gControllers`, the shipped
+# value `gSettings.Controllers`. The script emits exactly the names in that file's
+# `add_compile_definitions`, so it follows upstream bumps.
 set -eu
 
 U=${1:?usage: gen-cvars.sh <upstream-dir> <output.h>}
@@ -122,10 +110,8 @@ TAIL
 } > "$tmp"
 rm -f "$tmp.body"
 
-# **Spot-check one resolved value, because the failure here is silent.** If the cache-order rule
-# were implemented backwards this would say `gControllers`, the file would compile, and the port
-# would read nobody else's settings. Checking the one name that differs between the two files
-# catches exactly that.
+# CVAR_PREFIX_CONTROLLERS is the one name whose value differs between the superproject and
+# libultraship's defaults, so it proves the first-set-wins order was applied.
 if ! grep -q '^#define CVAR_PREFIX_CONTROLLERS "gSettings\.Controllers"$' "$tmp"; then
     echo "gen-cvars: CVAR_PREFIX_CONTROLLERS did not resolve to gSettings.Controllers." >&2
     echo "           Got: $(grep 'CVAR_PREFIX_CONTROLLERS' "$tmp" || echo '(absent)')" >&2

@@ -1,42 +1,18 @@
 /*
  * glut-demo - a GLUT program, ported by compiling it.
  *
- * This exists to be evidence rather than a demonstration. oops-sdk grew `<GL/glut.h>`
- * and the rest of GLU on 2026-09-20, and the claim that made was that a program written
- * against GLUT builds against this SDK. The only way to know is to write one the way
- * that code is actually written - `main`, `glutInit`, callbacks, `glutMainLoop`, the
- * quadric solids, a mipmapped texture built by `gluBuild2DMipmaps` - and build it for
- * the console.
+ * It shows that a program written against GLUT builds against this SDK: main,
+ * glutInit, callbacks, glutMainLoop, GLU matrices and mipmaps, the GLUT solids
+ * (including the teapot, drawn through glMap2f/glEvalMesh2), window calls that change
+ * nothing here, and a glutBitmapString HUD.
  *
- * **Everything below the entry point is portable.** There is no SDK call in it, no
- * header of this SDK's, nothing that names the platform. Copy it into a desktop GLUT
- * project and it compiles there; that is the point. The only platform-specific lines
- * are the last ones, where a payload entry point calls `main` - because a homebrew
- * payload is entered by name and not by the C runtime.
- *
- * What it exercises, chosen to be the parts a port actually leans on:
- *
- * - the window, the callbacks, the main loop, and leaving it;
- * - `gluPerspective` and `gluLookAt` on the matrix stack;
- * - `gluBuild2DMipmaps`, the way every texture loader written before GL 1.4 built its
- * chain;
- * - `glutSolidSphere`, `glutSolidTorus` and `glutSolidCube`, the shapes that code
- * draws, and `glutSolidDodecahedron`, whose flat faces show a winding mistake as a
- * hole;
- * - `glutSolidTeapot`, which is none of the above: it is the only GLUT solid that is
- * measured data rather than arithmetic, and it is drawn through the **evaluator** - so
- * it is the one shape here that exercises `glMap2f`/`glEvalMesh2` instead of the
- * quadric path;
- * - `glutSetWindowTitle`, `glutFullScreen` and `glutSetCursor`, which change nothing
- * here and which a port calls anyway;
- * - `glutBitmapCharacter` through `glutBitmapString`, drawing a HUD the way every GLUT
- * program draws one: an ortho push, lighting and depth off, and the state put back;
- * - lighting, depth, and a redisplay driven from an idle callback.
+ * Everything above the entry point is portable: no SDK call, header or platform name,
+ * so it compiles in a desktop GLUT project. The last lines are the payload entry point,
+ * which calls main because a homebrew payload is entered by name.
  */
 #include <GL/glut.h>
-/* The headers a port's own code includes without thinking about it. They resolve to
- * oops-sdk's `include/libc`, which is on the target include path; on a desktop they are
- * the real ones. */
+/* The headers a port's own code includes. They resolve to oops-sdk's include/libc on
+ * the target and to the real ones on a desktop. */
 #include <ctype.h>
 #include <math.h>
 #include <stdio.h>
@@ -48,9 +24,8 @@ static float g_spin = 0.6f;
 static GLuint g_texture = 0;
 static int g_frames = 0;
 
-/* A checkerboard, built once and handed to gluBuild2DMipmaps - which is how this was
- * done before GL_GENERATE_MIPMAP existed, and so how the code being ported does it.
- * 64x64 is not a power of two by accident: the chain has to halve cleanly to 1x1. */
+/* A checkerboard handed to gluBuild2DMipmaps, as pre-GL_GENERATE_MIPMAP code does.
+ * 64x64 so the chain halves cleanly to 1x1. */
 static void make_texture(void) {
     static GLubyte pixels[64][64][4];
     for (int y = 0; y < 64; y++) {
@@ -71,10 +46,8 @@ static void make_texture(void) {
 }
 
 /*
- * A settings file read the way a port reads one: fopen, fgets, a parser out of
- * <ctype.h>, fclose. There is no file at this path and that is fine - the point is that
- * a port's loader compiles, links and runs its not-found path rather than faulting on a
- * missing `fopen`.
+ * A settings file read the way a port reads one: fopen, fgets, a <ctype.h> parser,
+ * fclose. No file ships at this path, so it runs the not-found path.
  */
 static float read_setting(const char *path, const char *key, float fallback) {
     FILE *f = fopen(path, "r");
@@ -154,9 +127,8 @@ static void display(void) {
     glutSolidCube(0.8);
     glPopMatrix();
 
-    /* And a dodecahedron opposite it. Its twelve pentagons are lit flat, which is what
-     * says the faces came out with one normal each and the right winding - a face wound
-     * the other way disappears under the cull and leaves a hole in the solid. */
+    /* A dodecahedron opposite it. Its pentagons are lit flat, one normal each, and a
+     * face with the wrong winding shows as a hole. */
     glPushMatrix();
     glRotatef(-g_angle * 0.8f + 180.0f, 0.0f, 1.0f, 0.0f);
     glTranslatef(3.4f, 0.0f, 0.0f);
@@ -166,21 +138,10 @@ static void display(void) {
     glutSolidDodecahedron();
     glPopMatrix();
 
-    /* And the teapot, a quarter turn round from the cube.
-     *
-     * It is here because it is the one solid in GLUT that is not arithmetic. Everything
-     * above comes out of a formula - a quadric, or the vertices of a platonic solid -
-     * while the teapot is 129 control points Martin Newell measured off his own in
-     * 1975, drawn as ten Bezier patches mirrored into thirty-two and evaluated through
-     * `glMap2f`/`glEvalMesh2`. So it is the only shape on screen that exercises the
-     * evaluator, and the only one whose silhouette would be wrong if the patch maths
-     * were.
-     *
-     * `glutSolidTeapot(0.5)` is about 1.6 units across, not 0.5: GLUT's size argument
-     * is a scale factor rather than an extent, and matching that is the point - a
-     * ported program expects GLUT's proportions, not tidier ones. It spins about its
-     * own axis only, so the handle and spout stay readable as they come round.
-     */
+    /* The teapot, a quarter turn round from the cube: Bezier patches evaluated through
+     * glMap2f/glEvalMesh2, the one shape here that exercises the evaluator. GLUT's size
+     * argument is a scale factor, so glutSolidTeapot(0.5) is about 1.6 units across.
+     * It spins about its own axis so the handle and spout stay readable. */
     glPushMatrix();
     glRotatef(-g_angle * 0.8f + 90.0f, 0.0f, 1.0f, 0.0f);
     glTranslatef(3.4f, 0.0f, 0.0f);
@@ -189,10 +150,8 @@ static void display(void) {
     glutSolidTeapot(0.5);
     glPopMatrix();
 
-    /* **A frame counter drawn with glutBitmapCharacter**, which is what most GLUT code
-     * uses the font for. Text goes in window coordinates with lighting and depth off,
-     * and the state is put back - the ordinary recipe, and the reason it is here is
-     * that a port writes exactly this and until 2026-09-20 it would not have linked. */
+    /* A frame counter in the GLUT bitmap font, the ordinary recipe: window coordinates,
+     * lighting and depth off, and the state put back. */
     {
         const int w = glutGet(GLUT_WINDOW_WIDTH), h = glutGet(GLUT_WINDOW_HEIGHT);
         char hud[48];
@@ -222,8 +181,7 @@ static void display(void) {
     g_frames++;
 }
 
-/* A wobble computed the way a port computes one: `sinf` and `sqrtf` out of <math.h>, on
- * a clock read through GLUT. Nothing here needs the SDK to be named. */
+/* A wobble from <math.h> on a clock read through GLUT. */
 static float wobble(float t) {
     const float a = sinf(t * 0.7f), b = cosf(t * 1.3f);
     return 0.15f * sqrtf(fabsf(a * b)) + 0.02f * (float)(rand() % 16) / 16.0f;
@@ -240,8 +198,7 @@ static void idle(void) {
 static void keyboard(unsigned char key, int x, int y) {
     (void)x;
     (void)y;
-    /* Escape leaves, which on a console is the option button as well - see
-     * glutOopsPadKeys. */
+    /* Escape leaves; on a console the Options button sends it (glutOopsPadKeys). */
     if (key == 27 || key == 'q')
         glutLeaveMainLoop();
 }
@@ -274,10 +231,8 @@ int main(int argc, char **argv) {
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
     glutInitWindowSize(1280, 720);
     glutCreateWindow("glut-demo");
-    /* What a port does next, and what this SDK does with it: the title has nowhere to
-     * go and is accepted, the window is already full screen, and the cursor is already
-     * none. Each call is here because a real program makes it, not because it changes
-     * anything. */
+    /* Calls a real program makes that change nothing here: the title has nowhere to
+     * go, the window is already full screen, and there is no cursor. */
     glutSetWindowTitle("glut-demo - oops-glut");
     glutFullScreen();
     glutSetCursor(GLUT_CURSOR_NONE);
@@ -293,8 +248,7 @@ int main(int argc, char **argv) {
 }
 
 /* ---------------------------------------------------------------------------
- * The only part that is not portable: a payload is entered by name, not by the C
- * runtime.
+ * The payload entry point: a payload is entered by name, not by the C runtime.
  * --------------------------------------------------------------------------- */
 #ifndef OOPS_HOST_BUILD
 #include "oops/syscall.h"

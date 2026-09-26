@@ -1,11 +1,7 @@
-# zlib's origin: the deflate implementation libpng stands on.
+# zlib's origin: the deflate implementation libpng, libzip and StormLib stand on.
 #
-# **Annotated tag** - `refs/tags/v1.3.1` is the tag object and the hash below is the commit it
-# points at. Three of the five codec locks added together are annotated; this collection has
-# already put a tag object in a lock once, so each was peeled and checked.
-#
-# It is here for libpng and nothing else. FreeType has its own bundled inflate in `src/gzip` and
-# does not use this.
+# An annotated tag: `refs/tags/v1.3.1` is the tag object and the hash below is the commit it
+# points at.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/madler/zlib
 UPSTREAM_REV=51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf

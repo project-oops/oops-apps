@@ -1,21 +1,18 @@
 /*
  * `boost::filesystem`, for the operations SuperTux performs, over the POSIX shim.
  *
- * Two files use it. `util/file_system.cpp` asks `exists`, `is_directory`,
- * `create_directory`, `relative` and `remove`. `supertux/main.cpp` canonicalises the
- * data directory, and migrates a pre-0.4 config directory with `directory_iterator`,
- * `rename` and `remove_all` - code that runs only if `~/.supertux2` exists, which on
- * this target it never does, but which has to compile.
+ * Users: `util/file_system.cpp` (`exists`, `is_directory`, `create_directory`,
+ * `relative`, `remove`) and `supertux/main.cpp`, which canonicalises the data
+ * directory and migrates a pre-0.4 config directory (`directory_iterator`, `rename`,
+ * `remove_all`).
  *
- * libc++ here compiles none of `<filesystem>`'s operations, so this cannot sit on
- * `std::filesystem` either; `stat`, `mkdir`, `opendir` and `getcwd` are
- * `common/posix`'s, and `rename` and `remove` are oops-sdk's `<stdio.h>`.
+ * This libc++ builds none of `<filesystem>`'s operations. `stat`, `mkdir`, `opendir`
+ * and `getcwd` come from `common/posix`, `rename` and `remove` from oops-sdk's
+ * `<stdio.h>`.
  *
- * **Semantics are Boost's where SuperTux can tell the difference.** `create_directory`
- * answers false for a directory that already exists - `FileSystem::mkdir` throws on
- * false, so answering true would hide a real failure behind the POSIX shim's "exists is
- * success". Failures that Boost reports by throwing throw `filesystem_error` here,
- * which `main.cpp` catches by that name.
+ * Semantics are Boost's where SuperTux can observe them: `create_directory` returns
+ * false for an existing directory, and failures Boost throws for throw
+ * `filesystem_error`, which `main.cpp` catches by that name.
  */
 #ifndef STX_SHIM_BOOST_FILESYSTEM_HPP
 #define STX_SHIM_BOOST_FILESYSTEM_HPP

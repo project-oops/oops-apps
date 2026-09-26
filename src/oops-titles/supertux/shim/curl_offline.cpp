@@ -100,9 +100,8 @@ CURLMcode curl_multi_perform(CURLM *m, int *running) {
     return CURLM_OK;
 }
 
-/* One message per transfer, oldest first, **dequeued as it is read** - libcurl's
- * contract, and the one that cannot loop: a caller that reads without removing the
- * handle still sees each transfer finish exactly once. */
+/* One message per transfer, oldest first, dequeued as it is read (libcurl's contract),
+ * so each transfer is reported finished exactly once. */
 CURLMsg *curl_multi_info_read(CURLM *m, int *in_queue) {
     if (!m || m->pending.empty()) {
         if (in_queue)

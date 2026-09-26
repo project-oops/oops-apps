@@ -1,14 +1,11 @@
 /*
  * `boost::gregorian::date`, for one comparison.
  *
- * `GameConfig::is_christmas` builds today's date and Saint Nicholas Day's - 6 December
- * of the same year - and answers `today >= saint_nicholas_day`, which puts Tux in a
- * Santa hat for the rest of December. That needs a date with a year, a month constant,
- * and an ordering; nothing else of Boost.Date_Time is reached.
+ * `GameConfig::is_christmas` compares today's date with 6 December of the same year.
+ * That needs a date with a year, a month constant and an ordering.
  *
- * The date comes from oops-sdk's `gmtime_r`, which is UTC because the console hands a
- * payload no timezone - see `<time.h>`. A player an ocean from Greenwich gets the hat a
- * few hours early or late, on one day a year.
+ * Today comes from oops-sdk's `gmtime_r`, which is UTC because a payload has no
+ * timezone (see `<time.h>`).
  */
 #ifndef STX_SHIM_BOOST_DATE_TIME_GREGORIAN_HPP
 #define STX_SHIM_BOOST_DATE_TIME_GREGORIAN_HPP

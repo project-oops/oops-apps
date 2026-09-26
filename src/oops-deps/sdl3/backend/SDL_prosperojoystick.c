@@ -1,28 +1,13 @@
 /*
  * SDL3's joystick driver for this console, over `oops/input.h`.
  *
- * # Buttons are numbered in `SDL_GamepadButton` order, deliberately
+ * Buttons are numbered in `SDL_GamepadButton` order, so a title reading raw joystick
+ * buttons gets cross as 0, circle 1, square 2, triangle 3. The driver reports buttons,
+ * two sticks, two analogue triggers, the touchpad click, rumble and the light bar; the
+ * IMU is not reported because `SDL_SENSOR_DISABLED` compiles the sensor subsystem out.
  *
- * A title that ignores the gamepad layer and reads raw joystick buttons still gets a
- * sensible arrangement - cross is button 0, circle 1, square 2, triangle 3 - rather
- * than whatever order this file happened to poll in. It is also what lets the mapping
- * string in `include/SDL_build_config_private.h` be written once and stay right.
- *
- * # What the pad reports and what it cannot
- *
- * `oops/input.h` gives buttons, two sticks, two analogue triggers, a touchpad click,
- * rumble, the light bar and an IMU. This driver takes the first six. The IMU is absent
- * because `SDL_SENSOR_DISABLED` is set in the build config - SDL's sensor subsystem is
- * compiled out, so `SetSensorsEnabled` has nothing to enable.
- *
- * **`OOPS_BUTTON_CREATE` and `OOPS_BUTTON_PS` are the same bit** - both are `1u << 16`
- * - so Create and the PS button cannot be told apart. The SDL2 driver sends *both* Back
- * and Guide from it, which means every press of Create also fires Guide, and a program
- * that opens its pause menu on Guide opens it whenever the user reaches for the share
- * button. This one reports **Back only**: Create is the button a payload actually
- * receives, and the PS button is the system software's - it is intercepted before a
- * payload sees it unless pad privilege is raised. One button that is right beats two
- * that are half right.
+ * `OOPS_BUTTON_CREATE` and `OOPS_BUTTON_PS` are the same bit, so it is reported as Back
+ * only: the system software intercepts the PS button before a payload sees it.
  */
 #include "SDL_internal.h"
 
@@ -33,13 +18,13 @@
 
 #include "oops/input.h"
 
-/* `SDL_GamepadButton`'s order, so a title reading raw buttons gets a sane layout. */
+/* `SDL_GamepadButton`'s order. */
 enum {
     PROSPERO_BTN_SOUTH = 0,  /* cross */
     PROSPERO_BTN_EAST,       /* circle */
     PROSPERO_BTN_WEST,       /* square */
     PROSPERO_BTN_NORTH,      /* triangle */
-    PROSPERO_BTN_BACK,       /* create - see the note about the shared bit */
+    PROSPERO_BTN_BACK,       /* create (shares its bit with PS) */
     PROSPERO_BTN_START,      /* options */
     PROSPERO_BTN_LEFTSTICK,  /* L3 */
     PROSPERO_BTN_RIGHTSTICK, /* R3 */
@@ -61,14 +46,10 @@ typedef struct {
 static PROSPERO_PadSlot prospero_pads[OOPS_MAX_PADS];
 static bool prospero_input_ready;
 
-/* ---- device list -------------------------------------------------------- */
+/* Device list. */
 
 static bool PROSPERO_JoystickInit(void) {
-    /*
-     * **A failure here is reported, not swallowed.** The SDL2 driver's comment calls
-     * this the quietest failure in the whole input path: without it the buttons simply
-     * never arrive and nothing downstream mentions a pad again.
-     */
+    /* Reported, because nothing downstream would otherwise mention the missing pads. */
     if (oops_input_init() != 0) {
         return SDL_SetError("prospero: oops_input_init() failed");
     }
@@ -82,10 +63,8 @@ static bool PROSPERO_JoystickInit(void) {
     return true;
 }
 
-/* **Fixed at `OOPS_MAX_PADS`, not "however many are plugged in".** SDL's device *index*
- * has to be stable between `GetCount` and `Open`, and a count that shrank when a pad
- * was unplugged would renumber every pad after it mid-enumeration. `Detect` below is
- * what reports the comings and goings; this is just how many slots there are. */
+/* The slot count, fixed so SDL's device index stays stable between `GetCount` and
+ * `Open`. `Detect` reports connections and removals. */
 static int PROSPERO_JoystickGetCount(void) {
     return OOPS_MAX_PADS;
 }
@@ -111,8 +90,7 @@ static void PROSPERO_JoystickDetect(void) {
 
 static bool PROSPERO_JoystickIsDevicePresent(Uint16 vendor_id, Uint16 product_id,
                                              Uint16 version, const char *name) {
-    /* Asked by the HID layer to avoid claiming a device twice. There is no HID layer
-     * here. */
+    /* Asked by the HID layer, which is not built here. */
     (void)vendor_id;
     (void)product_id;
     (void)version;
@@ -126,8 +104,7 @@ static const char *PROSPERO_JoystickGetDeviceName(int device_index) {
 }
 
 static const char *PROSPERO_JoystickGetDevicePath(int device_index) {
-    /* There is no device node. NULL is SDL's "no path", which every console backend
-     * answers. */
+    /* No device node; NULL is SDL's "no path". */
     (void)device_index;
     return NULL;
 }
@@ -137,25 +114,21 @@ static int PROSPERO_JoystickGetDeviceSteamVirtualGamepadSlot(int device_index) {
     return -1;
 }
 
-/* The pad's port *is* its player index here, and it does not move. */
+/* The pad's port is its player index. */
 static int PROSPERO_JoystickGetDevicePlayerIndex(int device_index) {
     return device_index;
 }
 
 static void PROSPERO_JoystickSetDevicePlayerIndex(int device_index, int player_index) {
-    /* **Nothing to set.** The light bar shows the player number on a desktop; here the
-     * port is assigned by the system and a payload cannot renumber it. Doing nothing is
-     * what SDL's own fixed-port backends do, and the interface returns nothing to
-     * report with. */
+    /* The system assigns ports and a payload cannot renumber them, as in SDL's own
+     * fixed-port backends. */
     (void)device_index;
     (void)player_index;
 }
 
 static SDL_GUID PROSPERO_JoystickGetDeviceGUID(int device_index) {
-    /* Sony's vendor id and the DualSense's product id, so the gamepad database - and
-     * our own mapping string - can key on something a reader recognises. The bus is
-     * "virtual" because this does not arrive over USB or Bluetooth as far as a payload
-     * can tell. */
+    /* Sony's vendor id and the DualSense's product id. The bus is virtual: to a payload
+     * the pad arrives over neither USB nor Bluetooth. */
     (void)device_index;
     return SDL_CreateJoystickGUID(SDL_HARDWARE_BUS_VIRTUAL, 0x054C, 0x0CE6, 0x0100,
                                   "Sony Interactive Entertainment",
@@ -166,18 +139,15 @@ static SDL_JoystickID PROSPERO_JoystickGetDeviceInstanceID(int device_index) {
     return prospero_pads[device_index].instance_id;
 }
 
-/* ---- a pad ------------------------------------------------------------- */
+/* An open pad. */
 
 static bool PROSPERO_JoystickOpen(SDL_Joystick *joystick, int device_index) {
-    /* The player index is SDL's to keep; `GetDevicePlayerIndex` above is how a driver
-     * reports it, and `SDL_Joystick` has no field for one. */
     joystick->instance_id = prospero_pads[device_index].instance_id;
     joystick->nbuttons = PROSPERO_BTN_COUNT;
     joystick->naxes = PROSPERO_AXIS_COUNT;
-    joystick->nhats =
-        1; /* the D-pad again, for a title that reads hats rather than buttons */
+    joystick->nhats = 1; /* the D-pad */
 
-    /* The port number, stashed so `Update` knows which pad this is without a search. */
+    /* The port number plus one, so `Update` finds its pad without a search. */
     joystick->hwdata = (struct joystick_hwdata *)(uintptr_t)(device_index + 1);
     return true;
 }
@@ -192,8 +162,8 @@ static unsigned int PROSPERO_PortOf(SDL_Joystick *joystick) {
 
 static bool PROSPERO_JoystickRumble(SDL_Joystick *joystick, Uint16 low_frequency_rumble,
                                     Uint16 high_frequency_rumble) {
-    /* `oops_input_set_rumble` takes two 8-bit motors; SDL gives 16-bit. The high byte
-     * is the value, which is the conversion every backend with 8-bit motors makes. */
+    /* `oops_input_set_rumble` takes 8-bit motors; SDL's 16-bit value keeps its high
+     * byte. */
     if (oops_input_set_rumble(PROSPERO_PortOf(joystick),
                               (uint8_t)(low_frequency_rumble >> 8),
                               (uint8_t)(high_frequency_rumble >> 8)) != 0) {
@@ -205,11 +175,8 @@ static bool PROSPERO_JoystickRumble(SDL_Joystick *joystick, Uint16 low_frequency
 static bool PROSPERO_JoystickRumbleTriggers(SDL_Joystick *joystick, Uint16 left,
                                             Uint16 right) {
     /*
-     * **Refused.** The DualSense's triggers have motors and
-     * `oops_input_set_trigger_effect` drives them, but it takes an *effect* - a
-     * resistance curve, a weapon click - and not a rumble amplitude. Mapping an
-     * amplitude onto one would be inventing a curve and calling it the caller's. A
-     * program told no falls back to ordinary rumble, which works.
+     * Unsupported: `oops_input_set_trigger_effect` takes a resistance effect, not a
+     * rumble amplitude. Callers fall back to ordinary rumble.
      */
     (void)joystick;
     (void)left;
@@ -227,7 +194,7 @@ static bool PROSPERO_JoystickSetLED(SDL_Joystick *joystick, Uint8 red, Uint8 gre
 
 static bool PROSPERO_JoystickSendEffect(SDL_Joystick *joystick, const void *data,
                                         int size) {
-    /* A raw HID report, which there is no path for here. */
+    /* A raw HID report; there is no path for one. */
     (void)joystick;
     (void)data;
     (void)size;
@@ -235,21 +202,17 @@ static bool PROSPERO_JoystickSendEffect(SDL_Joystick *joystick, const void *data
 }
 
 static bool PROSPERO_JoystickSetSensorsEnabled(SDL_Joystick *joystick, bool enabled) {
-    /* The pad has an IMU and `oops_pad_state_t` carries it, but `SDL_SENSOR_DISABLED`
-     * is set in the build config, so SDL has no sensor subsystem to deliver it to.
-     * Enabling the config and reporting `orientation`/`acceleration`/`angular_velocity`
-     * is a later, separate change. */
+    /* `oops_pad_state_t` carries the IMU, but `SDL_SENSOR_DISABLED` leaves SDL no
+     * sensor subsystem to deliver it to. */
     (void)joystick;
     (void)enabled;
     return SDL_Unsupported();
 }
 
-/* ---- polling ------------------------------------------------------------ */
+/* Polling. */
 
-/* An 8-bit stick becomes a 16-bit axis. -128 maps to -32768 and 127 to 32512 rather
- * than 32767, which is what scaling by 256 does and is the conversion SDL's own 8-bit
- * backends use: the alternative stretches the positive half differently from the
- * negative one and leaves the centre off by half a step. */
+/* An 8-bit stick scaled by 256 to a 16-bit axis (127 becomes 32512), as SDL's own
+ * 8-bit backends do, so both halves scale alike and the centre stays at zero. */
 static Sint16 PROSPERO_Axis8(int8_t v) {
     return (Sint16)(v * 256);
 }
@@ -287,9 +250,7 @@ static void PROSPERO_JoystickUpdate(SDL_Joystick *joystick) {
 
 #undef PROSPERO_BTN
 
-    /* **No Guide button.** `OOPS_BUTTON_PS` is the same bit as `OOPS_BUTTON_CREATE`;
-     * sending both would fire Guide on every Create press. See the note at the top of
-     * this file. */
+    /* No Guide: `OOPS_BUTTON_PS` is the same bit as `OOPS_BUTTON_CREATE`. */
 
     SDL_SendJoystickAxis(now, joystick, 0, PROSPERO_Axis8(st.left_stick_x));
     SDL_SendJoystickAxis(now, joystick, 1, PROSPERO_Axis8(st.left_stick_y));
@@ -321,12 +282,8 @@ static void PROSPERO_JoystickQuit(void) {
 }
 
 /*
- * **Answered here rather than left to the database.** SDL builds a gamepad from a
- * mapping string keyed by GUID, and shipping one means keeping it in step with the
- * button numbering above by hand. This says the layout directly, in the numbering this
- * file actually sends, so the two cannot drift.
- *
- * Guide is left out, for the reason at the top: the bit it would come from is Create's.
+ * The gamepad layout, stated in the numbering this file sends rather than as a mapping
+ * string in SDL's database. Guide is left out because its bit is Create's.
  */
 static bool PROSPERO_JoystickGetGamepadMapping(int device_index,
                                                SDL_GamepadMapping *out) {

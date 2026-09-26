@@ -1,15 +1,9 @@
 /*
- * `zipconf.h` - ours, standing in for the one CMake generates from
- * `upstream/zipconf.h.in`.
+ * libzip's public `zipconf.h`, standing in for the one CMake generates from
+ * `upstream/zipconf.h.in`. The target is LP64 with `<stdint.h>`, so the integer types
+ * are the exact-width typedefs. The version matches the tag in `../upstream.lock`.
  *
- * It is a public header: `zip.h` includes it, so anything using libzip sees these
- * types. CMake fills the template by *testing* for an integer type of each width and
- * falling back through `long long`, `__int64` and so on. None of that search is a
- * decision here - this target is LP64 with a working `<stdint.h>`, so the exact-width
- * typedefs are the answer and there is nothing to probe. The version numbers are the
- * pinned tag in `../upstream.lock`; a bump moves both.
- *
- * `ZIP_STATIC` is not defined. It only guards `__declspec(dllimport)` on Windows.
+ * `ZIP_STATIC` is not defined; it only guards `__declspec(dllimport)` on Windows.
  */
 #ifndef _HAD_ZIPCONF_H
 #define _HAD_ZIPCONF_H

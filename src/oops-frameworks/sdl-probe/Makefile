@@ -3,20 +3,18 @@
 #   make elf        the plain-ELF payload a homebrew loader runs
 #   make title      complete title package (.zip)
 #
-# **The first app to include `oops-sdl.mk`**, and that is its job as much as the frames it draws:
-# a dependency that nothing builds is a dependency nobody has checked, and the undefined-symbol
-# check `common/app.mk` runs on every payload link is the only place a missing SDL source shows
-# up before the console.
+# It builds oops-sdl.mk inside an app, so the undefined-symbol check common/app.mk
+# runs on every payload link catches a missing SDL source before the console.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
-# SDL2, pinned and patched. `oops-sdl.mk` expands a file list and declares an archive rule; it
-# fetches nothing by itself, so `make -C ../../oops-deps/sdl2 sdl2-upstream` is what puts the
-# tree on disk the first time.
+# SDL2, pinned and patched. oops-sdl.mk expands a file list and declares an archive
+# rule and fetches nothing; `make -C ../../oops-deps/sdl2 sdl2-upstream` puts the tree
+# on disk.
 #
-# SDL arrives as an archive rather than as sources in `PAYLOAD_SRCS`, so upstream compiles under
-# its own warning flags instead of this repository's `-Werror -Wsign-conversion`. That is the
-# same route Mesa takes through `common/app.mk`, and `oops-sdl.mk` says why.
+# SDL arrives as an archive rather than as sources in PAYLOAD_SRCS, so upstream compiles
+# under its own warning flags instead of this repository's -Werror -Wsign-conversion,
+# the same route Mesa takes through common/app.mk.
 OOPS_SDL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/sdl2)
 include $(OOPS_SDL)/oops-sdl.mk
 

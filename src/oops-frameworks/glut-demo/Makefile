@@ -4,8 +4,8 @@
 #   make eboot      signed eboot.bin container via selfish
 #   make title      complete title package (.zip) for homebrew installation
 #
-# The point of this app is the build: glut_demo_main.c is ordinary GLUT code with one payload
-# entry point at the bottom, and if it links then a port of the same shape links.
+# glut_demo_main.c is ordinary GLUT code with one payload entry point at the bottom, so
+# a port of the same shape links when this one does.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 EXTRA_TARGET_CFLAGS += -I$(OOPS_APPS_ROOT)/common

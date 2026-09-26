@@ -564,7 +564,7 @@ static void init_catalogue(home_model_t *m) {
     m->title_count = 0;
 #endif
 
-    /* Realistic Media apps */
+    /* Media apps */
     static const home_title_t default_media[] = {
         {"MEDIA001", "MEDIA PLAYER (USB & LOCAL)", "SYSTEM", "1.00.00", 120, 1, 60, 0,
          0, 0, NULL, 0, 0, 0},
@@ -580,7 +580,7 @@ static void init_catalogue(home_model_t *m) {
     /* Activities: only real data, none by default */
     m->activity_count = 0;
 
-    /* Control Centre 13-dock icons */
+    /* Control Centre dock */
     static const home_card_t default_cards[] = {
         {"HOME", "RETURN TO SHELL", HOME_ACTION_OPEN, (int)HOME_SCREEN_GAMES},
         {"SWITCHER", "NOW PLAYING", HOME_ACTION_OPEN, (int)HOME_SCREEN_SWITCHER},
@@ -605,12 +605,12 @@ static void init_catalogue(home_model_t *m) {
 
 /* Switcher, storage, developer, status bar, notifications, dialog and toast. */
 static void init_status(home_model_t *m) {
-    /* Friends, Saves, Captures: no fake data */
+    /* Friends, saves and captures start empty */
     m->friend_count = 0;
     m->save_count = 0;
     m->capture_count = 0;
 
-    /* Switcher state: no fake running game */
+    /* Switcher: no running title */
     m->switcher.has_running_title = 0;
     m->switcher.running_title_index = 0;
     m->switcher.is_suspended = 0;
@@ -1047,30 +1047,12 @@ void home_tick(home_model_t *m) {
 }
 
 /*
- * FNV-1a over the whole model.
- *
- * Hashing every byte rather than a chosen list of fields is the point: the
- * renderer reads from most of this structure, a caller that skips a frame on
- * this digest is trusting it completely, and a list is a thing someone forgets
- * to extend when they add a field. The whole struct cannot miss a change. It
- * can only be conservative - two different models colliding is a 2^-64 event,
- * and anything that perturbs a byte the renderer ignores costs one redraw.
- *
- * Everything the renderer reads is either in here or constant for the run: the
- * theme is a static table indexed by m->theme, the surface extent does not
- * change, and title icon pixels are filled in before the first frame and never
- * again. Add anything that breaks that and this stops being sufficient.
- *
- * The trap runs the other way too. home_refresh_telemetry() writes CPU
- * temperature and fan duty into the model, and it is called once, from
- * home_model_init(). Call it from the frame loop instead and the digest changes
- * whenever a fan speed does - the shell would redraw continuously and nothing
- * would look wrong, because the output is correct and merely wasteful. If those
- * readings should update live, give them their own cadence and let the redraw
- * follow from that, rather than refreshing every frame.
- *
- * ~18 KB a frame, against 1920x1080 of clear and swizzle - under half a percent
- * of the work it decides whether to skip.
+ * FNV-1a over every byte of the model. Hashing the whole struct rather than a list
+ * of fields means no field can be missed; a change to a byte the renderer ignores
+ * costs one redraw. Everything else the renderer reads is constant for the run: the
+ * theme table, the surface extent, and the title icons, filled before the first
+ * frame. home_refresh_telemetry() writes temperatures and fan duty into the model,
+ * so it runs once from home_model_init(); calling it per frame forces every redraw.
  */
 uint64_t home_model_digest(const home_model_t *m) {
     if (m == 0) {
@@ -1737,8 +1719,7 @@ int home_activate(home_model_t *m) {
 
     home_screen_t screen = home_screen(m);
 
-    /* Carousel activation opens context menu */
-    /* Carousel activation */
+    /* Carousel activation: the skin first, then the category default */
     if (screen_is_carousel(screen)) {
         const home_skin_t *skin = home_current_skin(m);
         if (skin && skin->activate) {
@@ -1795,7 +1776,7 @@ int home_cursor_rect(const home_model_t *m, const home_theme_t *theme, int *x, i
             *h = theme->tile_height + (theme->row_height / 2);
         }
 
-        /* Clamp bounds safely within 1280x720 surface */
+        /* Clamp to the 1280x720 surface */
         if (*x < 0)
             *x = 0;
         if (*y < 0)
@@ -1897,7 +1878,7 @@ static int render_control_centre(oops_surface_t *surf, const home_model_t *m,
     /* Dark translucent overlay across screen */
     oops_draw_rect_blend(surf, 0, 0, sw, sh, 0xDD0A0E16u);
 
-    /* Upper Activity Cards */
+    /* Now-playing card */
     int uy = sh - 250;
     oops_draw_rect(surf, theme->margin_x, uy, 400, 90, theme->panel);
     (void)oops_draw_text(surf, theme->margin_x + 16, uy + 16, "NOW PLAYING",
@@ -1917,7 +1898,7 @@ static int render_control_centre(oops_surface_t *surf, const home_model_t *m,
     }
     drawn += 4;
 
-    /* Bottom 13-dock icons bar */
+    /* Dock bar */
     int dock_y = sh - 110;
     int card_w = 80;
     int card_gap = 12;
@@ -2319,7 +2300,7 @@ int home_input_apply(home_input_t *in, home_model_t *m, uint32_t buttons) {
         changed = 1;
     }
 
-    /* Mode switching / Bumper navigation via L1 / R1 */
+    /* L1 / R1: category navigation on bumper skins, mode switch otherwise */
     if (app_pressed(buttons, previous, OOPS_BUTTON_L1)) {
         const home_skin_t *skin = home_current_skin(m);
         if (skin && skin->bumper_nav) {
@@ -2339,8 +2320,7 @@ int home_input_apply(home_input_t *in, home_model_t *m, uint32_t buttons) {
         changed = 1;
     }
 
-    /* Directional navigation: prioritize newly pressed directions over sustained hold
-     */
+    /* A newly pressed direction wins over one already held */
     uint32_t new_dir = direction_down(buttons & ~previous);
     uint32_t dir = (new_dir != 0u) ? new_dir : direction_down(buttons);
     if (dir == 0u) {

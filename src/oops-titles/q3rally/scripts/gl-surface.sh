@@ -1,35 +1,16 @@
 #!/usr/bin/env bash
-# gl-surface.sh - which GL entry points this title resolves *by name*, and whether oops-gl answers.
+# gl-surface.sh - which GL entry points this title resolves by name, and whether oops-gl answers.
 #
 #   gl-surface.sh <qgl.h> <oops-sdk/src/gl>
 #
-# # Why a link with no undefined symbols does not answer this
+# `sdl_glimp.c:269` fills every `qgl*` pointer by name through `SDL_GL_GetProcAddress`, core
+# 1.1 names included, and one NULL fails `GLimp_GetProcAddresses`. A clean link cannot show
+# this; the answer is whether each name is in oops-gl's by-name table.
 #
-# **ioquake3 does not call GL by symbol.** `sdl_glimp.c:269` fills every `qgl*` pointer from a
-# *string* through `SDL_GL_GetProcAddress`, including core 1.1 names like `glBindTexture` that a
-# normal program would just call:
-#
-#     #define GLE( ret, name, ... ) qgl##name = (name##proc *) SDL_GL_GetProcAddress("gl" #name); \
-#         if ( qgl##name == NULL ) { ...ERROR: Missing OpenGL function...; success = qfalse; }
-#
-# One NULL fails `GLimp_GetProcAddresses`, and the renderer refuses to start. So the payload can
-# link with nothing undefined - because every one of those functions *is* linked in - and still not
-# draw a frame, because the lookup that finds them is a table in `gl_procs.h` and a name absent from
-# that table answers NULL. That is the gap this script measures, and it is a gap that only a title
-# resolving core GL by name has.
-#
-# The required sets are the ones `GLimp_GetProcAddresses` takes for a fixed-function context
-# reporting GL 1.1, which is what `oops-gl` reports by default (`gl_state.c:1844`). `QGL_3_0_PROCS`
-# - `glGetStringi` among them - is bound only when the context claims 3.0, so it is listed here as
-# "not asked for" rather than missing.
-#
-# # The table is read by expanding it, not by grepping the file that holds it
-#
-# **This grepped `gl_procs.h` at first and stopped being able to pass.** The core names moved into
-# `gl_procs_core.h` the same hour, and the check went on reading the old file and reporting all 66
-# missing - an arm that answers the same way whatever the truth is. So the list is taken from the
-# preprocessor: the same macro the real table is built from, expanded by the same compiler,
-# whatever files it happens to be spread across.
+# The required sets are those bound for a fixed-function GL 1.1 context, which oops-gl
+# reports by default. `QGL_3_0_PROCS` is bound only for a 3.0 context and is listed apart.
+# The table is read by expanding `OOPS_GL_PROC_LIST` with the preprocessor, so it holds
+# whichever files the table spans.
 set -euo pipefail
 
 QGL="${1:?qgl.h}"
@@ -38,10 +19,8 @@ CC="${CC:-clang}"
 
 EXPANDED="$(mktemp)"
 trap 'rm -f "$EXPANDED" "$EXPANDED.c"' EXIT
-# **Bracketed, because the expansion is one long line.** `X(n) #n` alone gives
-# `"glAccum" "glAlphaFunc" ...` with nothing to say where one entry ends - and `XS` emits two
-# adjacent literals for one name, which is then indistinguishable from two names. The brackets put
-# the boundary in.
+# Each entry is bracketed: the expansion is one line, and `XS` emits two adjacent literals
+# for one name.
 cat > "$EXPANDED.c" <<'C'
 #include "gl_procs.h"
 #define X(n) [#n]

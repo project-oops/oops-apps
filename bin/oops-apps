@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # oops-apps - the dev CLI for the apps built on oops-sdk.
 #
-# The same verbs every OOPS repository carries, reaching each app through its own Makefile:
+# The verbs every OOPS repository carries. An app is a directory under src/<category>/
+# with a Makefile, and each verb reaches the app through that Makefile:
 #
 #   ./bin/oops-apps list              # the apps here
 #   ./bin/oops-apps build [app...]    # build each (default: all)
@@ -10,29 +11,16 @@
 #   ./bin/oops-apps dist [app...]     # stage each app's shippable artifacts under <app>/dist/
 #   ./bin/oops-apps clean [app...]    # remove build output
 #
-# An app is a directory with a Makefile. There is no registry to keep in step: the directory
-# listing is the list, so an app that exists is an app this builds, and one that does not
-# cannot be forgotten out of a table.
-#
-# # The release contract
-#
-# `dist` is how an app says what it ships and in what shape. Each app's Makefile provides a
-# `dist` target that puts its release artifacts under `dist/` - a plain `.elf` payload, a
-# `.zip` title directory, a `.pkg`, whatever the app is. This script and CI never learn a
-# format: they run `make dist` and take whatever `dist/` holds. An app with no `dist` target
-# ships nothing yet, and that is said out loud rather than failed - a demo without a release
-# is a normal state, a silent empty release is not.
+# Each app's `dist` target puts its release artifacts under `dist/` (an `.elf`, a `.zip`,
+# a `.pkg`); this script and CI take whatever `dist/` holds and never learn a format. An
+# app with no `dist` target ships nothing and is reported, not failed.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 HERE="$PWD"
 
-# Every app under src/, one per line, as a bare name.
-#
-# Apps are filed by category - `src/oops-gl/gl1-cube` - so the glob is two deep. **The name
-# stays bare**: `oops-apps dist gl1-cube` should not have to know which category something is
-# filed under, CI's artefact names would change if it did, and an app moving between categories
-# should not be a rename.
+# Every app under src/<category>/, one per line, as a bare name. The name carries no
+# category, so CI artifact names and verbs do not change when an app moves category.
 apps() {
     for d in src/*/*/; do
         [ -f "$HERE/${d}Makefile" ] && {
@@ -42,10 +30,8 @@ apps() {
     done
 }
 
-# Where an app of this name lives, or nothing. **Two categories carrying the same app name is
-# refused rather than resolved**: bare names are only usable as identifiers while they are
-# unique, and silently picking whichever the glob reached first is how the wrong thing gets
-# built for a long time before anybody notices.
+# Where an app of this name lives, or nothing. A name found in two categories is an error,
+# because a bare name identifies an app only while it is unique.
 app_path() {
     local want="$1" found="" d
     for d in "$HERE"/src/*/"$want"; do
@@ -59,8 +45,7 @@ app_path() {
     [ -n "$found" ] && printf '%s\n' "$found"
 }
 
-# The apps to act on: the ones named, or all of them. A named directory without a Makefile is
-# a mistake worth stopping on rather than skipping past.
+# The apps to act on: the ones named, or all of them. A name with no Makefile is an error.
 resolve() {
     if [ "$#" -eq 0 ]; then
         apps
@@ -76,10 +61,8 @@ resolve() {
     done
 }
 
-# An app CI cannot build here: one held out with `CI_SKIP=1`, or a Mesa title when there is no
-# oops-mesa build to link against (the plain build and the `check` gate have none - those titles
-# are built in the release's own oops-mesa job). Prints the reason and returns 0 to skip; 1 to
-# build.
+# Prints why an app is skipped and returns 0, or returns 1 to build it. Skipped: `CI_SKIP=1`,
+# or a Mesa title with no oops-mesa build to link (the release's oops-mesa job builds those).
 ci_skip_reason() {
     local dir="$1"
     if grep -qE '^[[:space:]]*CI_SKIP[[:space:]]*=[[:space:]]*1' "$dir/app.env" 2>/dev/null; then
@@ -94,8 +77,7 @@ ci_skip_reason() {
     return 1
 }
 
-# A developer payload (KIND=payload) - built if it can be, but a build failure does not fail the
-# run: a payload mid-development is a normal state, the same way an app with no dist target is.
+# A developer payload (KIND=payload). Its build failure is reported but does not fail the run.
 is_payload() {
     grep -qE '^[[:space:]]*KIND[[:space:]]*=[[:space:]]*payload' "$1/app.env" 2>/dev/null
 }
@@ -112,10 +94,8 @@ over() {
             printf '=== %s: skipped (%s) ===\n' "$app" "$reason"
             continue
         fi
-        # An app may not have this target at all - a standalone host tool has no `check`, for
-        # instance. Skip it the way `dist` skips an app with no dist target, rather than stopping
-        # the whole run on it. Only a genuine "No rule to make target" is skipped; any other
-        # probe failure falls through to the real build, which reports it.
+        # An app without this target (a host tool has no `check`) is skipped. Any other probe
+        # failure falls through to the real build, which reports it.
         probe_rc=0
         if ! probe_out="$(make -C "$app_dir" -n "$target" 2>&1)"; then probe_rc=1; fi
         if [ "$probe_rc" -ne 0 ] && printf '%s' "$probe_out" | grep -qE "No rule to make target ['\`]$target'"; then
@@ -137,26 +117,9 @@ over() {
     fi
 }
 
-# Stage each app's shippables, and say which apps have nothing to ship yet rather than
-# failing on them - see the release contract in the header. An app declares it ships by
-# carrying a `dist` target; `make -n` asks whether it does without building anything.
-#
-# **"No dist target" and "the probe failed" are different answers, and this used to give the
-# first for both.** `make -n dist` can fail for reasons that have nothing to do with whether the
-# target exists: a toolchain the Makefile refuses, an upstream fetch that did not complete, a
-# syntax error in an included file. Its output went to /dev/null, so every one of those was
-# reported as an app with nothing to ship - a sentence that is a normal state, printed under a
-# green tick.
-#
-# That hid a dead release for four days. The collection was pinned to clang 21 while CI
-# installed clang 18; every app's probe failed the version check, every app was reported as
-# having nothing to ship, the publish job downloaded nothing, and the rolling `latest-main`
-# release simply stopped moving while every run passed. Nothing in the logs said otherwise,
-# because the workflow had no way to tell the two apart.
-#
-# So the probe now reads its own output. Make says `No rule to make target 'dist'` when the
-# target genuinely is not there; anything else is a failure worth seeing and worth failing on,
-# because an app that cannot even be asked is not an app with nothing to ship.
+# Stage each app's shippables. `make -n dist` asks whether an app has a `dist` target
+# without building. Make's "No rule to make target 'dist'" means nothing to ship; any other
+# probe failure (a refused toolchain, an incomplete fetch) fails the run.
 distribute() {
     local any=0 shipped=0 failed=0
     for app in $(resolve "$@"); do
@@ -169,10 +132,7 @@ distribute() {
             continue
         fi
 
-        # The assignment sits inside `if` because this script runs under `set -e`, where a bare
-        # `probe_out="$(failing command)"` ends the script on the spot and never reaches the `$?`
-        # that was meant to read it. A condition is the one place a failure is allowed to be an
-        # answer rather than the end.
+        # Inside `if`, because under `set -e` a failing bare assignment ends the script.
         probe_rc=0
         if ! probe_out="$(make -C "$app_dir" -n dist 2>&1)"; then
             probe_rc=1
@@ -187,9 +147,8 @@ distribute() {
             else
                 failed=$((failed + 1))
             fi
-        # **`dist` specifically.** Make says "No rule to make target" about a missing
-        # prerequisite too, and matching the phrase alone read a title whose sources had not
-        # arrived as a title that ships nothing - the same confusion one layer down.
+        # The match names `dist`, because make says "No rule to make target" about a
+        # missing prerequisite too.
         elif printf '%s' "$probe_out" | grep -qE "No rule to make target ['\`]dist'"; then
             printf '=== %s: no dist target, nothing to ship yet ===\n' "$app"
         elif is_payload "$app_dir"; then

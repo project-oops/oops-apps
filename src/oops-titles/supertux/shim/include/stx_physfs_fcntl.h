@@ -3,13 +3,9 @@
  * C objects.
  *
  * Both are in `common/posix/include/fcntl.h`, and `fcntl` is defined in
- * `common/posix/posix.c`. The trouble is only which `<fcntl.h>` is found: oops-sdk's
- * libc now has one too, earlier on the path, declaring `open` and not `fcntl`. Putting
- * the POSIX shim first instead was tried and is worse - it also puts the shim's minimal
- * `<sys/types.h>` ahead of the SDK's and loses `useconds_t`. So the two names are
- * supplied here and the path is left as `app.mk` has it.
- *
- * Retire this when one `<fcntl.h>` carries both.
+ * `common/posix/posix.c`, but oops-sdk's libc `<fcntl.h>` comes first on the path and
+ * declares `open` without `fcntl`. Putting the POSIX shim first would also put its
+ * minimal `<sys/types.h>` ahead of the SDK's, which loses `useconds_t`.
  */
 #ifndef STX_PHYSFS_FCNTL_H
 #define STX_PHYSFS_FCNTL_H

@@ -32,11 +32,10 @@ SECTIONS
     .rodata         : { *(.rodata .rodata.*) } :data
 
     /*
-     * C++ dynamic-initialiser tables. There are no crt start-up objects here to walk these, so a
-     * title runs them itself (oops-mesa `abi.c`, `oops_mesa_run_init_array`) using the bounds
-     * symbols placed here. Without this, dynamically-initialised Mesa globals - ACO's opcode
-     * table among them - stay zeroed (oops-mesa worklog 062). Writable because each entry carries
-     * a RELATIVE relocation the loader applies.
+     * C++ dynamic-initialiser tables. No crt start-up objects walk these; a title runs them
+     * with `oops_mesa_run_init_array` (oops-mesa `abi.c`) using these bounds, or dynamically
+     * initialised Mesa globals such as ACO's opcode table stay zeroed. Writable because each
+     * entry carries a RELATIVE relocation the loader applies.
      */
     . = ALIGN(8);
     .preinit_array  : {
@@ -71,23 +70,10 @@ SECTIONS
     .dynamic        : { *(.dynamic); . += 0x20000; } :data :dynamic
 
     /*
-     * `.eh_frame` is discarded here and deliberately **not** in SELFish's
-     * `link/native_eboot.ld`, which every copy of this file is derived from. The two are
-     * meant to differ; see selfish#D105.
-     *
-     * Discarding it there beat the `KEEP` in `oops-deps/libcxx/link/eh-frame.ld`, so
-     * `__eh_frame_start` and `__eh_frame_end` came out equal, a freestanding libunwind
-     * took a zero-byte range as its whole frame table, and a `throw` reached
-     * std::terminate without entering any `catch` - `catch (...)` included, because with
-     * no table the unwinder cannot leave the frame that threw.
-     *
-     * This title links no unwinder - `oops-libunwind.mk` is included by `cxx-throw` and by
-     * nothing else - so the section has no reader in the image and keeping it is pure
-     * size. On `mesa-demos`, which is the same case, it measured 1.33 MB.
-     *
-     * If this title ever includes `oops-libunwind.mk`, drop the `.eh_frame` line below in
-     * the same change, and check the *width* of the range rather than the presence of its
-     * symbols: four non-zero symbols is what passed on every broken build.
+     * `.eh_frame` is discarded: this title links no unwinder, so nothing reads it. SELFish's
+     * `link/native_eboot.ld` keeps it (selfish#D105). A title that links
+     * `oops-libunwind.mk` keeps it too: a discard beats the `KEEP` in
+     * `oops-deps/libcxx/link/eh-frame.ld` and leaves a zero-byte frame table.
      */
 
     /DISCARD/ : {

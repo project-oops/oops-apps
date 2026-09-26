@@ -1,3 +1,5 @@
+/* Modern skin - a top bar, a horizontal tile carousel and a detail strip beneath it. */
+
 #include "../skin.h"
 #include "../home.h"
 #include "oops/freestd.h"
@@ -29,8 +31,7 @@ static int modern_render_main(oops_surface_t *surf, const struct home_model *m,
     const home_theme_t *theme = &skin->theme;
     int sw = (int)surf->width;
 
-    /* ---- 1. Top Bar (GAMES / MEDIA tabs, Search, Settings, Profile)
-     * --------------------- */
+    /* Top bar: GAMES / MEDIA tabs, search, settings, clock */
     int top_y = 36;
     int is_media = (m->category_idx == 1);
 
@@ -73,8 +74,7 @@ static int modern_render_main(oops_surface_t *surf, const struct home_model *m,
     oops_draw_line_blend(surf, theme->margin_x, top_y + 36, sw - theme->margin_x,
                          top_y + 36, 0x20FFFFFFu);
 
-    /* ---- 2. Horizontal Tile Carousel
-     * ----------------------------------------------------- */
+    /* Horizontal tile carousel */
     int count = home_get_category_item_count(m, skin, m->category_idx);
     int cur = m->category_cursor[m->category_idx];
 
@@ -135,8 +135,7 @@ static int modern_render_main(oops_surface_t *surf, const struct home_model *m,
         }
     }
 
-    /* ---- 3. Detail Strip Beneath Carousel
-     * ----------------------------------------------- */
+    /* Detail strip beneath the carousel */
     if (cur >= 0 && cur < count) {
         const char *cur_name = "";
         const char *cur_sub = "";

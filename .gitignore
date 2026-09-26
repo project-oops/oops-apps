@@ -5,26 +5,19 @@ build/
 *.elf
 *.prx
 
-# Release staging. Each app's `dist` target writes the artifacts CI publishes into its own
-# dist/; it is output, never tracked.
+# Release staging: each app's `dist` target writes the artifacts CI publishes here.
 dist/
 
-# A title's origin, fetched at the revision its `upstream.lock` names (src/oops-titles). Fetched
-# output, like build/ and dist/ above - ours is the lock, the patches and the shim beside it, and
-# committing somebody else's tree would be both a fork and a licence question we do not need to
-# have. It also keeps the identity scan's surface to the files we actually wrote.
+# A title's upstream source, fetched at the revision its `upstream.lock` names. The lock,
+# patches and shim beside it are tracked; the fetched tree is not.
 upstream/
 
-# No `__pycache__/` or `*.pyc` rule, deliberately. There is no Python in this repository and
-# there is not meant to be - the build is make and the scripts are shell. An ignore rule for
-# bytecode is a quiet accommodation for a language that is not allowed here: it would hide the
-# first stray file rather than let `git status` show it.
+# Python is not used here, so there is no bytecode rule; a stray file shows in `git status`.
 
-# Claude Code's per-person overrides. A `settings.json` beside it would be shared; the
-# `.local` one is whoever is sitting here.
+# Claude Code's per-person overrides.
 .claude/settings.local.json
 
-# Whatever the person editing this happens to run.
+# Editor and OS files.
 .DS_Store
 Thumbs.db
 desktop.ini

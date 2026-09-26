@@ -2,32 +2,26 @@
 #
 #   make elf      the plain-ELF payload a homebrew loader runs
 #   make title    complete title package (.zip)
-#   make data     compile the courses (needed once, takes minutes)
-#   make package  title plus the data - the one to run
+#   make data     compile the courses (required before a package runs)
+#   make package  the title package with the data, which is what runs
 #
-# **This is the second binary of the Neverball tree**, not a separate program: seven sources
-# under `putt/` and a subset of the `share/` files Neverball builds. Read `../neverball/Makefile`
-# alongside this - the dependency stack, the archive-under-upstream's-flags arrangement and the
-# `mapc` data step are all the same, and the reasoning is written out there rather than repeated
-# here. What differs is in `NP_PUTT` and `NP_SHARE` below, and it is upstream's own `PUTT_OBJS`.
-#
-# **The data has to be built before this will run.** Neverball ships `.map` sources and no
-# `.sol`; `make data` compiles them with a host tool. A payload without that has no courses.
+# Neverputt is the second binary of the Neverball tree: the sources under `putt/` and a
+# subset of `share/`. The stack, the archive and the `mapc` step match
+# `../neverball/Makefile`, which gives the reasons; this differs in `NP_PUTT` and `NP_SHARE`.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
-# Fixed-function OpenGL, freestanding. `common/app.mk`'s front door for choosing a renderer; it
-# adds oops-gl's sources itself, so this title does not list them.
+# Fixed-function OpenGL; `common/app.mk` adds oops-gl's sources itself.
 OOPS_RENDERER = gl1
 
-# The SDK sources this title compiles carry no `-O` of their own, and unoptimised oops-gl cost
-# Neverball around 7.7us per draw call. Upstream's own archive already asks for -O2 below.
+# The SDK sources this title compiles carry no `-O` of their own, and unoptimised oops-gl is
+# too slow per draw call. Upstream's own archive asks for -O2 below.
 EXTRA_TARGET_CFLAGS += -O2
 
 # --- the stack ------------------------------------------------------------
 #
-# The same eight dependencies Neverball pins, in the same order, for the same reasons: SDL2
-# before its ttf, FreeType before ttf, zlib and libogg pulled in by libpng and libvorbis.
+# Neverball's dependencies, in the same order: SDL2 before its ttf, FreeType before ttf,
+# zlib and libogg pulled in by libpng and libvorbis.
 OOPS_SDL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/sdl2)
 include $(OOPS_SDL)/oops-sdl.mk
 
@@ -50,20 +44,17 @@ include $(OOPS_VORBIS)/oops-libvorbis.mk
 include $(OOPS_APPS_ROOT)/common/posix.mk
 
 # Included here rather than left to `app.mk`, because the archive rule below uses `oops_depgen`
-# and `app.mk` is read after it. Guarded, so including it twice costs nothing.
+# and `app.mk` is read after it. The include is guarded.
 include $(OOPS_APPS_ROOT)/common/deps.mk
 
 # --- flags ----------------------------------------------------------------
 #
 # `ENABLE_NLS=0` drops gettext. The filesystem is stdio rather than PhysicsFS, upstream's own
-# supported switch, which is why `share/fs_stdio.c` is in the list below and `fs_physfs.c` is
-# not.
+# switch, so `share/fs_stdio.c` is in the list below and `fs_physfs.c` is not.
 #
-# No `OOPS_POSIX_HOME`: `pick_home_path` (share/base_config.c:70) reads `getenv("HOME")` and
-# falls back to `fs_base_dir()` without ever calling `getpwuid`, so the define that feeds
-# `getpwuid` would only create an empty directory on the console. The write directory is
-# `/app0/.neverball` - the same one Neverball uses, because `CONFIG_USER` is a property of the
-# tree rather than of the binary.
+# No `OOPS_POSIX_HOME`: it only affects `getpwuid`, and `pick_home_path`
+# (share/base_config.c:70) reads `getenv("HOME")` and falls back to `fs_base_dir()`. The
+# write directory is `/app0/.neverball`, as for Neverball: `CONFIG_USER` belongs to the tree.
 NP_CFLAGS := -DENABLE_NLS=0 -DZ_SOLO \
              -Ishim/include -Iupstream/share \
              -I$(OOPS_APPS_ROOT)/common \
@@ -74,28 +65,19 @@ NP_CFLAGS := -DENABLE_NLS=0 -DZ_SOLO \
 EXTRA_TARGET_CFLAGS  += $(NP_CFLAGS)
 EXTRA_TARGET_LDFLAGS += $(OOPS_SDL_LDFLAGS) $(OOPS_TTF_LDFLAGS) $(OOPS_FT_LDFLAGS) \
                         $(OOPS_PNG_LDFLAGS) $(OOPS_JPEG_LDFLAGS) $(OOPS_VORBIS_LDFLAGS)
-# zlib and libogg are named although this title never mentions them: the `.mk` files above put
-# their archives on the link line, and a flag is not a prerequisite - make will not build a file
-# because a linker was told about it.
+# zlib and libogg are named because the `.mk` files above put their archives on the link line,
+# and a flag is not a prerequisite make will build.
 PAYLOAD_EXTRA_DEPS   += $(OOPS_SDL_LIB) $(OOPS_TTF_LIB) $(OOPS_FT_LIB) \
                         $(OOPS_PNG_LIB) $(OOPS_ZLIB_LIB) $(OOPS_JPEG_LIB) \
                         $(OOPS_VORBIS_LIB) $(OOPS_OGG_LIB)
 
 # --- sources --------------------------------------------------------------
 #
-# **This is upstream's own `PUTT_OBJS`**, read from its Makefile rather than derived from
-# Neverball's list or globbed. The differences from `BALL_OBJS` are real and would each have
-# been a link error or a stowaway:
-#
-#   - no `tilt_null`: upstream adds a tilt backend to `BALL_OBJS` only (Makefile:349-357).
-#     Neverputt has no tilt sensing at all.
-#   - no `queue` and no `cmd`: those carry the client/server command stream that Neverball's
-#     replay and networked-simulation split needs. Neverputt simulates in one place.
-#   - `hmd_null` without `hmd_common`: the common half belongs to the openhmd and libovr arms
-#     (Makefile:361-370), and the null arm of both binaries takes only the stub.
-#
-# A glob over `share/` would also sweep in `mapc.c`, which is a host tool with its own `main`,
-# and `fs_physfs.c`, which the switches above exclude.
+# Upstream's own `PUTT_OBJS`, not a glob. Unlike `BALL_OBJS` it has no tilt backend
+# (Makefile:349-357 adds one to `BALL_OBJS` only), no `queue` or `cmd` (Neverball's
+# client/server command stream), and `hmd_null` without `hmd_common`, which belongs to the
+# openhmd and libovr arms (Makefile:361-370). A glob would also take `mapc.c` and
+# `fs_physfs.c`.
 NP_SHARE := lang st_common vec3 base_image image solid_base solid_vary solid_draw solid_all \
             solid_sim_sol hmd_null \
             mtrl part geom ball base_config config video glext binary audio state gui font \
@@ -108,15 +90,13 @@ NP_SRCS := $(addprefix upstream/share/,$(addsuffix .c,$(NP_SHARE))) \
 
 # --- upstream's C, under upstream's flags ---------------------------------
 #
-# Upstream's sources build into an archive rather than into `PAYLOAD_SRCS`, because this
-# repository compiles with `-Werror -Wconversion -Wsign-conversion` and a 2010 C codebase does
-# not survive that - and because every `-Wno-` added to silence upstream would also silence it
-# for `shim/np_start.c`, which is ours. `../neverball/Makefile` has the full reasoning.
+# Upstream's sources build into an archive rather than `PAYLOAD_SRCS`: this repository
+# compiles with `-Werror -Wconversion -Wsign-conversion`, which upstream does not meet, and
+# `shim/np_start.c` stays under those flags.
 OOPS_NP_BUILD := build/np
 OOPS_NP_LIB := $(OOPS_NP_BUILD)/libneverputt.a
-# `-fcommon` is not optional: upstream declares globals like `text_input` in headers without
-# `extern`, which GCC merged by default until version 10 and clang does not. Without it the link
-# fails on a duplicate symbol in each file that includes `text.h`.
+# `-fcommon`: upstream declares globals such as `text_input` in headers without `extern`
+# (tentative definitions), which clang does not merge by default.
 OOPS_NP_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                  -nostdlibinc -fPIC -O2 -w -std=c99 -fcommon $(NP_CFLAGS) \
                  $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
@@ -126,9 +106,8 @@ OOPS_NP_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nos
 EXTRA_TARGET_LDFLAGS += -Wl,--whole-archive $(OOPS_NP_LIB) -Wl,--no-whole-archive
 PAYLOAD_EXTRA_DEPS   += $(OOPS_NP_LIB)
 
-# Objects named after their sources, not numbered and globbed: a numbered scheme renumbers every
-# object after an added or removed file, and leaves the dropped file's object behind for the glob
-# to pick up - so its code stays in the archive and the link stays clean.
+# Each object is named after its source and `ar` is handed the list, so a removed source
+# leaves nothing behind in the archive.
 OOPS_NP_OBJS := $(call oops_objs,$(OOPS_NP_BUILD)/obj,$(NP_SRCS))
 $(call oops_ar_check,$(OOPS_NP_OBJS))
 -include $(OOPS_NP_OBJS:.o=.d)
@@ -140,12 +119,8 @@ $(OOPS_NP_LIB): $(OOPS_NP_OBJS) $(oops_makefiles)
 	@a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $(OOPS_NP_OBJS)
 	@echo "neverputt: $@ ($(words $(OOPS_NP_OBJS)) objects)"
 
-# **The feature table, not a list of SDK sources.** A title says what it needs and
-# `common/app.mk` supplies it through `CORE_SDK_SRCS`. Declaring both is a link failure on
-# duplicate symbols, so this carries only the declaration.
-#
-# `thread` is here for `common/haptics.c`, whose decay thread sleeps between ticks. There is no
-# `time` feature - the clock and `oops_time_sleep_ms` come with `base`, which every payload has.
+# SDK sources come from the feature table through `common/app.mk`; listing them too would
+# duplicate symbols. `thread` is for `common/haptics.c`'s decay thread.
 OOPS_FEATURES := display input keyboard mouse audio suspend thread draw
 
 PAYLOAD_SRCS = shim/np_start.c \
@@ -158,21 +133,15 @@ include $(OOPS_APPS_ROOT)/common/app.mk
 
 # --- the data -------------------------------------------------------------
 #
-# `mapc` is a host tool: it runs on the build machine, reads a `.map` and writes a `.sol` beside
-# the rest of the data. It is built against the *same pinned* zlib, libpng and libjpeg sources
-# the payload uses, because the build machine has no dev packages for those and reaching for them
-# would put a dependency outside the lock files.
-#
-# **It compiles every `.map` in the tree, Neverball's levels included.** Splitting it by binary
-# would mean teaching the script which courses belong to which title, and the tool costs minutes
-# either way. The package step below is what selects.
+# `mapc` is a host tool that reads a `.map` and writes a `.sol` beside the rest of the data,
+# built against the same pinned zlib, libpng and libjpeg sources the payload uses. It
+# compiles every `.map` in the tree, Neverball's levels included.
 .PHONY: data data-clean package
 data:
 	@bash scripts/mapc.sh
 
-# **`make package` is the one to run**, not `make title`. `common/app.mk` builds a title
-# directory out of the payload and `sce_sys/`; a port also ships the program's own content, and
-# this game will not start without it.
+# `make package` adds the game's content to the title package built by `common/app.mk`; the
+# game does not start without it.
 package: title
 	@test -d upstream/data || { echo "neverputt: no upstream/data - run make first" >&2; exit 1; }
 	@if [ "$$(find upstream/data -name '*.sol' | wc -l)" -eq 0 ]; then \

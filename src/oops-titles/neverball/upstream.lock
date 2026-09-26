@@ -1,19 +1,10 @@
-# Neverball's origin. Read by common/app.mk with no parser - the same KEY=value shape app.env
-# has - and by common/upstream-fetch.sh, which is shared by every title.
+# Neverball's origin. Read by common/app.mk (KEY=value, like app.env) and by
+# common/upstream-fetch.sh.
 #
-# UPSTREAM_REV is what gets checked out, and it must be a full commit hash: a tag can be moved
-# and a branch always is, so neither is a pin. UPSTREAM_REF is there to tell a reader which
-# release that hash is.
-#
-# neverball-1.6.0 is the newest release rather than the newest commit: 1.7.0 exists only as
-# alphas at the time of writing, and a port should start from something upstream calls finished.
-#
-# **It is the commit, not the tag object.** `neverball-1.6.0` is an annotated tag, so the tag
-# itself is `e6d4df3d...` and the commit it points at is the hash below - and
-# `git ls-remote --tags --refs` hands you the first of those, because `--refs` is what strips
-# the peeled `^{}` line that holds the second. That went in here first and the fetch script's
-# own check is what caught it: it checked out the tag, compared `rev-parse HEAD` against what it
-# had been asked for, and refused the mismatch rather than stamping a tree nobody asked for.
+# UPSTREAM_REV is a full commit hash; UPSTREAM_REF names the release it is. The pin is the
+# newest release, not the newest commit.
+# `neverball-1.6.0` is an annotated tag: UPSTREAM_REV is the commit it peels to (the `^{}`
+# line of `git ls-remote --tags`), not the tag object.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/Neverball/neverball
 UPSTREAM_REV=16945b8abe77fdaf0d3b6728f7cd25819bb0a707

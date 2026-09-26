@@ -1,16 +1,10 @@
 /*
  * home - the host self-test.
  *
- * Validates the full clean-room Prospero shell reimplementation headlessly:
- * - Shell model state transitions, mode switching (Games <-> Media), top-bar navigation
- * - Control Centre 13-dock quick menu & Switcher lifecycle (running app resume / close)
- * - Deep settings trees (System, Storage visual meter, Developer & Debug, Emulator)
- * - Common Dialogs subsystem (Confirm prompt, Progress bar modal, Virtual IME keyboard,
- * Error modal)
- * - Toast notification pop-up timer & auto-dismissal
- * - Renderer verification across all themes/layouts into an in-memory 1280x720 surface
- *
- * Runs anywhere without a console, display, or physical controller.
+ * Drives the shell model headlessly - navigation, modes, the control centre, the
+ * switcher, settings, dialogs, toasts, pad input, the host seam - and renders every
+ * skin and screen into an in-memory 1280x720 surface. Needs no console, display
+ * or controller.
  */
 
 #include <stdio.h>
@@ -439,8 +433,7 @@ static void test_pad_input(void) {
             failures++;
         }
 
-        /* Progressive repeat acceleration: initial press moves immediately, hold
-         * triggers repeat */
+        /* A press moves at once; a hold repeats only after the delay */
         home_model_init(&m);
         home_input_reset(&in);
         (void)home_input_apply(&in, &m, 0u); /* prime input */
@@ -452,7 +445,7 @@ static void test_pad_input(void) {
             failures++;
         }
 
-        /* Hold for frames before HOME_REPEAT_DELAY_FRAMES (18) */
+        /* Hold for the frames before HOME_REPEAT_DELAY_FRAMES */
         for (int f = 1; f < HOME_REPEAT_DELAY_FRAMES; f++) {
             (void)home_input_apply(&in, &m, OOPS_BUTTON_RIGHT);
         }
@@ -461,7 +454,7 @@ static void test_pad_input(void) {
             failures++;
         }
 
-        /* Frame 18: first repeat triggered */
+        /* The delay frame: the first repeat */
         (void)home_input_apply(&in, &m, OOPS_BUTTON_RIGHT);
         if (m.title_cursor != start_cur + 2) {
             printf("FAIL: holding RIGHT at delay frame should repeat cursor to %d (got "
@@ -537,8 +530,7 @@ static void test_theme_layouts(void) {
             failures++;
         }
 
-        /* Test all 4 layout rendering branches and scrolling cursor bounds across 32
-         * titles */
+        /* Every layout, with a library long enough to scroll */
         home_title_t titles[32];
         for (int i = 0; i < 32; i++) {
             titles[i].id = "TEST00001";
@@ -595,8 +587,7 @@ static void test_theme_layouts(void) {
                 failures++;
             }
 
-            /* Verify cursor rect bounds stay within 1280x720 across all 32 cursor
-             * positions */
+            /* The cursor rect stays on the surface at every cursor position */
             for (int c = 0; c < 32; c++) {
                 m.category_cursor[m.category_idx] = c;
                 m.title_cursor = c;
@@ -879,8 +870,7 @@ static void test_revolution(void) {
             failures++;
         }
 
-        /* Verify cursor rect bounds stay within 1280x720 across all channels and dock
-         * buttons */
+        /* The cursor rect stays on the surface at every channel and dock slot */
         for (int c = 0; c <= 14; c++) {
             m.category_cursor[0] = c;
             int cx = 0, cy = 0, cw = 0, ch = 0;
@@ -1031,14 +1021,10 @@ static void test_digest(void) {
         }
 
         /*
-         * Note for anyone tempted to add it: two separately initialised models do
-         * NOT digest alike, and asserting that they do fails. Menu items carry
-         * `const char *` fields pointing into the model's own character buffers -
-         * build_system_menu() hands out m->dev.console_info_str, and others do
-         * the same - so the hashed bytes include the address the model lives at.
-         * Within one model those pointers are fixed for its lifetime, which is
-         * all the console loop relies on; across two models they differ by
-         * construction.
+         * Two separately initialised models digest differently: menu items point
+         * into the model's own buffers (m->dev.console_info_str), so the hashed
+         * bytes include the model's address. Within one model those pointers are
+         * fixed, which is all the console loop relies on.
          */
 
         /* Stable over more repeats than a frame ever needs. */
@@ -1108,16 +1094,10 @@ static void test_digest(void) {
         }
 
         /*
-         * Returning to a state must return the digest to it, or an idle shell
-         * would redraw for ever. Carousel movement is the reversible case that
-         * matters: it is what a user leans on.
-         *
-         * Screen navigation is deliberately not asserted here. home_open() builds
-         * the target screen's menu and home_back() only pops the stack, so the
-         * built menu stays in the model and the digest does not come back. That
-         * is the digest being conservative about state the renderer would not
-         * have shown - it costs one extra frame, which is the direction this is
-         * allowed to be wrong in.
+         * Returning to a state returns the digest to it, so an idle shell stops
+         * redrawing. Carousel movement is reversible; screen navigation is not,
+         * because home_open() builds a menu that home_back() leaves in the model,
+         * which costs one extra frame.
          */
         home_model_init(&m);
         uint64_t settled = home_model_digest(&m);
@@ -1176,7 +1156,7 @@ static void test_telemetry(void) {
         }
         (void)home_back(&m);
 
-        /* Test unified HOME_CAT_SETTINGS has 11 items and opens themes/power/profile */
+        /* The shared settings category lists its items and opens Themes & Skins */
         const home_skin_t *xmb_skin = home_skin_find("xmb");
         int st_count =
             home_get_category_item_count(&m, xmb_skin, 1 /* SETTINGS in XMB */);
@@ -1208,8 +1188,7 @@ static void test_icons(void) {
         oops_surface_t surf = test_surface();
         home_model_init(&m);
 
-        /* Case 1: Default titles have icon_pixels == NULL, should render initial letter
-         */
+        /* Case 1: the default titles have no icon, so the tile shows a letter */
         (void)home_render(&surf, &m, home_theme_at(0));
         const home_theme_t *theme = home_theme_at(0);
         int tx = theme->margin_x;
@@ -1466,7 +1445,7 @@ static void test_search(void) {
     }
 }
 
-/* In order: the search cases share one model. */
+/* In order: the cases from test_favorites to test_search share one model. */
 static void (*const k_cases[])(void) = {
     test_defaults,      test_carousel,       test_screen_stack,
     test_title_options, test_control_centre, test_dialogs,

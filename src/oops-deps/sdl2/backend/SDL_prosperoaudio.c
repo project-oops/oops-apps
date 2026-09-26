@@ -1,22 +1,10 @@
 /*
- * Audio output over `oops/audio.h`.
+ * Audio output over `oops/audio.h`, driven by SDL's own audio thread.
  *
- * # The device is a blocking write, which is the shape SDL likes best
- *
- * SDL runs its own audio thread, calls the title's callback to fill a buffer, then asks
- * the driver to hand over a buffer (`GetDeviceBuf`), play it (`PlayDevice`), and wait
- * until there is room for the next one (`WaitDevice`). `oops_audio_write` blocks until
- * the chunk is queued, so it *is* the wait - and `WaitDevice` is left unset rather than
- * given an empty body, because a sleep there would be a second, wrong, source of pacing
- * on top of the first.
- *
- * # One format, and the caller is told so rather than humoured
- *
- * The port is 48 kHz, 16-bit signed, stereo. `OpenDevice` writes those three into
- * `spec` and lets `SDL_OpenAudioDevice`'s `allowed_changes` decide what happens next: a
- * title that passed the change flags gets a converter built for it by SDL, and one that
- * insisted on 22 kHz mono gets a failure it can read. Both are better than resampling
- * silently in here.
+ * `oops_audio_write` blocks until the chunk is queued, so it is the wait and
+ * `WaitDevice` is unset. The port is 48 kHz, 16-bit signed, stereo; `OpenDevice` writes
+ * that into `spec`, and SDL's `allowed_changes` decides whether a converter is built or
+ * the open fails.
  */
 #include "SDL_internal.h"
 
@@ -30,10 +18,8 @@
 #include "oops/audio.h"
 
 /*
- * `SDL_sysaudio.h` defines `_THIS` for its own struct declarations and then `#undef`s
- * it again on the way out, so every audio backend re-declares it - upstream's own
- * `SDL_dummyaudio.h` does this on its line 29. The video subsystem leaves its `_THIS`
- * standing, which is why `SDL_prosperovideo.c` needs no such line and this one does.
+ * `SDL_sysaudio.h` `#undef`s its `_THIS`, so each audio backend re-declares it, as
+ * upstream's `src/audio/dummy/SDL_dummyaudio.h:29` does.
  */
 #define _THIS SDL_AudioDevice *_this
 
@@ -62,7 +48,7 @@ static int PROSPERO_AudioOpenDevice(_THIS, const char *devname) {
     }
     _this->hidden = h;
 
-    /* What the port is, written back before SDL_CalculateAudioSpec derives the rest. */
+    /* The port's format, set before SDL_CalculateAudioSpec derives the rest. */
     _this->spec.freq = PROSPERO_AUDIO_FREQ;
     _this->spec.format = AUDIO_S16SYS;
     _this->spec.channels = PROSPERO_AUDIO_CHANNELS;
@@ -79,10 +65,8 @@ static int PROSPERO_AudioOpenDevice(_THIS, const char *devname) {
     }
 
     /*
-     * The port may have rounded the buffer to what the hardware grants, and SDL must be
-     * told: `spec.samples` is the number of frames its callback is asked for, and a
-     * callback filling 1024 frames into a buffer the device plays 256 of is how audio
-     * turns to noise.
+     * The port may round the chunk size; `spec.samples` must match it, since it is the
+     * number of frames SDL's callback fills per buffer.
      */
     frames = oops_audio_get_chunk_frames(h->port);
     if (frames > 0) {
@@ -111,9 +95,8 @@ static void PROSPERO_AudioPlayDevice(_THIS) {
         (size_t)(h->buffer_bytes / (PROSPERO_AUDIO_CHANNELS * (int)sizeof(int16_t)));
 
     /*
-     * A failed write is dropped rather than retried. SDL has no way to be told that a
-     * buffer did not play, and a retry loop in the audio thread is how a device that
-     * has gone away turns into a hang instead of silence.
+     * A failed write is dropped, not retried: SDL cannot be told a buffer did not play,
+     * and a retry loop would hang the audio thread on a device that has gone away.
      */
     (void)oops_audio_write(h->port, (const int16_t *)h->buffer, frames);
 }
@@ -144,10 +127,8 @@ static SDL_bool PROSPERO_AudioInit(SDL_AudioDriverImpl *impl) {
     impl->HasCaptureSupport = SDL_FALSE;
 
     /*
-     * `WaitDevice` is deliberately not set: `oops_audio_write` blocks until the chunk
-     * is queued, so the write is the wait. `ProvidesOwnCallbackThread` stays false -
-     * SDL's audio thread drives this, which is what makes `SDL_LockAudio` mean
-     * anything.
+     * `WaitDevice` is unset because the write blocks. `ProvidesOwnCallbackThread` stays
+     * false so SDL's audio thread drives the device and `SDL_LockAudio` applies.
      */
     return SDL_TRUE;
 }

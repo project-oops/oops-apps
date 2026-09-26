@@ -1,20 +1,7 @@
 # SDL2_mixer's origin. Read by `common/upstream-fetch.sh`.
 #
-# **A lightweight tag, checked**: `refs/tags/release-2.8.2` and its peeled `^{}` form give the
-# same answer, so the hash below is the commit directly. Unlike FreeType's `VER-2-13-3` beside
-# it, which is annotated and needed peeling.
-#
-# 2.8.2 is the newest of the SDL2 line. SDL_mixer 3.x targets SDL3, which nothing here uses.
-#
-# **What it is built with matters as much as the pin.** Extreme Tux Racer's data directory ships
-# ten `.wav` and ten `.ogg` files and nothing else, so the build needs WAV - which SDL_mixer
-# decodes itself - and Vorbis, which it can decode with the bundled `stb_vorbis` rather than an
-# external libvorbis. That is one fewer pinned dependency for the same result, and it is
-# upstream's own option rather than a trick: `MUSIC_OGG_STB`.
-#
-# Everything else - MP3, FLAC, Opus, MIDI, MOD, Timidity - is off. Not because it could not work,
-# but because no title here has a file it would open, and a decoder nothing calls is surface
-# that still has to build and still has to be bumped.
+# `release-2.8.2` is a lightweight tag, so the hash is the commit itself. The 2.x line targets
+# SDL2; 3.x targets SDL3. The enabled codecs are set in `oops-sdl2-mixer.mk`.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/libsdl-org/SDL_mixer
 UPSTREAM_REV=b208916aed9250fe434360e6c6a95f0697bb7b01

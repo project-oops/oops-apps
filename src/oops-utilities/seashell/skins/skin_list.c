@@ -1,3 +1,9 @@
+/*
+ * Memcard skin (id "list") - two views with their own navigation: a main menu beside
+ * a ring of seven rotating orbs, and a five-column title browser. The skin handles
+ * move, activate and back itself and hands screen-stack pops to the generic engine.
+ */
+
 #include "../skin.h"
 #include "../home.h"
 #include "oops/freestd.h"
@@ -8,7 +14,7 @@ static ps2_view_t s_view = PS2_VIEW_MAIN;
 static int s_main_cursor = 0; /* 0 = Browser, 1 = System Configuration */
 static int s_orb_tick = 0;
 
-/* Fast integer trigonometric functions (degrees, 0..359) */
+/* Integer sine and cosine of an angle in degrees, scaled to -100..100 */
 static int fast_sin_deg(int deg) {
     while (deg < 0)
         deg += 360;
@@ -201,10 +207,10 @@ static int list_render_background(oops_surface_t *surf, const struct home_model 
     int sh = (int)surf->height;
 
     if (s_view == PS2_VIEW_MAIN) {
-        /* Deep midnight blue space gradient */
+        /* Dark blue gradient */
         oops_draw_rect_gradient(surf, 0, 0, sw, sh, 0xFF010308u, 0xFF050A14u, 1);
     } else {
-        /* Smoky slate-to-charcoal gradient */
+        /* Slate-to-charcoal gradient */
         oops_draw_rect_gradient(surf, 0, 0, sw, sh, 0xFF4E535Du, 0xFF1B1D22u, 1);
     }
     return 1;
@@ -216,7 +222,7 @@ static void draw_single_orb(oops_surface_t *surf, int ox, int oy, int z) {
     int r = 4 + (k * 6 / 200); /* 4..10 px radius */
 
     if (z >= 0) {
-        /* Front orb: brilliant halos and pure white center */
+        /* Front orb: bright halos and a white centre */
         oops_draw_circle_blend(surf, ox, oy, r + 20, 0x18004488u, 1);
         oops_draw_circle_blend(surf, ox, oy, r + 14, 0x350077CCu, 1);
         oops_draw_circle_blend(surf, ox, oy, r + 8, 0x6500AAEEu, 1);
@@ -241,14 +247,13 @@ static int list_render_main(oops_surface_t *surf, const struct home_model *m,
     const home_theme_t *theme = &skin->theme;
 
     if (s_view == PS2_VIEW_MAIN) {
-        /* ---- View 1: Seven Orbs Main Menu
-         * --------------------------------------------- */
+        /* Main menu view: seven orbs and two options */
         int sphere_cx = sw * 38 / 100;
         int sphere_cy = sh * 48 / 100;
         int rx = sw * 13 / 100;
         int ry = sh * 14 / 100;
 
-        /* Calculate positions and depths for all 7 orbs */
+        /* Orb positions and depths on a tilted ellipse */
         typedef struct {
             int x;
             int y;
@@ -274,7 +279,7 @@ static int list_render_main(oops_surface_t *surf, const struct home_model *m,
             orbs[i].z = pz;
         }
 
-        /* 1. Draw back orbs (Z < 0) */
+        /* Back orbs (z < 0) first, so the core and front orbs cover them */
         for (int i = 0; i < 7; i++) {
             if (orbs[i].z < 0) {
                 draw_single_orb(surf, orbs[i].x, orbs[i].y, orbs[i].z);
@@ -282,7 +287,7 @@ static int list_render_main(oops_surface_t *surf, const struct home_model *m,
             }
         }
 
-        /* 2. Draw central celestial energy core & halo */
+        /* Central core and halo */
         oops_draw_circle_blend(surf, sphere_cx, sphere_cy, rx * 85 / 100, 0x0A001833u,
                                1);
         oops_draw_circle_blend(surf, sphere_cx, sphere_cy, rx * 65 / 100, 0x14002555u,
@@ -299,7 +304,7 @@ static int list_render_main(oops_surface_t *surf, const struct home_model *m,
                                1);
         drawn += 7;
 
-        /* Swirling orbital light strands connecting the orbs */
+        /* Light strands between neighbouring orbs */
         for (int i = 0; i < 7; i++) {
             int next = (i + 1) % 7;
             oops_draw_line_blend(surf, orbs[i].x, orbs[i].y, orbs[next].x, orbs[next].y,
@@ -307,7 +312,7 @@ static int list_render_main(oops_surface_t *surf, const struct home_model *m,
             drawn++;
         }
 
-        /* 3. Draw front orbs (Z >= 0) */
+        /* Front orbs (z >= 0) */
         for (int i = 0; i < 7; i++) {
             if (orbs[i].z >= 0) {
                 draw_single_orb(surf, orbs[i].x, orbs[i].y, orbs[i].z);
@@ -315,7 +320,7 @@ static int list_render_main(oops_surface_t *surf, const struct home_model *m,
             }
         }
 
-        /* 4. Right-side Main Menu Options */
+        /* Menu options to the right of the orbs */
         int menu_x = sphere_cx + rx + (sw > 1600 ? 70 : 45);
         int menu_y = sphere_cy - (sh > 900 ? 30 : 20);
         int menu_gap = (sh > 900 ? 55 : 38);
@@ -356,7 +361,7 @@ static int list_render_main(oops_surface_t *surf, const struct home_model *m,
             drawn += 3;
         }
 
-        /* 5. Bottom Navigation Legend */
+        /* Navigation legend */
         int by = sh - (sh > 900 ? 60 : 42);
         int lx = sw / 2 - (sw > 1600 ? 160 : 120);
         (void)oops_draw_text(surf, lx, by, "[SELECT] Enter    [OPTIONS] Options",
@@ -364,12 +369,11 @@ static int list_render_main(oops_surface_t *surf, const struct home_model *m,
         drawn++;
 
     } else {
-        /* ---- View 2: Memory Card Browser
-         * ---------------------------------------------- */
+        /* Browser view: storage header, title header and icon grid */
         int margin_x = sw * 5 / 100;
         int margin_y = sh * 6 / 100;
 
-        /* 1. Top-Left Storage Information */
+        /* Storage information, top left */
         (void)oops_draw_text(surf, margin_x + 2, margin_y + 2, "Storage / 1",
                              0xFF000000u, 2);
         (void)oops_draw_text(surf, margin_x, margin_y, "Storage / 1", 0xFFFFFFFFu, 2);
@@ -383,7 +387,7 @@ static int list_render_main(oops_surface_t *surf, const struct home_model *m,
         (void)oops_draw_text(surf, margin_x, sub_y, free_buf, 0xFFD8DCE4u, 1);
         drawn += 2;
 
-        /* 2. Top-Right Gold/Yellow Active Title Header with Drop Shadow */
+        /* Selected title name, top right, split onto two lines when long */
         if (m->title_count > 0 && m->title_cursor >= 0 &&
             m->title_cursor < m->title_count) {
             const home_title_t *t = &m->titles[m->title_cursor];
@@ -436,7 +440,7 @@ static int list_render_main(oops_surface_t *surf, const struct home_model *m,
             }
         }
 
-        /* 3. 5-Column 3D Floating Icon Matrix */
+        /* Five-column icon grid, three rows visible around the cursor */
         int total = m->title_count;
         int cursor = m->title_cursor;
         int cursor_row = (total > 0 && cursor >= 0) ? (cursor / 5) : 0;
@@ -468,12 +472,12 @@ static int list_render_main(oops_surface_t *surf, const struct home_model *m,
             int cy = start_y + r * (card_h + row_gap);
             int selected = (i == cursor);
 
-            /* Selected card floats slightly higher in 3D */
+            /* The selected card sits higher than its row */
             if (selected) {
                 cy -= (sw > 1600 ? 12 : 8);
             }
 
-            /* Floor Drop Shadow */
+            /* Floor shadow */
             int shadow_base_y =
                 start_y + r * (card_h + row_gap) + card_h + (sw > 1600 ? 14 : 10);
             int shadow_w = card_w * 7 / 10;
@@ -493,7 +497,7 @@ static int list_render_main(oops_surface_t *surf, const struct home_model *m,
             }
             drawn += 2;
 
-            /* Radiant White Spotlight Flare behind active item */
+            /* White spotlight behind the selected card */
             if (selected) {
                 int spot_cx = cx + card_w / 2;
                 int spot_cy = cy + card_h / 2;
@@ -512,7 +516,7 @@ static int list_render_main(oops_surface_t *surf, const struct home_model *m,
                 drawn += 6;
             }
 
-            /* Floating Card Bevel / Container */
+            /* Card bevel */
             oops_draw_rect_blend(surf, cx + 4, cy + 4, card_w - 8, card_h - 8,
                                  0x50181A20u);
             if (selected) {
@@ -526,13 +530,12 @@ static int list_render_main(oops_surface_t *surf, const struct home_model *m,
             }
             drawn += 2;
 
-            /* Title Icon */
             const home_title_t *title = &m->titles[i];
             home_draw_title_icon(surf, title, cx + 8, cy + 8, card_w - 16, card_h - 16,
                                  theme);
             drawn++;
 
-            /* Badges */
+            /* Favourite and running badges */
             if (title->favorite) {
                 (void)oops_draw_text(surf, cx + 10, cy + 10, "[*]", 0xFFFFDE59u, 1);
                 drawn++;
@@ -544,7 +547,7 @@ static int list_render_main(oops_surface_t *surf, const struct home_model *m,
             }
         }
 
-        /* 4. Bottom Navigation Legend */
+        /* Navigation legend */
         int by = sh - (sh > 900 ? 54 : 38);
         (void)oops_draw_text(surf, margin_x, by,
                              "[SELECT] Enter    [BACK] Back    [OPTIONS] Options",

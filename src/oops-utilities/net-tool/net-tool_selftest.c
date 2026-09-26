@@ -2,8 +2,8 @@
  * Host self-test for net-tool.
  *
  * Renders the network panel from a made-up info block and checks it drew, and
- * round-trips an address through the SDK's inet helpers - which are pure arithmetic, so
- * they are the same on a host as on the console and worth checking here.
+ * round-trips an address through the SDK's inet helpers, which are pure arithmetic and
+ * behave the same on a host as on the console.
  */
 
 #include <stdint.h>
@@ -39,11 +39,13 @@ int main(void) {
     strcpy(info.ssid, "home");
 
     int ok = 1;
+    /* The panel writes a row for every field of a wireless link. */
     int rows = net_tool_render(&surf, &info, 12);
     if (rows < 7) {
         fprintf(stderr, "net-tool selftest: expected at least 7 rows, got %d\n", rows);
         ok = 0;
     }
+    /* The panel puts accent pixels on the surface. */
     int any = 0;
     for (size_t i = 0; i < (size_t)W * H; i++) {
         if (pixels[i] == 0xFF00FFFFu) {
@@ -68,7 +70,7 @@ int main(void) {
                 back);
         ok = 0;
     }
-    /* And a bad address is refused, not quietly accepted. */
+    /* A bad address is refused, not quietly accepted. */
     if (oops_net_inet_pton("999.1.1.1", &packed) == 0) {
         fprintf(stderr, "net-tool selftest: inet_pton accepted a bad address\n");
         ok = 0;

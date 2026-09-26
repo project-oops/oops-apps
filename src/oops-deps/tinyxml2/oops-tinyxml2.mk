@@ -6,13 +6,8 @@
 #   EXTRA_TARGET_LDFLAGS += $(OOPS_TINYXML2_LDFLAGS)
 #   PAYLOAD_EXTRA_DEPS   += $(OOPS_TINYXML2_LIB)
 #
-# One translation unit, so this is the smallest archive in `oops-deps/` and follows
-# `oops-libogg.mk`'s shape. **C++ rather than C**, which is the only real difference: it compiles
-# with `TARGET_CXX` and needs libc++'s headers on the path, so a consumer must have included
-# `oops-libcxx.mk` first - the include below names `$(OOPS_LIBCXX_INCLUDE)` and an empty one gives
-# a screenful of missing `<string>`.
-#
-# No patch and no define: it compiles against the freestanding libc++ as it stands.
+# One C++ translation unit, compiled unpatched with `TARGET_CXX`. It needs libc++'s headers, so
+# include `oops-libcxx.mk` first.
 ifndef OOPS_TINYXML2_DIR
 OOPS_TINYXML2_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
@@ -27,7 +22,7 @@ OOPS_TINYXML2_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builti
                        $(OOPS_SDK_INCLUDE) $(OOPS_LIBCXX_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) \
                        $(OOPS_POSIX_INCLUDE) $(OOPS_TINYXML2_INCLUDE)
 
-# `ar` is handed the object rather than the directory - `common/deps.mk` says what the glob cost.
+# `ar` is handed the object rather than a directory glob (see `common/deps.mk`).
 $(OOPS_TINYXML2_LIB): $(OOPS_TINYXML2_SRCS) $(lastword $(MAKEFILE_LIST))
 	@mkdir -p $(OOPS_TINYXML2_BUILD)
 	@rm -f $@

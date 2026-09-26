@@ -1,4 +1,4 @@
-# SDL2_ttf build integration. Include from a title's Makefile **after** `oops-sdl.mk` and
+# SDL2_ttf build integration. Include from a title's Makefile after `oops-sdl.mk` and
 # `oops-freetype.mk`, before `common/app.mk`:
 #
 #   OOPS_TTF ?= $(abspath ../../oops-deps/sdl2-ttf)
@@ -8,22 +8,11 @@
 #   EXTRA_TARGET_LDFLAGS += $(OOPS_TTF_LDFLAGS)
 #   PAYLOAD_EXTRA_DEPS   += $(OOPS_TTF_LIB)
 #
-# It needs SDL2's headers and FreeType's, and includes neither of those files itself - a title
-# wanting text has already decided which SDL it uses, and FreeType stands alone for the title
-# that wants it directly.
+# It needs SDL2's and FreeType's headers and includes neither file itself: the title chooses its
+# SDL, and FreeType is also used directly by titles.
 #
-# # One source file
-#
-# SDL_ttf is a thin layer: `SDL_ttf.c` over FreeType, rendering glyphs into an `SDL_Surface`.
-# `glfont.c` and `showfont.c` beside it are upstream's demos and are not built.
-#
-# That it is one file is the point rather than a curiosity - the expensive half of "a title wants
-# text" is FreeType, which is pinned next door and compiles. A dependency that arrives cheaply
-# usually means an earlier one was paid for properly.
-#
-# **HarfBuzz is off**, which is the default. It is a text shaper for scripts whose glyphs depend
-# on their neighbours; Neverball's menus are Latin, and a shaper nothing needs is a large
-# dependency and a large parser.
+# SDL_ttf is one source, `SDL_ttf.c`, over FreeType; `glfont.c` and `showfont.c` are upstream
+# demos and are not built. HarfBuzz is off (the upstream default).
 
 ifndef OOPS_TTF_DIR
 OOPS_TTF_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))

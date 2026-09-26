@@ -1,34 +1,13 @@
 /*
  * Host self-test for gl2-cube.
  *
- * **gl2-cube draws now.** It did not until 2026-09-21: the GL 2.0 entry points did not
- * exist and there was nothing behind `glCreateShader`, so this test could only push the
- * two shaders through the front end and stop. What it checks today is the whole path -
- * compile, link, bind generic attribute arrays, run the vertex shader per vertex,
- * interpolate the varying, run the fragment shader per fragment - against oops-gl's
- * software reference, which is the definition of what the console has to agree with.
- *
- * The thing this deliberately does *not* claim is the console. A GL 2.0 program has no
- * hardware path yet, and the draw path refuses one rather than running the
- * fixed-function shaders in its place - so nothing here can quietly differ between host
- * and hardware, because there is no hardware answer yet to differ from. That is why
- * `FORMATS` is still `check-only`; see the Makefile.
- *
- * # What the checks are, and why each one
- *
- * A cube drawn with a shader that merely passed the position through would look right
- * from the front and be wrong in every other way, so the measurements are chosen to
- * separate the stages:
- *
- *   - **The front face's colour.** Proves the varying reached the fragment shader at
- * all.
- *   - **Its neighbours' colours.** A face drawn with the wrong winding, or with the
- * vertex attributes of the vertex fetched last, shows here and not in the centre.
- *   - **A rotation through the uniform.** The same geometry with a different `mvp` has
- * to show a different face, which is what says the matrix is read column-major and is
- * actually applied.
- *   - **The front end still refuses bad GLSL**, which a compiler that accepted
- * everything would pass every check above while proving nothing.
+ * Checks the whole GL 2.0 path - compile, link, bind generic attribute arrays, run the
+ * vertex shader per vertex, interpolate the varying, run the fragment shader per
+ * fragment - against oops-gl's software reference, which defines what the console has
+ * to agree with. The checks separate the stages: the front face's colour proves the
+ * varying arrives, the turned cube's faces prove winding and attribute fetch, the
+ * rotation proves the `mvp` uniform is applied column-major, and bad GLSL must still be
+ * refused.
  */
 
 #include "GL/gl.h"
@@ -107,7 +86,7 @@ static void report(const char *name, int ok, const char *detail) {
 }
 
 /* -------------------------------------------------------------------------
- * The front end, which is worth keeping on its own
+ * The front end
  * ------------------------------------------------------------------------- */
 
 static glsl_ast_t s_ast;
@@ -115,11 +94,8 @@ static glsl_sema_t s_sema;
 static glsl_pp_t s_pp;
 
 /* Runs a shader through preprocessor, parser and semantic stage the way glCompileShader
- * does. Returns NULL on success or the first diagnostic.
- *
- * This still goes through the raw stages rather than through `glCompileShader`, because
- * the two are worth checking separately: a failure here names the stage, and a failure
- * in the drawing checks below names the pipeline. */
+ * does. Returns NULL on success or the first diagnostic. The raw stages rather than
+ * `glCompileShader`, so a failure here names the stage. */
 static const char *compile_check(const char *src, GLenum stage) {
     glsl_pp_init(&s_pp, src, strlen(src));
     glsl_parser_t p;
@@ -146,9 +122,8 @@ static void check_front_end(void) {
     const char *fs_err = compile_check(GL2_CUBE_FRAGMENT_SHADER, GL_FRAGMENT_SHADER);
     report("fragment-shader", fs_err == NULL, fs_err);
 
-    /* **A front end that accepts everything would pass the two checks above.** These
-     * two have to be rejected: `vec3 * mat4` has dimensions that do not meet, and `.z`
-     * on a vec2 is a component that is not there. */
+    /* The front end rejects bad GLSL: `vec3 * mat4` has dimensions that do not meet,
+     * and `.z` on a vec2 is a component that is not there. */
     const char *bad_err =
         compile_check("uniform mat4 mvp;\n"
                       "attribute vec3 pos;\n"
@@ -183,17 +158,13 @@ static int px_b(uint32_t p) {
 
 /* A column-major model-view-projection matrix: an orthographic box, and a rotation
  * about y then about x so three faces are visible at once. Built here rather than
- * through the matrix stack because **the point is that the shader's `mvp` uniform is
- * what positions the cube** - a test that leaned on glLoadMatrix would still pass if
- * the uniform were ignored and the fixed-function transform ran. */
+ * through the matrix stack, so only the shader's `mvp` uniform positions the cube. */
 static void build_mvp(float out[16], float yaw, float pitch) {
     const float cy = (float)cos((double)yaw), sy = (float)sin((double)yaw);
     const float cp = (float)cos((double)pitch), sp = (float)sin((double)pitch);
-    /* R = Rx(pitch) * Ry(yaw), **stored column-major** - each group of three below is
-     * one column, which is what `mat4 * vec4` in the shader reads and what `transpose =
-     * GL_FALSE` means. Written out rather than multiplied at run time so the layout is
-     * readable as evidence: a transposed constant here is a rotation about a different
-     * axis, and a cube is symmetric enough to look plausible either way. */
+    /* R = Rx(pitch) * Ry(yaw), stored column-major - each group of three below is one
+     * column, which is what `mat4 * vec4` in the shader reads and what `transpose =
+     * GL_FALSE` means. Written out so the layout is readable. */
     const float r[9] = {
         cy,   sp * sy,  -cp * sy, /* column 0 */
         0.0f, cp,       sp,       /* column 1 */
@@ -247,8 +218,7 @@ static GLuint build_program(void) {
         report("gl-link", 0, log);
         return 0u;
     }
-    /* The shaders may go the moment they are linked, which is the idiom every GL 2.0
-     * program uses and which the program has to survive. */
+    /* Shaders deleted once linked, the common GL 2.0 idiom; the program survives it. */
     glDeleteShader(vs);
     glDeleteShader(fs);
     return prog;
@@ -268,10 +238,8 @@ static void draw_cube(GLuint prog, GLint pos_loc, GLint col_loc, float yaw,
     glDrawArrays(GL_TRIANGLES, 0, GL2_CUBE_VERTEX_COUNT);
 }
 
-/* Which of the six face colours a pixel is, or -1. Nearest of the six rather than an
- * exact match, so an interpolated varying that is a fraction off still names its face -
- * and so a pixel that is none of them, which is what a wrong picture looks like, stays
- * -1. */
+/* Which of the six face colours a pixel is, or -1. Within a tolerance rather than an
+ * exact match, so an interpolated varying a fraction off still names its face. */
 static int face_of(uint32_t p) {
     static const int faces[6][3] = {{255, 0, 0},   {0, 255, 0},   {0, 0, 255},
                                     {255, 255, 0}, {0, 255, 255}, {255, 0, 255}};
@@ -292,10 +260,8 @@ static void check_draws(void) {
         return;
     }
     glContextMakeCurrent(ctx);
-    /* **A context has the entry points its version defines and no others**, and the
-     * default is 1.1 - so without this `glCreateShader` below is GL_INVALID_OPERATION
-     * and returns 0. Claiming 2.0 is what a GL 2.0 program does, and is the line a port
-     * most easily forgets. */
+    /* A context has the entry points its version defines and no others, and the
+     * default is 1.1 - without this, `glCreateShader` is GL_INVALID_OPERATION. */
     if (!glContextSetVersion(2, 0)) {
         report("gl-version-2.0", 0, "this context cannot be a GL 2.0 one");
         glContextDestroy(ctx);
@@ -321,9 +287,8 @@ static void check_draws(void) {
            "the linker did not give both attributes distinct slots");
     glUseProgram(prog);
 
-    /* **Face on.** Only the +Z face is visible, so the whole cube is red and the
-     * background is untouched - the simplest picture the pipeline can be wrong about.
-     */
+    /* Face on: only the +Z face is visible, so the cube is red and the background is
+     * untouched. */
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClearDepth(1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -337,18 +302,14 @@ static void check_draws(void) {
     report("background-is-clear", px(2, 2) == 0xff000000u,
            "something was drawn outside the cube");
 
-    /* The cube is 0.6 of the clip box, so it covers the middle 60% and no more. A
-     * vertex shader that dropped the scale would fill the frame; one that lost the
-     * attribute array and used the last vertex for every vertex would draw nothing at
-     * all. */
+    /* The cube is 0.6 of the clip box, so it covers the middle 60% and no more: the
+     * vertex shader applies the scale. */
     report("cube-has-edges",
            face_of(px(FB_W / 2, 8)) == -1 && face_of(px(FB_W / 2, FB_H - 9)) == -1,
            "the cube reaches the top and bottom of the frame");
 
-    /* **Turned.** Three faces visible at once, and the centre is no longer the red one.
-     * This is what says the uniform matrix is applied and is read column-major: a
-     * transposed read would rotate about a different axis and show a different pair of
-     * faces. */
+    /* Turned: three faces visible at once, so the uniform matrix is applied and read
+     * column-major. */
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     draw_cube(prog, pos_loc, col_loc, 0.7f, 0.5f);
     report("turned-draw", glGetError() == GL_NO_ERROR,
@@ -368,14 +329,9 @@ static void check_draws(void) {
     report("three-faces-visible", visible == 3,
            "a turned cube should show exactly three faces");
 
-    /* **No pair of opposite faces is ever visible at once.** That is a property of a
-     * convex solid with culling and the depth test working, and it holds for *any*
-     * rotation - which is why it is checked instead of naming the three faces this
-     * particular pair of angles happens to show. A test that named them would fail the
-     * next time somebody nudged the angles, and would have said nothing more.
-     *
-     * The three pairs are +Z/-Z, +X/-X and +Y/-Y, which is the order `gl2_cube_scene.h`
-     * lays the faces out in. */
+    /* No pair of opposite faces is visible at once - true of a convex solid with
+     * culling and depth test at any rotation. The pairs are +Z/-Z, +X/-X and +Y/-Y, the
+     * order `gl2_cube_scene.h` lays the faces out in. */
     int both_sides = 0;
     for (int i = 0; i < 6; i += 2) {
         if (seen[i] && seen[i + 1])
@@ -387,8 +343,7 @@ static void check_draws(void) {
     report("the-turn-showed-more", visible > 1,
            "the turned cube still shows only one face");
 
-    /* **The program survives its shaders being deleted**, which happened at link time
-     * above. */
+    /* The program survives its shaders being deleted at link time. */
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     draw_cube(prog, pos_loc, col_loc, 0.0f, 0.0f);
     report("draws-after-shader-delete", face_of(px(FB_W / 2, FB_H / 2)) == 0,
@@ -401,9 +356,7 @@ static void check_draws(void) {
 int main(void) {
     check_front_end();
     check_draws();
-    printf("gl2-cube selftest: %s (the software reference; the console path runs - "
-           "obSCEne "
-           "REQ-...-4e77)\n",
+    printf("gl2-cube selftest: %s (the software reference)\n",
            failures == 0 ? "ok" : "FAILED");
     return failures == 0 ? 0 : 1;
 }

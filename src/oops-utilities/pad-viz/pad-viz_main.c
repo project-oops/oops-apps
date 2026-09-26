@@ -4,11 +4,9 @@
  * Executed by a homebrew ELF loader (elfldr) with payload_args in rdi. Opens the
  * display and the pad, then loops: take a batched low-latency read, draw the newest
  * sample as a controller diagram, and flip. Exits on L1+R1+Options held together, so
- * every ordinary button is free to press and watch light up.
+ * every ordinary button is free to press.
  *
- * The drawing is pad-viz.c, shared with the host self-test. This file is the
- * console-only part: the display, the batched input read, and the loop that ties them
- * together.
+ * The drawing is pad-viz.c, shared with the host self-test; this is the console half.
  */
 
 #include "oops/display.h"
@@ -51,10 +49,8 @@ int padviz_start(const payload_args_t *args) {
             running = 0;
             break;
         }
-        /* One batched read a frame: up to a full batch of samples in a single driver
-         * request. The newest (last) sample is what the diagram draws; the count is
-         * shown so the low-latency path is visibly delivering more than one record per
-         * frame. */
+        /* One batched read a frame. The diagram draws the newest (last) sample and
+         * shows the count, so more than one record per frame is visible. */
         oops_pad_state_t batch[OOPS_MAX_PAD_SAMPLES];
         int n = oops_input_poll_batch(0, batch, OOPS_MAX_PAD_SAMPLES);
         if (n > 0) {

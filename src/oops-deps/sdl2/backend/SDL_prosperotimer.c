@@ -1,11 +1,6 @@
 /*
- * SDL's timer backend over `oops/time.h`. Six functions, and it is here rather than
- * upstream's `src/timer/unix/` because that one calls `clock_gettime` and `nanosleep`,
- * and this SDK exposes neither - checked, not assumed.
- *
- * Nothing else about the port needs this file to exist, which is exactly why it does: a
- * context and an event pump with no clock cannot be run, and a title's first call is
- * usually `SDL_GetTicks`.
+ * SDL's timer backend over `oops/time.h`. Upstream's `src/timer/unix/` calls
+ * `clock_gettime` and `nanosleep`, which the SDK does not expose.
  */
 #include "SDL_internal.h"
 
@@ -26,11 +21,7 @@ void SDL_TicksInit(void) {
     ticks_started = SDL_TRUE;
 
     oops_time_init();
-    /*
-     * SDL_GetTicks64 is milliseconds since SDL started, not since the machine did.
-     * Taking the base here rather than returning the raw counter is what keeps a
-     * title's first frame near zero instead of wherever the console happened to be.
-     */
+    /* SDL_GetTicks64 counts milliseconds since SDL started, not since boot. */
     start_ms = oops_time_get_ms();
 }
 

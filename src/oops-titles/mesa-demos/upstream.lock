@@ -1,26 +1,8 @@
-# mesa-demos' origin: the Mesa project's own demonstration programs.
+# mesa-demos' origin: the Mesa project's own demonstration programs, one per GL feature.
 #
-# **This is the bring-up slot, and it is the only title here whose purpose is measurement.** Every
-# other title in `src/oops-titles/` is a program somebody wants to play. These 56 programs under
-# `src/demos/` are one-per-GL-feature by construction - upstream wrote them to exercise a feature
-# and show it working - which makes them the cheapest honest answer to "what of OpenGL actually
-# works on this console". `mesa-cube` proves one texture, one depth buffer and one element buffer.
-# This proves, or fails to prove, a list.
-#
-# **9.0.0 rather than master.** A tag is reproducible and this is a measuring instrument; a
-# measurement against a moving tree cannot be compared with the one before it. The opposite
-# choice to Craft's, and for the opposite reason - Craft pins master because its last tag is from
-# 2014 and predates half the renderer.
-#
-# **The hash is the PEELED tag, not the tag object.** `git ls-remote` gives
-# `e50d6c3870d35fbfb83076e3181f54edf6b59b1f` for `refs/tags/mesa-demos-9.0.0` and
-# `661681767bfb4e8f136aac1fd7934e6b0fa46d29` for the `^{}` form; the second is what a checkout
-# reports as `rev-parse HEAD`, and it is the one below. The same distinction put the wrong hash in
-# Neverball's lock once and in libc++'s once, so it is checked here rather than remembered.
-#
-# **No sparse list.** The whole tree is about 30 MB - the demos carry no textures or models worth
-# the name, which is exactly why the README calls them "no assets" and why they are the first
-# thing a port-in-progress can run.
+# Pinned to the 9.0.0 tag so measurements are comparable. The hash is the peeled tag
+# (`refs/tags/mesa-demos-9.0.0^{}`), which is what a checkout reports as `rev-parse HEAD`.
+# No sparse list: the whole tree is small.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://gitlab.freedesktop.org/mesa/demos.git
 UPSTREAM_REV=661681767bfb4e8f136aac1fd7934e6b0fa46d29

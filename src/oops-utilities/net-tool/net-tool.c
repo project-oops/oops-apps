@@ -1,3 +1,4 @@
+/* net-tool's network panel, a pure function of the net info (see net-tool.h). */
 #include "net-tool.h"
 
 #include "app_ui.h"

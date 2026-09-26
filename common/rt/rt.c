@@ -1,43 +1,13 @@
 /*
  * The compiler-runtime helpers this target has no library for.
  *
- * # Why this file exists
+ * clang lowers unsigned 128-bit division to calls into compiler-rt's builtins archive,
+ * and the build container has no such archive for x86_64-unknown-freebsd. A payload
+ * link does not report an unresolved symbol, so a missing helper faults at run time.
+ * StormLib's bundled libtommath divides in unsigned __int128 for its mp_div.
  *
- * clang lowers a few operations to calls rather than instructions, and expects the
- * answers to come from compiler-rt's builtins archive. There is no such archive for
- * `x86_64-unknown-freebsd` in the build container - it ships only the `linux/` and
- * `windows/` ones - and a payload link does not report an unresolved symbol, so the
- * call is written, nothing defines it, and the console faults the first time the
- * operation runs.
- *
- * The linux archive would very probably work: these are pure arithmetic routines with
- * no syscall and no libc, and the ELF x86-64 SysV ABI is the same one. "Very probably"
- * is the problem. A hundred and fifty objects built for another platform, linked into a
- * payload to obtain thirty lines of long division, is a dependency nobody would be able
- * to reason about later.
- *
- * # What is here, and what is not
- *
- * Unsigned 128-bit division. StormLib's bundled libtommath does its `mp_div` in
- * `unsigned __int128`, and that is the one call a link census of this tree reports
- * missing.
- *
- * `__umodti3` comes with it although nothing calls it yet, because it is not a second
- * routine - quotient and remainder fall out of the same loop, and exposing only one
- * face would leave `%` on a 128-bit value faulting for want of a `return r`. The
- * *signed* forms are genuinely separate work (sign extraction around this core) and are
- * absent, as are the 64-bit forms, which the hardware divides in one instruction. Add
- * those when a census asks, with a test: a helper that is defined but never called
- * still has to be correct, and an untested wrong one stays wrong quietly.
- *
- * # These are tested, not asserted
- *
- * `tests/rt_test.c` runs this division against the host's native `unsigned __int128`
- * operator over the edge cases and a fixed pseudo-random sweep. That matters more here
- * than anywhere else in the tree: an ordinary function that is subtly wrong produces a
- * visible wrong answer, while a *division helper* that is wrong produces wrong answers
- * inside a bignum library, which surface as a signature that fails to verify - a
- * plausible-looking result with no trace back to here.
+ * __umodti3 shares the loop with __udivti3. The signed and 64-bit forms are absent.
+ * tests/rt_test.c checks the division against the host's native operator.
  */
 
 typedef unsigned __int128 oops_tu_int;
@@ -45,10 +15,8 @@ typedef unsigned __int128 oops_tu_int;
 /*
  * Leading zeros of a 128-bit value; 128 for zero, which the callers below never pass.
  *
- * `__builtin_clzll` is a compiler intrinsic and not affected by `-fno-builtin` - that
- * flag stops clang recognising *library* names, and this is not one. It lowers to an
- * instruction, so there is no call here for a builtins archive to supply, which is
- * checked: the object this file compiles to must have no undefined symbols at all.
+ * __builtin_clzll is an intrinsic that -fno-builtin does not affect, and it lowers to
+ * an instruction: the object this file compiles to has no undefined symbols.
  */
 static int oops_clz128(oops_tu_int x) {
     unsigned long long hi = (unsigned long long)(x >> 64);
@@ -59,18 +27,13 @@ static int oops_clz128(oops_tu_int x) {
 }
 
 /*
- * Unsigned 128-bit division with remainder - the workhorse, with `__udivti3` below as
- * the quotient-only face of it.
+ * Unsigned 128-bit division with remainder; __udivti3 and __umodti3 wrap it.
  *
- * Restoring shift-and-subtract, one bit per iteration, started at the position where
- * the divisor's top bit lines up with the dividend's. Comparison, subtraction and
- * shifting of `__int128` are all lowered inline by clang; division is the only 128-bit
- * operation that becomes a call, which is why this can be written in terms of the type
- * it implements without recursing into itself.
+ * Restoring shift-and-subtract, one bit per iteration, starting where the divisor's top
+ * bit lines up with the dividend's. clang lowers 128-bit comparison, subtraction and
+ * shifts inline, so this does not recurse into itself.
  *
- * Division by zero is undefined behaviour in C and compiler-rt does not check for it
- * either. It is checked here anyway and answers zero, because the alternative on this
- * platform is a fault with no message in a payload that has no debugger attached.
+ * Division by zero answers zero rather than faulting with no message in a payload.
  */
 oops_tu_int __udivmodti4(oops_tu_int a, oops_tu_int b, oops_tu_int *rem);
 oops_tu_int __udivmodti4(oops_tu_int a, oops_tu_int b, oops_tu_int *rem) {

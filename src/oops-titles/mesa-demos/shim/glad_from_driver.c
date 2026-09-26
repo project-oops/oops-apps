@@ -1,6 +1,5 @@
 /*
- * glad's reporting half, answered from the driver. See `shim/include/glad/glad.h` for
- * why the loading half is absent and why these flags are queried rather than asserted.
+ * glad's reporting half, answered from the driver. See `shim/include/glad/glad.h`.
  */
 
 #include "glad/glad.h"
@@ -21,12 +20,8 @@ int GLAD_GL_MESA_window_pos;
 int GLAD_GL_SGIS_generate_mipmap;
 
 /*
- * Whole-word search of a space-separated list.
- *
- * `strstr` alone is wrong here and the bug it causes is quiet: `GL_EXT_texture` matches
- * inside `GL_EXT_texture3D`, so a driver offering only the latter would be reported as
- * offering both. The boundary checks are what make this a measurement rather than a
- * guess.
+ * Whole-word search of a space-separated list: `strstr` alone would find
+ * `GL_EXT_texture` inside `GL_EXT_texture3D`.
  */
 static int has_word(const char *list, const char *word) {
     if (list == NULL || word == NULL) {
@@ -52,14 +47,8 @@ static int has_word(const char *list, const char *word) {
 }
 
 /*
- * Ask for the extension list both ways.
- *
- * `glGetString(GL_EXTENSIONS)` is the old spelling and it works on this driver, which
- * reports a *compatibility* profile. It is deprecated in core profiles and returns NULL
- * there, so the indexed form is tried as well - the same pair real glad uses, and cheap
- * insurance against the day this context is created differently.
- *
- * Returns 1 if the extension is present by either route.
+ * Returns 1 if the extension is present in `glGetString(GL_EXTENSIONS)`, which answers
+ * in a compatibility profile, or in the indexed list, which a core profile needs.
  */
 static int have_extension(const char *name) {
     const GLubyte *all = glGetString(GL_EXTENSIONS);
@@ -67,25 +56,13 @@ static int have_extension(const char *name) {
         return 1;
     }
 
-    /*
-     * **The indexed form is guarded, and the reason is worth knowing before porting
-     * anything else to this renderer.** A `USE_MESA` title compiles with
-     * `-I<oops-sdk>/include` *ahead* of
-     * `-I<oops-mesa>/mesa/include`, so `<GL/gl.h>` is oops-sdk's - which covers GL 1.x
-     * and 2.0 (oops-sdk#D008) and declares neither `GL_NUM_EXTENSIONS` nor
-     * `glGetStringi`. The driver underneath is Mesa and reports 4.6; the headers in
-     * front of it are 2.0. They disagree, and the compiler follows the headers.
-     *
-     * That costs nothing here: this context is a compatibility profile, so the flat
-     * string above always answers. A title that genuinely needs a GL 3.0+ entry point
-     * has to include Mesa's header explicitly rather than assume `<GL/gl.h>` is Mesa's.
-     */
+    /* Guarded: a `USE_MESA` title's `<GL/gl.h>` is oops-sdk's GL 2.0 header
+     * (oops-sdk#D008), which may not declare `GL_NUM_EXTENSIONS`. */
 #ifdef GL_NUM_EXTENSIONS
     GLint count = 0;
     glGetIntegerv(GL_NUM_EXTENSIONS, &count);
 
-    /* A context that does not support the indexed query leaves an error behind rather
-     * than a count; clear it so the demo does not later find someone else's. */
+    /* A context without the indexed query leaves an error; clear it for the demo. */
     if (count <= 0) {
         (void)glGetError();
         return 0;
@@ -104,17 +81,13 @@ static int have_extension(const char *name) {
 int gladLoadGL(void) {
     const GLubyte *version = glGetString(GL_VERSION);
     if (version == NULL) {
-        /* No current context. Every flag stays zero and the demos take their "not
-         * supported" paths, which is the honest answer rather than a fault. */
+        /* No current context: every flag stays zero and demos take their "not
+         * supported" paths. */
         return 0;
     }
 
-    /*
-     * The version string begins with `major.minor`, per the GL specification, whatever
-     * vendor text follows it. This driver answers `4.6 (Compatibility Profile)
-     * Mesa 26.2.2 ...`. Parsed by hand rather than with `sscanf` so the digits are the
-     * only thing trusted.
-     */
+    /* The version string begins with `major.minor` per the GL specification; vendor
+     * text follows. */
     int major = 0;
     int minor = 0;
     const char *v = (const char *)version;

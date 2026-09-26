@@ -4,20 +4,9 @@
 #
 #   bash <title>/tools/stage-set.sh cubemap fbotexture shadowtex stex3d
 #
-# # Why this exists
-#
-# `make title` always writes `build/title/$(TITLE_ID)`, because there is one title id for the
-# whole set - see the README for why that is deliberate. So switching demos means a rebuild, and
-# a rebuild is a full Mesa link.
-#
-# When somebody is going to run several on hardware in one sitting, that ordering is backwards:
-# they wait two minutes between runs for a link that could have happened while they were reading
-# the last result. This builds them all up front and keeps each packaged tree under
-# `build/staged/<demo>`, so putting the next one on the console is an FTP copy and nothing else.
-#
-# It does not deploy. `pros restore <staged dir> /data/homebrew/<id>` does that, and keeping the
-# two separate is what lets the console step happen when the owner wants it rather than when a
-# script reaches that line.
+# `make title` always writes `build/title/$(TITLE_ID)`, one id for every demo, so each packaged
+# tree is kept under `build/staged/<demo>`. It does not deploy; `pros restore <staged dir>
+# /data/homebrew/<id>` does.
 set -u
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

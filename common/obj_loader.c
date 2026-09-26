@@ -1,6 +1,6 @@
 /*
- * oops-apps: Freestanding 3D Wavefront OBJ Loader & Procedural Mesh Generator
- * Zero libc dependencies.
+ * obj_loader.c - a freestanding Wavefront OBJ loader and procedural mesh generator
+ * (see obj_loader.h). No libc dependencies.
  */
 
 #include "obj_loader.h"
@@ -310,21 +310,18 @@ int oops_mesh_load_obj(const char *data, size_t size, oops_mesh_t *out_mesh) {
                     else if (vni < 0 && raw_vn)
                         vni = (int)count_vn + vni;
 
-                    /* Position */
                     if (vi >= 0 && (size_t)vi < count_v) {
                         out_mesh->positions[out_idx * 3 + 0] = raw_v[vi * 3 + 0];
                         out_mesh->positions[out_idx * 3 + 1] = raw_v[vi * 3 + 1];
                         out_mesh->positions[out_idx * 3 + 2] = raw_v[vi * 3 + 2];
                     }
 
-                    /* Texcoord */
                     if (raw_vt && vti >= 0 && (size_t)vti < count_vt &&
                         out_mesh->texcoords) {
                         out_mesh->texcoords[out_idx * 2 + 0] = raw_vt[vti * 2 + 0];
                         out_mesh->texcoords[out_idx * 2 + 1] = raw_vt[vti * 2 + 1];
                     }
 
-                    /* Normal */
                     if (raw_vn && vni >= 0 && (size_t)vni < count_vn) {
                         out_mesh->normals[out_idx * 3 + 0] = raw_vn[vni * 3 + 0];
                         out_mesh->normals[out_idx * 3 + 1] = raw_vn[vni * 3 + 1];
@@ -342,14 +339,13 @@ int oops_mesh_load_obj(const char *data, size_t size, oops_mesh_t *out_mesh) {
     out_mesh->vertex_count = out_idx;
     out_mesh->triangle_count = out_idx / 3;
 
-    /* Free temp raw buffers */
     oops_mem_free(raw_v);
     if (raw_vt)
         oops_mem_free(raw_vt);
     if (raw_vn)
         oops_mem_free(raw_vn);
 
-    /* Generate smooth surface normals if OBJ had no normals */
+    /* An OBJ without normals gets flat per-face normals. */
     if (count_vn == 0) {
         for (size_t i = 0; i < out_mesh->vertex_count; i += 3) {
             float *p0 = &out_mesh->positions[(i + 0) * 3];
@@ -429,8 +425,7 @@ int oops_mesh_load_obj(const char *data, size_t size, oops_mesh_t *out_mesh) {
             out_mesh->positions[i * 3 + 2] =
                 (out_mesh->positions[i * 3 + 2] - cz) * scale;
 
-            /* Vibrant normal-derived Gouraud colors: mapped from [-1, 1] to [0.2, 0.9]
-             */
+            /* Normal-derived Gouraud colours: [-1, 1] maps to [0.15, 0.95]. */
             float nx = out_mesh->normals[i * 3 + 0];
             float ny = out_mesh->normals[i * 3 + 1];
             float nz = out_mesh->normals[i * 3 + 2];

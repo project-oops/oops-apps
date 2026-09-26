@@ -1,3 +1,5 @@
+/* Amber skin - the XMB layout and hooks under a warm amber palette. */
+
 #include "../skin.h"
 #include "../home.h"
 
