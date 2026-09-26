@@ -1,0 +1,10 @@
+# toml++, read by common/upstream-fetch.sh. Header-only TOML parser; Spaghetti Kart reads its mod
+# metadata with it.
+#
+# UPSTREAM_REV must be a full commit hash: a tag can be moved and a branch always is. v3.4.0 is the
+# version Spaghetti Kart names in its own FetchContent_Declare, and it is a lightweight tag, so the
+# ref and the commit are the same object.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/marzer/tomlplusplus
+UPSTREAM_REV=30172438cee64926dc41fdd9c11fb3ba5b2ba9de
+UPSTREAM_REF=v3.4.0

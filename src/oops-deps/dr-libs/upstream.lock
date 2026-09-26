@@ -1,0 +1,10 @@
+# dr_libs, read by common/upstream-fetch.sh. Header-only audio decoders; Ship of Harkinian uses
+# dr_wav.h to import sample resources.
+#
+# UPSTREAM_REV must be a full commit hash. This is the one Ship of Harkinian pins in its own
+# FetchContent_Declare (soh/CMakeLists.txt), so the header matches what upstream builds against.
+# There is no release tag to prefer: the project ships from its default branch.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/mackron/dr_libs
+UPSTREAM_REV=da35f9d6c7374a95353fd1df1d394d44ab66cf01
+UPSTREAM_REF=da35f9d6

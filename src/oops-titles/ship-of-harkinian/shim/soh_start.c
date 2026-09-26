@@ -9,6 +9,7 @@
 #include "oops/fs.h"
 #include "oops/syscall.h"
 #include "oops/system.h"
+#include "oops/time.h"
 #include <stdlib.h>
 
 int main(int argc, char **argv);
@@ -84,6 +85,10 @@ ship_of_harkinian_start(const payload_args_t *args) {
     /* Namespace-scope constructors: .init_array is not walked for this payload, and libc++ and
        libultraship both build dispatch tables in theirs. Idempotent. */
     oops_run_init_array();
+
+    /* ShipUtils seeds from rand() here, std::random_device needing an entropy source this platform
+       does not have. Unseeded that is a fixed sequence, so the clock stands in for the device. */
+    srand((unsigned)oops_time_get_counter());
 
     soh_report_game_data();
 

@@ -4,6 +4,7 @@
  */
 #ifndef OOPS_ETR_PWD_H
 #define OOPS_ETR_PWD_H
+#include <stddef.h>
 #include <sys/types.h>
 
 /*
@@ -23,6 +24,12 @@ struct passwd {
 extern "C" {
 #endif
 struct passwd *getpwuid(uid_t uid);
+
+/* The reentrant form, which takes the caller's buffer. There is one user and the strings are
+ * static, so this fills `pwd` from the same place `getpwuid` does and copies nothing into `buf`.
+ * Returns 0 and sets `*result`, as POSIX says, or ERANGE if `buf` is too small to have been
+ * plausible. */
+int getpwuid_r(uid_t uid, struct passwd *pwd, char *buf, size_t buflen, struct passwd **result);
 #ifdef __cplusplus
 }
 #endif

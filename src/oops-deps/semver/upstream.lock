@@ -1,0 +1,10 @@
+# semver, read by common/upstream-fetch.sh. Header-only semantic-version parser; Spaghetti Kart
+# compares mod versions with it.
+#
+# UPSTREAM_REV must be a full commit hash. v1.0.0-rc is the tag Spaghetti Kart names in the URL it
+# downloads the header from at configure time, which this replaces: a build here pins every
+# dependency by commit, and a download during a build is neither pinned nor reproducible.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/Neargye/semver
+UPSTREAM_REV=ccbbfdf2f862a48498d37d5955743a5082ee49bf
+UPSTREAM_REF=v1.0.0-rc

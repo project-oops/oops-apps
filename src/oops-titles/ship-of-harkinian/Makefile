@@ -53,7 +53,15 @@ SOH_DEPS := sdl2 zlib libzip stb nlohmann-json thread-pool tinyxml2 spdlog \
 #
 # `ENABLE_OPENGL` selects libultraship's renderer; `Gui.cpp` includes the matching ImGui
 # backend behind it. OpenGL is the only renderer on this target.
-SOH_DEFS := -DENABLE_OPENGL
+#
+# `F3DEX_GBI_2` is the microcode Ocarina of Time uses, set by upstream at `CMakeLists.txt:159` and
+# in each of soh's four target definition blocks. Without it `gbi.h` defines neither `G_TRI2` nor
+# `G_GEOMETRYMODE`, which the display-list viewer reads.
+#
+# The three spdlog and stb settings are upstream's own, and they matter here rather than being
+# inherited noise: this platform has no thread-local storage for them to use.
+SOH_DEFS := -DENABLE_OPENGL -DF3DEX_GBI_2 -DNDEBUG \
+            -DSPDLOG_NO_THREAD_ID -DSPDLOG_NO_TLS -DSTBI_NO_THREAD_LOCALS
 
 SOH_GEN_DIR := $(CURDIR)/build/gen
 SOH_CVARS_H := $(SOH_GEN_DIR)/ship/cvars_generated.h
@@ -97,6 +105,10 @@ OOPS_JSON ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/nlohmann-json)
 include $(OOPS_JSON)/oops-nlohmann-json.mk
 OOPS_THREADPOOL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/thread-pool)
 include $(OOPS_THREADPOOL)/oops-thread-pool.mk
+# Header-only, and pinned at the commit soh's own FetchContent_Declare names.
+# `AudioSampleFactory.cpp` defines DR_WAV_IMPLEMENTATION and compiles it there.
+OOPS_DR_LIBS ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/dr-libs)
+include $(OOPS_DR_LIBS)/oops-dr-libs.mk
 include $(OOPS_APPS_ROOT)/common/posix.mk
 include $(OOPS_APPS_ROOT)/common/rt.mk
 
@@ -114,7 +126,7 @@ SOH_OWN_INCLUDE := -I$(CURDIR)/upstream \
 SOH_INCLUDE := $(SOH_OWN_INCLUDE) $(SOH_GEN_INCLUDE) $(SOH_DEFS) \
                $(OOPS_SPDLOG_INCLUDE) $(OOPS_JSON_INCLUDE) $(OOPS_TINYXML2_INCLUDE) \
                $(OOPS_PRISM_INCLUDE) $(OOPS_GFXD_INCLUDE) $(OOPS_STB_INCLUDE) \
-               $(OOPS_THREADPOOL_INCLUDE) $(OOPS_IMGUI_INCLUDE) \
+               $(OOPS_THREADPOOL_INCLUDE) $(OOPS_IMGUI_INCLUDE) $(OOPS_DR_LIBS_INCLUDE) \
                $(OOPS_STORMLIB_INCLUDE) $(OOPS_LIBZIP_INCLUDE) $(OOPS_ZLIB_INCLUDE) \
                $(OOPS_SDL_INCLUDE) $(OOPS_SDL_PREFIX_INCLUDE)
 
@@ -125,8 +137,14 @@ SOH_INCLUDE := $(SOH_OWN_INCLUDE) $(SOH_GEN_INCLUDE) $(SOH_DEFS) \
 # `$(OOPS_POSIX_INCLUDE)` comes before `$(SOH_INCLUDE)`: both it and `oops-deps/sdl2/include`
 # have a `unistd.h`, and SDL's declares only `_exit`. spdlog's `os-inl.h:395` needs the
 # shim's `getpid`.
+# `-Wno-c++11-narrowing` on top of `-w`, because narrowing in an initialiser list is a default
+# *error* rather than a warning, so `-w` does not reach it. Upstream narrows a float to uint8_t in a
+# colour literal and two integer constants past their type.
+#
+# `-include cctype` for the two sources that call `std::toupper` without including it: libstdc++
+# reaches it transitively and libc++ does not.
 SOH_CXXFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -fPIC \
-               -O2 -w -std=c++20 -D__PROSPERO__=1 \
+               -O2 -w -Wno-c++11-narrowing -std=c++20 -D__PROSPERO__=1 -include cctype \
                $(OOPS_LIBCXX_INCLUDE) $(OOPS_POSIX_INCLUDE) \
                $(SOH_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
 
@@ -142,22 +160,32 @@ SOH_CXXFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostd
 # also needs an `nm --undefined-only` check.
 SOH_SURVEY_DIR ?= upstream/libultraship/src upstream/soh
 
+# The sources upstream selects out per platform, at `soh/CMakeLists.txt:147-165`. Each speech
+# synthesizer wants a system library this target has no equivalent of - SAPI is Windows, Darwin is
+# macOS, ESpeak is a Linux package - and the extractor is a host tool rather than payload code.
+# Crowd control needs a socket server. The same list drives the survey and the payload.
+SOH_EXCLUDE_RE := speechsynthesizer/(SAPI|Darwin|ESpeak)|soh/Extractor/|Enhancements/crowd-control/
+
 .PHONY: compile-survey
 compile-survey: $(SOH_CVARS_H)
 	@ok=0; bad=0; : > $(CURDIR)/build/survey-errors.txt; \
-	 for f in $$(find $(SOH_SURVEY_DIR) -name '*.cpp' | sort); do \
+	 for f in $$(find $(SOH_SURVEY_DIR) -name '*.cpp' | grep -vE '$(SOH_EXCLUDE_RE)' | sort); do \
 	    if $(TARGET_CXX) $(SOH_CXXFLAGS) -fsyntax-only "$$f" 2>$(CURDIR)/build/survey-e.txt; then \
 	        ok=$$((ok+1)); \
 	    else \
 	        bad=$$((bad+1)); \
-	        grep -m1 'error:' $(CURDIR)/build/survey-e.txt \
-	          | sed 's|.*error: ||' | cut -c1-90 >> $(CURDIR)/build/survey-errors.txt; \
+	        printf '%s\t%s\n' "$$f" \
+	          "$$(grep -a -m1 'error:' $(CURDIR)/build/survey-e.txt \
+	              | sed 's|.*error: ||' | cut -c1-90)" \
+	          >> $(CURDIR)/build/survey-errors.txt; \
 	    fi; \
 	 done; \
 	 printf '\n%s: %s compile, %s fail\n' "$(SOH_SURVEY_DIR)" "$$ok" "$$bad"; \
 	 if [ "$$bad" -gt 0 ]; then \
 	    printf '\n-- blockers, by first error, most files first --\n'; \
-	    sort $(CURDIR)/build/survey-errors.txt | uniq -c | sort -rn | head -25; \
+	    cut -f2 $(CURDIR)/build/survey-errors.txt | sort | uniq -c | sort -rn | head -25; \
+	    printf '\n-- the files, in build/survey-errors.txt --\n'; \
+	    head -25 $(CURDIR)/build/survey-errors.txt; \
 	 fi
 
 .PHONY: survey

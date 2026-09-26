@@ -64,8 +64,33 @@ SPGK_DEPS := sdl2 sdl2-net zlib libzip stb nlohmann-json thread-pool tinyxml2 sp
 
 include $(OOPS_APPS_ROOT)/common/posix.mk
 
-SPGK_INCLUDE := -I$(SPGK_UP) -I$(SPGK_UP)/include -I$(SPGK_UP)/src \
-                -I$(SPGK_LUS)/include -I$(SPGK_LUS)/src \
+# The two header-only libraries upstream fetches at configure time, vendored and pinned instead: a
+# build here pins every dependency by commit, and toml++ came from a tag while semver came from a
+# raw URL on a branch. sse2neon, the third, is only reached under __aarch64__; this target takes the
+# <emmintrin.h> arm beside it.
+OOPS_TOMLPP ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/tomlplusplus)
+include $(OOPS_TOMLPP)/oops-tomlplusplus.mk
+OOPS_SEMVER ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/semver)
+include $(OOPS_SEMVER)/oops-semver.mk
+
+# libultraship reads and writes its configuration as JSON, so its headers reach into this title.
+OOPS_JSON ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/nlohmann-json)
+include $(OOPS_JSON)/oops-nlohmann-json.mk
+# libultraship reads its archives through libzip, and its headers name <zip.h> directly.
+OOPS_LIBZIP ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libzip)
+include $(OOPS_LIBZIP)/oops-libzip.mk
+
+# `libultraship/include` rather than its `libultraship/` subdirectory: sources write
+# `#include <libultraship/libultraship.h>` and `<libultraship/libultra/types.h>`. torch supplies
+# `Companion.h`, which the resource types name directly.
+# The port's own trees are on the path by name, not just their root: sources include `math_util.h`
+# and `actors.h` bare, which upstream gets from its per-directory target_include_directories.
+SPGK_INCLUDE := $(OOPS_TOMLPP_INCLUDE) $(OOPS_SEMVER_INCLUDE) $(OOPS_JSON_INCLUDE) \
+                $(OOPS_LIBZIP_INCLUDE) \
+                -I$(SPGK_UP) -I$(SPGK_UP)/include -I$(SPGK_UP)/src \
+                -I$(SPGK_UP)/src/racing -I$(SPGK_UP)/src/engine -I$(SPGK_UP)/src/port \
+                -I$(SPGK_LUS)/include -I$(SPGK_LUS)/include/libultraship \
+                -I$(SPGK_LUS)/src -I$(SPGK_UP)/torch/src \
                 -DOOPS_POSIX_HOME=\"/data/spaghetti-kart\" \
                 $(OOPS_POSIX_INCLUDE)
 
@@ -74,7 +99,10 @@ SPGK_WARNINGS := -Wno-strict-prototypes -Wno-missing-prototypes -Wno-conversion 
                  -Wno-unused-parameter -Wno-unused-but-set-variable -Wno-shadow \
                  -Wno-sign-compare -Wno-char-subscripts -Wno-unused-function \
                  -Wno-unused-const-variable -Wno-missing-field-initializers \
-                 -Wno-unused-variable -Wno-multichar
+                 -Wno-unused-variable -Wno-multichar \
+                 -Wno-macro-redefined -Wno-missing-braces -Wno-missing-declarations \
+                 -Wno-unused-but-set-parameter -Wno-incompatible-pointer-types \
+                 -Wno-return-type -Wno-unknown-pragmas
 
 EXTRA_TARGET_CFLAGS += $(SPGK_INCLUDE) $(SPGK_WARNINGS)
 
@@ -87,16 +115,20 @@ EXTRA_TARGET_CFLAGS += $(SPGK_INCLUDE) $(SPGK_WARNINGS)
 # an ordinary function and comes out as _Z4mainiPPc, which a C shim misses silently, the payload link
 # ignoring unresolved symbols.
 # Bugdom paid for that lesson.
-ifeq ($(SPGK_ARMED),1)
+# libc++ is included either way: the census compiles C++ and needs its headers whether or not there
+# is a payload to link. OOPS_CXX_EXCEPTIONS is above the include, which reads it at include time to
+# pick between the exceptions and no-exceptions archives.
 OOPS_CXX_EXCEPTIONS = 1
 OOPS_CXX_STD        = c++20
-OOPS_CXX_SRCS := $(SPGK_CXX_SRCS) shim/spgk_start.cpp
 OOPS_LIBCXX ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libcxx)
 include $(OOPS_LIBCXX)/oops-libcxx.mk
 include $(OOPS_LIBCXX)/oops-libunwind.mk
 include $(OOPS_LIBCXX)/oops-libcxxabi.mk
 # libc++ owns new/delete for any title linking the full archive - see bugdom/docs/PORTING.md.
 EXTRA_TARGET_CFLAGS += -DOOPS_CXX_EXTERNAL_NEW_DELETE
+
+ifeq ($(SPGK_ARMED),1)
+OOPS_CXX_SRCS := $(SPGK_CXX_SRCS) shim/spgk_start.cpp
 include $(OOPS_APPS_ROOT)/common/cxx.mk
 OOPS_CXX_INCLUDE += $(OOPS_LIBCXX_INCLUDE)
 PAYLOAD_SRCS := $(SPGK_C_SRCS) $(OOPS_POSIX_SRCS)
@@ -110,8 +142,10 @@ OOPS_FEATURES := display input keyboard mouse audio suspend thread draw
 
 include $(OOPS_APPS_ROOT)/common/app.mk
 
-# Recursive (`=`), because `TARGET_CFLAGS` is not known until `common/app.mk` has been read.
-SPGK_CXXFLAGS = -x c++ -std=c++20 \
+# Census flags. OOPS_LIBCXX_INCLUDE precedes the C headers: libc++ ships its own <math.h> and
+# <stdlib.h>, and <cmath> stops with an explicit error if it reaches the C ones first. Recursive
+# (`=`), because TARGET_CFLAGS is not known until app.mk has been read.
+SPGK_CXXFLAGS = -x c++ -std=c++20 -Wno-c++11-narrowing $(OOPS_LIBCXX_INCLUDE) \
                 $(filter-out -std=c11 -Wstrict-prototypes -Wmissing-prototypes,$(TARGET_CFLAGS)) \
                 $(EXTRA_TARGET_CFLAGS)
 

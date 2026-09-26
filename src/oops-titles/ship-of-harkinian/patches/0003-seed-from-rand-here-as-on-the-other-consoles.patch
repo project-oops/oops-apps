@@ -1,0 +1,23 @@
+Seed from rand() here, as on the other consoles
+
+`std::random_device` needs an entropy source this platform does not have, so
+`oops-deps/libcxx` is built with `_LIBCPP_HAS_RANDOM_DEVICE 0` and the type does not exist.
+Upstream already falls back to `rand()` on Switch and Wii U for the same reason; this adds
+this console to that list rather than introducing a third path.
+
+`rand()` with no `srand` is a fixed sequence, so the entry point seeds it from the clock.
+That is outside upstream's tree, in `shim/soh_start.c`.
+---
+diff --git a/soh/soh/ShipUtils.cpp b/soh/soh/ShipUtils.cpp
+index b11b6ef..ae4fe89 100644
+--- a/soh/soh/ShipUtils.cpp
++++ b/soh/soh/ShipUtils.cpp
+@@ -116,7 +116,7 @@ uint32_t ShipUtils::next32(uint64_t* state) {
+         state = &default_state;
+         if (!default_init) {
+             // No seed given, get a random number from device to seed
+-#if !defined(__SWITCH__) && !defined(__WIIU__)
++#if !defined(__SWITCH__) && !defined(__WIIU__) && !defined(__PROSPERO__)
+             uint64_t seed = static_cast<uint64_t>(std::random_device{}());
+ #else
+             uint64_t seed = static_cast<uint64_t>(rand());

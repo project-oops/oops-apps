@@ -284,6 +284,28 @@ struct passwd *getpwuid(uid_t uid) {
 }
 
 /*
+ * The reentrant form. There is one user and the two strings are static, so `buf` is not used: the
+ * caller's `pwd` is filled with the same pointers `getpwuid` returns, which outlive it.
+ *
+ * `buf` is still checked, because a caller that passed a tiny buffer has misjudged what this costs
+ * and should hear about it rather than be told everything is fine.
+ */
+int getpwuid_r(uid_t uid, struct passwd *pwd, char *buf, size_t buflen, struct passwd **result) {
+    struct passwd *src;
+
+    if (!pwd || !result) return EINVAL;
+    *result = NULL;
+    if (buf && buflen < 1) return ERANGE;
+
+    src = getpwuid(uid);
+    if (!src) return 0;
+
+    *pwd = *src;
+    *result = pwd;
+    return 0;
+}
+
+/*
  * `opendir`, `readdir`, `closedir` over `oops/fs.h`.
  *
  * **This used to be an existence test and nothing more**, because Extreme Tux Racer only calls
