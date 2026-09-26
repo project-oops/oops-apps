@@ -517,6 +517,86 @@ static oops_js_value_t cb_install(oops_js_t *js, int argc, oops_js_value_t *argv
     return oops_js_make_bool(0);
 }
 
+/* A well-formed title id: four upper-case letters then five digits, like GLCB00001. */
+static int valid_title_id(const char *id) {
+    for (int i = 0; i < 4; i++)
+        if (id[i] < 'A' || id[i] > 'Z')
+            return 0;
+    for (int i = 4; i < 9; i++)
+        if (id[i] < '0' || id[i] > '9')
+            return 0;
+    return id[9] == '\0';
+}
+
+/* __oopsy_installed() -> a JSON array of the title ids present under /data/homebrew, scanned
+ * live. The page badges a card as installed when its title_id is in this list, and offers to
+ * remove it. Title ids are [A-Z0-9], so the names need no JSON escaping. */
+static char g_installed_json[4096];
+static oops_js_value_t cb_installed(oops_js_t *js, int argc, oops_js_value_t *argv, void *ud) {
+    (void)argc;
+    (void)argv;
+    (void)ud;
+    int p = 0;
+    g_installed_json[p++] = '[';
+    oops_dir_t *dir = oops_fs_opendir(HOMEBREW_ROOT);
+    if (dir) {
+        oops_dirent_t ent;
+        int first = 1;
+        while (oops_fs_readdir(dir, &ent) == 1) {
+            if (!ent.is_directory || ent.name[0] == '.')
+                continue;
+            if (!first && p < (int)sizeof g_installed_json - 1)
+                g_installed_json[p++] = ',';
+            first = 0;
+            if (p < (int)sizeof g_installed_json - 1)
+                g_installed_json[p++] = '"';
+            for (const char *c = ent.name; *c && p < (int)sizeof g_installed_json - 2; c++)
+                g_installed_json[p++] = *c;
+            if (p < (int)sizeof g_installed_json - 1)
+                g_installed_json[p++] = '"';
+        }
+        oops_fs_closedir(dir);
+    }
+    if (p < (int)sizeof g_installed_json - 1)
+        g_installed_json[p++] = ']';
+    g_installed_json[p] = '\0';
+    oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "installed: %s", g_installed_json);
+    return oops_js_make_string(js, g_installed_json);
+}
+
+/* __oopsy_uninstall(title_id) -> remove an installed title: its files under /data/homebrew and
+ * its registration under /user/appmeta, so both the payload and the home-screen bubble go.
+ * Returns true when the title's own directory is gone. */
+static oops_js_value_t cb_uninstall(oops_js_t *js, int argc, oops_js_value_t *argv, void *ud) {
+    (void)js;
+    (void)ud;
+    if (argc < 1 || argv[0].type != OOPS_JS_TYPE_STRING || !argv[0].u.string)
+        return oops_js_make_bool(0);
+    const char *id = argv[0].u.string;
+    if (!valid_title_id(id)) {
+        oops_kprintf_level(OOPS_LOG_ERROR, "OOPSY", "uninstall: bad id '%s'", id);
+        return oops_js_make_bool(0);
+    }
+    char hb[64], am[64];
+    int k = 0;
+    for (const char *c = HOMEBREW_ROOT "/"; *c; c++)
+        hb[k++] = *c;
+    for (int i = 0; i < 9; i++)
+        hb[k++] = id[i];
+    hb[k] = '\0';
+    k = 0;
+    for (const char *c = "/user/appmeta/"; *c; c++)
+        am[k++] = *c;
+    for (int i = 0; i < 9; i++)
+        am[k++] = id[i];
+    am[k] = '\0';
+    int rc_data = oops_fs_rmtree(hb);
+    int rc_meta = oops_fs_rmtree(am);
+    oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "uninstall: %s data_rc=%d meta_rc=%d", id,
+                       rc_data, rc_meta);
+    return oops_js_make_bool(rc_data == 0);
+}
+
 /* A JS number arrives as either an int or a float tag depending on its value; take
  * either. */
 static int arg_int(const oops_js_value_t *v) {
@@ -671,6 +751,8 @@ static int run_webview_ui(oops_display_t *disp, oopsy_catalog_t *cat,
     oops_js_register_fn(js, "__oopsy_queue", cb_queue, &bridge);
     oops_js_register_fn(js, "__oopsy_meta", cb_meta, &bridge);
     oops_js_register_fn(js, "__oopsy_install", cb_install, &bridge);
+    oops_js_register_fn(js, "__oopsy_installed", cb_installed, &bridge);
+    oops_js_register_fn(js, "__oopsy_uninstall", cb_uninstall, &bridge);
     oops_js_register_fn(js, "__oopsy_scroll", cb_scroll, &bridge);
 
     for (int i = 0; i < 8; i++)
@@ -710,10 +792,14 @@ static int run_webview_ui(oops_display_t *disp, oopsy_catalog_t *cat,
         last = buttons;
 
         if (on_queue) {
+            /* A modal is up - the downloads view, or a confirm dialog. O closes it back to the
+             * grid; X confirms whatever the dialog is asking (the uninstall). */
             if (pressed & OOPS_BUTTON_CIRCLE) {
                 on_queue = 0;
-                wv_eval(wv, "oopsyScreen('browse');");
+                wv_eval(wv, "oopsyBack();");
             }
+            if (pressed & OOPS_BUTTON_CROSS)
+                wv_eval(wv, "oopsyConfirm();");
         } else {
             /* The page owns the filtered grid and the highlight; the controller
              * forwards intents. Install is by name: oopsyEnter() calls back
@@ -748,10 +834,11 @@ static int run_webview_ui(oops_display_t *disp, oopsy_catalog_t *cat,
                  * to an empty queue would look like a hang. */
                 oops_kprintf_level(OOPS_LOG_INFO, "OOPSY",
                                    "input: X - install selected");
-                if (wv_eval_bool(wv, "oopsyEnter()")) {
+                /* oopsyEnter opens the right modal itself - the download queue for an
+                 * installable title, or the uninstall confirm for one already installed - and
+                 * returns true when a modal is now up. */
+                if (wv_eval_bool(wv, "oopsyEnter()"))
                     on_queue = 1;
-                    wv_eval(wv, "oopsyScreen('queue');");
-                }
             }
         }
 
