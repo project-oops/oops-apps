@@ -39,6 +39,7 @@ OOPS_GL_SRCS := \
     $(OOPS_SDK_DIR)/src/gl/glsl_link.c \
     $(OOPS_SDK_DIR)/src/gl/glsl_exec.c \
     $(OOPS_SDK_DIR)/src/gl/glsl_ps.c \
+    $(OOPS_SDK_DIR)/src/gl/glsl_vs.c \
     $(OOPS_SDK_DIR)/src/gl/glsl_emit.c \
     $(OOPS_SDK_DIR)/src/gl/glsl_gen.c
 
