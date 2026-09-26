@@ -366,15 +366,16 @@ static SDL_VideoDevice *PROSPERO_CreateDevice(void) {
 }
 
 /*
- * The system message dialog, when the title has it, and weakly referenced so that it does not put
- * `dialog` on the capability list of every title that links SDL. Absent, the text still reaches the
- * log and the default button answers.
+ * The system message dialog, when the title has it, and weakly referenced so that it
+ * does not put `dialog` on the capability list of every title that links SDL. Absent,
+ * the text still reaches the log and the default button answers.
  */
 #pragma weak oops_dialog_message_show
 #pragma weak oops_dialog_message_poll
 #pragma weak oops_dialog_message_close
 
-/* The button the port itself marked as the return-key default, or its first, or -1 for no buttons. */
+/* The button the port itself marked as the return-key default, or its first, or -1 for
+ * no buttons. */
 static int PROSPERO_DefaultButton(const SDL_MessageBoxData *data) {
     for (int i = 0; i < data->numbuttons; i++) {
         if (data->buttons[i].flags & SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT) {
@@ -387,28 +388,34 @@ static int PROSPERO_DefaultButton(const SDL_MessageBoxData *data) {
 /*
  * A message box, on screen where the console can draw one and in the log either way.
  *
- * A port reaches for a message box at the point where it has something the player must read - a
- * missing asset archive, an unsupported ROM - and then acts on the answer. Leaving the hook null
- * makes SDL return an error without touching `buttonid`, so the port reads its own uninitialised
- * stack and exits with nothing said. Both halves of that are worth fixing.
+ * A port reaches for a message box at the point where it has something the player must
+ * read - a missing asset archive, an unsupported ROM - and then acts on the answer.
+ * Leaving the hook null makes SDL return an error without touching `buttonid`, so the
+ * port reads its own uninitialised stack and exits with nothing said. Both halves of
+ * that are worth fixing.
  *
- * A two-button box maps to the system Yes/No dialog and the player's answer is returned. Anything
- * else is shown as OK and answered with the port's own default, so a box with three buttons is
- * reported as such in the log rather than silently reduced.
+ * A two-button box maps to the system Yes/No dialog and the player's answer is
+ * returned. Anything else is shown as OK and answered with the port's own default, so a
+ * box with three buttons is reported as such in the log rather than silently reduced.
  */
 static int PROSPERO_ShowMessageBox(const SDL_MessageBoxData *data, int *buttonid) {
-    if (!data || !buttonid) return SDL_InvalidParamError("messageboxdata");
+    if (!data || !buttonid)
+        return SDL_InvalidParamError("messageboxdata");
 
     oops_log_warn("SDL", "message box: %s", data->title ? data->title : "(no title)");
-    if (data->message) oops_log_warn("SDL", "  %s", data->message);
+    if (data->message)
+        oops_log_warn("SDL", "  %s", data->message);
     if (data->numbuttons > 2) {
-        oops_log_warn("SDL", "  %d buttons; the console dialog offers two, so this one is OK-only",
-                      data->numbuttons);
+        oops_log_warn(
+            "SDL",
+            "  %d buttons; the console dialog offers two, so this one is OK-only",
+            data->numbuttons);
     }
 
     *buttonid = PROSPERO_DefaultButton(data);
 
-    if (&oops_dialog_message_show && &oops_dialog_message_poll && &oops_dialog_message_close) {
+    if (&oops_dialog_message_show && &oops_dialog_message_poll &&
+        &oops_dialog_message_close) {
         const int yesno = (data->numbuttons == 2);
         char text[1024];
         SDL_snprintf(text, sizeof(text), "%s\n\n%s", data->title ? data->title : "",
@@ -422,24 +429,27 @@ static int PROSPERO_ShowMessageBox(const SDL_MessageBoxData *data, int *buttonid
             }
             oops_dialog_message_close();
             if (rc == 1 && yesno && result != OOPS_MSG_DIALOG_RES_INVALID) {
-                /* Yes is the first button, No the second: the order SDL_MessageBoxData lists them. */
-                *buttonid = data->buttons[result == OOPS_MSG_DIALOG_RES_OK ? 0 : 1].buttonid;
+                /* Yes is the first button, No the second: the order SDL_MessageBoxData
+                 * lists them. */
+                *buttonid =
+                    data->buttons[result == OOPS_MSG_DIALOG_RES_OK ? 0 : 1].buttonid;
             }
             oops_log_warn("SDL", "  answered on screen with button id %d", *buttonid);
             return 0;
         }
-        oops_log_warn("SDL", "  the system dialog would not open; answering with the default");
+        oops_log_warn("SDL",
+                      "  the system dialog would not open; answering with the default");
     }
 
     if (data->numbuttons > 0) {
-        oops_log_warn("SDL", "  answered with button id %d, the port's own default", *buttonid);
+        oops_log_warn("SDL", "  answered with button id %d, the port's own default",
+                      *buttonid);
     }
     return 0;
 }
 
-VideoBootStrap PROSPERO_bootstrap = {
-    PROSPEROVID_DRIVER_NAME, "OOPS console video driver", PROSPERO_CreateDevice,
-    PROSPERO_ShowMessageBox
-};
+VideoBootStrap PROSPERO_bootstrap = {PROSPEROVID_DRIVER_NAME,
+                                     "OOPS console video driver", PROSPERO_CreateDevice,
+                                     PROSPERO_ShowMessageBox};
 
 #endif /* SDL_VIDEO_DRIVER_PROSPERO */
