@@ -348,8 +348,8 @@ static void drain_mouse(struct GLFWwindow *w) {
  * The pad, mapped to the same keys and buttons the keyboard and mouse produce, so
  * nothing downstream knows which device was used. Left stick is WASD, right stick is
  * the mouse (scaled per frame, as mouse motion is). Cross jumps, Square breaks (left
- * button), Circle places (right button), L1 and R1 cycle the held block, and Options
- * opens the chat line (`t`).
+ * button), Circle places (right button), and L1 and R1 cycle the held block. Chat,
+ * commands and signs are keyboard-only, for the reason below.
  */
 #define PAD_STICK_DEADZONE 32
 #define PAD_LOOK_SCALE 0.35
@@ -383,8 +383,15 @@ static void drain_pad(struct GLFWwindow *w) {
         w->key_down['E'] = 1;
     if (pad.buttons & OOPS_BUTTON_L1)
         w->key_down['R'] = 1;
-    if (pad.buttons & OOPS_BUTTON_OPTIONS)
-        w->key_down['T'] = 1;
+
+    /*
+     * Options is deliberately unmapped. It used to open the chat line, which strands a
+     * player holding only a pad: `main.c` gates every movement and build key behind
+     * `!g->typing`, and leaving that state needs Enter or Escape, which reach this shim
+     * only from a USB keyboard. The line had nothing to send either - a plain message
+     * goes to `client_talk`, and this port stubs the client out. A keyboard still
+     * reaches chat, commands and signs by their own keys.
+     */
 
     /* Break and place are mouse buttons, edge-detected like the mouse, because Craft
      * acts on the transition rather than the hold. */

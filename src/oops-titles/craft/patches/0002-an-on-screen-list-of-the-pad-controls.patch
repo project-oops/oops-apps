@@ -11,10 +11,13 @@ no new asset. It reads the same way the HUD does and sits opposite it.
 
 The lines name pad buttons rather than the keys they produce, because the key is
 an implementation detail of the shim: Square and Circle arrive as mouse buttons,
-and L1 and R1 as `CRAFT_KEY_ITEM_PREV` and `CRAFT_KEY_ITEM_NEXT`. Jump and chat
-are listed because nothing else says they exist. There is no entry for a pause
-menu because Craft has none - `main.c` handles Escape by cancelling the chat
-line or releasing the cursor, and neither is reachable from a pad.
+and L1 and R1 as `CRAFT_KEY_ITEM_PREV` and `CRAFT_KEY_ITEM_NEXT`. Jump is listed
+because nothing else says it exists.
+
+The list is every control a pad has, and that is all of them. Chat, commands and
+signs need a keyboard: they open a typing line that `main.c` leaves only on
+Enter or Escape, which a pad cannot produce. There is no entry for a pause menu
+because Craft has none.
 
 The array is `char *const` and not `const char *`, because upstream's
 `render_text` takes a non-const `char *`.
@@ -38,7 +41,7 @@ is, so the file stays close to upstream and the next rebase is a smaller job.
  #define CRAFT_KEY_FORWARD 'W'
 --- a/src/main.c
 +++ b/src/main.c
-@@ -2885,6 +2885,24 @@
+@@ -2885,6 +2885,23 @@
                  render_text(&text_attrib, ALIGN_LEFT, tx, ty, ts, text_buffer);
                  ty -= ts * 2;
              }
@@ -50,7 +53,6 @@ is, so the file stays close to upstream and the next rebase is a smaller job.
 +                    "circle - place",
 +                    "L1 / R1 - block",
 +                    "cross - jump",
-+                    "options - chat",
 +                };
 +                int count = sizeof(controls) / sizeof(controls[0]);
 +                float cx = g->width - ts / 2;
