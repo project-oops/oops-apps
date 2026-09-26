@@ -1,6 +1,12 @@
 # libogg build integration. Pulled in by `oops-libvorbis.mk`; rarely included directly.
 #
 # `include/ogg/config_types.h` stands in for the header autotools generates.
+#
+# Guarded as a whole: both `oops-libvorbis.mk` and `oops-opusfile.mk` pull it in, and a title that
+# names either ends up including this twice, which make reports as a recipe overriding itself.
+ifndef OOPS_OGG_MK
+OOPS_OGG_MK := 1
+
 ifndef OOPS_OGG_DIR
 OOPS_OGG_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
@@ -25,3 +31,5 @@ $(OOPS_OGG_LIB): $(OOPS_OGG_SRCS) $(lastword $(MAKEFILE_LIST))
 .PHONY: libogg-clean
 libogg-clean:
 	@rm -rf $(OOPS_OGG_BUILD)
+
+endif

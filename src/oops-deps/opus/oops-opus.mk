@@ -4,6 +4,15 @@
 # `src/opus_demo.c` and friends are programs, the `*_sse*.c` and `*_neon*.c` files are chosen by a
 # configure check this has no equivalent of, and the fixed-point tree is an alternative to the
 # floating-point one. `OPUS_BUILD` and the disables below stand in for the generated config header.
+#
+# The float API is selected by a name being *absent*: `#ifndef DISABLE_FLOAT_API` guards
+# `FLOAT2INT16`, so `-DDISABLE_FLOAT_API=0` switches it off rather than on.
+#
+# Guarded as a whole, as libogg is, so that a title naming both this and `oops-opusfile.mk` does not
+# define the same recipes twice.
+ifndef OOPS_OPUS_MK
+OOPS_OPUS_MK := 1
+
 ifndef OOPS_OPUS_DIR
 OOPS_OPUS_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
@@ -28,7 +37,7 @@ OOPS_OPUS_SRCS := $(filter-out $(OOPS_OPUS_EXCLUDE), \
 OOPS_OPUS_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                    -nostdlibinc -fPIC -O2 -w -std=gnu11 \
                    -DOPUS_BUILD=1 -DUSE_ALLOCA=0 -DVAR_ARRAYS=1 \
-                   -DOPUS_HAVE_RTCD=0 -DDISABLE_FLOAT_API=0 -DHAVE_LRINTF=1 -DHAVE_LRINT=1 \
+                   -DOPUS_HAVE_RTCD=0 -DHAVE_LRINTF=1 -DHAVE_LRINT=1 \
                    -DPACKAGE_VERSION=\"1.5.2\" \
                    $(OOPS_OPUS_INCLUDE) \
                    -I$(OOPS_OPUS_UPSTREAM)/celt -I$(OOPS_OPUS_UPSTREAM)/silk \
@@ -49,3 +58,5 @@ $(OOPS_OPUS_LIB): $(OOPS_OPUS_SRCS) $(lastword $(MAKEFILE_LIST))
 .PHONY: opus-clean
 opus-clean:
 	@rm -rf $(OOPS_OPUS_BUILD)
+
+endif
