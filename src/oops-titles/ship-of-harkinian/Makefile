@@ -68,7 +68,11 @@ SOH_DEPS := sdl2 zlib libzip stb nlohmann-json thread-pool tinyxml2 spdlog \
 # its own header that `NO_WCHAR` is redundant once `NO_STDIO` is set.
 SOH_DR_DEFS := -DDR_WAV_NO_STDIO -DDR_WAV_NO_WCHAR -DDR_MP3_NO_STDIO -DDR_FLAC_NO_STDIO
 
-SOH_DEFS := -DENABLE_OPENGL -DF3DEX_GBI_2 -DNDEBUG $(SOH_DR_DEFS) \
+#
+# `LOG_LEVEL_GAME_PRINTS` is what the game's own `osSyncPrintf` compiles down to, and upstream sets
+# it to spdlog's `SPDLOG_LEVEL_OFF` in every one of its four target blocks. 6 is that value, from
+# spdlog's `common.h`. 269 of the sources under `soh/src` read it.
+SOH_DEFS := -DENABLE_OPENGL -DF3DEX_GBI_2 -DNDEBUG -DLOG_LEVEL_GAME_PRINTS=6 $(SOH_DR_DEFS) \
             -DSPDLOG_NO_THREAD_ID -DSPDLOG_NO_TLS -DSTBI_NO_THREAD_LOCALS
 
 SOH_GEN_DIR := $(CURDIR)/build/gen
@@ -267,7 +271,20 @@ PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_SDL_LIB) \
                         $(OOPS_LIBCXX_LIB) $(OOPS_LIBCXXABI_LIB) $(OOPS_LIBUNWIND_LIB)
 endif
 
-EXTRA_TARGET_CFLAGS += $(SOH_INCLUDE) $(SOH_GEN_INCLUDE)
+# app.mk compiles at -Werror with a set stricter than a decompiled 1998 codebase meets: 799 of the
+# 803 sources under soh/src declare a function without a prototype, which is how C was written then.
+# Switched off rather than patched, a patch against somebody else's tree being a rebase burden for
+# no behaviour change.
+SOH_WARNINGS := -Wno-deprecated-non-prototype -Wno-strict-prototypes -Wno-missing-prototypes \
+                -Wno-conversion -Wno-sign-conversion -Wno-shorten-64-to-32 -Wno-comment \
+                -Wno-unused-parameter -Wno-unused-but-set-variable -Wno-shadow \
+                -Wno-sign-compare -Wno-char-subscripts -Wno-unused-function \
+                -Wno-unused-const-variable -Wno-missing-field-initializers \
+                -Wno-unused-variable -Wno-multichar -Wno-return-type -Wno-unknown-pragmas \
+                -Wno-incompatible-pointer-types -Wno-macro-redefined -Wno-missing-braces \
+                -Wno-logical-op-parentheses -Wno-extra-tokens -Wno-braced-scalar-init
+
+EXTRA_TARGET_CFLAGS += $(SOH_INCLUDE) $(SOH_GEN_INCLUDE) $(SOH_WARNINGS)
 OOPS_FEATURES := display input keyboard mouse audio suspend thread draw
 
 include $(OOPS_APPS_ROOT)/common/app.mk
