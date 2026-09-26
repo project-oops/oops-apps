@@ -11,9 +11,25 @@ What is measured, what is decided, and what has not happened. Every number here 
 | SDL | **SDL2**, read at the pinned revision |
 | GL entry points | **71**, all covered by oops-gl. **Two are looked up by name** — see below |
 | Game data | ships with upstream, `Data/`, **404 files** — no player purchase, no archive |
-| Linked | **yes.** `build/bugdom2.elf`, 5,183,400 bytes, `app.mk`'s undefined-symbol guard clean |
-| Packaged | **yes.** `make package` — eboot 4,905,552 bytes, `sce_sys/`, `sce_module/libc.prx`, `Data/`; 413 files / 185 MB |
+| Linked | **yes.** `build/bugdom2.elf`, 5,615,576 bytes, `app.mk`'s undefined-symbol guard clean |
+| Packaged | **yes.** `make package` — eboot 4,905,408 bytes, `sce_sys/`, `sce_module/libc.prx`, `Data/`; 413 files / 185 MB |
 | Run on hardware | **no** |
+
+The sizes move between builds because the payload links the SDK tree as it stands, and other work
+lands in it continuously. Count the link, not the byte count.
+
+## Two faults a clean link does not find
+
+Both apply to any title linking the full `libc++.a`, and both are written out in
+[`../../bugdom/docs/PORTING.md`](../../bugdom/docs/PORTING.md).
+
+- **`-DOOPS_CXX_EXTERNAL_NEW_DELETE`**, because `libc++.a`'s `operator new` carries a guard asserting
+  its own address is inside `__lcxx_override`, and `common/cxxrt.cpp`'s definition — which wins under
+  `--allow-multiple-definition` — is not. Without the define the first libc++ allocation is a
+  privileged-instruction fault. OOPSy-daisy found it on hardware; the fix is confirmed there.
+- **`oops_run_init_array()`** in the entry point, because `.init_array` is not walked for a plain C++
+  payload, so namespace-scope constructors never execute. It fails quietly: `.bss` is already zero, so
+  nothing breaks until a constructor stores a non-zero value.
 
 ## It cost almost nothing, and that is the finding
 

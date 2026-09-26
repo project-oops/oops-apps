@@ -11,9 +11,12 @@ What is measured, what is decided, and what has not happened. Every number here 
 | SDL | **SDL2**, which this collection already vendors — see below |
 | GL entry points | **51**, all covered by oops-gl, and called **by symbol** — no loader |
 | Game data | ships with upstream, `Data/`, **207 files / 66 MB** — no player purchase, no archive |
-| Linked | **yes.** `build/bugdom.elf`, 4,981,312 bytes, `app.mk`'s undefined-symbol guard clean |
-| Packaged | **yes.** `make package` — eboot 4,722,768 bytes, `sce_sys/`, `sce_module/libc.prx`, `Data/` |
+| Linked | **yes.** `build/bugdom.elf`, 5,408,040 bytes, `app.mk`'s undefined-symbol guard clean |
+| Packaged | **yes.** `make package` — eboot 4,724,848 bytes, `sce_sys/`, `sce_module/libc.prx`, `Data/` |
 | Run on hardware | **no** |
+
+The sizes move between builds because the payload links the SDK tree as it stands, and other work
+lands in it continuously. Count the link, not the byte count.
 
 ## The pin uses SDL2, and reading the clone said otherwise
 
@@ -112,6 +115,38 @@ C++ now — which is what `extreme-tux-racer/shim/etr_start.cpp` already said, i
 
 **A C++ shim had no `OOPS_APP_ID`.** `app.mk` puts the three identity defines in `TARGET_CFLAGS`, and
 `common/cxx.mk` did not have them. Fixed in `cxx.mk`, so every C++ title gets them.
+
+## Two faults a clean link does not find either
+
+Both of these were found by reading what a libc++ title had already cost somebody else, not by
+building. A green link and a clean guard say nothing about them.
+
+**`operator new` would have executed a `ud2` on the first libc++ allocation.** `common/cxxrt.cpp`
+defines `operator new`/`delete` over `oops_malloc`, and `oops-libcxxabi.mk` excludes libc++abi's
+`stdlib_new_delete.cpp` to match — but the full `libc++.a` *also* defines them, in its own
+`__lcxx_override` section, each carrying a guard that asserts `&operator new` lies inside that
+section. `-Wl,--allow-multiple-definition`, which the libc++/libc++abi `std::exception` overlap
+requires, lets cxxrt's win at an address outside it, so libc++'s own nothrow `operator new` fails its
+guard: a privileged-instruction fault, and for Pomme that is before the first frame. OOPSy-daisy hit
+it on hardware on 2026-09-25 and the fix is confirmed there. This title sets
+`-DOOPS_CXX_EXTERNAL_NEW_DELETE`, so libc++ owns new and delete; allocation still reaches the SDK heap
+because libc++'s `operator new` calls `malloc`, which *is* `oops_malloc`.
+
+Checked rather than taken on trust: `build-eh/libc++.a` carries an `__lcxx_override` section with
+relocations, and `cxxrt.o` defines `_Znwm` strong and outside it.
+
+**Five static constructors were never going to run.** `.init_array` is not walked for a plain C++
+payload here, so `shim/bugdom_start.cpp` calls `oops_run_init_array()` before `main`. This is the
+quiet one: most constructors only zero their members and `.bss` is already zero, so a title missing
+every one of them behaves correctly until a constructor stores something that is *not* zero. Extreme
+Tux Racer lost 2026-09-24 to `curr_course = -1` staying 0 — a load took its "already loaded" early
+return, the course dimensions stayed zero, and a division by the width produced a NaN that failed two
+range clamps (`<` and `>` both false for NaN) and surfaced as a page fault four layers away.
+
+**`open` is weak in the POSIX shim now.** oops-sdk grew its own `open` (its D013: the libc descriptor
+discarded writes, so it routes through `SYS_open`), and two strong definitions failed the link on
+`duplicate symbol: open` for every title that links both — neverball included. The SDK's is the one
+that should win.
 
 ## The entry point
 
