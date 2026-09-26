@@ -37,10 +37,10 @@ __attribute__((visibility("default"))) int sm64_start(const payload_args_t *args
     /*
      * The disk sink, because the kernel log drops bursts and this game's start-up is
      * one.
-     * `/data/<app id>` must exist - the sink falls back to it with no USB stick
-     * present.
+     * It writes to a USB stick when one is mounted and reports nothing when none is:
+     * `/data` is outside the sandbox and `oops_fs_get_storage_dir` refuses it, because
+     * escaping unmounts /app0 and every asset in it.
      */
-    (void)oops_fs_mkdir("/data/" OOPS_APP_ID, 0755);
     (void)oops_log_enable_disk_sink(OOPS_APP_ID, 0);
 
     oops_log_info("SM64", "entry");

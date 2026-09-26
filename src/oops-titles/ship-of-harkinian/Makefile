@@ -76,7 +76,7 @@ SOH_DR_DEFS := -DDR_WAV_NO_STDIO -DDR_WAV_NO_WCHAR -DDR_MP3_NO_STDIO -DDR_FLAC_N
 # `OOPS_POSIX_HOME` is where the shim points `HOME` and `getpwuid`, and libultraship resolves its
 # configuration, saves and the generated archive against it.
 SOH_DEFS := -DENABLE_OPENGL -DF3DEX_GBI_2 -DNDEBUG -DLOG_LEVEL_GAME_PRINTS=6 $(SOH_DR_DEFS) \
-            -DOOPS_POSIX_HOME=\"/data/soh\" \
+            -DOOPS_POSIX_HOME=\"/app0\" \
             -DSPDLOG_NO_THREAD_ID -DSPDLOG_NO_TLS -DSTBI_NO_THREAD_LOCALS
 
 SOH_GEN_DIR := $(CURDIR)/build/gen

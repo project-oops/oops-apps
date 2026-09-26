@@ -108,7 +108,7 @@ EXTRA_TARGET_CFLAGS += -DOOPS_CXX_EXTERNAL_NEW_DELETE
 BUG_CFLAGS := -I$(BUG_UP)/src -I$(BUG_UP)/src/Headers \
               -I$(POMME_SRC) -I$(POMME_SRC)/QD3D \
               $(POMME_DEFINES) \
-              -DOOPS_POSIX_HOME=\"/data/bugdom\" \
+              -DOOPS_POSIX_HOME=\"/app0\" \
               $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE)
 
 # app.mk compiles at -Werror with a set stricter than upstream's code meets. Switched off rather than

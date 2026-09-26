@@ -420,21 +420,41 @@ static int PROSPERO_ShowMessageBox(const SDL_MessageBoxData *data, int *buttonid
         char text[1024];
         SDL_snprintf(text, sizeof(text), "%s\n\n%s", data->title ? data->title : "",
                      data->message ? data->message : "");
+        /* Logged either side of the call, because a port reaches a message box at the
+         * point where something has already gone wrong: if the dialog is what kills it,
+         * the log has to say which side of this line it stopped on. */
+        oops_log_warn("SDL", "  opening the system dialog");
         if (oops_dialog_message_show(text, yesno ? OOPS_MSG_DIALOG_BTN_YESNO
                                                  : OOPS_MSG_DIALOG_BTN_OK) == 0) {
             oops_msg_dialog_result_t result = OOPS_MSG_DIALOG_RES_INVALID;
             int rc;
-            while ((rc = oops_dialog_message_poll(&result)) == 0) {
+            /*
+             * Bounded, and that bound is the point. The dialog only reaches FINISHED
+             * when the player answers it, and the player can only answer one that
+             * reached the screen - which wants a video-out session the port may not
+             * have opened yet, since a missing asset is found before the first frame.
+             * An unbounded wait there is a title that never draws and never exits, and
+             * the system kills it without either of us learning why. Thirty seconds at
+             * 16ms, then the default answer the caller would have had anyway.
+             */
+            const int max_polls = 30 * 1000 / 16;
+            int polls = 0;
+            while ((rc = oops_dialog_message_poll(&result)) == 0 && polls < max_polls) {
                 oops_time_sleep_ms(16);
+                polls++;
             }
             oops_dialog_message_close();
-            if (rc == 1 && yesno && result != OOPS_MSG_DIALOG_RES_INVALID) {
+            if (rc == 0) {
+                oops_log_warn("SDL",
+                              "  the dialog did not finish in 30s - it may never have "
+                              "reached the screen; answering with the default");
+            } else if (rc == 1 && yesno && result != OOPS_MSG_DIALOG_RES_INVALID) {
                 /* Yes is the first button, No the second: the order SDL_MessageBoxData
                  * lists them. */
                 *buttonid =
                     data->buttons[result == OOPS_MSG_DIALOG_RES_OK ? 0 : 1].buttonid;
             }
-            oops_log_warn("SDL", "  answered on screen with button id %d", *buttonid);
+            oops_log_warn("SDL", "  answered with button id %d", *buttonid);
             return 0;
         }
         oops_log_warn("SDL",

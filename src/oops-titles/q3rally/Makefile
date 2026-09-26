@@ -204,7 +204,7 @@ Q3_CFLAGS := -I$(Q3_UP)/code/qcommon -I$(Q3_UP)/code/client -I$(Q3_UP)/code/serv
              -I$(Q3_UP)/code/renderercommon -I$(Q3_UP)/code/renderergl1 \
              -I$(Q3_UP)/code/botlib -I$(Q3_UP)/code/sys -I$(Q3_UP)/code/sdl \
              -DNO_VM_COMPILED -DSTANDALONE -DBOTLIB \
-             -DOOPS_POSIX_HOME=\"/data/q3rally\" \
+             -DOOPS_POSIX_HOME=\"/app0\" \
              $(OOPS_POSIX_INCLUDE) $(OOPS_ZLIB_INCLUDE) $(OOPS_JPEG_INCLUDE) $(OOPS_SDL_INCLUDE)
 
 # Upstream's code under upstream's warnings. `common/app.mk` compiles at `-Werror` with a set

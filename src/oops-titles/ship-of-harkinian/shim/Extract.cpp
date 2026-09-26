@@ -31,7 +31,7 @@
 #include "oops/system.h"
 
 #ifndef OOPS_POSIX_HOME
-#define OOPS_POSIX_HOME "/data/soh"
+#define OOPS_POSIX_HOME "/app0"
 #endif
 
 /* The two archives the game asks for, from `OTRGlobals.cpp`, named so the message can

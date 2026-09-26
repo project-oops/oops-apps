@@ -112,7 +112,7 @@ EXTRA_TARGET_CFLAGS += -DOOPS_CXX_EXTERNAL_NEW_DELETE
 BUG2_CFLAGS := -I$(BUG2_UP)/Source -I$(BUG2_UP)/Source/Headers \
                -I$(POMME_SRC) \
                $(POMME_DEFINES) -DGL_SILENCE_DEPRECATION \
-               -DOOPS_POSIX_HOME=\"/data/bugdom2\" \
+               -DOOPS_POSIX_HOME=\"/app0\" \
                $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE)
 
 # app.mk compiles at -Werror with a set stricter than upstream's code meets. Switched off rather than

@@ -26,7 +26,7 @@
 #include "oops/system.h"
 
 #ifndef OOPS_POSIX_HOME
-#define OOPS_POSIX_HOME "/data/spaghetti-kart"
+#define OOPS_POSIX_HOME "/app0"
 #endif
 
 /* The archive the game asks for, from `Engine.h`, named here so the message can quote

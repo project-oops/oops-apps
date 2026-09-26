@@ -71,9 +71,9 @@ bugdom_start(const payload_args_t *args) {
     oops_log_init(OOPS_APP_ID);
 
     /* The kernel log drops bursts and this start-up is one, Pomme reading every model
-       and sound resource before the first frame. The sink falls back to /data/<app id>,
-       which has to exist when no USB stick is present. */
-    (void)oops_fs_mkdir("/data/" OOPS_APP_ID, 0755);
+       and sound resource before the first frame. The sink writes to a USB stick when one
+       is mounted and reports nothing when none is: `/data` is outside the sandbox and
+       `oops_fs_get_storage_dir` refuses it, because escaping unmounts /app0. */
     (void)oops_log_enable_disk_sink(OOPS_APP_ID, 0);
 
     oops_log_info("BUGD", "entry");

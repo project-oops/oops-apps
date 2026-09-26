@@ -106,7 +106,7 @@ SM64_CFLAGS := -Ishim/include \
                -DF3DEX_GBI_2=1 -DF3DEX_GBI_SHARED=1 \
                -DTARGET_LINUX -DNO_SEGMENTED_MEMORY -DUSE_SYSTEM_MALLOC \
                -DENABLE_OPENGL -DWIDESCREEN=0 \
-               -DOOPS_POSIX_HOME=\"/data/sm64\" \
+               -DOOPS_POSIX_HOME=\"/app0\" \
                $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE)
 
 # app.mk compiles at -Werror with a set stricter than a decompiled 1996 codebase meets. Switched off

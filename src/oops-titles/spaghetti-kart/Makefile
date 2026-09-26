@@ -207,7 +207,7 @@ SPGK_INCLUDE := $(OOPS_POSIX_INCLUDE) \
                 -I$(SPGK_UP)/src/port \
                 -I$(SPGK_LUS)/include -I$(SPGK_LUS)/include/libultraship \
                 -I$(SPGK_LUS)/src \
-                -DOOPS_POSIX_HOME=\"/data/spaghetti-kart\"
+                -DOOPS_POSIX_HOME=\"/app0\"
 
 # `include/actor_types.h` writes `static_assert` in C without including <assert.h>, which is where
 # C11 spells it. Upstream builds at C11 and gets the header some other way; forcing it in is
