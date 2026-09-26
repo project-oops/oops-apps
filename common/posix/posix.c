@@ -32,6 +32,7 @@
 #include "oops/fs.h"
 #include "oops/heap.h"
 #include "oops/net.h" /* the socket and resolver calls the BSD-socket shims below map onto */
+#include "oops/netctl.h" /* oops_net_ctl_get_info, the only source of this machine's own address */
 #include "oops/system.h"
 #include "oops/thread.h" /* oops_thread_self, for pthread_getthreadid_np */
 #include "oops/time.h"
@@ -50,6 +51,7 @@
 #include <signal.h>     /* sighandler_t and the SIG* numbers, for the signal() below */
 #include <stdarg.h>     /* va_list, for the variadic ioctl below */
 #include <sys/ioctl.h>  /* FIONBIO and the ioctl declaration this file answers */
+#include <sys/select.h> /* fd_set and the select this file implements by polling */
 #include <sys/wait.h>   /* waitpid/wait, likewise */
 #include <pthread_np.h> /* the declaration this file's pthread_getthreadid_np answers */
 #include <pwd.h>
@@ -899,15 +901,68 @@ const char *inet_ntop(int af, const void *src, char *dst, socklen_t size) {
     return dst;
 }
 
-/* Weak fallbacks when OOPS_FEATURES does not include 'net' */
+/*
+ * Weak fallbacks for every `oops_net_*` call this file makes, so that a title which does not link
+ * the SDK's `src/net/net.c` gets a refusal rather than a jump into nothing.
+ *
+ * **That last part is why the list has to be complete.** A payload link does not report an
+ * unresolved symbol on this target - the call site is left pointing at address zero and the fault
+ * happens the first time the port tries to open a socket, a long way from the missing source file.
+ * So a `oops_net_*` name used below with no weak twin here is a latent crash, and the rule is: if
+ * this file calls it, it is in this list.
+ */
 __attribute__((weak)) int oops_socket(int d, int t, int p) { (void)d; (void)t; (void)p; errno = ENOSYS; return -1; }
 __attribute__((weak)) int oops_connect(int s, const char *ip, uint16_t port) { (void)s; (void)ip; (void)port; errno = ENOSYS; return -1; }
+__attribute__((weak)) int oops_bind(int s, const char *ip, uint16_t port) { (void)s; (void)ip; (void)port; errno = ENOSYS; return -1; }
 __attribute__((weak)) long oops_send(int s, const void *b, size_t l, int f) { (void)s; (void)b; (void)l; (void)f; errno = ENOSYS; return -1; }
 __attribute__((weak)) long oops_recv(int s, void *b, size_t l, int f) { (void)s; (void)b; (void)l; (void)f; errno = ENOSYS; return -1; }
+__attribute__((weak)) long oops_sendto(int s, const void *b, size_t l, int f, const char *ip, uint16_t port) { (void)s; (void)b; (void)l; (void)f; (void)ip; (void)port; errno = ENOSYS; return -1; }
+__attribute__((weak)) long oops_recvfrom(int s, void *b, size_t l, int f, char *ip, size_t ipl, uint16_t *port) { (void)s; (void)b; (void)l; (void)f; (void)ip; (void)ipl; (void)port; errno = ENOSYS; return -1; }
+__attribute__((weak)) int oops_setsockopt(int s, int lvl, int opt, const void *v, size_t vl) { (void)s; (void)lvl; (void)opt; (void)v; (void)vl; errno = ENOSYS; return -1; }
+__attribute__((weak)) int oops_set_nonblocking(int s, int nb) { (void)s; (void)nb; errno = ENOSYS; return -1; }
+/* 0 - "not a would-block". With no network linked every call already failed for a permanent
+ * reason, so reporting "try again" would turn `select` below into an infinite wait. */
+__attribute__((weak)) int oops_net_would_block(long rc) { (void)rc; return 0; }
 __attribute__((weak)) void oops_close(int s) { (void)s; }
 __attribute__((weak)) int oops_net_resolve(const char *n, char *ip, size_t sz) { (void)n; (void)ip; (void)sz; return -1; }
 __attribute__((weak)) int oops_net_inet_ntop(uint32_t a, char *d, size_t s) { (void)a; (void)d; (void)s; return -1; }
 __attribute__((weak)) int oops_net_inet_pton(const char *s, uint32_t *d) { (void)s; (void)d; return -1; }
+__attribute__((weak)) int oops_net_ctl_get_info(oops_net_info_t *out) { (void)out; return -1; }
+
+/*
+ * **Which bare BSD names this file has taken, so the SDK does not call back into them.**
+ *
+ * `oops-sdk/src/net/net.c` reaches the platform's sockets through weak references to the exported
+ * names, and the plain spellings are the same ones a POSIX shim has to define - a port calls `bind`,
+ * and this file answers. A weak reference is satisfied by any strong definition in the link, so
+ * without this the chain is:
+ *
+ *     port's bind()  ->  bind() below  ->  oops_bind()  ->  net.c's p_bind()  ->  bind() below
+ *
+ * an unbounded recursion that arrives as a stack overflow on the first packet. `close` is the same
+ * shape and quieter: `oops_close(sock)` would reach the descriptor `close` in this file, which
+ * routes to `oops_fs_close`, and the socket is never actually closed.
+ *
+ * So the names are declared rather than discovered. **Anything added to this file that shadows a
+ * platform export has to be added here too** - the list is the contract, and a missing bit is the
+ * recursion coming back.
+ *
+ * `listen` and `accept` are absent from both the list and this file, which is why the SDK asks per
+ * name instead of once: those two still reach the platform.
+ */
+unsigned oops_net_bare_names_are_shimmed(void) {
+    return OOPS_NET_SHIMMED_BIND | OOPS_NET_SHIMMED_CONNECT |
+           OOPS_NET_SHIMMED_RECV | OOPS_NET_SHIMMED_RECVFROM |
+           OOPS_NET_SHIMMED_SENDTO | OOPS_NET_SHIMMED_SETSOCKOPT |
+           OOPS_NET_SHIMMED_CLOSE;
+}
+
+/* `::` and `::1`. Real objects rather than macros because callers take their address - see
+ * `netinet/in.h`. Zero-initialised static storage is `::` exactly; the loopback needs its last
+ * byte set, which a designated initialiser does through the union member. */
+const struct in6_addr in6addr_any;
+const struct in6_addr in6addr_loopback = {
+    {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}}};
 
 int socket(int domain, int type, int protocol) {
     if (domain != AF_INET) {
@@ -1021,6 +1076,513 @@ struct hostent *gethostbyname(const char *name) {
     ent.h_addr_list = addr_list;
     h_errno = 0;
     return &ent;
+}
+
+/* ---------------------------------------------------------------------------
+ * Datagrams: `bind`, `sendto`, `recvfrom`, `setsockopt`
+ *
+ * Every one of these crosses the same seam. POSIX names an address as a `sockaddr_in` holding a
+ * 32-bit number; `oops/net.h` names it as dotted-quad text. So each shim formats one into the other,
+ * which is a round trip through a string for something that was already a number - `sys/socket.h`
+ * says why that is the SDK's interface rather than an accident here.
+ * ------------------------------------------------------------------------- */
+
+/*
+ * `sockaddr_in` -> (text, host-order port). 0 on success, -1 with `errno`.
+ *
+ * `AF_INET` only, refused rather than coerced. `sin_addr.s_addr` is already network byte order and
+ * `oops_net_inet_ntop` wants network byte order, so it passes straight through; the *port* does
+ * need `ntohs`, because the SDK's calls take a host-order port and swap it themselves.
+ */
+static int sa_to_text(const struct sockaddr *addr, socklen_t addrlen, char *ip,
+                      size_t ip_len, uint16_t *port) {
+    const struct sockaddr_in *in = (const struct sockaddr_in *)(const void *)addr;
+
+    if (addr == NULL || addrlen < (socklen_t)sizeof(*in) || ip_len < 16u) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (in->sin_family != AF_INET) {
+        /* `netinet/in.h` explains why AF_INET6 gets here at all and why it must fail. */
+        errno = EAFNOSUPPORT;
+        return -1;
+    }
+    if (oops_net_inet_ntop(in->sin_addr.s_addr, ip, ip_len) != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    *port = ntohs(in->sin_port);
+    return 0;
+}
+
+int bind(int sock, const struct sockaddr *addr, socklen_t addrlen) {
+    const struct sockaddr_in *in = (const struct sockaddr_in *)(const void *)addr;
+    char ip[INET_ADDRSTRLEN];
+    uint16_t port = 0;
+
+    if (sa_to_text(addr, addrlen, ip, sizeof(ip), &port) != 0) {
+        return -1;
+    }
+    /* `oops_bind` spells "any interface" as an empty string, not as "0.0.0.0" - so the one address
+     * that does not round-trip through text is the one almost every server binds. */
+    if (in->sin_addr.s_addr == INADDR_ANY) {
+        ip[0] = '\0';
+    }
+    return oops_bind(sock, ip, port);
+}
+
+ssize_t sendto(int sock, const void *buf, size_t len, int flags,
+               const struct sockaddr *dest_addr, socklen_t addrlen) {
+    char ip[INET_ADDRSTRLEN];
+    uint16_t port = 0;
+
+    /* POSIX: a NULL destination on a connected socket is a plain `send`. */
+    if (dest_addr == NULL) {
+        return (ssize_t)oops_send(sock, buf, len, flags);
+    }
+    if (sa_to_text(dest_addr, addrlen, ip, sizeof(ip), &port) != 0) {
+        return -1;
+    }
+    return (ssize_t)oops_sendto(sock, buf, len, flags, ip, port);
+}
+
+/*
+ * **The sender's address is the part that can fail on its own**, and it fails loudly.
+ *
+ * `oops_recvfrom` reports the peer only when the platform binds a `recvfrom` export; when it does
+ * not, the data still arrives and the address comes back as the empty string - `oops/net.h` states
+ * that contract. Filling a zeroed `sockaddr_in` from that would tell the caller every datagram came
+ * from 0.0.0.0, and a game protocol that identifies its peers by address would then treat every
+ * client as the same one. So this refuses the call with `EOPNOTSUPP` instead.
+ *
+ * The cost is stated plainly: the datagram has already been consumed by then and is lost. That is a
+ * worse outcome than a working `recvfrom` and a better one than a wrong sender, because a caller
+ * seeing an error looks here, and a caller seeing 0.0.0.0 looks at its own protocol code.
+ *
+ * A caller passing `src_addr == NULL` is not asking who sent it, so there is nothing to fail on.
+ */
+ssize_t recvfrom(int sock, void *buf, size_t len, int flags,
+                 struct sockaddr *src_addr, socklen_t *addrlen) {
+    char ip[INET_ADDRSTRLEN];
+    uint16_t port = 0;
+    long rc;
+
+    ip[0] = '\0';
+    rc = oops_recvfrom(sock, buf, len, flags, ip, sizeof(ip), &port);
+    if (rc < 0) {
+        return -1;
+    }
+    if (src_addr == NULL || addrlen == NULL) {
+        return (ssize_t)rc;
+    }
+    if (ip[0] == '\0') {
+        errno = EOPNOTSUPP;
+        return -1;
+    }
+    {
+        struct sockaddr_in in;
+        uint32_t packed = 0;
+        socklen_t copy = (socklen_t)sizeof(in);
+
+        if (oops_net_inet_pton(ip, &packed) != 0) {
+            /* The receive reported a sender and it did not parse, which is the SDK contradicting
+             * itself rather than anything the caller did. */
+            errno = EOPNOTSUPP;
+            return -1;
+        }
+        memset(&in, 0, sizeof(in));
+        in.sin_len = (uint8_t)sizeof(in);
+        in.sin_family = AF_INET;
+        in.sin_port = htons(port);
+        in.sin_addr.s_addr = packed;
+
+        if (*addrlen < copy) {
+            copy = *addrlen; /* truncated, as POSIX allows */
+        }
+        memcpy(src_addr, &in, copy);
+        /* The size it *would* have needed, so a caller can see it was truncated. */
+        *addrlen = (socklen_t)sizeof(in);
+    }
+    return (ssize_t)rc;
+}
+
+/*
+ * Straight through. The constants in `sys/socket.h` and `netinet/in.h` are the platform's real
+ * values for exactly this reason: nothing here translates them, so a wrong number would set a
+ * different option rather than fail.
+ */
+int setsockopt(int sock, int level, int optname, const void *optval,
+               socklen_t optlen) {
+    return oops_setsockopt(sock, level, optname, optval, (size_t)optlen);
+}
+
+/* ---------------------------------------------------------------------------
+ * `select`, by polling. `sys/select.h` carries the reasoning; this is the mechanism.
+ * ------------------------------------------------------------------------- */
+
+/* One millisecond. See `sys/select.h` for what this buys and what it costs. */
+#define OOPS_SELECT_POLL_US 1000u
+
+/*
+ * Whether a descriptor has something to read, asked without consuming it.
+ *
+ * `OOPS_MSG_PEEK | OOPS_MSG_DONTWAIT` is a single non-blocking look at the head of the queue that
+ * leaves the datagram in place. A byte is enough: peeking does not consume, so a one-byte peek at a
+ * 1400-byte packet neither truncates nor dequeues it.
+ *
+ * `rc == 0` counts as ready, which it is in both interpretations - a zero-length datagram is a
+ * datagram, and end-of-stream on a socket is what `select` reports readable so that the caller's
+ * `read` returns 0.
+ */
+static int fd_can_read(int fd) {
+    char probe;
+    char ip[INET_ADDRSTRLEN];
+    uint16_t port = 0;
+    long rc = oops_recvfrom(fd, &probe, 1u, OOPS_MSG_PEEK | OOPS_MSG_DONTWAIT, ip,
+                            sizeof(ip), &port);
+
+    if (rc >= 0) {
+        return 1;
+    }
+    if (oops_net_would_block(rc)) {
+        return 0;
+    }
+    /* An error that is not "try again". `select` reports a descriptor with a pending error as
+     * readable, so that the caller finds out by reading it - and a descriptor that is not a socket
+     * at all lands here too, which `sys/select.h` names as a known divergence. */
+    return 1;
+}
+
+/* Whether any bit below `nfds` is set. Used to tell "three sets zeroed and one filled", which is
+ * ordinary, from a caller genuinely asking about writability, which this cannot answer. */
+static int fdset_any(const fd_set *set, int nfds) {
+    int fd;
+    if (set == NULL) {
+        return 0;
+    }
+    for (fd = 0; fd < nfds; fd++) {
+        if (FD_ISSET(fd, set)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
+           struct timeval *timeout) {
+    fd_set want;
+    uint64_t remaining_us = 0;
+    int infinite = (timeout == NULL);
+
+    if (nfds < 0 || nfds > FD_SETSIZE) {
+        errno = EINVAL;
+        return -1;
+    }
+    /* Refused rather than answered with a guess - `sys/select.h` says why. */
+    if (fdset_any(writefds, nfds) || fdset_any(exceptfds, nfds)) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (!infinite) {
+        if (timeout->tv_sec < 0 || timeout->tv_usec < 0) {
+            errno = EINVAL;
+            return -1;
+        }
+        remaining_us = (uint64_t)timeout->tv_sec * 1000000u + (uint64_t)timeout->tv_usec;
+    }
+
+    /* A sleep, which `select(0, NULL, NULL, NULL, &tv)` has always been. */
+    if (readfds == NULL) {
+        if (infinite) {
+            errno = EINVAL; /* nothing to wait for and no deadline: that is a hang, not a call */
+            return -1;
+        }
+        while (remaining_us > 0u) {
+            uint32_t step = (remaining_us < OOPS_SELECT_POLL_US) ? (uint32_t)remaining_us
+                                                                 : OOPS_SELECT_POLL_US;
+            oops_time_sleep_us(step);
+            remaining_us -= step;
+        }
+        return 0;
+    }
+
+    want = *readfds;
+    for (;;) {
+        int ready = 0;
+        int fd;
+
+        FD_ZERO(readfds);
+        for (fd = 0; fd < nfds; fd++) {
+            if (FD_ISSET(fd, &want) && fd_can_read(fd)) {
+                FD_SET(fd, readfds);
+                ready++;
+            }
+        }
+        if (ready > 0) {
+            return ready;
+        }
+        /* Checked after the first pass, so a zero timeout is a poll rather than a no-op. */
+        if (!infinite && remaining_us == 0u) {
+            return 0;
+        }
+        {
+            uint32_t step = OOPS_SELECT_POLL_US;
+            if (!infinite && remaining_us < (uint64_t)step) {
+                step = (uint32_t)remaining_us;
+            }
+            oops_time_sleep_us(step);
+            if (!infinite) {
+                remaining_us -= step;
+            }
+        }
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * `getaddrinfo` and friends. `netdb.h` lists the four ways this is narrower than a desktop's.
+ * ------------------------------------------------------------------------- */
+
+/* One heap block per entry, so that `freeaddrinfo` is one `free` per entry and the `sockaddr` a
+ * caller holds through `ai_addr` cannot outlive or be freed apart from the entry pointing at it. */
+struct oops_addrinfo_block {
+    struct addrinfo    ai;
+    struct sockaddr_in sa;
+};
+
+/* 0 on success, `EAI_SERVICE` otherwise. NULL is a port of 0, which is what a caller resolving a
+ * name without a service means. */
+static int service_to_port(const char *service, uint16_t *out) {
+    unsigned long v = 0;
+    const char *p = service;
+
+    *out = 0;
+    if (service == NULL || *service == '\0') {
+        return 0;
+    }
+    for (; *p != '\0'; p++) {
+        if (*p < '0' || *p > '9') {
+            /* A name, and there is no services database here to look it up in - see `netdb.h`. */
+            return EAI_SERVICE;
+        }
+        v = v * 10u + (unsigned long)(*p - '0');
+        if (v > 65535u) {
+            return EAI_SERVICE;
+        }
+    }
+    *out = (uint16_t)v;
+    return 0;
+}
+
+int getaddrinfo(const char *node, const char *service,
+                const struct addrinfo *hints, struct addrinfo **res) {
+    int family = AF_UNSPEC;
+    int socktype = 0;
+    int protocol = 0;
+    int flags = 0;
+    uint16_t port = 0;
+    uint32_t packed = 0;
+    int rc;
+    struct oops_addrinfo_block *block;
+
+    if (res == NULL) {
+        return EAI_SYSTEM;
+    }
+    *res = NULL;
+    if (hints != NULL) {
+        family = hints->ai_family;
+        socktype = hints->ai_socktype;
+        protocol = hints->ai_protocol;
+        flags = hints->ai_flags;
+    }
+    if (family != AF_UNSPEC && family != AF_INET) {
+        /* Including `AF_INET6`. `netinet/in.h` explains why answering IPv4 here instead would be
+         * worse than failing: the caller would hand the result to an IPv6 socket. */
+        return EAI_FAMILY;
+    }
+    rc = service_to_port(service, &port);
+    if (rc != 0) {
+        return rc;
+    }
+
+    if (node == NULL) {
+        /* POSIX: `AI_PASSIVE` means an address to bind to - any interface - and its absence means
+         * an address to connect to, which for "this machine" is the loopback. */
+        packed = (flags & AI_PASSIVE) ? htonl(INADDR_ANY) : htonl(INADDR_LOOPBACK);
+    } else if (oops_net_inet_pton(node, &packed) == 0) {
+        /* Numeric, so no resolver is involved and this works with no network at all. */
+    } else if (flags & AI_NUMERICHOST) {
+        return EAI_NONAME; /* the caller said not to resolve, and it was not numeric */
+    } else {
+        char ip[INET_ADDRSTRLEN];
+        if (oops_net_resolve(node, ip, sizeof(ip)) != 0) {
+            return EAI_NONAME;
+        }
+        if (oops_net_inet_pton(ip, &packed) != 0) {
+            return EAI_FAIL; /* resolution succeeded and its answer did not parse */
+        }
+    }
+
+    block = (struct oops_addrinfo_block *)malloc(sizeof(*block));
+    if (block == NULL) {
+        return EAI_MEMORY;
+    }
+    memset(block, 0, sizeof(*block));
+
+    block->sa.sin_len = (uint8_t)sizeof(block->sa);
+    block->sa.sin_family = AF_INET;
+    block->sa.sin_port = htons(port);
+    block->sa.sin_addr.s_addr = packed;
+
+    block->ai.ai_flags = flags;
+    block->ai.ai_family = AF_INET;
+    block->ai.ai_socktype = socktype;
+    block->ai.ai_protocol = protocol;
+    block->ai.ai_addrlen = (socklen_t)sizeof(block->sa);
+    block->ai.ai_canonname = NULL; /* never filled - see `netdb.h` */
+    block->ai.ai_addr = (struct sockaddr *)(void *)&block->sa;
+    block->ai.ai_next = NULL;      /* one address, always - see `netdb.h` */
+
+    *res = &block->ai;
+    return 0;
+}
+
+/*
+ * Walks and frees. The list this shim produces is one block per entry with the `sockaddr` inside it,
+ * so freeing the `addrinfo` frees its address too - which is why `ai_addr` must not be freed
+ * separately and why the whole list has to come from `getaddrinfo` above rather than be assembled
+ * by a caller.
+ */
+void freeaddrinfo(struct addrinfo *ai) {
+    while (ai != NULL) {
+        struct addrinfo *next = ai->ai_next;
+        free(ai);
+        ai = next;
+    }
+}
+
+int getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host,
+                socklen_t hostlen, char *serv, socklen_t servlen, int flags) {
+    const struct sockaddr_in *in = (const struct sockaddr_in *)(const void *)sa;
+
+    if (sa == NULL || salen < (socklen_t)sizeof(*in)) {
+        return EAI_FAMILY;
+    }
+    if (in->sin_family != AF_INET) {
+        return EAI_FAMILY;
+    }
+    /* The caller insists on a name, and there is no reverse resolver here. Answering with the
+     * numeric form anyway is what `NI_NAMEREQD` exists to forbid. */
+    if (flags & NI_NAMEREQD) {
+        return EAI_NONAME;
+    }
+
+    if (host != NULL && hostlen > 0) {
+        if (hostlen < 16u) {
+            return EAI_OVERFLOW;
+        }
+        if (oops_net_inet_ntop(in->sin_addr.s_addr, host, (size_t)hostlen) != 0) {
+            return EAI_FAIL;
+        }
+    }
+    if (serv != NULL && servlen > 0) {
+        /* Decimal, always: `NI_NUMERICSERV` or not, there is no services database to name a port
+         * from - the same absence `getaddrinfo` reports as `EAI_SERVICE` going the other way. */
+        unsigned int port = ntohs(in->sin_port);
+        char tmp[6];
+        int n = 0;
+        int i;
+
+        if (port == 0u) {
+            tmp[n++] = '0';
+        }
+        while (port > 0u && n < (int)sizeof(tmp)) {
+            tmp[n++] = (char)('0' + (port % 10u));
+            port /= 10u;
+        }
+        if ((socklen_t)n + 1u > servlen) {
+            return EAI_OVERFLOW;
+        }
+        for (i = 0; i < n; i++) {
+            serv[i] = tmp[n - 1 - i];
+        }
+        serv[n] = '\0';
+    }
+    return 0;
+}
+
+const char *gai_strerror(int ecode) {
+    switch (ecode) {
+    case 0:            return "no error";
+    case EAI_AGAIN:    return "temporary failure in name resolution";
+    case EAI_BADFLAGS: return "invalid flags";
+    case EAI_FAIL:     return "non-recoverable failure in name resolution";
+    case EAI_FAMILY:   return "address family not supported";
+    case EAI_MEMORY:   return "memory allocation failure";
+    case EAI_NONAME:   return "name or service not known";
+    case EAI_SERVICE:  return "service not supported for this socket type";
+    case EAI_SOCKTYPE: return "socket type not supported";
+    case EAI_SYSTEM:   return "system error";
+    case EAI_OVERFLOW: return "argument buffer overflow";
+    default:           return "unknown error";
+    }
+}
+
+/*
+ * The console's own address where a hostname is asked for. `unistd.h` argues the case; the short
+ * version is that this platform has no name and the one thing a caller does with the answer is
+ * resolve it, which an address satisfies exactly.
+ */
+int gethostname(char *name, size_t len) {
+    oops_net_info_t info;
+
+    if (name == NULL || len == 0u) {
+        errno = EINVAL;
+        return -1;
+    }
+    memset(&info, 0, sizeof(info));
+    if (oops_net_ctl_get_info(&info) != 0 || info.ip_address[0] == '\0') {
+        errno = ENOSYS;
+        return -1;
+    }
+    {
+        size_t n = strlen(info.ip_address);
+        if (n + 1u > len) {
+            errno = ENAMETOOLONG;
+            return -1;
+        }
+        memcpy(name, info.ip_address, n + 1u);
+    }
+    return 0;
+}
+
+/*
+ * One process, so: alive if and only if it is us. `signal.h` has the reasoning and names the caller
+ * that depends on it.
+ */
+int kill(pid_t pid, int sig) {
+    if (sig != 0) {
+        errno = ENOSYS;
+        return -1;
+    }
+    if ((int)pid != getpid()) {
+        errno = ESRCH;
+        return -1;
+    }
+    return 0;
+}
+
+/* Both always fail, which is the truth and is what the callers are written for - see `unistd.h`.
+ * `fork` must never return 0, or the caller runs its child branch in the only process there is. */
+pid_t fork(void) {
+    errno = ENOSYS;
+    return (pid_t)-1;
+}
+
+int execvp(const char *file, char *const argv[]) {
+    (void)file;
+    (void)argv;
+    errno = ENOSYS;
+    return -1;
 }
 
 /*

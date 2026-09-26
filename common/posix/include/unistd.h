@@ -27,6 +27,13 @@
 #define W_OK 2
 #define X_OK 1
 
+/* The three descriptors every process starts with. They are not fictional here - `oops-sdk`'s
+ * `write` to 1 and 2 reaches the kernel log - but there is nothing on 0 to read, which is why
+ * `isatty` below answers 0 and a program's interactive-console branch never runs. */
+#define STDIN_FILENO  0
+#define STDOUT_FILENO 1
+#define STDERR_FILENO 2
+
 /* **Guarded, because `stdio.h` declares these too.** Both headers are expected to carry them and a
  * program may include either first; the values are universal, so a redefinition would be harmless
  * and a *conflicting* one impossible - but clang warns on the redefinition regardless, and a
@@ -86,6 +93,40 @@ int fsync(int fd);
  * are none on this filesystem. PhysFS and OpenAL Soft both try `/proc/self/exe` to find their own
  * binary, and both fall back when this fails. */
 ssize_t readlink(const char *path, char *buf, size_t size);
+
+/*
+ * **Both always fail, and that is the useful answer.** A payload is one process: there is no second
+ * one for `fork` to produce and no program image for `execvp` to replace it with. Failing is not a
+ * shortfall here, it is the truth, and the callers are written for it - ioquake3's `Sys_Exec` reads
+ * `if (pid < 0) return -1`, which is how it declines to put up the `zenity` error dialog it would
+ * otherwise have spawned.
+ *
+ * `errno` is `ENOSYS`. `fork` returning 0 - the child's answer - is the one thing that must never
+ * happen, because the caller would then run the child branch in the only process there is.
+ */
+pid_t fork(void);
+int execvp(const char *file, char *const argv[]);
+
+/*
+ * **The console's own IP address, in dotted-quad form, or a failure.**
+ *
+ * This platform has no hostname. There is no `/etc/hostname`, no `sysctl kern.hostname` this shim
+ * can reach, and `oops/netctl.h` - which is where the network identity lives - reports an address, a
+ * netmask, a gateway and a MAC, and no name.
+ *
+ * So rather than invent one, this answers with the address, because **the thing a caller does with
+ * the result is hand it to a resolver.** ioquake3's `NET_GetLocalAddress` is the case in point: it
+ * calls `gethostname`, feeds the answer to `getaddrinfo`, and keeps the addresses that come back as
+ * "this machine's". Given the address it gets that right. Given an invented name like "ps5" it would
+ * get `EAI_NONAME` and conclude the machine has no addresses at all.
+ *
+ * The compromise, stated plainly: a caller that *prints* this, or compares it to a configured name,
+ * sees an address where it expected a name. Nothing in this tree does either.
+ *
+ * -1 with `ENOSYS` when `oops_net_ctl_get_info` cannot answer - no network, no address, and no
+ * pretending otherwise. `ENAMETOOLONG` if the buffer is too small, as POSIX says.
+ */
+int gethostname(char *name, size_t len);
 #ifdef __cplusplus
 }
 #endif

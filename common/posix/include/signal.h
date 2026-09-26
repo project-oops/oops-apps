@@ -1,5 +1,6 @@
 /*
- * `signal.h` - the numbers and `raise`, which is all anything here has asked for.
+ * `signal.h` - the numbers, `raise`, a `signal` that is real for faults, and a `kill` that only
+ * answers whether a process exists. Each of those three has its own note below.
  *
  * libtomcrypt's `tomcrypt_argchk.h` includes it to `raise(SIGABRT)` when an argument check fails.
  * That is the only use in the tree, and it is a fatal-error path rather than signal handling.
@@ -22,11 +23,13 @@
 #define OOPS_POSIX_SIGNAL_H
 
 #include <stdlib.h>
+#include <sys/types.h> /* pid_t, for the kill below */
 
 #define SIGHUP   1
 #define SIGINT   2
 #define SIGQUIT  3
 #define SIGILL   4
+#define SIGTRAP  5
 #define SIGABRT  6
 #define SIGFPE   8
 #define SIGKILL  9
@@ -72,6 +75,24 @@ extern "C" {
 
 /* The previous handler, or `SIG_ERR` if this signal cannot be delivered here. See above. */
 sighandler_t signal(int sig, sighandler_t handler);
+
+/*
+ * **`kill` is an existence test and nothing more.**
+ *
+ * `kill(pid, 0)` is POSIX's way to ask "is this process alive" without touching it, and that
+ * question has an exact answer here: there is one process, so `pid` is alive if and only if it is
+ * `getpid()`. This answers it, with `ESRCH` for anything else.
+ *
+ * Any non-zero `sig` fails with `ENOSYS`, because there is no process to send it to but this one and
+ * no delivery mechanism if there were - `signal` above explains which handlers can fire and why
+ * these are not among them.
+ *
+ * The caller that matters: ioquake3 keeps a lock file holding the pid of the running copy, and
+ * `Sys_PIDIsRunning` calls `kill(pid, 0)` to decide whether a lock file left behind by a crash is
+ * stale. Answering `ESRCH` for a pid that is not ours is what lets it take the lock over, which is
+ * the right outcome every time on a machine that runs one payload.
+ */
+int kill(pid_t pid, int sig);
 
 /* Ends the process. Inline so that nothing has to link a definition for a header this thin, and
  * so the `noreturn` is visible to the caller's flow analysis. */

@@ -50,6 +50,7 @@ libkernel listen
 libkernel _listen
 libkernel recv
 libkernel _recv
+libkernel _recvfrom
 libkernel read
 libkernel _read
 libkernel write

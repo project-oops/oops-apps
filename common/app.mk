@@ -593,6 +593,21 @@ TARGET_SYS_SRCS ?= $(filter-out $(PAYLOAD_SRCS), $(wildcard $(CORE_SDK_SRCS)))
 # 20260909-083918). The socket and signal calls joined alongside it on 2026-09-22: `net.c` and
 # signal traps bind them weakly, and `common/symbols.txt` maps them to libkernel.
 #
+# `recvfrom` joined on 2026-09-26, with `net.c`'s weak reference to it - so that a UDP port can be
+# told who sent a datagram, which `oops_recvfrom` could not answer before. `_recvfrom` is now mapped
+# in `common/symbols.txt`; only that spelling, because that is the one obSCEne measured.
+#
+# **Which report to believe was the whole of the work here.** `obscene/build/host-report.txt` says
+# `_recvfrom|absent`, and `obscene/data/obscene-report.txt` says `present`. The first is a host run
+# with no export table to read: it reports all 875 of its symbols absent, including `_bind` and
+# `_sendto`, which are in `symbols.txt` and demonstrably work on the console. The second is the
+# hardware run, and reports all 895 present. An arm that answers "absent" for everything cannot tell
+# you anything about one name.
+#
+# **The guard caught the missing entry on craft's link the moment `net.c` asked for it**, which is
+# the check working - a payload link ignores unresolved symbols, so without this it would have been
+# a jump into nothing at the first datagram.
+#
 # `oops_keyboard_poll_buttons` is the one **first-party** name here, and it is deliberate. `input.c`
 # folds a keyboard's buttons into the pad poll (oops-sdk `REQ-...b4d7`) by a *weak* reference to it,
 # so keyboard.c satisfies it when a title links keyboard.c and it resolves to null (skipped) when a
@@ -600,7 +615,7 @@ TARGET_SYS_SRCS ?= $(filter-out $(PAYLOAD_SRCS), $(wildcard $(CORE_SDK_SRCS)))
 # dragging keyboard.c in - the alternative was every such title carrying keyboard.c by hand, or a
 # hosted title (undef-check off) faulting on the first poll. A title that calls the symbol *itself*
 # still gets a strong reference through `<oops/keyboard.h>`, which this does not exempt.
-UNDEF_ALLOW ?= ^sce[A-Z]|^sysctlbyname$$|^__error$$|^__errno$$|^__sys_socketex$$|^oops_keyboard_poll_buttons$$|^_?(accept|bind|close|connect|listen|recv|sendto|setsockopt|sigaction|sigprocmask)$$
+UNDEF_ALLOW ?= ^sce[A-Z]|^sysctlbyname$$|^__error$$|^__errno$$|^__sys_socketex$$|^oops_keyboard_poll_buttons$$|^_?(accept|bind|close|connect|listen|recv|recvfrom|sendto|setsockopt|sigaction|sigprocmask)$$
 NM ?= nm
 
 # **A hosted title is the case this cannot judge.** `USE_MESA` links against the Mesa sysroot and

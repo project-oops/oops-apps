@@ -263,11 +263,16 @@ include $(OOPS_APPS_ROOT)/common/app.mk
 #
 # One file at a time, `-fsyntax-only`, grouped by the **first** error per file - because one
 # missing header produces a hundred of the rest, and the question is which blockers exist rather
-# than how many errors they cause.
+# than how many errors they cause. Each blocker is printed **with the source that hit it**, so
+# that clearing one does not start with a grep across 130,000 lines to find out where it was.
 #
 # **A clean census is not a working port.** `-fsyntax-only` does not link, and a payload link does
 # not report an unresolved symbol, so a name nothing defines becomes a jump into nothing on the
 # console rather than an error here.
+#
+# `common/posix/posix.c` is checked afterwards and **without `Q3_WARNINGS`**, because those switch
+# off warnings a 1999 codebase was not written for and this shim was written last week. Upstream
+# under upstream's warnings; our own code under ours.
 # ---------------------------------------------------------------------------
 .PHONY: census
 census:
@@ -276,10 +281,26 @@ census:
 	    if $(TARGET_CC) $(TARGET_CFLAGS) $(EXTRA_TARGET_CFLAGS) -fsyntax-only "$$f" \
 	         2>$(BUILD)/census-e.txt; then ok=$$((ok+1)); \
 	    else bad=$$((bad+1)); \
-	        grep -m1 'error:' $(BUILD)/census-e.txt | sed 's|.*error: ||' | cut -c1-70 \
+	        printf '%s: %s\n' "$${f#$(Q3_UP)/}" \
+	          "$$(grep -m1 'error:' $(BUILD)/census-e.txt | sed 's|.*error: ||' | cut -c1-60)" \
 	          >> $(BUILD)/census-errors.txt; \
 	    fi; \
 	 done; \
 	 printf 'q3rally census: %s compile, %s do not\n' "$$ok" "$$bad"; \
-	 if [ "$$bad" -gt 0 ]; then printf '\n-- blockers, most files first --\n'; \
-	    sort $(BUILD)/census-errors.txt | uniq -c | sort -rn | head -20; fi
+	 if [ "$$bad" -gt 0 ]; then printf '\n-- blockers --\n'; \
+	    sort $(BUILD)/census-errors.txt; fi; \
+	 printf '\n-- the shim, under our warnings rather than upstream ones --\n'; \
+	 if $(TARGET_CC) $(TARGET_CFLAGS) $(Q3_CFLAGS) -fsyntax-only $(OOPS_POSIX_SRCS); \
+	   then echo 'common/posix: ok'; else echo 'common/posix: FAILED'; exit 1; fi
+
+# ---------------------------------------------------------------------------
+# `make census-one F=<path>`: every error in one source, not just the first
+#
+# The census above deliberately shows one error per file. Clearing a blocker needs the opposite -
+# the whole set, counted, so that "provide `fd_set`" can be told apart from "provide `fd_set` and
+# the nine other names in the same header". `F` is relative to the upstream tree.
+# ---------------------------------------------------------------------------
+.PHONY: census-one
+census-one:
+	@$(TARGET_CC) $(TARGET_CFLAGS) $(EXTRA_TARGET_CFLAGS) -fsyntax-only $(Q3_UP)/$(F) 2>&1 \
+	  | grep 'error:' | sed 's|.*error: ||' | sort | uniq -c | sort -rn
