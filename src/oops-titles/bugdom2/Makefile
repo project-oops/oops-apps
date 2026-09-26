@@ -121,6 +121,20 @@ include $(OOPS_LIBCXX)/oops-libcxx.mk
 include $(OOPS_LIBCXX)/oops-libunwind.mk
 include $(OOPS_LIBCXX)/oops-libcxxabi.mk
 
+# **`libc++` owns `operator new`, and a title linking the full archive must say so.**
+#
+# `common/cxxrt.cpp` defines `operator new`/`delete` over `oops_malloc`, and `oops-libcxxabi.mk`
+# excludes libc++abi's `stdlib_new_delete.cpp` to match. But `libc++.a` *also* defines them, in its
+# own `__lcxx_override` section, **with a guard in each one asserting that `&operator new` lies
+# inside that section**. `--allow-multiple-definition` lets cxxrt's win, at an address outside
+# `__lcxx_override`, so libc++'s own nothrow `operator new` fails its guard and executes a `ud2`: a
+# privileged-instruction fault at the first libc++ allocation, which for Pomme is before the first
+# frame.
+#
+# OOPSy-daisy found this on hardware on 2026-09-25 and the fix is confirmed there. Allocation still
+# reaches the SDK heap, because libc++'s `operator new` calls `malloc`, which *is* `oops_malloc`.
+EXTRA_TARGET_CFLAGS += -DOOPS_CXX_EXTERNAL_NEW_DELETE
+
 # **The include list is upstream's, transcribed** - `CMakeLists.txt:123-128`. `GL_SILENCE_DEPRECATION`
 # comes from `target_compile_definitions` two blocks down and is harmless here, but it is upstream's
 # flag and upstream's flags are not edited out on a guess.

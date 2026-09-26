@@ -101,6 +101,22 @@ bugdom_start(const payload_args_t *args) {
 
     oops_log_info("BUGD", "entry");
 
+    /*
+     * **The static constructors, which nothing else runs.** `.init_array` is not walked for a plain
+     * C++ payload on this platform, so namespace-scope constructors never execute unless the entry
+     * point asks. This archive has five of them.
+     *
+     * It is worth the comment because of how it fails: most constructors only zero their members,
+     * and `.bss` is already zero, so a title missing every one of them behaves correctly until a
+     * constructor stores something that is *not* zero. Extreme Tux Racer lost 2026-09-24 to exactly
+     * this - `curr_course = -1` stayed 0, a load took its "already loaded" early return, and a
+     * division by a zero course width produced a NaN that walked through two clamps into a page
+     * fault four layers away. `oops/system.h` tells the story at length.
+     *
+     * Idempotent, so calling it here is safe even if a future runtime also does.
+     */
+    oops_run_init_array();
+
     /* Writable, for high scores and preferences; `.config` is the directory Pomme appends to
        `HOME`, and `FindFolder` is called with `kDontCreateFolder`. */
     (void)oops_fs_mkdir(OOPS_POSIX_HOME, 0755);

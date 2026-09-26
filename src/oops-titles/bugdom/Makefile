@@ -124,6 +124,22 @@ include $(OOPS_LIBCXX)/oops-libcxx.mk
 include $(OOPS_LIBCXX)/oops-libunwind.mk
 include $(OOPS_LIBCXX)/oops-libcxxabi.mk
 
+# **`libc++` owns `operator new`, and a title linking the full archive must say so.**
+#
+# `common/cxxrt.cpp` defines `operator new`/`delete` over `oops_malloc`, and `oops-libcxxabi.mk`
+# excludes libc++abi's `stdlib_new_delete.cpp` to match. But `libc++.a` *also* defines them, in its
+# own `__lcxx_override` section, **with a guard in each one asserting that `&operator new` lies
+# inside that section**. `--allow-multiple-definition` - needed for the libc++/libc++abi
+# `std::exception` overlap - lets cxxrt's win, at an address outside `__lcxx_override`, so libc++'s
+# own nothrow `operator new` fails its guard and executes a `ud2`: a privileged-instruction fault at
+# the first libc++ allocation, which for Pomme is before the first frame.
+#
+# OOPSy-daisy found this on hardware on 2026-09-25 and the fix is confirmed there. Allocation still
+# reaches the SDK heap, because libc++'s `operator new` calls `malloc`, which *is* `oops_malloc`
+# (`oops-sdk/src/system/libc.c`). It goes in `EXTRA_TARGET_CFLAGS` because `common/cxx.mk` appends
+# that to `OOPS_CXX_FLAGS`, and `cxxrt.cpp` is compiled by `cxx.mk`.
+EXTRA_TARGET_CFLAGS += -DOOPS_CXX_EXTERNAL_NEW_DELETE
+
 # **The include list is upstream's, transcribed.** `CMakeLists.txt:123` names
 # `extern/Pomme/src`, `extern/Pomme/src/QD3D` and `src/Headers` - and the QD3D one is not
 # redundant: Bugdom's C sources write `#include <QD3D.h>` by bare name, so without it 77 of the 78
