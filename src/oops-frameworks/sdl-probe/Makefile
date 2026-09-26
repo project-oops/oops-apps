@@ -23,7 +23,7 @@ EXTRA_TARGET_LDFLAGS += $(OOPS_SDL_LDFLAGS)
 PAYLOAD_EXTRA_DEPS   += $(OOPS_SDL_LIB)
 
 OOPS_RENDERER = gl1
-OOPS_FEATURES := display input keyboard mouse audio thread draw
+OOPS_FEATURES := display input keyboard mouse audio thread draw dialog
 
 PAYLOAD_SRCS = sdl_probe_main.c
 
