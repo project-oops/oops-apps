@@ -55,7 +55,3 @@ and are not wired to this game's physics.
 - [Porting notes](docs/PORTING.md) - the mirror choice, the platform layer, and the data layout.
 - [oops-titles overview](../README.md)
 - [oops-apps catalog and guide](../../../docs/USER_GUIDE.md)
-
----
-
-<sub>Logo: Tux, from the upstream project's own character art, keyed onto black. Extreme Tux Racer is GPL v2.</sub>

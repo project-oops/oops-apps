@@ -10,7 +10,7 @@ Tilt the floor, not the ball - an open-source arcade balance game, ported to the
 
 Neverball rolls a ball through an obstacle course by tilting the floor, racing the clock and
 collecting coins. It is one of the collection's ported upstream titles, tracked against a pinned
-release.
+release. GPL v2.
 
 - **Pinned to a finished release** - `neverball-1.6.0`, by commit hash rather than tag, so the
   tree a build starts from cannot move underneath it.
@@ -56,7 +56,3 @@ The knobs in `/app0/oops-input` take effect without a rebuild: `tilt-swap`, `til
 
 - [oops-titles overview](../README.md)
 - [oops-apps catalog and guide](../../../docs/USER_GUIDE.md)
-
----
-
-<sub>Logo: the Neverball ball, from the upstream project's own icon, recomposited on black. Neverball is GPL v2.</sub>
