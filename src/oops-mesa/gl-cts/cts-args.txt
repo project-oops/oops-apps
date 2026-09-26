@@ -10,4 +10,4 @@
 #
 # With no file the entry point runs `KHR-GL30.info.*`. `KHR-GL46.info.*` asks the platform for
 # a 4.6 context, so it either runs or reports that the context was refused.
---deqp-case=KHR-GL46.info.*
+--deqp-case=KHR-GL30.info.*

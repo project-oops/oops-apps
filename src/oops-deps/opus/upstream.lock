@@ -1,0 +1,9 @@
+# Opus, read by common/upstream-fetch.sh. The codec Ship of Harkinian decodes its streamed audio
+# with, through opusfile.
+#
+# UPSTREAM_REV must be a full commit hash: a tag can be moved and a branch always is. v1.5.2 is the
+# newest release; upstream names no version, taking whatever the system package manager supplies.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/xiph/opus
+UPSTREAM_REV=5ec2f3c915d0529b94a3a302969c673531654824
+UPSTREAM_REF=v1.5.2

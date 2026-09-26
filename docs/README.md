@@ -61,6 +61,8 @@ link a renderer underneath, but the framework is the point.
 - [seashell](../src/oops-utilities/seashell/README.md) - SeaShell, the unified Prospero homebrew
   shell: system overlay, title launcher, settings, media player, storage and save manager,
   notifications.
+- [porthole-companion](../src/oops-utilities/porthole-companion/README.md) - on-console management
+  dashboard and launcher for the Porthole remote play daemon.
 - [gallery](../src/oops-utilities/gallery/README.md) - visual showcase and capability
   inspector across display, draw, input, audio, net, and media decoding.
 - [pad-viz](../src/oops-utilities/pad-viz/README.md) - controller telemetry visualizer.

@@ -233,8 +233,9 @@ static SDL_GLContext PROSPERO_GL_CreateContext(_THIS, SDL_Window *window) {
     _this->gl_config.accelerated = 1;
 
     /* An ES 2.0 request is a request for the programmable pipeline, which oops-gl
-     * enables at version 2.0. Desktop requests keep oops-gl's default: SDL's own default
-     * is 2.1, so honouring it would move every fixed-function title onto the 2.x badge. */
+     * enables at version 2.0. Desktop requests keep oops-gl's default: SDL's own
+     * default is 2.1, so honouring it would move every fixed-function title onto
+     * the 2.x badge. */
     if (_this->gl_config.profile_mask == SDL_GL_CONTEXT_PROFILE_ES &&
         _this->gl_config.major_version >= 2) {
         if (!glContextSetVersion(2, 0)) {

@@ -107,7 +107,11 @@ include $(OOPS_GFXD)/oops-libgfxd.mk
 # `Companion.h`, which the resource types name directly.
 # The port's own trees are on the path by name, not just their root: sources include `math_util.h`
 # and `actors.h` bare, which upstream gets from its per-directory target_include_directories.
-SPGK_INCLUDE := $(OOPS_TOMLPP_INCLUDE) $(OOPS_SEMVER_INCLUDE) $(OOPS_JSON_INCLUDE) \
+# `$(OOPS_POSIX_INCLUDE)` first: both it and `oops-deps/sdl2/include` carry a `unistd.h`, and SDL's
+# declares only `_exit`. spdlog's `os-inl.h` needs the shim's `getpid`, which 60 sources reached
+# through it.
+SPGK_INCLUDE := $(OOPS_POSIX_INCLUDE) \
+                $(OOPS_TOMLPP_INCLUDE) $(OOPS_SEMVER_INCLUDE) $(OOPS_JSON_INCLUDE) \
                 $(OOPS_LIBZIP_INCLUDE) $(OOPS_THREADPOOL_INCLUDE) $(OOPS_SDL_INCLUDE) \
                 $(OOPS_SPDLOG_INCLUDE) $(OOPS_TINYXML2_INCLUDE) $(OOPS_PRISM_INCLUDE) \
                 $(OOPS_STB_INCLUDE) $(OOPS_IMGUI_INCLUDE) $(OOPS_STORMLIB_INCLUDE) \
@@ -115,6 +119,7 @@ SPGK_INCLUDE := $(OOPS_TOMLPP_INCLUDE) $(OOPS_SEMVER_INCLUDE) $(OOPS_JSON_INCLUD
                 -Ishim/include \
                 -I$(SPGK_UP) -I$(SPGK_UP)/include -I$(SPGK_UP)/src \
                 -I$(SPGK_UP)/src/racing -I$(SPGK_UP)/src/engine -I$(SPGK_UP)/src/port \
+                -I$(SPGK_UP)/src/data -I$(SPGK_UP)/src/ending -I$(SPGK_UP)/include/assets \
                 -I$(SPGK_LUS)/include -I$(SPGK_LUS)/include/libultraship \
                 -I$(SPGK_LUS)/src -I$(SPGK_UP)/torch/src \
                 -DOOPS_POSIX_HOME=\"/data/spaghetti-kart\" \
@@ -133,7 +138,13 @@ SPGK_WARNINGS := -Wno-strict-prototypes -Wno-missing-prototypes -Wno-conversion 
                  -Wno-unused-variable -Wno-multichar \
                  -Wno-macro-redefined -Wno-missing-braces -Wno-missing-declarations \
                  -Wno-unused-but-set-parameter -Wno-incompatible-pointer-types \
-                 -Wno-return-type -Wno-unknown-pragmas
+                 -Wno-return-type -Wno-unknown-pragmas \
+                 -Wno-tautological-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast \
+                 -Wno-format -Wno-self-assign -Wno-compare-distinct-pointer-types \
+                 -Wno-return-stack-address -Wno-int-conversion \
+                 -Wno-deprecated-non-prototype -Wno-logical-op-parentheses \
+                 -Wno-extra-tokens -Wno-braced-scalar-init \
+                 -w
 
 EXTRA_TARGET_CFLAGS += $(SPGK_INCLUDE) $(SPGK_WARNINGS)
 

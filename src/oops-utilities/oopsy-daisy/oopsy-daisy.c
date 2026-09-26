@@ -71,6 +71,35 @@ static unsigned parse_size_before(const char *json, const char *before) {
     return v;
 }
 
+/* The asset's own API URL - the "url" value that ends in `/releases/assets/<id>` - which precedes
+ * `before` (the asset's browser_download_url) in the same object. We download through this rather
+ * than the browser_download_url: browser_download_url points at github.com, whose TLS handshake the
+ * console refuses, while the API host (api.github.com) is the same one the catalogue is fetched from
+ * and works. Both 302-redirect to the same asset CDN. The marker `/releases/assets/` is unique to
+ * this field (the release's assets_url reads `/releases/<id>/assets`, and uploader URLs are
+ * `/users/...`), so the last one before `before` is this asset's. Returns 1 and fills `out`. */
+static int find_asset_url_before(const char *json, const char *before, char *out, unsigned out_cap) {
+    const char *MARK = "/releases/assets/";
+    unsigned ml = (unsigned)obs_strlen(MARK);
+    const char *hit = 0;
+    for (const char *q = json; q + ml <= before; q++) {
+        unsigned i = 0;
+        while (i < ml && q[i] == MARK[i]) i++;
+        if (i == ml) hit = q;   /* keep the last match before `before` */
+    }
+    if (!hit) return 0;
+    const char *vs = hit;                         /* value start: after the opening quote */
+    while (vs > json && vs[-1] != '"') vs--;
+    const char *ve = hit;                         /* value end: at the closing quote */
+    while (*ve && *ve != '"') ve++;
+    if (*ve != '"') return 0;
+    unsigned len = (unsigned)(ve - vs);
+    if (len == 0 || len >= out_cap) return 0;
+    for (unsigned i = 0; i < len; i++) out[i] = vs[i];
+    out[len] = '\0';
+    return 1;
+}
+
 int oopsy_parse_catalog(const char *json, oopsy_catalog_t *cat) {
     cat->count = 0;
     if (!json) return 0;
@@ -114,10 +143,14 @@ int oopsy_parse_catalog(const char *json, oopsy_catalog_t *cat) {
         for (unsigned i = 0; i < nl; i++) e->name[i] = fn[i];
         e->name[nl] = '\0';
 
-        unsigned ul = len;
-        if (ul >= sizeof(e->url)) ul = (unsigned)sizeof(e->url) - 1;
-        for (unsigned i = 0; i < ul; i++) e->url[i] = start[i];
-        e->url[ul] = '\0';
+        /* Download through the asset's API URL, not the browser_download_url on github.com. Fall
+         * back to the browser_download_url only if the API URL is somehow absent. */
+        if (!find_asset_url_before(json, mp, e->url, (unsigned)sizeof(e->url))) {
+            unsigned ul = len;
+            if (ul >= sizeof(e->url)) ul = (unsigned)sizeof(e->url) - 1;
+            for (unsigned i = 0; i < ul; i++) e->url[i] = start[i];
+            e->url[ul] = '\0';
+        }
 
         e->size = parse_size_before(json, mp);
 

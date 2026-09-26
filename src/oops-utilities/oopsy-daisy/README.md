@@ -4,7 +4,7 @@
   <img src="assets/logo.svg" alt="OOPSy-DAISY" width="200">
 </p>
 
-**D**ownload **A**rtificial **I**ntelligence **S**lop **Y**ourself.
+**OOPSy-DAISY**: **D**ownload **A**rtificial **I**ntelligence **S**lop **Y**ourself.
 
 Browse the oops-apps catalogue and install homebrew **on the console itself** — pick a title,
 and OOPSy-DAISY downloads and unpacks it into the homebrew folder. No PC, no staging tool, no

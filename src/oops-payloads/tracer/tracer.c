@@ -31,10 +31,12 @@ static char s_trace_path[64] = "/data/trace.bin";
 #include "hook.h"
 #include "shader_dump.h"
 #include "tracer.h"
+#include "hook_defs.gen.h"
 
-#define TRACER_MAX_RECS 8192u
-#define TRACER_SAMPLER_CAP 512u
+#define TRACER_MAX_RECS 131072u
+#define TRACER_SAMPLER_CAP 2048u
 #define TRACER_FLUSH_INTERVAL 60u
+#define TRACER_FLUSH_THRESHOLD 32768u
 
 typedef struct {
     uint64_t gpu_addr;
@@ -67,6 +69,103 @@ tracer_hook_t g_hook_sysmodule_load = {0};
 tracer_hook_t g_hook_alloc_direct_mem = {0};
 tracer_hook_t g_hook_map_direct_mem = {0};
 
+static tracer_entry_hook_t s_hooks[TRACER_MAX_HOOKS];
+static uint32_t s_num_hooks = 0;
+
+static volatile uint64_t s_active_tids[32] = {0};
+
+static int enter_thread_guard(uint64_t tid) {
+    if (tid == 0) {
+        return 1;
+    }
+    for (int i = 0; i < 32; i++) {
+        if (s_active_tids[i] == tid) {
+            return 0;
+        }
+    }
+    for (int i = 0; i < 32; i++) {
+        if (s_active_tids[i] == 0) {
+            s_active_tids[i] = tid;
+            return 1;
+        }
+    }
+    return 1;
+}
+
+static void exit_thread_guard(uint64_t tid) {
+    if (tid == 0) {
+        return;
+    }
+    for (int i = 0; i < 32; i++) {
+        if (s_active_tids[i] == tid) {
+            s_active_tids[i] = 0;
+            return;
+        }
+    }
+}
+
+static void dummy_nop_fn(void) {}
+
+#if !defined(OOPS_HOST_BUILD)
+static uint64_t (*s_p_scePthreadSelf)(void) = NULL;
+#endif
+
+static uint16_t get_current_tid(void) {
+#if !defined(OOPS_HOST_BUILD)
+    if (s_p_scePthreadSelf != NULL) {
+        uint64_t h = s_p_scePthreadSelf();
+        return (uint16_t)((h ^ (h >> 16)) & 0xFFFF);
+    }
+    long tid = 0;
+    long rc = sys_call(432 /* SYS_thr_self */, (long)&tid, 0, 0, 0, 0, 0);
+    if (rc == 0 && tid != 0) {
+        return (uint16_t)(tid & 0xFFFF);
+    }
+#endif
+    return 1;
+}
+
+uint64_t tracer_pre_dispatch(uint32_t hook_idx, const uint64_t *args,
+                             uint64_t from_addr, void **out_real_fn) {
+    (void)from_addr;
+    if (hook_idx >= s_num_hooks) {
+        *out_real_fn = (void *)dummy_nop_fn;
+        return 0;
+    }
+    *out_real_fn = s_hooks[hook_idx].real_fn;
+    if (*out_real_fn == NULL) {
+        *out_real_fn = (void *)dummy_nop_fn;
+    }
+
+    uint16_t tid = get_current_tid();
+    if (!enter_thread_guard((uint64_t)tid)) {
+        return 0;
+    }
+
+    uint32_t seq = __sync_fetch_and_add(&s_tracer_seq, 1);
+    tracer_record_entry(tid, seq, s_hooks[hook_idx].nid, args, 6);
+    exit_thread_guard((uint64_t)tid);
+    return seq;
+}
+
+void tracer_post_dispatch(uint32_t hook_idx, uint64_t seq, uint64_t ret_val) {
+    if (hook_idx >= s_num_hooks || seq == 0) {
+        return;
+    }
+    uint16_t tid = get_current_tid();
+    if (!enter_thread_guard((uint64_t)tid)) {
+        return;
+    }
+
+    tracer_record_exit(tid, (uint32_t)seq, s_hooks[hook_idx].nid, ret_val);
+
+    if (s_buf.head >= TRACER_FLUSH_THRESHOLD) {
+        (void)tracer_flush_to_file(s_trace_path);
+    }
+
+    exit_thread_guard((uint64_t)tid);
+}
+
 /* Weak reference to runtime dynamic linker on Prospero */
 #if !defined(OOPS_HOST_BUILD)
 static const obs_kexport_table_t *s_kexport_table = NULL;
@@ -81,7 +180,7 @@ void tracer_init(struct obs_trace_rec *storage, uint32_t cap) {
         obs_trace_buf_init(&s_buf, s_recs, TRACER_MAX_RECS);
     }
     obs_trace_sampler_init(&s_sampler, s_sampler_nids, s_sampler_counts,
-                           TRACER_SAMPLER_CAP, OBS_TRACE_CAP);
+                           TRACER_SAMPLER_CAP, 0xFFFFFFFFu);
     s_initialized = 1;
 }
 
@@ -198,17 +297,19 @@ static int hook_sceVideoOutSubmitFlip(int handle, int buffer_index, int flip_mod
 }
 
 /* Interceptor for sceKernelAprResolveFilepathsToIdsAndFileSizes */
-int hook_sceKernelAprResolveFilepathsToIdsAndFileSizes(
-    const char **paths, uint32_t count, uint32_t *ids, uint64_t *sizes,
-    uint32_t *statuses, void *arg5) {
+int hook_sceKernelAprResolveFilepathsToIdsAndFileSizes(const char **paths,
+                                                       uint32_t count, uint32_t *ids,
+                                                       uint64_t *sizes,
+                                                       uint32_t *statuses, void *arg5) {
     uint32_t seq = s_tracer_seq++;
     uint64_t entry_args[3] = {(uint64_t)(uintptr_t)paths, (uint64_t)count,
                               (uint64_t)(uintptr_t)ids};
     tracer_record_entry(0, seq, 0x4150525245530000ULL, entry_args, 3);
 
-    int (*real_apr)(const char **, uint32_t, uint32_t *, uint64_t *, uint32_t *, void *) =
-        (int (*)(const char **, uint32_t, uint32_t *, uint64_t *, uint32_t *, void *))
-            g_hook_apr_resolve.trampoline;
+    int (*real_apr)(const char **, uint32_t, uint32_t *, uint64_t *, uint32_t *,
+                    void *) =
+        (int (*)(const char **, uint32_t, uint32_t *, uint64_t *, uint32_t *,
+                 void *))g_hook_apr_resolve.trampoline;
     int rc = real_apr ? real_apr(paths, count, ids, sizes, statuses, arg5) : -1;
 
     tracer_record_exit(0, seq, 0x4150525245530000ULL, (uint64_t)(int64_t)rc);
@@ -232,8 +333,7 @@ int hook_sceKernelMapperGetParam(void *param_buf) {
     uint64_t entry_args[1] = {(uint64_t)(uintptr_t)param_buf};
     tracer_record_entry(0, seq, 0x4d41505045520000ULL, entry_args, 1);
 
-    int (*real_mapper)(void *) =
-        (int (*)(void *))g_hook_mapper_param.trampoline;
+    int (*real_mapper)(void *) = (int (*)(void *))g_hook_mapper_param.trampoline;
     int rc = real_mapper ? real_mapper(param_buf) : -1;
 
     tracer_record_exit(0, seq, 0x4d41505045520000ULL, (uint64_t)(int64_t)rc);
@@ -268,8 +368,7 @@ int hook_posix_open(const char *path, int flags, int mode) {
 
 /* Interceptors for file closing */
 int hook_sceKernelClose(int fd) {
-    int (*real_close)(int) =
-        (int (*)(int))g_hook_sce_close.trampoline;
+    int (*real_close)(int) = (int (*)(int))g_hook_sce_close.trampoline;
     int rc = real_close ? real_close(fd) : -1;
 
     uint32_t seq = s_tracer_seq++;
@@ -280,8 +379,7 @@ int hook_sceKernelClose(int fd) {
 }
 
 int hook_posix_close(int fd) {
-    int (*real_close)(int) =
-        (int (*)(int))g_hook_posix_close.trampoline;
+    int (*real_close)(int) = (int (*)(int))g_hook_posix_close.trampoline;
     int rc = real_close ? real_close(fd) : -1;
 
     uint32_t seq = s_tracer_seq++;
@@ -293,8 +391,7 @@ int hook_posix_close(int fd) {
 
 /* Interceptors for file stat */
 int hook_sceKernelFstat(int fd, void *sb) {
-    int (*real_fstat)(int, void *) =
-        (int (*)(int, void *))g_hook_sce_fstat.trampoline;
+    int (*real_fstat)(int, void *) = (int (*)(int, void *))g_hook_sce_fstat.trampoline;
     int rc = real_fstat ? real_fstat(fd, sb) : -1;
 
     if (rc == 0 && sb != NULL) {
@@ -328,8 +425,7 @@ int hook_sceSysmoduleLoadModule(uint16_t id) {
     uint64_t args[1] = {(uint64_t)id};
     tracer_record_entry(0, seq, 0x5359534d4f440000ULL, args, 1);
 
-    int (*real_fn)(uint16_t) =
-        (int (*)(uint16_t))g_hook_sysmodule_load.trampoline;
+    int (*real_fn)(uint16_t) = (int (*)(uint16_t))g_hook_sysmodule_load.trampoline;
     int rc = real_fn ? real_fn(id) : -1;
 
     tracer_record_exit(0, seq, 0x5359534d4f440000ULL, (uint64_t)(int64_t)rc);
@@ -338,16 +434,18 @@ int hook_sceSysmoduleLoadModule(uint16_t id) {
 
 /* Interceptors for direct memory */
 int hook_sceKernelAllocateDirectMemory(int64_t search_low, int64_t search_high,
-                                      size_t len, size_t alignment,
-                                      int mem_type, int64_t *phys_out) {
+                                       size_t len, size_t alignment, int mem_type,
+                                       int64_t *phys_out) {
     uint32_t seq = s_tracer_seq++;
     uint64_t args[3] = {(uint64_t)len, (uint64_t)alignment, (uint64_t)mem_type};
     tracer_record_entry(0, seq, 0x444952414c4c4f43ULL, args, 3);
 
     int (*real_fn)(int64_t, int64_t, size_t, size_t, int, int64_t *) =
-        (int (*)(int64_t, int64_t, size_t, size_t, int, int64_t *))
-            g_hook_alloc_direct_mem.trampoline;
-    int rc = real_fn ? real_fn(search_low, search_high, len, alignment, mem_type, phys_out) : -1;
+        (int (*)(int64_t, int64_t, size_t, size_t, int,
+                 int64_t *))g_hook_alloc_direct_mem.trampoline;
+    int rc = real_fn
+                 ? real_fn(search_low, search_high, len, alignment, mem_type, phys_out)
+                 : -1;
 
     tracer_record_exit(0, seq, 0x444952414c4c4f43ULL, (uint64_t)(int64_t)rc);
     if (rc == 0 && phys_out != NULL) {
@@ -357,16 +455,15 @@ int hook_sceKernelAllocateDirectMemory(int64_t search_low, int64_t search_high,
     return rc;
 }
 
-int hook_sceKernelMapDirectMemory(void **addr_out, size_t len, int prot,
-                                 int flags, int64_t direct_mem,
-                                 size_t alignment) {
+int hook_sceKernelMapDirectMemory(void **addr_out, size_t len, int prot, int flags,
+                                  int64_t direct_mem, size_t alignment) {
     uint32_t seq = s_tracer_seq++;
-    uint64_t args[4] = {(uint64_t)len, (uint64_t)prot, (uint64_t)flags, (uint64_t)direct_mem};
+    uint64_t args[4] = {(uint64_t)len, (uint64_t)prot, (uint64_t)flags,
+                        (uint64_t)direct_mem};
     tracer_record_entry(0, seq, 0x4449524d41500000ULL, args, 4);
 
-    int (*real_fn)(void **, size_t, int, int, int64_t, size_t) =
-        (int (*)(void **, size_t, int, int, int64_t, size_t))
-            g_hook_map_direct_mem.trampoline;
+    int (*real_fn)(void **, size_t, int, int, int64_t, size_t) = (int (*)(
+        void **, size_t, int, int, int64_t, size_t))g_hook_map_direct_mem.trampoline;
     int rc = real_fn ? real_fn(addr_out, len, prot, flags, direct_mem, alignment) : -1;
 
     tracer_record_exit(0, seq, 0x4449524d41500000ULL, (uint64_t)(int64_t)rc);
@@ -396,8 +493,9 @@ int tracer_install_symbols(const tracer_symbols_t *syms) {
                                   (void *)hook_sceVideoOutSubmitFlip, 16);
     }
     if (syms->p_apr_resolve != NULL) {
-        (void)tracer_hook_install(&g_hook_apr_resolve, syms->p_apr_resolve,
-                                  (void *)hook_sceKernelAprResolveFilepathsToIdsAndFileSizes, 16);
+        (void)tracer_hook_install(
+            &g_hook_apr_resolve, syms->p_apr_resolve,
+            (void *)hook_sceKernelAprResolveFilepathsToIdsAndFileSizes, 16);
     }
     if (syms->p_mapper_param != NULL) {
         (void)tracer_hook_install(&g_hook_mapper_param, syms->p_mapper_param,
@@ -453,21 +551,17 @@ int tracer_install_hooks(void *p_create_shader, void *p_submit_dcb,
 }
 
 void tracer_uninstall_hooks(void) {
+    for (uint32_t i = 0; i < s_num_hooks; i++) {
+        if (s_hooks[i].detour.installed) {
+            (void)tracer_hook_uninstall(&s_hooks[i].detour);
+        }
+    }
     tracer_hook_t *all_hooks[] = {
-        &g_hook_agc_create_shader,
-        &g_hook_agc_submit_dcb,
-        &g_hook_video_out_flip,
-        &g_hook_apr_resolve,
-        &g_hook_mapper_param,
-        &g_hook_sce_open,
-        &g_hook_posix_open,
-        &g_hook_sce_close,
-        &g_hook_posix_close,
-        &g_hook_sce_fstat,
-        &g_hook_posix_fstat,
-        &g_hook_sysmodule_load,
-        &g_hook_alloc_direct_mem,
-        &g_hook_map_direct_mem,
+        &g_hook_agc_create_shader, &g_hook_agc_submit_dcb, &g_hook_video_out_flip,
+        &g_hook_apr_resolve,       &g_hook_mapper_param,   &g_hook_sce_open,
+        &g_hook_posix_open,        &g_hook_sce_close,      &g_hook_posix_close,
+        &g_hook_sce_fstat,         &g_hook_posix_fstat,    &g_hook_sysmodule_load,
+        &g_hook_alloc_direct_mem,  &g_hook_map_direct_mem,
     };
     for (size_t i = 0; i < sizeof(all_hooks) / sizeof(all_hooks[0]); i++) {
         if (all_hooks[i]->installed) {
@@ -477,6 +571,27 @@ void tracer_uninstall_hooks(void) {
 }
 
 #if !defined(OOPS_HOST_BUILD)
+static int read_file_from_disk(const char *path, uint8_t *buffer, size_t max_size,
+                               size_t *out_size) {
+    int fd = oops_fs_open(path, OOPS_O_RDONLY, 0);
+    if (fd < 0) {
+        return -1;
+    }
+    size_t total = 0;
+    while (total < max_size) {
+        long n = oops_fs_read(fd, buffer + total, max_size - total);
+        if (n <= 0) {
+            break;
+        }
+        total += (size_t)n;
+    }
+    oops_fs_close(fd);
+    if (out_size != NULL) {
+        *out_size = total;
+    }
+    return (total > 0) ? 0 : -1;
+}
+
 static void *resolve_symbol(const char *nid_str, const char *name_str) {
     void *addr = NULL;
     char computed_nid[16];
@@ -508,8 +623,8 @@ static void *resolve_symbol(const char *nid_str, const char *name_str) {
             addr != NULL) {
             return addr;
         }
-        if (computed_nid[1] != '\0' &&
-            sceKernelDlsym(1, computed_nid, &addr) == 0 && addr != NULL) {
+        if (computed_nid[1] != '\0' && sceKernelDlsym(1, computed_nid, &addr) == 0 &&
+            addr != NULL) {
             return addr;
         }
         /* 3. Try handle 2 (main executable) */
@@ -541,6 +656,58 @@ static void *resolve_symbol(const char *nid_str, const char *name_str) {
 
     return NULL;
 }
+
+static int is_already_hooked(const void *addr) {
+    if (addr == NULL) {
+        return 1;
+    }
+    if (g_hook_agc_create_shader.target_fn == addr ||
+        g_hook_agc_submit_dcb.target_fn == addr ||
+        g_hook_video_out_flip.target_fn == addr ||
+        g_hook_apr_resolve.target_fn == addr || g_hook_mapper_param.target_fn == addr ||
+        g_hook_sce_open.target_fn == addr || g_hook_posix_open.target_fn == addr ||
+        g_hook_sce_close.target_fn == addr || g_hook_posix_close.target_fn == addr ||
+        g_hook_sce_fstat.target_fn == addr || g_hook_posix_fstat.target_fn == addr ||
+        g_hook_sysmodule_load.target_fn == addr ||
+        g_hook_alloc_direct_mem.target_fn == addr ||
+        g_hook_map_direct_mem.target_fn == addr) {
+        return 1;
+    }
+    for (uint32_t i = 0; i < s_num_hooks; i++) {
+        if (s_hooks[i].target_fn == addr) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int tracer_install_platform_hooks(void) {
+    (void)tracer_hook_subsystem_init();
+    if (s_p_scePthreadSelf == NULL) {
+        s_p_scePthreadSelf = (uint64_t (*)(void))resolve_symbol(NULL, "scePthreadSelf");
+    }
+
+    uint32_t installed = 0;
+    for (uint32_t i = 0; i < TRACER_NUM_HOOK_DEFS && s_num_hooks < TRACER_MAX_HOOKS;
+         i++) {
+        const tracer_hook_def_t *def = &s_hook_defs[i];
+        void *addr = resolve_symbol(NULL, def->name);
+        if (addr != NULL && !is_already_hooked(addr)) {
+            uint32_t idx = s_num_hooks;
+            s_hooks[idx].target_fn = addr;
+            s_hooks[idx].nid = def->nid;
+            s_hooks[idx].name = def->name;
+            void *thunk = (void *)(tracer_thunk_pool + (idx * 16));
+            if (tracer_hook_install(&s_hooks[idx].detour, addr, thunk, 16) == 0) {
+                s_hooks[idx].real_fn = s_hooks[idx].detour.trampoline;
+                obs_trace_name(&s_buf, def->nid, def->name);
+                s_num_hooks++;
+                installed++;
+            }
+        }
+    }
+    return (int)installed;
+}
 #endif
 
 /* Standalone / injected entry point */
@@ -551,23 +718,47 @@ int tracer_start(payload_args_t *args) {
     if (args != NULL) {
         sys_call_init(args);
         (void)krw_init(args);
+        (void)krw_elevate_current_process();
         if (args->kexport_table != NULL) {
             s_kexport_table = (const obs_kexport_table_t *)args->kexport_table;
         }
     }
     pid_t my_pid = (pid_t)sys_call(SYS_getpid, 0, 0, 0, 0, 0, 0);
     char title_id[32] = {0};
-    if (target_get_title_id(my_pid, title_id, sizeof(title_id)) > 0 && title_id[0] != '\0') {
-        size_t tlen = 0;
-        while (title_id[tlen] != '\0' && tlen < 20) {
-            tlen++;
+    int has_title = target_get_title_id(my_pid, title_id, sizeof(title_id));
+    if (has_title <= 0 || title_id[0] == '\0') {
+        TRACER_LOG(
+            "tracer: running outside retail app; discovering foreground target...");
+        pid_t target_pid = target_resolve(NULL);
+        if (target_pid <= 0) {
+            TRACER_LOG("tracer: no foreground retail game process found");
+            return -1;
         }
-        if (tlen > 0) {
-            char path[64] = "/data/trace-";
-            memcpy(path + 12, title_id, tlen);
-            memcpy(path + 12 + tlen, ".bin", 5);
-            memcpy(s_trace_path, path, sizeof(s_trace_path));
+        static uint8_t s_staging[0x300000];
+        size_t psize = 0;
+        if (read_file_from_disk("/data/tracer.elf", s_staging, sizeof(s_staging),
+                                &psize) == 0 ||
+            read_file_from_disk("/data/tracer-prospero.elf", s_staging,
+                                sizeof(s_staging), &psize) == 0) {
+            TRACER_LOG("tracer: injecting into target process...");
+            int ret = oops_inject_elf(target_pid, s_staging, psize, args);
+            krw_restore_current_process();
+            return ret;
+        } else {
+            TRACER_LOG("tracer: /data/tracer.elf not found on disk");
+            krw_restore_current_process();
+            return -2;
         }
+    }
+    size_t tlen = 0;
+    while (title_id[tlen] != '\0' && tlen < 20) {
+        tlen++;
+    }
+    if (tlen > 0) {
+        char path[64] = "/data/trace-";
+        memcpy(path + 12, title_id, tlen);
+        memcpy(path + 12 + tlen, ".bin", 5);
+        memcpy(s_trace_path, path, sizeof(s_trace_path));
     }
 #else
     (void)args;
@@ -593,7 +784,8 @@ int tracer_start(payload_args_t *args) {
     syms.p_create_shader = resolve_symbol("$f3dg2CSgRKY", "sceAgcCreateShader");
     syms.p_submit_dcb = resolve_symbol("$UglJIZjGssM", "sceAgcDriverSubmitDcb");
     syms.p_submit_flip = resolve_symbol("$CdWp0oHWGr0", "sceVideoOutSubmitFlip");
-    syms.p_apr_resolve = resolve_symbol(NULL, "sceKernelAprResolveFilepathsToIdsAndFileSizes");
+    syms.p_apr_resolve =
+        resolve_symbol(NULL, "sceKernelAprResolveFilepathsToIdsAndFileSizes");
     if (syms.p_apr_resolve == NULL) {
         syms.p_apr_resolve = resolve_symbol(NULL, "sceKernelAprResolveFilepathsToIds");
     }
@@ -613,6 +805,11 @@ int tracer_start(payload_args_t *args) {
 
     tracer_install_symbols(&syms);
     TRACER_LOG("tracer: installed available telemetry and I/O hooks");
+
+    int n_plat = tracer_install_platform_hooks();
+    char msg[64];
+    oops_snprintf(msg, sizeof(msg), "tracer: installed %d platform hooks", n_plat);
+    TRACER_LOG(msg);
 #endif
 
     TRACER_LOG("tracer: initialized successfully");

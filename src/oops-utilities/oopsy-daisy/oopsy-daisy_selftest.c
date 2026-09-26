@@ -36,13 +36,18 @@ static int fail(const char *what) {
  * be ignored, and a url with a slash in the path to check basename handling. */
 static const char *SAMPLE =
     "{\"tag_name\":\"latest-main\",\"assets\":[\n"
-    "{\"name\":\"neverball-title-prospero.zip\",\"size\":123,"
+    "{\"url\":\"https://api.github.com/repos/project-oops/oops-apps/releases/assets/111\","
+    "\"name\":\"neverball-title-prospero.zip\",\"size\":123,"
+    "\"uploader\":{\"url\":\"https://api.github.com/users/legboots\"},"
     "\"browser_download_url\":\"https://github.com/project-oops/oops-apps/releases/download/latest-main/neverball-title-prospero.zip\"},\n"
-    "{\"name\":\"gl1-cube-prospero.elf\",\"size\":9,"
+    "{\"url\":\"https://api.github.com/repos/project-oops/oops-apps/releases/assets/222\","
+    "\"name\":\"gl1-cube-prospero.elf\",\"size\":9,"
     "\"browser_download_url\":\"https://github.com/project-oops/oops-apps/releases/download/latest-main/gl1-cube-prospero.elf\"},\n"
-    "{\"name\":\"gl1-cube-eboot-prospero.bin\",\"size\":9,"
+    "{\"url\":\"https://api.github.com/repos/project-oops/oops-apps/releases/assets/333\","
+    "\"name\":\"gl1-cube-eboot-prospero.bin\",\"size\":9,"
     "\"browser_download_url\":\"https://github.com/project-oops/oops-apps/releases/download/latest-main/gl1-cube-eboot-prospero.bin\"},\n"
-    "{\"name\":\"gl1-cube-title-prospero.zip\",\"size\":9,"
+    "{\"url\":\"https://api.github.com/repos/project-oops/oops-apps/releases/assets/444\","
+    "\"name\":\"gl1-cube-title-prospero.zip\",\"size\":9,"
     "\"browser_download_url\":\"https://github.com/project-oops/oops-apps/releases/download/latest-main/gl1-cube-title-prospero.zip\"}\n"
     "]}";
 
@@ -53,8 +58,10 @@ int main(void) {
     if (n != 2) return fail("expected 2 title zips");
     if (strcmp(cat.items[0].name, "neverball") != 0) return fail("first name");
     if (strcmp(cat.items[1].name, "gl1-cube") != 0) return fail("second name");
+    /* The download URL is the asset's API URL (not the browser_download_url, and not the uploader's
+     * URL that sits in the same object). */
     if (strcmp(cat.items[0].url,
-               "https://github.com/project-oops/oops-apps/releases/download/latest-main/neverball-title-prospero.zip") != 0)
+               "https://api.github.com/repos/project-oops/oops-apps/releases/assets/111") != 0)
         return fail("first url");
     if (cat.items[0].size != 123) return fail("first size");
     if (cat.items[1].size != 9)   return fail("second size");
@@ -123,12 +130,17 @@ int main(void) {
     if (!strstr(qjs, "\"state\":\"failed\",\"pct\":0,\"error\":\"Unpack failed.\""))
         return fail("queue json failed row");
 
-    /* the page: it is present, wired to the bridge, and litehtml-friendly (flex, never CSS grid) */
+    /* the page: present, wired to all four bridges (catalogue + the site's apps.json + install),
+     * driven by the controller (nav/enter), and an inline-block grid - litehtml has no CSS grid and
+     * gives table cells zero height, so inline-block is the layout that renders. */
     if (!strstr(oopsy_page_html, "__oopsy_catalog")) return fail("page missing catalog bridge");
     if (!strstr(oopsy_page_html, "__oopsy_queue"))   return fail("page missing queue bridge");
-    if (!strstr(oopsy_page_html, "oopsySelect"))     return fail("page missing select hook");
+    if (!strstr(oopsy_page_html, "__oopsy_meta"))    return fail("page missing meta bridge");
+    if (!strstr(oopsy_page_html, "__oopsy_install")) return fail("page missing install bridge");
+    if (!strstr(oopsy_page_html, "oopsyNav"))        return fail("page missing nav hook");
+    if (!strstr(oopsy_page_html, "oopsyEnter"))      return fail("page missing enter hook");
     if (!strstr(oopsy_page_html, "oopsyRefresh"))    return fail("page missing refresh hook");
-    if (!strstr(oopsy_page_html, "display:flex"))    return fail("page not using flex");
+    if (!strstr(oopsy_page_html, "display:inline-block")) return fail("page not using an inline-block grid");
     if (strstr(oopsy_page_html, "display:grid") || strstr(oopsy_page_html, "display: grid"))
         return fail("page uses CSS grid (litehtml cannot lay it out)");
 

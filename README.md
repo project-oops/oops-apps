@@ -13,6 +13,13 @@ games put the same toolchain through third-party code.
 - [The oops-apps index](https://project-oops.github.io/oops-apps/) - every app, built from
   `main`, with screenshots and downloads.
 
+<table>
+<tr>
+<td width="96" align="center"><a href="https://project-oops.github.io/oops-apps/#OOPSy-DAISY"><img src="src/oops-utilities/oopsy-daisy/assets/logo.svg" alt="OOPSy-DAISY" width="72"></a></td>
+<td>📥 <strong>On the console:</strong> browse and install these apps straight onto your device with <a href="https://project-oops.github.io/oops-apps/#OOPSy-DAISY"><strong>OOPSy-DAISY</strong></a> - no PC needed.</td>
+</tr>
+</table>
+
 ## Role in the loop
 
 Within the [OOPS ecosystem](../docs/THE_LOOP.md), `oops-apps` is the **Known Ground-Truth Testbed**:

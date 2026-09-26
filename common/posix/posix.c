@@ -2216,3 +2216,11 @@ __attribute__((weak)) void bcopy(const void *src, void *dst, size_t n) {
 __attribute__((weak)) void bzero(void *dst, size_t n) {
     if (dst && n) memset(dst, 0, n);
 }
+
+/* The third of the set. Unlike `memcmp` it only answers whether the two runs differ, so the sign
+ * of the difference is deliberately not promised. */
+__attribute__((weak)) int bcmp(const void *a, const void *b, size_t n) {
+    if (!n) return 0;
+    if (!a || !b) return a == b ? 0 : 1;
+    return memcmp(a, b, n) != 0;
+}

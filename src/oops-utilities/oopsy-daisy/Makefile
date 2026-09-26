@@ -64,6 +64,17 @@ OOPS_LIBCXX ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libcxx)
 # is pulled in.
 OOPS_FEATURES += thread
 
+# The webview draws remote PNG icons: html_container's load_image decodes them with oops_png_decode,
+# which the `png` feature (src/draw/png.c) provides.
+OOPS_FEATURES += png
+
+# libc++'s <filesystem>, pulled in transitively, references POSIX file ops the SDK's headers declare
+# but its libc does not define (utimes, statvfs, symlink, truncate, unlinkat). The shared POSIX shim
+# defines them; the native build does not link libc++, so only the webview build needs it.
+include $(OOPS_APPS_ROOT)/common/posix.mk
+EXTRA_TARGET_CFLAGS += $(OOPS_POSIX_INCLUDE) -DOOPS_POSIX_HOME=\"/data/oopsy-daisy\"
+PAYLOAD_SRCS        += $(OOPS_POSIX_SRCS)
+
 # A separate build tree from the native default, so toggling OOPSY_WEBVIEW does not read objects
 # compiled under the other setting (the flag is not a make prerequisite, so a shared tree would
 # silently reuse stale objects). The C++/relaxed-C sub-archives live under it too.
@@ -92,9 +103,7 @@ include $(OOPS_APPS_ROOT)/common/cxx.mk
 # its flag order).
 # NB: -I .../js/quickjs is deliberately NOT here - that dir holds a file literally named `version`,
 # which would shadow libc++'s C++17 <version> header. webview.cpp reaches QuickJS as
-# `quickjs/quickjs.h` via -I .../src/js instead. The shim closes a gap in the SDK's freestanding
-# libc that only surfaces because this is the first freestanding title to link libc++ (ldiv/lldiv);
-# it is force-included ahead of libc++'s <stdlib.h>.
+# `quickjs/quickjs.h` via -I .../src/js instead.
 # litehtml's string interning guards its std::mutex behind LITEHTML_NO_THREADS; the SDK's
 # freestanding libc++ has every thread API off (single-threaded payload), so build it that way.
 OOPS_CXX_INCLUDE += \
@@ -106,25 +115,22 @@ OOPS_CXX_INCLUDE += \
     -I$(OOPS_SDK)/src/html/litehtml/src \
     -I$(OOPS_SDK)/src/html/litehtml/src/gumbo/include \
     -I$(OOPS_SDK)/src/js \
-    -include $(CURDIR)/webview-libcxx-shim.h \
     $(OOPS_LIBCXX_INCLUDE)
 
 # The relaxed-C side: QuickJS and gumbo, compiled as C with warnings off.
 OOPSY_WEBC_SRCS := \
-    $(CURDIR)/webview-libc-extra.c \
     $(OOPS_SDK)/src/js/js.c \
     $(wildcard $(OOPS_SDK)/src/js/quickjs/*.c) \
     $(wildcard $(OOPS_SDK)/src/html/litehtml/src/gumbo/*.c)
 OOPSY_WEBC_BUILD  := $(BUILD)/webc
 OOPSY_WEBC_LIB    := $(OOPSY_WEBC_BUILD)/libwebc.a
-# -Dtm_gmtoff=tm_isdst: QuickJS reads tm.tm_gmtoff once, for getTimezoneOffset. The SDK's struct tm
-# has no timezone fields (it is a UTC-only calendar), so the offset is 0; remapping the access to the
-# existing, always-zero tm_isdst compiles it and yields the correct UTC offset without editing the
-# SDK header.
+# QuickJS and gumbo build against the SDK's freestanding libc directly. QuickJS static-initialises a
+# pthread mutex for its Atomics support, which this single-threaded webview never uses; the SDK's
+# <pthread.h> omits PTHREAD_MUTEX_INITIALIZER so real mutexes cannot be left uninitialised, so the
+# zero form is supplied only for this compile, where the mutex is never contended.
 OOPSY_WEBC_CFLAGS  = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -fPIC \
                      -fno-stack-protector -fvisibility=hidden -std=c11 -O2 -w -nostdlibinc \
-                     -Dtm_gmtoff=tm_isdst \
-                     -I$(CURDIR)/webview-shim \
+                     -D'PTHREAD_MUTEX_INITIALIZER={0}' \
                      -I$(OOPS_SDK)/include -I$(OOPS_SDK) -I$(OOPS_SDK)/include/libc \
                      -I$(OOPS_SDK)/src/js \
                      -I$(OOPS_SDK)/src/html/litehtml/src \

@@ -489,6 +489,8 @@ title: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	            $(MKMODULE_BIN) mkself "$$LIB_IN" --generation 4 --privilege app --out "$$PRX_OUT"; \
 	        fi; \
 	    fi; \
+	    chmod 0755 "$(BUILD)/title/$(TITLE_ID)/eboot.bin" 2>/dev/null || true; \
+	    [ -f "$(BUILD)/title/$(TITLE_ID)/sce_module/libc.prx" ] && chmod 0755 "$(BUILD)/title/$(TITLE_ID)/sce_module/libc.prx" 2>/dev/null || true; \
 	    ZIP_OUT="$(CURDIR)/$(TITLE_ZIP_ARTIFACT)"; rm -f "$$ZIP_OUT"; \
 	    if command -v zip >/dev/null 2>&1; then \
 	        ( cd $(BUILD)/title && zip -qr "$$ZIP_OUT" $(TITLE_ID) ); \

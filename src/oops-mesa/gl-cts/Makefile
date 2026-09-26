@@ -8,6 +8,11 @@ OOPS_APPS_ROOT ?= $(abspath ../../..)
 # The fetch runs while this file is read: the source lists below wildcard its directories.
 include $(OOPS_APPS_ROOT)/common/upstream.mk
 
+# libc++'s `<filesystem>` calls into an operating system interface, and `common/posix` is where
+# this collection answers it: `copy_file_range`, `utimensat`, `openat`, `realpath`. A title
+# linking libc++ links it too.
+include $(OOPS_APPS_ROOT)/common/posix.mk
+
 OOPS_RENDERER = mesa
 
 # `OOPS_RENDERER = mesa` takes the C library from the Mesa sysroot, so the C++ library is the
@@ -140,7 +145,8 @@ OOPS_CXX_SRCS       = $(CTS_CXX_SRCS) $(CTS_SHIM_CXX)
 
 OOPS_FEATURES := display thread
 
-PAYLOAD_SRCS        = shim/gl_cts_entry.c
+PAYLOAD_SRCS        = shim/gl_cts_entry.c \
+                      $(OOPS_POSIX_SRCS)
 
 include $(OOPS_LIBCXX)/oops-libcxx.mk
 include $(OOPS_LIBCXX)/oops-libunwind.mk
@@ -153,6 +159,12 @@ OOPS_CXX_INCLUDE     += $(OOPS_LIBCXX_INCLUDE) $(CTS_INCLUDES) $(CTS_DEFINES)
 # variable, and the general-dynamic model's `__tls_get_addr` faults in libkernel on this
 # platform. oops-mesa builds Mesa with the same flag. It goes on the C++ only; see below.
 OOPS_CXX_INCLUDE     += -ftls-model=initial-exec
+
+# `OOPS_POSIX_HOME` is the directory the shim reports from `getpwuid` and resolves a relative
+# path against; this title reads only absolute paths. Its include directory is deliberately not
+# added: those headers are written against oops-sdk's freestanding libc, and on a hosted title
+# they shadow the Mesa sysroot's own.
+EXTRA_TARGET_CFLAGS  += -DOOPS_POSIX_HOME=\"/data/$(TITLE_ID)\"
 
 # `CTS_DEFINES` stays out of `EXTRA_TARGET_CFLAGS`, which reaches oops-mesa's runtime shim:
 # `src/runtime/libc_absent.c` needs `__BSD_VISIBLE`. The defines go to upstream's C archive

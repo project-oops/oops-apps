@@ -50,6 +50,7 @@ libkernel listen
 libkernel _listen
 libkernel recv
 libkernel _recv
+libkernel recvfrom
 libkernel _recvfrom
 libkernel read
 libkernel _read
@@ -428,5 +429,11 @@ libSceHttp sceHttpAddRequestHeader
 libSceHttp sceHttpSetAutoRedirect
 libSceHttp sceHttpSendRequest
 libSceHttp sceHttpGetStatusCode
+libSceHttp sceHttpGetAllResponseHeaders
 libSceHttp sceHttpGetResponseContentLength
 libSceHttp sceHttpReadData
+libSceHttp sceHttpSetResolveTimeOut
+libSceHttp sceHttpSetConnectTimeOut
+libSceHttp sceHttpSetSendTimeOut
+libSceHttp sceHttpSetRecvTimeOut
+libSceHttp sceHttpsDisableOption

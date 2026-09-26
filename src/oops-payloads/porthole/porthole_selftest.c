@@ -27,6 +27,20 @@ _Static_assert(offsetof(porthole_pad, sticks) == 12, "sticks at 12");
 _Static_assert(offsetof(porthole_pad, triggers) == 16, "triggers at 16");
 _Static_assert(offsetof(porthole_pad, sequence) == 20, "sequence at 20");
 
+/* Control record layout assertions (REQ-20260910T2326Z-8c12) */
+_Static_assert(sizeof(porthole_ctl) == PORTHOLE_CTL_BYTES,
+               "the ctl record must be 24 bytes");
+_Static_assert(offsetof(porthole_ctl, version) == 4, "ctl version at 4");
+_Static_assert(offsetof(porthole_ctl, op) == 6, "ctl op at 6");
+_Static_assert(offsetof(porthole_ctl, reserved0) == 7, "ctl reserved0 at 7");
+_Static_assert(offsetof(porthole_ctl, width) == 8, "ctl width at 8");
+_Static_assert(offsetof(porthole_ctl, height) == 10, "ctl height at 10");
+_Static_assert(offsetof(porthole_ctl, fps) == 12, "ctl fps at 12");
+_Static_assert(offsetof(porthole_ctl, codec) == 13, "ctl codec at 13");
+_Static_assert(offsetof(porthole_ctl, reserved1) == 14, "ctl reserved1 at 14");
+_Static_assert(offsetof(porthole_ctl, bitrate) == 16, "ctl bitrate at 16");
+_Static_assert(offsetof(porthole_ctl, sequence) == 20, "ctl sequence at 20");
+
 /* **The frame buffer and the bitrate must not drift apart.** Raising the configured rate
  * without raising the buffer starts refusing keyframes, and a stream of dependent pictures
  * decodes to nothing while looking exactly like no stream at all - the one fault the host
@@ -53,6 +67,38 @@ static void good_record(uint8_t b[PORTHOLE_PAD_BYTES]) {
     b[15] = 128; /* RX/RY centre */
     b[17] = 127; /* R2 half */
     b[20] = 7;   /* sequence 7 */
+}
+
+/* A well-formed PCTL keyframe request: op 1, sequence 5 */
+static void good_ctl_keyframe(uint8_t b[PORTHOLE_CTL_BYTES]) {
+    memset(b, 0, PORTHOLE_CTL_BYTES);
+    b[0] = 'P';
+    b[1] = 'C';
+    b[2] = 'T';
+    b[3] = 'L';
+    b[4] = 1; /* version 1 */
+    b[6] = PORTHOLE_CTL_OP_KEYFRAME;
+    b[20] = 5; /* sequence 5 */
+}
+
+/* A well-formed PCTL set-mode request: op 2, 1920x1080 @ 60fps, 8000 kbps, H.264, seq 6 */
+static void good_ctl_set_mode(uint8_t b[PORTHOLE_CTL_BYTES]) {
+    memset(b, 0, PORTHOLE_CTL_BYTES);
+    b[0] = 'P';
+    b[1] = 'C';
+    b[2] = 'T';
+    b[3] = 'L';
+    b[4] = 1; /* version 1 */
+    b[6] = PORTHOLE_CTL_OP_SET_MODE;
+    b[8] = (uint8_t)(1920 & 0xFF);
+    b[9] = (uint8_t)((1920 >> 8) & 0xFF);
+    b[10] = (uint8_t)(1080 & 0xFF);
+    b[11] = (uint8_t)((1080 >> 8) & 0xFF);
+    b[12] = 60; /* fps */
+    b[13] = PORTHOLE_CTL_CODEC_H264;
+    b[16] = (uint8_t)(8000 & 0xFF);
+    b[17] = (uint8_t)((8000 >> 8) & 0xFF);
+    b[20] = 6; /* sequence 6 */
 }
 
 int main(void) {
@@ -118,6 +164,118 @@ int main(void) {
     bytes[7] = 0xFF;
     if (porthole_pad_decode(bytes, &pad) != PORTHOLE_BAD_RECORD) {
         printf("FAIL: a record with a dirty reserved byte was accepted\n");
+        failures++;
+    }
+
+    /* ---- PCTL Control Record Tests (REQ-20260910T2326Z-8c12) --------------- */
+    uint8_t ctl_bytes[PORTHOLE_CTL_BYTES];
+    porthole_ctl ctl;
+
+    /* A well-formed op 1 (keyframe) decodes correctly */
+    good_ctl_keyframe(ctl_bytes);
+    if (porthole_ctl_decode(ctl_bytes, &ctl) != PORTHOLE_OK) {
+        printf("FAIL: well-formed PCTL keyframe record was rejected\n");
+        failures++;
+    } else if (ctl.version != 1 || ctl.op != PORTHOLE_CTL_OP_KEYFRAME || ctl.sequence != 5) {
+        printf("FAIL: PCTL keyframe field decoded incorrectly\n");
+        failures++;
+    }
+
+    /* A well-formed op 2 (set mode) decodes correctly */
+    good_ctl_set_mode(ctl_bytes);
+    if (porthole_ctl_decode(ctl_bytes, &ctl) != PORTHOLE_OK) {
+        printf("FAIL: well-formed PCTL set-mode record was rejected\n");
+        failures++;
+    } else if (ctl.version != 1 || ctl.op != PORTHOLE_CTL_OP_SET_MODE ||
+               ctl.width != 1920 || ctl.height != 1080 || ctl.fps != 60 ||
+               ctl.codec != PORTHOLE_CTL_CODEC_H264 || ctl.bitrate != 8000 ||
+               ctl.sequence != 6) {
+        printf("FAIL: PCTL set-mode field decoded incorrectly\n");
+        failures++;
+    }
+
+    /* Bad magic is refused */
+    good_ctl_keyframe(ctl_bytes);
+    ctl_bytes[0] = 'X';
+    if (porthole_ctl_decode(ctl_bytes, &ctl) != PORTHOLE_BAD_RECORD) {
+        printf("FAIL: PCTL record with wrong magic was accepted\n");
+        failures++;
+    }
+
+    /* Bad version is refused */
+    good_ctl_keyframe(ctl_bytes);
+    ctl_bytes[4] = 2;
+    if (porthole_ctl_decode(ctl_bytes, &ctl) != PORTHOLE_BAD_RECORD) {
+        printf("FAIL: PCTL record with version 2 was accepted\n");
+        failures++;
+    }
+
+    /* Dirty reserved bytes are refused */
+    good_ctl_keyframe(ctl_bytes);
+    ctl_bytes[7] = 1;
+    if (porthole_ctl_decode(ctl_bytes, &ctl) != PORTHOLE_BAD_RECORD) {
+        printf("FAIL: PCTL record with dirty reserved0 was accepted\n");
+        failures++;
+    }
+    good_ctl_keyframe(ctl_bytes);
+    ctl_bytes[14] = 1;
+    if (porthole_ctl_decode(ctl_bytes, &ctl) != PORTHOLE_BAD_RECORD) {
+        printf("FAIL: PCTL record with dirty reserved1 was accepted\n");
+        failures++;
+    }
+
+    /* Unknown op is refused */
+    good_ctl_keyframe(ctl_bytes);
+    ctl_bytes[6] = 99;
+    if (porthole_ctl_decode(ctl_bytes, &ctl) != PORTHOLE_BAD_RECORD) {
+        printf("FAIL: PCTL record with unknown op was accepted\n");
+        failures++;
+    }
+
+    /* Unsupported codec on set-mode is refused */
+    good_ctl_set_mode(ctl_bytes);
+    ctl_bytes[13] = 1; /* Not H.264 */
+    if (porthole_ctl_decode(ctl_bytes, &ctl) != PORTHOLE_BAD_RECORD) {
+        printf("FAIL: PCTL set-mode with non-H.264 codec was accepted\n");
+        failures++;
+    }
+
+    /* PCTL application & sequence tracking */
+    porthole_ctl_resequence();
+    good_ctl_keyframe(ctl_bytes);
+    (void)porthole_ctl_decode(ctl_bytes, &ctl);
+    if (porthole_ctl_apply(&ctl) != PORTHOLE_OK) {
+        printf("FAIL: porthole_ctl_apply failed on valid keyframe request\n");
+        failures++;
+    }
+    if (porthole_is_keyframe_requested() != 1) {
+        printf("FAIL: keyframe flag was not set after PCTL op 1\n");
+        failures++;
+    }
+
+    /* Stale sequence numbers are rejected */
+    if (porthole_ctl_apply(&ctl) != PORTHOLE_STALE) {
+        printf("FAIL: duplicate sequence was not reported as PORTHOLE_STALE\n");
+        failures++;
+    }
+
+    /* Monotonic sequence advance: idempotent keyframe request */
+    ctl.sequence = 10;
+    if (porthole_ctl_apply(&ctl) != PORTHOLE_OK) {
+        printf("FAIL: advancing sequence should succeed\n");
+        failures++;
+    }
+    if (porthole_is_keyframe_requested() != 1) {
+        printf("FAIL: idempotent keyframe request should maintain keyframe flag\n");
+        failures++;
+    }
+
+    /* Set mode application */
+    good_ctl_set_mode(ctl_bytes);
+    (void)porthole_ctl_decode(ctl_bytes, &ctl);
+    ctl.sequence = 11;
+    if (porthole_ctl_apply(&ctl) != PORTHOLE_OK) {
+        printf("FAIL: porthole_ctl_apply failed on valid set-mode\n");
         failures++;
     }
 
@@ -444,6 +602,44 @@ int main(void) {
         failures++;
     } else if ((test_out[18] & 0x1Fu) != 8u || (test_out[26] & 0x1Fu) != 5u) {
         printf("FAIL: the template keyframe needs picture parameters and an IDR after them\n");
+        failures++;
+    }
+
+    /* Second frame is intra/P-slice (16 bytes) */
+    if (porthole_capture_encode(test_out, sizeof(test_out), &test_len) != PORTHOLE_OK) {
+        printf("FAIL: second template frame should serve\n");
+        failures++;
+    } else if (test_len != 16u || (test_out[4] & 0x1Fu) != 1u) {
+        printf("FAIL: second frame should be P-slice, 16 bytes, got %u\n", (unsigned int)test_len);
+        failures++;
+    }
+
+    /* On-demand keyframe requested via PCTL op 1 */
+    porthole_request_keyframe();
+    if (porthole_is_keyframe_requested() != 1) {
+        printf("FAIL: keyframe should be requested\n");
+        failures++;
+    }
+
+    /* Next frame must be forced to IDR keyframe (38 bytes) */
+    if (porthole_capture_encode(test_out, sizeof(test_out), &test_len) != PORTHOLE_OK) {
+        printf("FAIL: on-demand keyframe frame should serve\n");
+        failures++;
+    } else if (test_len != 38u || (test_out[26] & 0x1Fu) != 5u) {
+        printf("FAIL: requested keyframe should emit SPS+PPS+IDR, 38 bytes, got %u\n", (unsigned int)test_len);
+        failures++;
+    }
+    if (porthole_is_keyframe_requested() != 0) {
+        printf("FAIL: keyframe request flag should be cleared after emission\n");
+        failures++;
+    }
+
+    /* Frame after on-demand keyframe returns to P-slice */
+    if (porthole_capture_encode(test_out, sizeof(test_out), &test_len) != PORTHOLE_OK) {
+        printf("FAIL: post-keyframe frame should serve\n");
+        failures++;
+    } else if (test_len != 16u || (test_out[4] & 0x1Fu) != 1u) {
+        printf("FAIL: post-keyframe frame should return to P-slice, 16 bytes\n");
         failures++;
     }
 

@@ -1,0 +1,11 @@
+# opusfile, read by common/upstream-fetch.sh. Reads Opus streams out of an Ogg container, which is
+# how Ship of Harkinian stores them. Needs libogg and opus.
+#
+# UPSTREAM_REV must be a full commit hash. v0.12 is the newest release, and it is an **annotated**
+# tag, so `git ls-remote --tags` returns two lines for it: the tag object and, under `^{}`, the
+# commit it names. This is the commit. The fetch refuses the tag object with "asked for X and got
+# Y", which is how the difference showed.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/xiph/opusfile
+UPSTREAM_REV=a55c164e9891a9326188b7d4d216ec9a88373739
+UPSTREAM_REF=v0.12

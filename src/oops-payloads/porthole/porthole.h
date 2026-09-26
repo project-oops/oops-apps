@@ -80,10 +80,48 @@ typedef struct porthole_pad {
     uint32_t sequence;   /* offset 20: per-slot, so "behind by two" is answerable */
 } porthole_pad;
 
-/* The record is exactly 24 bytes with no padding. A parser that finds field boundaries
- * at 250 Hz is a parser that drops inputs, so the layout is fixed and checked, not
- * discovered. */
-#define PORTHOLE_PAD_BYTES 24u
+/* The records on port 9806 are exactly 24 bytes with no padding. A parser that finds field
+ * boundaries at 250 Hz is a parser that drops inputs, so the layout is fixed and checked,
+ * not discovered. Both PPAD and PCTL records share this exact size and are dispatched by
+ * their 4-byte magic. */
+#define PORTHOLE_RECORD_BYTES 24u
+#define PORTHOLE_PAD_BYTES    PORTHOLE_RECORD_BYTES
+#define PORTHOLE_CTL_BYTES    PORTHOLE_RECORD_BYTES
+
+/*
+ * Control record on 9806 (PCTL) - REQ-20260910T2326Z-8c12.
+ *
+ * Multiplexed with PPAD on port 9806, distinguished by magic 'P','C','T','L'.
+ *
+ * op 1: request keyframe (IDR now). Idempotent; generates an IDR at the next frame.
+ * op 2: set mode (geometry, fps, codec, bitrate). Reconfigures the encoder session;
+ *       clamps and logs unsupported modes.
+ */
+#define PORTHOLE_CTL_VERSION 1u
+
+#define PORTHOLE_CTL_MAGIC0 'P'
+#define PORTHOLE_CTL_MAGIC1 'C'
+#define PORTHOLE_CTL_MAGIC2 'T'
+#define PORTHOLE_CTL_MAGIC3 'L'
+
+#define PORTHOLE_CTL_OP_KEYFRAME 1u
+#define PORTHOLE_CTL_OP_SET_MODE 2u
+
+#define PORTHOLE_CTL_CODEC_H264 0u
+
+typedef struct porthole_ctl {
+    uint8_t magic[4];    /* offset 0:  "PCTL" */
+    uint16_t version;    /* offset 4:  1 */
+    uint8_t op;          /* offset 6:  1 = request keyframe, 2 = set mode */
+    uint8_t reserved0;   /* offset 7:  zero, checked */
+    uint16_t width;      /* offset 8:  op 2 only; else 0 */
+    uint16_t height;     /* offset 10: op 2 only; else 0 */
+    uint8_t fps;         /* offset 12: op 2 only; else 0 */
+    uint8_t codec;       /* offset 13: op 2 only; 0 = H.264 */
+    uint16_t reserved1;  /* offset 14: zero, checked */
+    uint32_t bitrate;    /* offset 16: op 2 only; kbps */
+    uint32_t sequence;   /* offset 20: monotonic, receiver may skip to newest */
+} porthole_ctl;
 
 /* The bitrate an encoder session asks for by default, and the room one access unit gets.
  *
@@ -127,6 +165,25 @@ typedef enum porthole_status {
  * must not act on. */
 porthole_status porthole_pad_decode(const uint8_t bytes[PORTHOLE_PAD_BYTES],
                                     porthole_pad *out);
+
+/* Reads a 24-byte control record, checking its magic, version, op, and reserved bytes,
+ * into `out`. Returns PORTHOLE_OK, or PORTHOLE_BAD_RECORD for a record the payload
+ * must not act on. */
+porthole_status porthole_ctl_decode(const uint8_t bytes[PORTHOLE_CTL_BYTES],
+                                    porthole_ctl *out);
+
+/* Applies one decoded control record: triggers an IDR keyframe (op 1) or reconfigures
+ * stream mode (op 2). Returns PORTHOLE_OK, PORTHOLE_STALE, or PORTHOLE_BAD_RECORD. */
+porthole_status porthole_ctl_apply(const porthole_ctl *ctl);
+
+/* Resets control sequence tracking. */
+void porthole_ctl_resequence(void);
+
+/* Signals keyframe generation on demand (idempotent). */
+void porthole_request_keyframe(void);
+
+/* Returns 1 if keyframe was requested via PCTL, 0 otherwise. */
+int porthole_is_keyframe_requested(void);
 
 /* The three things Porthole does, and the loop that drives them. Scaffolded in
  * porthole.c: each reports a status until the real implementation lands, all gated on

@@ -33,10 +33,10 @@ enum obs_trace_kind {
         6u, /* shader capture: arg[0]=addr, arg[1]=size, arg[2]=hash, arg[3]=stage */
     OBS_TRACE_DCB =
         7u, /* PM4 DCB submission: arg[0]=addr, arg[1]=dwords, arg[2]=queue */
-    OBS_TRACE_APR_RESOLVE =
-        8u, /* APR file resolve: seq=idx, nid=id, arg[0]=size, arg[1]=status, arg[2..5]=path[32] */
-    OBS_TRACE_OPEN =
-        9u, /* file open: seq=seq, nid=hash, arg[0]=fd, arg[1]=flags, arg[2..5]=path[32] */
+    OBS_TRACE_APR_RESOLVE = 8u, /* APR file resolve: seq=idx, nid=id, arg[0]=size,
+                                   arg[1]=status, arg[2..5]=path[32] */
+    OBS_TRACE_OPEN = 9u, /* file open: seq=seq, nid=hash, arg[0]=fd, arg[1]=flags,
+                            arg[2..5]=path[32] */
     OBS_TRACE_STAT =
         10u, /* stat/fstat: seq=seq, nid=ino, arg[0]=fd, arg[1]=size, arg[2]=mode */
 };

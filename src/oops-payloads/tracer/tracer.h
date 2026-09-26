@@ -77,9 +77,10 @@ int tracer_install_hooks(void *p_create_shader, void *p_submit_dcb,
                          void *p_submit_flip);
 
 /* Interceptor hook functions */
-int hook_sceKernelAprResolveFilepathsToIdsAndFileSizes(
-    const char **paths, uint32_t count, uint32_t *ids, uint64_t *sizes,
-    uint32_t *statuses, void *arg5);
+int hook_sceKernelAprResolveFilepathsToIdsAndFileSizes(const char **paths,
+                                                       uint32_t count, uint32_t *ids,
+                                                       uint64_t *sizes,
+                                                       uint32_t *statuses, void *arg5);
 int hook_sceKernelMapperGetParam(void *param_buf);
 int hook_sceKernelOpen(const char *path, int flags, int mode);
 int hook_posix_open(const char *path, int flags, int mode);
@@ -89,11 +90,10 @@ int hook_sceKernelFstat(int fd, void *sb);
 int hook_posix_fstat(int fd, void *sb);
 int hook_sceSysmoduleLoadModule(uint16_t id);
 int hook_sceKernelAllocateDirectMemory(int64_t search_low, int64_t search_high,
-                                      size_t len, size_t alignment,
-                                      int mem_type, int64_t *phys_out);
-int hook_sceKernelMapDirectMemory(void **addr_out, size_t len, int prot,
-                                 int flags, int64_t direct_mem,
-                                 size_t alignment);
+                                       size_t len, size_t alignment, int mem_type,
+                                       int64_t *phys_out);
+int hook_sceKernelMapDirectMemory(void **addr_out, size_t len, int prot, int flags,
+                                  int64_t direct_mem, size_t alignment);
 
 /* Uninstall all installed tracer hooks */
 void tracer_uninstall_hooks(void);

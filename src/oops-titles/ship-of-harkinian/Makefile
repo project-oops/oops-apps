@@ -72,7 +72,11 @@ SOH_DR_DEFS := -DDR_WAV_NO_STDIO -DDR_WAV_NO_WCHAR -DDR_MP3_NO_STDIO -DDR_FLAC_N
 # `LOG_LEVEL_GAME_PRINTS` is what the game's own `osSyncPrintf` compiles down to, and upstream sets
 # it to spdlog's `SPDLOG_LEVEL_OFF` in every one of its four target blocks. 6 is that value, from
 # spdlog's `common.h`. 269 of the sources under `soh/src` read it.
+#
+# `OOPS_POSIX_HOME` is where the shim points `HOME` and `getpwuid`, and libultraship resolves its
+# configuration, saves and the generated archive against it.
 SOH_DEFS := -DENABLE_OPENGL -DF3DEX_GBI_2 -DNDEBUG -DLOG_LEVEL_GAME_PRINTS=6 $(SOH_DR_DEFS) \
+            -DOOPS_POSIX_HOME=\"/data/soh\" \
             -DSPDLOG_NO_THREAD_ID -DSPDLOG_NO_TLS -DSTBI_NO_THREAD_LOCALS
 
 SOH_GEN_DIR := $(CURDIR)/build/gen
@@ -124,6 +128,10 @@ include $(OOPS_DR_LIBS)/oops-dr-libs.mk
 # The sample importer reads Vorbis streams beside the WAV ones. libvorbis carries libogg's include.
 OOPS_VORBIS ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libvorbis)
 include $(OOPS_VORBIS)/oops-libvorbis.mk
+# soh/soh/mixer.c decodes Opus through opusfile, which upstream links unconditionally. opusfile
+# pulls in opus and libogg itself.
+OOPS_OPUSFILE ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/opusfile)
+include $(OOPS_OPUSFILE)/oops-opusfile.mk
 include $(OOPS_APPS_ROOT)/common/posix.mk
 include $(OOPS_APPS_ROOT)/common/rt.mk
 
@@ -142,7 +150,7 @@ SOH_INCLUDE := $(SOH_OWN_INCLUDE) $(SOH_GEN_INCLUDE) $(SOH_DEFS) \
                $(OOPS_SPDLOG_INCLUDE) $(OOPS_JSON_INCLUDE) $(OOPS_TINYXML2_INCLUDE) \
                $(OOPS_PRISM_INCLUDE) $(OOPS_GFXD_INCLUDE) $(OOPS_STB_INCLUDE) \
                $(OOPS_THREADPOOL_INCLUDE) $(OOPS_IMGUI_INCLUDE) $(OOPS_DR_LIBS_INCLUDE) \
-               $(OOPS_VORBIS_INCLUDE) \
+               $(OOPS_VORBIS_INCLUDE) $(OOPS_OPUSFILE_INCLUDE) \
                $(OOPS_STORMLIB_INCLUDE) $(OOPS_LIBZIP_INCLUDE) $(OOPS_ZLIB_INCLUDE) \
                $(OOPS_SDL_INCLUDE) $(OOPS_SDL_PREFIX_INCLUDE)
 
@@ -159,6 +167,9 @@ SOH_INCLUDE := $(SOH_OWN_INCLUDE) $(SOH_GEN_INCLUDE) $(SOH_DEFS) \
 #
 # `-include cctype` for the two sources that call `std::toupper` without including it: libstdc++
 # reaches it transitively and libc++ does not.
+# The survey compiles with these and the build compiles with `OOPS_CXX_FLAGS`, so the include order
+# below and the one `OOPS_CXX_INCLUDE` is given in the armed block are kept the same: a survey that
+# resolves a different `unistd.h` from the build reports a pass the build does not repeat.
 SOH_CXXFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -fPIC \
                -O2 -w -Wno-c++11-narrowing -std=c++20 -D__PROSPERO__=1 -include cctype \
                $(OOPS_LIBCXX_INCLUDE) $(OOPS_POSIX_INCLUDE) \
@@ -180,7 +191,11 @@ SOH_SURVEY_DIR ?= upstream/libultraship/src upstream/soh
 # synthesizer wants a system library this target has no equivalent of - SAPI is Windows, Darwin is
 # macOS, ESpeak is a Linux package - and the extractor is a host tool rather than payload code.
 # Crowd control needs a socket server. The same list drives the survey and the payload.
-SOH_EXCLUDE_RE := speechsynthesizer/(SAPI|Darwin|ESpeak)|soh/Extractor/|Enhancements/crowd-control/
+#
+# The second group is upstream's own filter on `soh/src` (`soh/CMakeLists.txt:187-192`): the N64
+# hardware I/O, its libc, its scheduler and the debugging monitor, all of which libultraship
+# replaces. They are the sources that still name PI and AI status registers.
+SOH_EXCLUDE_RE := speechsynthesizer/(SAPI|Darwin|ESpeak)|soh/Extractor/|Enhancements/crowd-control/|src/dmadata/|src/elf_message/|src/libultra/io/|src/libultra/libc/|src/libultra/os/|src/libultra/rmon/
 
 .PHONY: compile-survey
 compile-survey: $(SOH_CVARS_H)
@@ -251,23 +266,51 @@ survey:
 # main is at upstream/soh/src/code/main.c:60 in a C translation unit, so the shim is C. A
 # freestanding C++ main is mangled and a C shim misses it silently, the payload link ignoring
 # unresolved symbols.
+# The lists are recursive and filtered by the same regex the survey uses, so what compiles and what
+# links are the same set. Deferred (`=`) because the generated cvars header has to exist first.
+SOH_CXX_ALL = $(shell find $(CURDIR)/upstream/soh/soh $(CURDIR)/upstream/libultraship/src \
+                        -name '*.cpp' 2>/dev/null | grep -vE '$(SOH_EXCLUDE_RE)' | sort)
+SOH_C_ALL   = $(shell find $(CURDIR)/upstream/soh/src $(CURDIR)/upstream/soh/soh \
+                        $(CURDIR)/upstream/libultraship/src \
+                        -name '*.c' 2>/dev/null | grep -vE '$(SOH_EXCLUDE_RE)' | sort)
+
 ifeq ($(SOH_ARMED),1)
 OOPS_CXX_EXCEPTIONS = 1
 OOPS_CXX_STD        = c++20
-OOPS_CXX_SRCS := $(sort $(wildcard $(CURDIR)/upstream/soh/soh/*.cpp) \
-                        $(wildcard $(CURDIR)/upstream/libultraship/src/*/*.cpp))
+OOPS_CXX_SRCS = $(SOH_CXX_ALL)
+# Object names collide across the port's trees - ControlDeck, Controller, Menu and more appear in
+# both soh and libultraship - so the objects go on the link line rather than into an archive that
+# would keep one of each. Set before the include, which is where `oops_ar_check` runs.
+OOPS_CXX_LINK_OBJECTS = 1
 include $(OOPS_LIBCXX)/oops-libunwind.mk
 include $(OOPS_LIBCXX)/oops-libcxxabi.mk
 # libc++ owns new and delete for a title linking the full archive; cxxrt's copy sits outside
 # libc++'s __lcxx_override section and fails the guard its new carries.
 EXTRA_TARGET_CFLAGS += -DOOPS_CXX_EXTERNAL_NEW_DELETE
 include $(OOPS_APPS_ROOT)/common/cxx.mk
-OOPS_CXX_INCLUDE += $(OOPS_LIBCXX_INCLUDE) $(SOH_INCLUDE) $(SOH_GEN_INCLUDE)
-PAYLOAD_SRCS := shim/soh_start.c $(OOPS_POSIX_SRCS)
-EXTRA_TARGET_LDFLAGS += $(OOPS_CXX_LDFLAGS) $(OOPS_SDL_LDFLAGS) \
+# The same order `SOH_CXXFLAGS` gives the survey, so the two agree on which `unistd.h` wins.
+OOPS_CXX_INCLUDE += $(OOPS_LIBCXX_INCLUDE) $(OOPS_POSIX_INCLUDE) \
+                    $(SOH_INCLUDE) $(SOH_GEN_INCLUDE)
+# The two relaxations the survey carries, which `-w` alone does not cover: narrowing in an
+# initialiser list is an error rather than a warning, and two sources call `std::toupper` without
+# including `<cctype>`, which libstdc++ reaches transitively and libc++ does not.
+OOPS_CXX_FLAGS += -Wno-c++11-narrowing -include cctype
+PAYLOAD_SRCS = shim/soh_start.c $(SOH_C_ALL) $(OOPS_POSIX_SRCS)
+
+# Each archive after everything that calls it. libultraship sits on top of all of them, so the
+# order runs outward: the title's own C++, then the libraries it names, then the standard library.
+EXTRA_TARGET_LDFLAGS += $(OOPS_CXX_LDFLAGS) $(OOPS_IMGUI_LDFLAGS) $(OOPS_STORMLIB_LDFLAGS) \
+                        $(OOPS_LIBZIP_LDFLAGS) $(OOPS_TINYXML2_LDFLAGS) $(OOPS_SPDLOG_LDFLAGS) \
+                        $(OOPS_PRISM_LDFLAGS) $(OOPS_GFXD_LDFLAGS) $(OOPS_STB_LDFLAGS) \
+                        $(OOPS_VORBIS_LDFLAGS) $(OOPS_OPUSFILE_LDFLAGS) \
+                        $(OOPS_ZLIB_LDFLAGS) $(OOPS_SDL_LDFLAGS) \
                         $(OOPS_LIBCXX_LDFLAGS) $(OOPS_LIBCXXABI_LDFLAGS) \
                         $(OOPS_LIBUNWIND_LDFLAGS)
-PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_SDL_LIB) \
+PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_IMGUI_LIB) $(OOPS_STORMLIB_LIB) \
+                        $(OOPS_LIBZIP_LIB) $(OOPS_TINYXML2_LIB) $(OOPS_SPDLOG_LIB) \
+                        $(OOPS_PRISM_LIB) $(OOPS_GFXD_LIB) $(OOPS_STB_LIB) \
+                        $(OOPS_VORBIS_LIB) $(OOPS_OPUSFILE_LIB) $(OOPS_OPUS_LIB) \
+                        $(OOPS_OGG_LIB) $(OOPS_ZLIB_LIB) $(OOPS_SDL_LIB) \
                         $(OOPS_LIBCXX_LIB) $(OOPS_LIBCXXABI_LIB) $(OOPS_LIBUNWIND_LIB)
 endif
 
@@ -275,6 +318,18 @@ endif
 # 803 sources under soh/src declare a function without a prototype, which is how C was written then.
 # Switched off rather than patched, a patch against somebody else's tree being a rebase burden for
 # no behaviour change.
+#
+# `-w` last, the way the C++ side already does it: the remainder of what `-Werror` catches here is
+# pointer-width casts, tautological comparisons and format mismatches in code decompiled from a
+# 1998 MIPS binary, where they were all true. The named flags stay in front of it so that what was
+# switched off is on the record rather than implied by a single letter.
+#
+# `-include strings.h` for the sources that call `bcopy` and `bzero` without it.
+#
+# Upstream's own `soh/include/libc/math.h` is forced in rather than put on the include path: it is
+# where SHT_MAX, SHT_MINV, FLT_MAX and DEGTORAD are defined, but the directory holding it also has a
+# `stddef.h` that does not define `size_t`, and placing it first shadowed the compiler's and failed
+# all 803 sources at once. Naming the one file takes its constants and leaves the rest alone.
 SOH_WARNINGS := -Wno-deprecated-non-prototype -Wno-strict-prototypes -Wno-missing-prototypes \
                 -Wno-conversion -Wno-sign-conversion -Wno-shorten-64-to-32 -Wno-comment \
                 -Wno-unused-parameter -Wno-unused-but-set-variable -Wno-shadow \
@@ -282,12 +337,26 @@ SOH_WARNINGS := -Wno-deprecated-non-prototype -Wno-strict-prototypes -Wno-missin
                 -Wno-unused-const-variable -Wno-missing-field-initializers \
                 -Wno-unused-variable -Wno-multichar -Wno-return-type -Wno-unknown-pragmas \
                 -Wno-incompatible-pointer-types -Wno-macro-redefined -Wno-missing-braces \
-                -Wno-logical-op-parentheses -Wno-extra-tokens -Wno-braced-scalar-init
+                -Wno-logical-op-parentheses -Wno-extra-tokens -Wno-braced-scalar-init \
+                -Wno-tautological-compare -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast \
+                -Wno-format -Wno-self-assign -Wno-compare-distinct-pointer-types \
+                -Wno-return-stack-address -Wno-int-conversion \
+                -w -include strings.h \
+                -include $(CURDIR)/upstream/soh/include/libc/math.h
 
-EXTRA_TARGET_CFLAGS += $(SOH_INCLUDE) $(SOH_GEN_INCLUDE) $(SOH_WARNINGS)
+# `$(OOPS_POSIX_INCLUDE)` leads for the same reason it does in `SOH_CXXFLAGS`, and because the
+# shim sources compiled alongside the payload read their own `<dirent.h>` and `<pwd.h>` from it.
+EXTRA_TARGET_CFLAGS += $(OOPS_POSIX_INCLUDE) $(SOH_INCLUDE) $(SOH_GEN_INCLUDE)
 OOPS_FEATURES := display input keyboard mouse audio suspend thread draw
 
 include $(OOPS_APPS_ROOT)/common/app.mk
 
-# The survey is the default until the payload links.
+# `SOH_WARNINGS` goes on the C half alone. `EXTRA_TARGET_CFLAGS` reaches the C++ compiles too, and
+# its `-include .../libc/math.h` there arrives ahead of libc++'s own `<math.h>`, which then finds
+# the C declarations already in place and leaves `std::__math` empty.
+TARGET_CFLAGS += $(SOH_WARNINGS)
+
+# The survey is the default when there is no payload to build.
+ifneq ($(SOH_ARMED),1)
 .DEFAULT_GOAL := survey
+endif

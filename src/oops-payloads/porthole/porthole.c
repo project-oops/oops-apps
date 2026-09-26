@@ -68,6 +68,41 @@ porthole_status porthole_pad_decode(const uint8_t bytes[PORTHOLE_PAD_BYTES],
     return PORTHOLE_OK;
 }
 
+porthole_status porthole_ctl_decode(const uint8_t bytes[PORTHOLE_CTL_BYTES],
+                                    porthole_ctl *out) {
+    if (bytes[0] != PORTHOLE_CTL_MAGIC0 || bytes[1] != PORTHOLE_CTL_MAGIC1 ||
+        bytes[2] != PORTHOLE_CTL_MAGIC2 || bytes[3] != PORTHOLE_CTL_MAGIC3) {
+        return PORTHOLE_BAD_RECORD;
+    }
+    for (unsigned int i = 0; i < 4; i++) {
+        out->magic[i] = bytes[i];
+    }
+    out->version = (uint16_t)((uint16_t)bytes[4] | (uint16_t)((uint16_t)bytes[5] << 8));
+    out->op = bytes[6];
+    out->reserved0 = bytes[7];
+    out->width = (uint16_t)((uint16_t)bytes[8] | (uint16_t)((uint16_t)bytes[9] << 8));
+    out->height = (uint16_t)((uint16_t)bytes[10] | (uint16_t)((uint16_t)bytes[11] << 8));
+    out->fps = bytes[12];
+    out->codec = bytes[13];
+    out->reserved1 =
+        (uint16_t)((uint16_t)bytes[14] | (uint16_t)((uint16_t)bytes[15] << 8));
+    out->bitrate = (uint32_t)bytes[16] | ((uint32_t)bytes[17] << 8) |
+                   ((uint32_t)bytes[18] << 16) | ((uint32_t)bytes[19] << 24);
+    out->sequence = (uint32_t)bytes[20] | ((uint32_t)bytes[21] << 8) |
+                    ((uint32_t)bytes[22] << 16) | ((uint32_t)bytes[23] << 24);
+
+    if (out->version != PORTHOLE_CTL_VERSION || out->reserved0 != 0 || out->reserved1 != 0) {
+        return PORTHOLE_BAD_RECORD;
+    }
+    if (out->op != PORTHOLE_CTL_OP_KEYFRAME && out->op != PORTHOLE_CTL_OP_SET_MODE) {
+        return PORTHOLE_BAD_RECORD;
+    }
+    if (out->op == PORTHOLE_CTL_OP_SET_MODE && out->codec != PORTHOLE_CTL_CODEC_H264) {
+        return PORTHOLE_BAD_RECORD;
+    }
+    return PORTHOLE_OK;
+}
+
 #if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__))
 #include "oops/freestd.h"
 #include "oops/krw.h"
@@ -502,9 +537,25 @@ static porthole_slot_state s_slots[PORTHOLE_PAD_MAX_SLOT + 1];
 static porthole_pad_api s_pad_api;
 static int s_pad_opened = 0;
 static volatile int s_porthole_running = 1;
+static uint32_t s_last_ctl_sequence = 0;
+static int s_ctl_active = 0;
+static volatile int s_keyframe_requested = 0;
 
 void porthole_stop(void) {
     s_porthole_running = 0;
+}
+
+void porthole_ctl_resequence(void) {
+    s_last_ctl_sequence = 0;
+    s_ctl_active = 0;
+}
+
+void porthole_request_keyframe(void) {
+    s_keyframe_requested = 1;
+}
+
+int porthole_is_keyframe_requested(void) {
+    return s_keyframe_requested;
 }
 
 const porthole_pad_api *porthole_pad_get_api(void) {
@@ -528,6 +579,7 @@ void porthole_pad_resequence(void) {
     for (size_t i = 0; i <= PORTHOLE_PAD_MAX_SLOT; i++) {
         s_slots[i].last_sequence = 0;
     }
+    porthole_ctl_resequence();
 }
 
 #if defined(PORTHOLE_HOST_BUILD) || (!defined(__FreeBSD__) && !defined(__PS5__))
@@ -651,6 +703,101 @@ porthole_status porthole_pad_apply(const porthole_pad *pad) {
 
     return PORTHOLE_OK;
 #endif
+}
+
+/*
+ * Apply one decoded control record from port 9806 (REQ-20260910T2326Z-8c12).
+ *
+ * op 1: request keyframe (IDR now). Ignored mode fields; sets s_keyframe_requested = 1.
+ *       Idempotent — repeat requests collapse into a single IDR at next frame.
+ * op 2: set mode (geometry, fps, codec, bitrate). Reconfigures the encoder session;
+ *       clamps and logs unsupported parameters. Mid-stream reconfigure triggers an
+ *       immediate IDR keyframe to begin the new stream format.
+ */
+porthole_status porthole_ctl_apply(const porthole_ctl *ctl) {
+    if (ctl == NULL) {
+        return PORTHOLE_BAD_RECORD;
+    }
+
+    /* Sequence freshness check: monotonic sequence counter */
+    if (ctl->sequence != 0 && s_ctl_active && ctl->sequence <= s_last_ctl_sequence) {
+        return PORTHOLE_STALE;
+    }
+
+    s_last_ctl_sequence = ctl->sequence;
+    s_ctl_active = 1;
+
+    if (ctl->op == PORTHOLE_CTL_OP_KEYFRAME) {
+        s_keyframe_requested = 1;
+#if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__))
+        klog_write("porthole: IDR keyframe requested via PCTL");
+#endif
+        return PORTHOLE_OK;
+    }
+
+    if (ctl->op == PORTHOLE_CTL_OP_SET_MODE) {
+        uint16_t w = ctl->width;
+        uint16_t h = ctl->height;
+        uint8_t fps = ctl->fps;
+        uint32_t bitrate_bps = ctl->bitrate * 1000u;
+
+        if (w == 0) w = 1280;
+        if (h == 0) h = 720;
+        if (fps == 0) fps = 60;
+        if (bitrate_bps == 0) bitrate_bps = PORTHOLE_DEFAULT_BITRATE;
+
+        /* Clamping to supported geometry and framerates */
+        if (w > 1920 || h > 1080) {
+#if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__))
+            klog_write("porthole: set-mode clamped geometry to 1920x1080");
+#endif
+            w = 1920;
+            h = 1080;
+        } else if (w != 1920 && w != 1280) {
+            if (w > 1280) {
+                w = 1920;
+                h = 1080;
+            } else {
+                w = 1280;
+                h = 720;
+            }
+#if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__))
+            klog_write("porthole: set-mode clamped geometry to standard resolution");
+#endif
+        }
+
+        if (fps != 30 && fps != 60) {
+            fps = (fps > 45) ? 60 : 30;
+#if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__))
+            klog_write("porthole: set-mode clamped framerate");
+#endif
+        }
+
+        porthole_encoder_config new_cfg;
+        porthole_encoder_config_default(&new_cfg);
+        new_cfg.width = w;
+        new_cfg.height = h;
+        new_cfg.fps_num = fps;
+        new_cfg.fps_den = 1;
+        new_cfg.bitrate = bitrate_bps;
+        new_cfg.codec = PORTHOLE_CODEC_AVC;
+
+        if (s_encoder_session.session_active) {
+            (void)porthole_encoder_session_destroy();
+            (void)porthole_encoder_session_create(&new_cfg);
+        } else {
+            s_encoder_session.config = new_cfg;
+        }
+
+        /* Trigger an immediate IDR keyframe for the reconfigured stream */
+        s_keyframe_requested = 1;
+#if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__))
+        klog_write("porthole: stream mode reconfigured via PCTL");
+#endif
+        return PORTHOLE_OK;
+    }
+
+    return PORTHOLE_BAD_RECORD;
 }
 
 /* ---- Display Subsystem (reusing oops-sdk) --------------------------------- */
@@ -846,7 +993,10 @@ porthole_status porthole_capture_encode(uint8_t *out, size_t cap, size_t *len) {
 
     /* Emit Annex-B H.264 stream packet sequence (SPS/PPS/IDR on keyframe, P-slice on intra) */
     size_t total = 0;
-    int is_keyframe = (s_encoded_frames % 60 == 0);
+    int is_keyframe = (s_encoded_frames % 60 == 0) || s_keyframe_requested;
+    if (s_keyframe_requested) {
+        s_keyframe_requested = 0;
+    }
 
     if (is_keyframe) {
         if (cap < sizeof(s_sps_nal) + sizeof(s_pps_nal) + sizeof(s_idr_nal)) {
@@ -906,6 +1056,8 @@ static int porthole_listen_port(uint16_t port) {
     if (s < 0) {
         return -1;
     }
+    int opt = 1;
+    (void)oops_setsockopt(s, OOPS_SOL_SOCKET, OOPS_SO_REUSEADDR, &opt, sizeof(opt));
     /* A null address is INADDR_ANY: this listens on whatever interface reaches the host. */
     if (oops_bind(s, (const char *)0, port) < 0 || oops_listen(s, 1) < 0) {
         oops_close(s);
@@ -1006,12 +1158,24 @@ porthole_status porthole_run(void) {
     (void)disp_status;
 #endif
 
-    int s_video = porthole_listen_port(PORTHOLE_PORT_VIDEO);
-    int s_input = porthole_listen_port(PORTHOLE_PORT_INPUT);
+    int s_video = -1;
+    int s_input = -1;
+    for (int retry = 0; retry < 5; retry++) {
+        if (s_video < 0) s_video = porthole_listen_port(PORTHOLE_PORT_VIDEO);
+        if (s_input < 0) s_input = porthole_listen_port(PORTHOLE_PORT_INPUT);
+        if (s_video >= 0 && s_input >= 0) break;
+        oops_time_sleep_ms(200);
+    }
 
     if (s_video < 0 || s_input < 0) {
         porthole_close_conn(s_video);
         porthole_close_conn(s_input);
+#if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__))
+        klog_write("failed to bind listeners on ports 9805 / 9806; parking payload thread");
+        for (;;) {
+            oops_time_sleep_ms(1000);
+        }
+#endif
         return PORTHOLE_NET;
     }
 #if !defined(PORTHOLE_HOST_BUILD) && (defined(__FreeBSD__) || defined(__PS5__))
@@ -1031,7 +1195,7 @@ porthole_status porthole_run(void) {
     int conn_input = -1;
     int conn_video = -1;
 
-    uint8_t input_buf[PORTHOLE_PAD_BYTES];
+    uint8_t input_buf[PORTHOLE_RECORD_BYTES];
     size_t input_buf_len = 0;
     uint32_t frame_counter = 0;
 
@@ -1063,13 +1227,26 @@ porthole_status porthole_run(void) {
          * one-record-a-frame reader. */
         while (conn_input >= 0) {
             long n = porthole_recv_bytes(conn_input, input_buf + input_buf_len,
-                                         PORTHOLE_PAD_BYTES - input_buf_len);
+                                         PORTHOLE_RECORD_BYTES - input_buf_len);
             if (n > 0) {
                 input_buf_len += (size_t)n;
-                if (input_buf_len == PORTHOLE_PAD_BYTES) {
-                    porthole_pad pad;
-                    if (porthole_pad_decode(input_buf, &pad) == PORTHOLE_OK) {
-                        (void)porthole_pad_apply(&pad);
+                if (input_buf_len == PORTHOLE_RECORD_BYTES) {
+                    if (input_buf[0] == PORTHOLE_PAD_MAGIC0 &&
+                        input_buf[1] == PORTHOLE_PAD_MAGIC1 &&
+                        input_buf[2] == PORTHOLE_PAD_MAGIC2 &&
+                        input_buf[3] == PORTHOLE_PAD_MAGIC3) {
+                        porthole_pad pad;
+                        if (porthole_pad_decode(input_buf, &pad) == PORTHOLE_OK) {
+                            (void)porthole_pad_apply(&pad);
+                        }
+                    } else if (input_buf[0] == PORTHOLE_CTL_MAGIC0 &&
+                               input_buf[1] == PORTHOLE_CTL_MAGIC1 &&
+                               input_buf[2] == PORTHOLE_CTL_MAGIC2 &&
+                               input_buf[3] == PORTHOLE_CTL_MAGIC3) {
+                        porthole_ctl ctl;
+                        if (porthole_ctl_decode(input_buf, &ctl) == PORTHOLE_OK) {
+                            (void)porthole_ctl_apply(&ctl);
+                        }
                     }
                     input_buf_len = 0;
                 }

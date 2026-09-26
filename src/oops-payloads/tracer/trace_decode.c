@@ -12,13 +12,43 @@ static void print_nid(FILE *out, uint64_t nid) {
     fprintf(out, "%016llx", (unsigned long long)nid);
 }
 
+struct nid_name_entry {
+    uint64_t nid;
+    char name[64];
+};
+static struct nid_name_entry s_name_table[1024];
+static uint32_t s_name_count = 0;
+
+static const char *lookup_name(uint64_t nid) {
+    for (uint32_t i = 0; i < s_name_count; i++) {
+        if (s_name_table[i].nid == nid) {
+            return s_name_table[i].name;
+        }
+    }
+    return NULL;
+}
+
+static void register_name(uint64_t nid, const char *name) {
+    if (lookup_name(nid) != NULL || s_name_count >= 1024 || name == NULL) {
+        return;
+    }
+    s_name_table[s_name_count].nid = nid;
+    size_t len = strlen(name);
+    if (len >= sizeof(s_name_table[0].name))
+        len = sizeof(s_name_table[0].name) - 1;
+    memcpy(s_name_table[s_name_count].name, name, len);
+    s_name_table[s_name_count].name[len] = '\0';
+    s_name_count++;
+}
+
 void obs_trace_decode_record(const struct obs_trace_rec *r, FILE *out) {
     if (r == NULL || out == NULL) {
         return;
     }
     switch (r->kind) {
     case OBS_TRACE_ENTRY: {
-        fprintf(out, "OBS|call|?|");
+        const char *name = lookup_name(r->nid);
+        fprintf(out, "OBS|call|%s|", name ? name : "?");
         print_nid(out, r->nid);
         fprintf(out, "|%u|%u", (unsigned)r->tid, (unsigned)r->seq);
         for (unsigned i = 0; i < r->argc && i < OBS_TRACE_ARGS; i++) {
@@ -28,7 +58,12 @@ void obs_trace_decode_record(const struct obs_trace_rec *r, FILE *out) {
         break;
     }
     case OBS_TRACE_EXIT: {
-        fprintf(out, "OBS|ret|");
+        const char *name = lookup_name(r->nid);
+        if (name != NULL) {
+            fprintf(out, "OBS|ret|%s|", name);
+        } else {
+            fprintf(out, "OBS|ret|");
+        }
         print_nid(out, r->nid);
         fprintf(out, "|%u|%llx\n", (unsigned)r->seq, (unsigned long long)r->arg[0]);
         break;
@@ -59,6 +94,7 @@ void obs_trace_decode_record(const struct obs_trace_rec *r, FILE *out) {
         char name[OBS_TRACE_ARGS * 8u + 1u];
         memcpy(name, &r->arg[0], OBS_TRACE_ARGS * 8u);
         name[OBS_TRACE_ARGS * 8u] = '\0';
+        register_name(r->nid, name);
         fprintf(out, "OBS|name|");
         print_nid(out, r->nid);
         fprintf(out, "|%s\n", name);

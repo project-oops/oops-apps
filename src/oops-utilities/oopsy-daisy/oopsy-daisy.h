@@ -126,9 +126,9 @@ int oopsy_catalog_json(const oopsy_catalog_t *cat, char *buf, int cap);
  * failed job. Returns the length written, or -1 if `cap` is too small. Pure. */
 int oopsy_queue_json(const oopsy_queue_t *q, char *buf, int cap);
 
-/* The on-device UI markup: the oops-apps index page, litehtml-friendly (flex layout, no CSS grid)
- * and wired to the bridge above. Defined in oopsy-daisy_page.c; loaded with
- * oops_webview_load_html(). */
+/* The on-device UI markup: the oops-apps index page, litehtml-friendly (an HTML-table grid, since
+ * litehtml has no CSS grid and miscomputes flex) and wired to the bridge above. Defined in
+ * oopsy-daisy_page.c; loaded with oops_webview_load_html(). */
 extern const char oopsy_page_html[];
 
 #endif /* OOPS_APPS_OOPSY_DAISY_H */

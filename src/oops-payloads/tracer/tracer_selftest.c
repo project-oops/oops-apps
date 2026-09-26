@@ -86,12 +86,14 @@ int __attribute__((noinline)) mock_sceAgcDriverSubmitDcb(const test_dcb_desc_t *
 }
 
 static int s_real_apr_resolve_called = 0;
-int mock_sceKernelAprResolveFilepathsToIdsAndFileSizes(
-    const char **paths, uint32_t count, uint32_t *ids, uint64_t *sizes,
-    uint32_t *statuses, void *arg5);
-int __attribute__((noinline)) mock_sceKernelAprResolveFilepathsToIdsAndFileSizes(
-    const char **paths, uint32_t count, uint32_t *ids, uint64_t *sizes,
-    uint32_t *statuses, void *arg5) {
+int mock_sceKernelAprResolveFilepathsToIdsAndFileSizes(const char **paths,
+                                                       uint32_t count, uint32_t *ids,
+                                                       uint64_t *sizes,
+                                                       uint32_t *statuses, void *arg5);
+int __attribute__((noinline))
+mock_sceKernelAprResolveFilepathsToIdsAndFileSizes(const char **paths, uint32_t count,
+                                                   uint32_t *ids, uint64_t *sizes,
+                                                   uint32_t *statuses, void *arg5) {
     __asm__ volatile("nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; "
                      "nop; nop; nop;");
     s_real_apr_resolve_called++;
@@ -128,7 +130,8 @@ int __attribute__((noinline)) mock_sceKernelMapperGetParam(void *param_buf) {
 
 static int s_real_open_called = 0;
 int mock_sceKernelOpen(const char *path, int flags, int mode);
-int __attribute__((noinline)) mock_sceKernelOpen(const char *path, int flags, int mode) {
+int __attribute__((noinline)) mock_sceKernelOpen(const char *path, int flags,
+                                                 int mode) {
     __asm__ volatile("nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; "
                      "nop; nop; nop;");
     s_real_open_called++;
@@ -340,8 +343,8 @@ int main(void) {
     uint32_t test_ids[1] = {0};
     uint64_t test_sizes[1] = {0};
     uint32_t test_statuses[1] = {99};
-    int (*volatile p_apr)(const char **, uint32_t, uint32_t *, uint64_t *, uint32_t *, void *) =
-        mock_sceKernelAprResolveFilepathsToIdsAndFileSizes;
+    int (*volatile p_apr)(const char **, uint32_t, uint32_t *, uint64_t *, uint32_t *,
+                          void *) = mock_sceKernelAprResolveFilepathsToIdsAndFileSizes;
     int apr_rc = p_apr(test_paths, 1u, test_ids, test_sizes, test_statuses, NULL);
     assert(apr_rc == 0);
     assert(s_real_apr_resolve_called == 1);
@@ -372,7 +375,8 @@ int main(void) {
 
     tracer_uninstall_hooks();
 
-    /* The flushed trace file decodes without error and contains the expected records. */
+    /* The flushed trace file decodes without error and contains the expected records.
+     */
     const char *trace_path = "build/tracer_selftest.bin";
     const char *text_path = "build/tracer_selftest.txt";
     int flush_rc = tracer_flush_to_file(trace_path);
@@ -400,10 +404,13 @@ int main(void) {
     int found_stat = 0;
     int found_mapper = 0;
     while (fgets(line, (int)sizeof(line), ftxt) != NULL) {
-        if (strstr(line, "OBS|apr_resolve|idx=0|id=26|size=224748|status=0|path=/app0/Media/globalgamemanagers") != NULL) {
+        if (strstr(line, "OBS|apr_resolve|idx=0|id=26|size=224748|status=0|path=/app0/"
+                         "Media/globalgamemanagers") != NULL) {
             found_apr = 1;
         }
-        if (strstr(line, "OBS|open|fd=3|flags=0x0|path=/app0/Media/globalgamemanagers") != NULL) {
+        if (strstr(line,
+                   "OBS|open|fd=3|flags=0x0|path=/app0/Media/globalgamemanagers") !=
+            NULL) {
             found_open = 1;
         }
         if (strstr(line, "OBS|stat|fd=3|ino=1001|") != NULL) {

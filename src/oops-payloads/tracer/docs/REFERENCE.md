@@ -14,11 +14,6 @@ Capabilities, role, and the offline decode path. The [README](../README.md) is t
    cumulative `COUNT` records at drain to preserve true execution totals.
 4. **GPU command and shader telemetry** - records raw RDNA2 ISA shader registrations
    (`OBS_TRACE_SHADER`) and PM4 command-buffer submissions (`OBS_TRACE_DCB`).
-5. **Package and filesystem operations** - records asynchronous package resolution
-   (`OBS_TRACE_APR_RESOLVE`) mapping package paths to file IDs, sizes, and statuses; captures
-   file descriptor opens, closes, and stat queries.
-6. **Subsystem and memory parameters** - intercepts kernel mapper parameters (`sceKernelMapperGetParam`)
-   to dump out-parameter buffer layouts; tracks direct memory allocation and mappings.
 
 ## Role in the loop
 
