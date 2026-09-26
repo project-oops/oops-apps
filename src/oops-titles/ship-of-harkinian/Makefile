@@ -60,7 +60,15 @@ SOH_DEPS := sdl2 zlib libzip stb nlohmann-json thread-pool tinyxml2 spdlog \
 #
 # The three spdlog and stb settings are upstream's own, and they matter here rather than being
 # inherited noise: this platform has no thread-local storage for them to use.
-SOH_DEFS := -DENABLE_OPENGL -DF3DEX_GBI_2 -DNDEBUG \
+#
+# The three dr_libs headers open wide paths through `wcsrtombs` to reach `fopen`, and this platform
+# has no wide-character functions: libc++ is built without them and `<wchar.h>` omits them
+# deliberately. Samples come out of the archive rather than a file, so the file APIs are not wanted
+# either, and `DR_*_NO_STDIO` removes both. dr_wav needs `NO_WCHAR` named as well; dr_flac says in
+# its own header that `NO_WCHAR` is redundant once `NO_STDIO` is set.
+SOH_DR_DEFS := -DDR_WAV_NO_STDIO -DDR_WAV_NO_WCHAR -DDR_MP3_NO_STDIO -DDR_FLAC_NO_STDIO
+
+SOH_DEFS := -DENABLE_OPENGL -DF3DEX_GBI_2 -DNDEBUG $(SOH_DR_DEFS) \
             -DSPDLOG_NO_THREAD_ID -DSPDLOG_NO_TLS -DSTBI_NO_THREAD_LOCALS
 
 SOH_GEN_DIR := $(CURDIR)/build/gen
@@ -109,6 +117,9 @@ include $(OOPS_THREADPOOL)/oops-thread-pool.mk
 # `AudioSampleFactory.cpp` defines DR_WAV_IMPLEMENTATION and compiles it there.
 OOPS_DR_LIBS ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/dr-libs)
 include $(OOPS_DR_LIBS)/oops-dr-libs.mk
+# The sample importer reads Vorbis streams beside the WAV ones. libvorbis carries libogg's include.
+OOPS_VORBIS ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libvorbis)
+include $(OOPS_VORBIS)/oops-libvorbis.mk
 include $(OOPS_APPS_ROOT)/common/posix.mk
 include $(OOPS_APPS_ROOT)/common/rt.mk
 
@@ -127,6 +138,7 @@ SOH_INCLUDE := $(SOH_OWN_INCLUDE) $(SOH_GEN_INCLUDE) $(SOH_DEFS) \
                $(OOPS_SPDLOG_INCLUDE) $(OOPS_JSON_INCLUDE) $(OOPS_TINYXML2_INCLUDE) \
                $(OOPS_PRISM_INCLUDE) $(OOPS_GFXD_INCLUDE) $(OOPS_STB_INCLUDE) \
                $(OOPS_THREADPOOL_INCLUDE) $(OOPS_IMGUI_INCLUDE) $(OOPS_DR_LIBS_INCLUDE) \
+               $(OOPS_VORBIS_INCLUDE) \
                $(OOPS_STORMLIB_INCLUDE) $(OOPS_LIBZIP_INCLUDE) $(OOPS_ZLIB_INCLUDE) \
                $(OOPS_SDL_INCLUDE) $(OOPS_SDL_PREFIX_INCLUDE)
 
@@ -168,18 +180,23 @@ SOH_EXCLUDE_RE := speechsynthesizer/(SAPI|Darwin|ESpeak)|soh/Extractor/|Enhancem
 
 .PHONY: compile-survey
 compile-survey: $(SOH_CVARS_H)
-	@ok=0; bad=0; : > $(CURDIR)/build/survey-errors.txt; \
-	 for f in $$(find $(SOH_SURVEY_DIR) -name '*.cpp' | grep -vE '$(SOH_EXCLUDE_RE)' | sort); do \
-	    if $(TARGET_CXX) $(SOH_CXXFLAGS) -fsyntax-only "$$f" 2>$(CURDIR)/build/survey-e.txt; then \
-	        ok=$$((ok+1)); \
-	    else \
-	        bad=$$((bad+1)); \
-	        printf '%s\t%s\n' "$$f" \
-	          "$$(grep -a -m1 'error:' $(CURDIR)/build/survey-e.txt \
-	              | sed 's|.*error: ||' | cut -c1-90)" \
-	          >> $(CURDIR)/build/survey-errors.txt; \
-	    fi; \
-	 done; \
+	@# One compiler per core rather than one at a time: this is several hundred translation units
+	@# and a serial pass takes long enough that it is easier to guess than to measure, which is the
+	@# opposite of what a survey is for. Each writes its own error file, so the results do not
+	@# interleave, and `set -e` is off because a failing compile is the thing being counted.
+	@rm -rf $(CURDIR)/build/survey-out; mkdir -p $(CURDIR)/build/survey-out; \
+	 : > $(CURDIR)/build/survey-errors.txt; \
+	 find $(SOH_SURVEY_DIR) -name '*.cpp' | grep -vE '$(SOH_EXCLUDE_RE)' | sort \
+	   > $(CURDIR)/build/survey-files.txt; \
+	 total=$$(wc -l < $(CURDIR)/build/survey-files.txt); \
+	 cat $(CURDIR)/build/survey-files.txt \
+	 | xargs -P $$(nproc) -I{} sh -c \
+	     'e=$(CURDIR)/build/survey-out/$$(echo "{}" | tr "/" "_").err; \
+	      if ! $(TARGET_CXX) $(SOH_CXXFLAGS) -fsyntax-only "{}" 2>"$$e"; then \
+	          printf "%s\t%s\n" "{}" \
+	            "$$(grep -a -m1 "error:" "$$e" | sed "s|.*error: ||" | cut -c1-90)"; \
+	      fi' >> $(CURDIR)/build/survey-errors.txt; \
+	 bad=$$(wc -l < $(CURDIR)/build/survey-errors.txt); ok=$$((total - bad)); \
 	 printf '\n%s: %s compile, %s fail\n' "$(SOH_SURVEY_DIR)" "$$ok" "$$bad"; \
 	 if [ "$$bad" -gt 0 ]; then \
 	    printf '\n-- blockers, by first error, most files first --\n'; \

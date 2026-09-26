@@ -1,0 +1,53 @@
+StringToU16 returns UTF-16, so say char16_t
+
+The function decodes UTF-8 into UTF-16 code units, pairs surrogates by hand and is read
+back against `u'...'` literals, but it collected the result in a `std::wstring`. `wchar_t`
+is 32 bits on Linux and macOS, so that container was never the width the name claims;
+`char16_t` is.
+
+libc++ here is built without wide characters, having no locale to convert through, so
+`std::wstring` does not exist and the file did not compile. `std::u16string` needs none of
+that.
+---
+diff --git a/soh/soh/OTRGlobals.cpp b/soh/soh/OTRGlobals.cpp
+index 39f04dd..d0e9484 100644
+--- a/soh/soh/OTRGlobals.cpp
++++ b/soh/soh/OTRGlobals.cpp
+@@ -1959,7 +1959,7 @@ extern "C" void Ctx_WriteSaveFile(uintptr_t addr, void* dramAddr, size_t size) {
+     SaveManager::WriteSaveFile(GetSaveFile(), addr, dramAddr, size);
+ }
+ 
+-std::wstring StringToU16(const std::string& s) {
++std::u16string StringToU16(const std::string& s) {
+     std::vector<unsigned long> result;
+     size_t i = 0;
+ 
+@@ -1998,15 +1998,15 @@ std::wstring StringToU16(const std::string& s) {
+         if (uni != '\1')
+             result.push_back(uni);
+     }
+-    std::wstring utf16;
++    std::u16string utf16;
+     for (size_t i = 0; i < result.size(); ++i) {
+         unsigned long uni = result[i];
+         if (uni <= 0xFFFF) {
+-            utf16 += (wchar_t)uni;
++            utf16 += (char16_t)uni;
+         } else {
+             uni -= 0x10000;
+-            utf16 += (wchar_t)((uni >> 10) + 0xD800);
+-            utf16 += (wchar_t)((uni & 0x3FF) + 0xDC00);
++            utf16 += (char16_t)((uni >> 10) + 0xD800);
++            utf16 += (char16_t)((uni & 0x3FF) + 0xDC00);
+         }
+     }
+     return utf16;
+@@ -2033,7 +2033,7 @@ extern "C" void OTRGfxPrint(const char* str, void* printer, void (*printImpl)(vo
+         u'マ', u'ミ', u'ム', u'メ', u'モ', u'ヤ', u'ユ', u'ヨ', u'ラ', u'リ', u'ル', u'レ', u'ロ', u'ワ', u'ン',
+     };
+ 
+-    std::wstring wstr = StringToU16(str);
++    std::u16string wstr = StringToU16(str);
+     bool hiraganaMode = false;
+ 
+     for (const auto& c : wstr) {

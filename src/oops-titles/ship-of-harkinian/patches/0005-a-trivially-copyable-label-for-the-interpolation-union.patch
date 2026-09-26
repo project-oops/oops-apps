@@ -1,0 +1,36 @@
+A trivially copyable label, so the interpolation union can be relocated
+
+`union Data` holds a `label` and lives in a `vector<Data>`, which has to relocate its
+elements when it grows. A union whose variant member has a non-trivial copy constructor
+has its own copy constructor deleted, and `label` was a `std::pair`.
+
+libc++ gives `pair` a `__non_trivially_copyable_base`, so it is not trivially copyable
+there even when both members are; libstdc++ has no such base, which is why this builds
+elsewhere. A two-field aggregate with the comparison `map` needs has no such problem.
+
+`label` is local to this file and only ever aggregate-initialised or used as a map key, so
+nothing reads `.first` or `.second`.
+---
+diff --git a/soh/soh/frame_interpolation.cpp b/soh/soh/frame_interpolation.cpp
+index ae2ee0e..13a2f53 100644
+--- a/soh/soh/frame_interpolation.cpp
++++ b/soh/soh/frame_interpolation.cpp
+@@ -105,7 +105,17 @@ enum class Op {
+     SkinMatrixMtxFToMtx
+ };
+ 
+-typedef pair<const void*, int> label;
++// A plain aggregate rather than a std::pair, because it is a member of the union below and that
++// union has to be trivially copyable for `vector<Data>` to relocate on growth. libc++'s pair
++// carries a non-trivially-copyable base, which deletes the union's copy constructor.
++struct label {
++    const void* ptr;
++    int idx;
++
++    bool operator<(const label& o) const {
++        return ptr != o.ptr ? ptr < o.ptr : idx < o.idx;
++    }
++};
+ 
+ union Data {
+     Data() {

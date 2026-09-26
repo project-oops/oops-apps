@@ -79,6 +79,28 @@ include $(OOPS_JSON)/oops-nlohmann-json.mk
 # libultraship reads its archives through libzip, and its headers name <zip.h> directly.
 OOPS_LIBZIP ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libzip)
 include $(OOPS_LIBZIP)/oops-libzip.mk
+# libultraship dispatches resource loads across a pool, and its headers name BS_thread_pool.hpp.
+OOPS_THREADPOOL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/thread-pool)
+include $(OOPS_THREADPOOL)/oops-thread-pool.mk
+# SDL2 for the window, the GL context and the audio device, as every other title here.
+OOPS_SDL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/sdl2)
+include $(OOPS_SDL)/oops-sdl.mk
+# libultraship logs through spdlog, and its own headers include it.
+OOPS_SPDLOG ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/spdlog)
+include $(OOPS_SPDLOG)/oops-spdlog.mk
+# The resource system reads XML manifests, and prism generates its shaders.
+OOPS_TINYXML2 ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/tinyxml2)
+include $(OOPS_TINYXML2)/oops-tinyxml2.mk
+OOPS_PRISM ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/prism-processor)
+include $(OOPS_PRISM)/oops-prism.mk
+OOPS_STB ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/stb)
+include $(OOPS_STB)/oops-stb.mk
+OOPS_IMGUI ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/imgui)
+include $(OOPS_IMGUI)/oops-imgui.mk
+OOPS_STORMLIB ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/stormlib)
+include $(OOPS_STORMLIB)/oops-stormlib.mk
+OOPS_GFXD ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libgfxd)
+include $(OOPS_GFXD)/oops-libgfxd.mk
 
 # `libultraship/include` rather than its `libultraship/` subdirectory: sources write
 # `#include <libultraship/libultraship.h>` and `<libultraship/libultra/types.h>`. torch supplies
@@ -86,13 +108,22 @@ include $(OOPS_LIBZIP)/oops-libzip.mk
 # The port's own trees are on the path by name, not just their root: sources include `math_util.h`
 # and `actors.h` bare, which upstream gets from its per-directory target_include_directories.
 SPGK_INCLUDE := $(OOPS_TOMLPP_INCLUDE) $(OOPS_SEMVER_INCLUDE) $(OOPS_JSON_INCLUDE) \
-                $(OOPS_LIBZIP_INCLUDE) \
+                $(OOPS_LIBZIP_INCLUDE) $(OOPS_THREADPOOL_INCLUDE) $(OOPS_SDL_INCLUDE) \
+                $(OOPS_SPDLOG_INCLUDE) $(OOPS_TINYXML2_INCLUDE) $(OOPS_PRISM_INCLUDE) \
+                $(OOPS_STB_INCLUDE) $(OOPS_IMGUI_INCLUDE) $(OOPS_STORMLIB_INCLUDE) \
+                $(OOPS_GFXD_INCLUDE) \
+                -Ishim/include \
                 -I$(SPGK_UP) -I$(SPGK_UP)/include -I$(SPGK_UP)/src \
                 -I$(SPGK_UP)/src/racing -I$(SPGK_UP)/src/engine -I$(SPGK_UP)/src/port \
                 -I$(SPGK_LUS)/include -I$(SPGK_LUS)/include/libultraship \
                 -I$(SPGK_LUS)/src -I$(SPGK_UP)/torch/src \
                 -DOOPS_POSIX_HOME=\"/data/spaghetti-kart\" \
                 $(OOPS_POSIX_INCLUDE)
+
+# `include/actor_types.h` writes `static_assert` in C without including <assert.h>, which is where
+# C11 spells it. Upstream builds at C11 and gets the header some other way; forcing it in is
+# cheaper than a patch, and it is where the macro belongs.
+SPGK_INCLUDE += -include assert.h
 
 SPGK_WARNINGS := -Wno-strict-prototypes -Wno-missing-prototypes -Wno-conversion \
                  -Wno-sign-conversion -Wno-shorten-64-to-32 -Wno-comment \
@@ -201,7 +232,8 @@ census:
 	    if $(TARGET_CC) $(TARGET_CFLAGS) $(EXTRA_TARGET_CFLAGS) -fsyntax-only "$$f" \
 	         2>$(BUILD)/census-e.txt; then ok=$$((ok+1)); \
 	    else bad=$$((bad+1)); \
-	        grep -m1 'error:' $(BUILD)/census-e.txt | sed 's|.*error: ||' | cut -c1-70 \
+	        printf '%s\t%s\n' "$${f#$(SPGK_UP)/}" \
+	          "$$(grep -a -m1 'error:' $(BUILD)/census-e.txt | sed 's|.*error: ||' | cut -c1-70)" \
 	          >> $(BUILD)/census-errors.txt; \
 	    fi; \
 	 done; \
@@ -212,7 +244,8 @@ census:
 	    if $(TARGET_CC) $(SPGK_CXXFLAGS) -fsyntax-only "$$f" 2>$(BUILD)/census-e.txt; \
 	      then cok=$$((cok+1)); \
 	    else cbad=$$((cbad+1)); \
-	        grep -m1 'error:' $(BUILD)/census-e.txt | sed 's|.*error: ||' | cut -c1-70 \
+	        printf '%s\t%s\n' "$${f#$(SPGK_UP)/}" \
+	          "$$(grep -a -m1 'error:' $(BUILD)/census-e.txt | sed 's|.*error: ||' | cut -c1-70)" \
 	          >> $(BUILD)/census-errors.txt; \
 	    fi; \
 	 done; \
@@ -220,7 +253,9 @@ census:
 	    "$$cok" "$$cbad" "$(words $(SPGK_CXX_SRCS))"; \
 	 if [ "$$bad" -gt 0 ] || [ "$$cbad" -gt 0 ]; then \
 	    printf '\n-- blockers, most common first --\n'; \
-	    sort $(BUILD)/census-errors.txt | uniq -c | sort -rn | head -20; fi
+	    cut -f2 $(BUILD)/census-errors.txt | sort | uniq -c | sort -rn | head -20; \
+	    printf '\n-- the files, in $(BUILD)/census-errors.txt --\n'; \
+	    head -20 $(BUILD)/census-errors.txt; fi
 
 # ---------------------------------------------------------------------------
 # `make census-one F=<path>`: every error in one source. `X=1` for a C++ source.
