@@ -2,6 +2,7 @@
 #
 #   make census        compile every source this title needs, for the target, and report
 #   make census-one F=<path>          every error in one source
+#   make blank-assets  write blank stand-ins for the ROM-derived assets, so a build needs no ROM
 #
 # There is no payload target, and this pin cannot have one. The ROM is a runtime input for every title
 # in this collection: a build carries no game assets, and a title with no ROM says so on screen. This
@@ -120,3 +121,19 @@ census-one:
 # `make title` fails on undefined SDK symbols while there is no payload, which is the honest answer
 # and not a useful default. The census is.
 .DEFAULT_GOAL := census
+
+# ---------------------------------------------------------------------------
+# `make blank-assets`: the ROM-free half of the asset problem
+#
+# upstream/assets.json carries every asset's size, its position in the ROM and, for a texture, its
+# pixel dimensions, so a correctly shaped empty file can be written for each one without a ROM.
+# Upstream's own rules then produce .inc.c arrays of exactly the sizes a ROM build produces, which
+# keeps every address and offset identical; only the contents are zero.
+#
+# Textures, sequences and raw binaries are covered. The sound banks are not: upstream rebuilds those
+# host-native from carved AIFC samples rather than slicing them out of the ROM, so a zero file of the
+# right length does not stand in for one.
+# ---------------------------------------------------------------------------
+.PHONY: blank-assets
+blank-assets:
+	@python3 scripts/gen-blank-assets.py $(SM64_UP)
