@@ -41,4 +41,28 @@ typedef uint64_t nlink_t;
 #define _NLINK_T_DECLARED
 #endif
 
+/* `usleep`'s argument, which `unistd.h` here declares with. 32-bit on FreeBSD and Linux, and not
+ * the unsigned twin of `suseconds_t`. */
+#ifndef _USECONDS_T_DECLARED
+typedef unsigned int useconds_t;
+#define _USECONDS_T_DECLARED
+#endif
+
+/* The remaining three the SDK's copy has, at its widths. A port reaching this file rather than that
+ * one gets the same set either way, which is the point of the guards. */
+#ifndef _PID_T_DECLARED
+typedef int32_t pid_t;
+#define _PID_T_DECLARED
+#endif
+
+#ifndef _TIME_T_DECLARED
+typedef int64_t time_t;
+#define _TIME_T_DECLARED
+#endif
+
+#ifndef _SUSECONDS_T_DECLARED
+typedef int64_t suseconds_t;
+#define _SUSECONDS_T_DECLARED
+#endif
+
 #endif
