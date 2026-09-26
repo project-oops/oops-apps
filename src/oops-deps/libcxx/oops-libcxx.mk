@@ -150,12 +150,14 @@ OOPS_LIBCXX_LDFLAGS := -Wl,--whole-archive $(OOPS_LIBCXX_LIB) -Wl,--no-whole-arc
 # (`oops-apps#D007`), so localization is on in `__config_site` and this list grew to what that
 # requires.
 #
-# **It is still not `$(wildcard src/*.cpp)`**, and the reason is in the survey behind D007: of
-# the 45 sources upstream ships, 32 compile for this target and 13 do not. Nine of those are
-# threading, which `_LIBCPP_HAS_THREADS 0` switches off, and the rest want a platform facility
-# that is genuinely absent. A glob would add them, fail the build, and invite somebody to switch
-# a `__config_site` line to make the error go away - which is how a library ends up claiming a
-# facility it cannot deliver. Naming them means adding one is a decision.
+# The list is named rather than `$(wildcard src/*.cpp)`. Some of upstream's sources want a
+# platform facility this target does not have; a glob would add them, fail the build, and invite
+# somebody to switch a `__config_site` line to make the error go away, which is how a library
+# ends up claiming a facility it cannot deliver. Naming them means adding one is a decision.
+#
+# The threading sources are here because `__config_site` sets `_LIBCPP_HAS_THREADS 1` over the
+# external thread API. A source the config's branches reach must be in this list: with threads
+# on, `memory_resource.cpp` takes its `std::mutex` branch and needs `mutex.cpp` linked.
 #
 # Re-run `tools/libcxx-survey.sh` after touching `__config_site` or oops-sdk's C library; it
 # compiles all 45 and prints what each failure is waiting for.
