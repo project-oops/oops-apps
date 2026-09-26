@@ -40,9 +40,7 @@
 #endif
 
 #ifndef OOPS_HOST_BUILD
-static void probe_klog(const char *msg) {
-    oops_klog("gl2-probe", msg);
-}
+#define PROBE_TAG "gl2-probe"
 
 /* Builds "  name            pass" without a printf, which a freestanding payload does
  * not have. Padded so a column of results reads as a column. GL 2.0's check names are
@@ -61,7 +59,7 @@ static void report(const char *name, int passed) {
     for (int i = 0; verdict[i] && at < (int)sizeof(line) - 1; i++)
         line[at++] = verdict[i];
     line[at] = '\0';
-    probe_klog(line);
+    oops_log_info(PROBE_TAG, "%s", line);
 }
 
 /*
@@ -90,7 +88,7 @@ static void trace(const char *name, int verdict) {
             line[at++] = v[i];
     }
     line[at] = '\0';
-    probe_klog(line);
+    oops_log_info(PROBE_TAG, "%s", line);
 }
 
 /* "   name                saw 0xff204060 err 0x0502" - the colour a failing check left
@@ -150,7 +148,7 @@ static void saw(const char *name, uint32_t centre, unsigned int err, int drawn,
     for (int s = 28; s >= 0; s -= 4)
         line[at++] = hex[(right >> s) & 0xfu];
     line[at] = '\0';
-    probe_klog(line);
+    oops_log_info(PROBE_TAG, "%s", line);
 }
 
 /* **Three digits, because the suite is allowed a hundred and twenty-eight checks.** A
@@ -175,7 +173,7 @@ static void report_total(int passed, int ran) {
     for (int i = 0; tail[i] && at < (int)sizeof(line) - 1; i++)
         line[at++] = tail[i];
     line[at] = '\0';
-    probe_klog(line);
+    oops_log_info(PROBE_TAG, "%s", line);
 }
 #endif
 
@@ -186,8 +184,9 @@ __attribute__((visibility("default"))) int gl2_probe_start(const payload_args_t 
     if (args) {
         sys_call_init(args);
     }
-    probe_klog("gl2-probe: running the OpenGL 2.0 check suite [build " OOPS_APP_VERSION
-               "]");
+    oops_log_info(
+        PROBE_TAG,
+        "gl2-probe: running the OpenGL 2.0 check suite [build " OOPS_APP_VERSION "]");
     gl2_probe_trace = trace;
     gl2_probe_saw = saw;
 #else
@@ -198,7 +197,7 @@ __attribute__((visibility("default"))) int gl2_probe_start(const payload_args_t 
     const int ran = gl2_probe_run(results, (int)(sizeof(results) / sizeof(results[0])));
     if (ran < 0) {
 #ifndef OOPS_HOST_BUILD
-        probe_klog("gl2-probe: no GL context; nothing measured");
+        oops_log_info(PROBE_TAG, "gl2-probe: no GL context; nothing measured");
         oops_system_park_until_closed();
 #endif
         return -1;

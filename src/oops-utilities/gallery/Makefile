@@ -8,6 +8,8 @@
 # Configuration & release formats loaded from app.env
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
+EXTRA_CFLAGS += -I$(OOPS_APPS_ROOT)/common
+EXTRA_TARGET_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 
 # Host test sources
 # system.c, fs.c and heap.c travel together: the disk sink reaches fs.c, fs.c reaches the

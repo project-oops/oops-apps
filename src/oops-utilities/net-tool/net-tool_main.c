@@ -19,9 +19,7 @@
 
 #include "net-tool.h"
 
-static void klog(const char *msg) {
-    oops_klog("NET-TOOL", msg);
-}
+#define TAG "NET-TOOL"
 
 static int measure_latency(const oops_net_info_t *info) {
     if (!info)
@@ -76,7 +74,7 @@ int net_tool_start(const payload_args_t *args) {
     if (args) {
         sys_call_init(args);
     }
-    klog("net-tool payload entry reached");
+    oops_log_info(TAG, "net-tool payload entry reached");
 
     oops_time_init();
     oops_net_init();
@@ -94,12 +92,12 @@ int net_tool_start(const payload_args_t *args) {
             oops_kprintf("NET-TOOL", "DNS test (localhost): %s\n", resolved);
         }
     } else {
-        klog("network info unavailable");
+        oops_log_info(TAG, "network info unavailable");
     }
 
     oops_display_t *disp = oops_display_open(OOPS_DISPLAY_BACKEND_AUTO, 1280, 720);
     if (!disp || !oops_display_is_ready(disp)) {
-        klog("display would not open");
+        oops_log_info(TAG, "display would not open");
         oops_net_ctl_term();
         oops_net_term();
         return -1;
@@ -167,7 +165,7 @@ int net_tool_start(const payload_args_t *args) {
         oops_display_flip(disp);
     }
 
-    klog("net-tool exiting");
+    oops_log_info(TAG, "net-tool exiting");
     if (udp_sock >= 0) {
         oops_close(udp_sock);
     }

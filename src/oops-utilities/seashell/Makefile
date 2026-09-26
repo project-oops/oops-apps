@@ -8,6 +8,8 @@
 # Configuration & release formats loaded from app.env
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
+EXTRA_CFLAGS += -I$(OOPS_APPS_ROOT)/common
+EXTRA_TARGET_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 
 SKIN_SRCS = skins/skin_registry.c \
             skins/skin_modern.c \

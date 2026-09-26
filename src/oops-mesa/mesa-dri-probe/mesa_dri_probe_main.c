@@ -67,9 +67,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static void say(const char *msg) {
-    oops_klog("DRI-PROBE", msg);
-}
+#define TAG "DRI-PROBE"
 
 /*
  * How a title finishes here, which is by not finishing.
@@ -89,7 +87,7 @@ static void say(const char *msg) {
  * The line is said here so it carries this title's tag; the idling is the helper's.
  */
 _Noreturn static void park(void) {
-    say("idle and finished - close this title from the host");
+    oops_log_info(TAG, "idle and finished - close this title from the host");
     oops_system_park_until_closed();
 }
 
@@ -131,13 +129,14 @@ _Noreturn static void park(void) {
 static void report_string(const char *label, GLenum name) {
     const GLubyte *s = glGetString(name);
 
+    oops_log_info(TAG, "%s", label);
     if (s == NULL) {
-        oops_klog("DRI-PROBE", label);
-        say("  ... came back null: this thread's dispatch table has no entry for it");
+        oops_log_info(
+            TAG,
+            "  ... came back null: this thread's dispatch table has no entry for it");
         return;
     }
-    oops_klog("DRI-PROBE", label);
-    oops_klog("DRI-PROBE", (const char *)s);
+    oops_log_info(TAG, "%s", (const char *)s);
 }
 
 void mesa_dri_probe_start(void);
@@ -191,7 +190,7 @@ static void probe_first_render(struct oops_gl *gl) {
              (unsigned)draw_err, (unsigned)read_err, (unsigned)centre[0],
              (unsigned)centre[1], (unsigned)centre[2], (unsigned)corner[0],
              (unsigned)corner[1], (unsigned)corner[2]);
-    say(buf);
+    oops_log_info(TAG, "%s", buf);
 }
 
 /*
@@ -275,7 +274,7 @@ static void probe_glsl_render(struct oops_gl *gl) {
              "(a blend of the three vertex colours)",
              (int)vs_ok, (int)fs_ok, (int)link_ok, (unsigned)err, (unsigned)px[0],
              (unsigned)px[1], (unsigned)px[2]);
-    say(buf);
+    oops_log_info(TAG, "%s", buf);
 }
 
 /*
@@ -344,7 +343,9 @@ static void probe_frame_hash(struct oops_gl *gl) {
     if (fb == NULL) {
         /* Said, not smoothed over: no hash this run is a missing measurement, not a
          * passing one. */
-        say("frame hash: the readback buffer would not allocate; no hash this run");
+        oops_log_info(
+            TAG,
+            "frame hash: the readback buffer would not allocate; no hash this run");
         return;
     }
 
@@ -379,7 +380,7 @@ static void probe_frame_hash(struct oops_gl *gl) {
         (unsigned)frame_hash, (unsigned)w, (unsigned)h, (unsigned)mod_pixels,
         (unsigned)centre_pix, (unsigned)corner_pix, (unsigned)PROBE_CLEAR_WORD,
         (unsigned)err);
-    say(buf);
+    oops_log_info(TAG, "%s", buf);
 }
 
 /*
@@ -394,7 +395,8 @@ extern void oops_mesa_run_init_array(void);
 void mesa_dri_probe_start(void) {
     oops_mesa_run_init_array();
 
-    say("bringing GL up through the DRI frontend (v" OOPS_APP_VERSION ")");
+    oops_log_info(TAG,
+                  "bringing GL up through the DRI frontend (v" OOPS_APP_VERSION ")");
 
     struct oops_gl *gl = oops_gl_create(PROBE_WIDTH, PROBE_HEIGHT);
 
@@ -405,20 +407,24 @@ void mesa_dri_probe_start(void) {
          * - and that line is the result. Adding a guess here would put two accounts of
          * one failure in the log, and the shim's is the one with the information.
          */
-        say("GL did not come up; the shim's last line above names the step");
-        say("done");
+        oops_log_info(TAG,
+                      "GL did not come up; the shim's last line above names the step");
+        oops_log_info(TAG, "done");
         park();
     }
 
-    say("oops_gl_create returned a handle: this is the first time that has happened");
+    oops_log_info(
+        TAG,
+        "oops_gl_create returned a handle: this is the first time that has happened");
 
     uint32_t w = 0;
     uint32_t h = 0;
     oops_gl_extent(gl, &w, &h);
     if (w == PROBE_WIDTH && h == PROBE_HEIGHT) {
-        say("the drawable reports the extent that was asked for");
+        oops_log_info(TAG, "the drawable reports the extent that was asked for");
     } else {
-        say("the drawable reports a different extent than was asked for");
+        oops_log_info(TAG,
+                      "the drawable reports a different extent than was asked for");
     }
 
     /* The first GL call ever made on this platform, whatever it answers. */
@@ -454,8 +460,8 @@ void mesa_dri_probe_start(void) {
      * happens.
      */
     if (oops_gl_present(gl)) {
-        say("presentation succeeded: the frame is on the display");
-        say("holding it on screen - close this title from the host");
+        oops_log_info(TAG, "presentation succeeded: the frame is on the display");
+        oops_log_info(TAG, "holding it on screen - close this title from the host");
         /*
          * Do not tear down on success. Closing the display releases the scanout buffers
          * and blanks the screen, so a single flip followed by teardown shows the frame
@@ -467,11 +473,12 @@ void mesa_dri_probe_start(void) {
         park();
     }
 
-    say("presentation refused: the flip half did not run - read the shim's lines "
-        "above");
+    oops_log_info(
+        TAG, "presentation refused: the flip half did not run - read the shim's lines "
+             "above");
     oops_gl_destroy(gl);
-    say("torn down");
+    oops_log_info(TAG, "torn down");
 
-    say("done");
+    oops_log_info(TAG, "done");
     park();
 }

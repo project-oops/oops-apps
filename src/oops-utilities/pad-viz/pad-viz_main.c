@@ -18,19 +18,10 @@
 #include "oops/syscall.h"
 #include "oops/system.h"
 
+#include "app_pad.h"
 #include "pad-viz.h"
 
-/* A line to the system log, the one output a payload always has. */
-static void klog(const char *msg) {
-    oops_klog("PAD-VIZ", msg);
-}
-
-/* The exit gesture: L1, R1 and Options together - a combo no single press triggers, so
- * the face and shoulder buttons stay free to test. */
-static int exit_combo(uint32_t buttons) {
-    return (buttons & OOPS_BUTTON_L1) && (buttons & OOPS_BUTTON_R1) &&
-           (buttons & OOPS_BUTTON_OPTIONS);
-}
+#define TAG "PAD-VIZ"
 
 int padviz_start(const payload_args_t *args);
 
@@ -38,11 +29,11 @@ int padviz_start(const payload_args_t *args) {
     if (args) {
         sys_call_init(args);
     }
-    klog("pad-viz payload entry reached");
+    oops_log_info(TAG, "pad-viz payload entry reached");
 
     oops_display_t *disp = oops_display_open(OOPS_DISPLAY_BACKEND_AUTO, 1280, 720);
     if (!disp || !oops_display_is_ready(disp)) {
-        klog("display would not open - see oops_display_get_last_error");
+        oops_log_info(TAG, "display would not open - see oops_display_get_last_error");
         return -1;
     }
     oops_input_init();
@@ -80,7 +71,7 @@ int padviz_start(const payload_args_t *args) {
             state.sample_count = 0;
         }
 
-        if (exit_combo(state.pad.buttons)) {
+        if (app_exit_combo(state.pad.buttons)) {
             running = 0;
         }
 
@@ -98,7 +89,7 @@ int padviz_start(const payload_args_t *args) {
         oops_display_flip(disp);
     }
 
-    klog("pad-viz exiting");
+    oops_log_info(TAG, "pad-viz exiting");
     oops_input_close();
     oops_display_close(disp);
     return 0;

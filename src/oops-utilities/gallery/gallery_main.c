@@ -25,18 +25,10 @@
 #include "oops/fs.h"
 #include "oops/math.h"
 
+#include "app_pad.h"
 #include "gallery.h"
 
-/* A line to the system log, the one output a payload always has. */
-static void klog(const char *msg) {
-    oops_klog("GALLERY", msg);
-}
-
-/* A button seen this frame but not last: an edge, so a page turn is one press not a
- * slide. */
-static int pressed(uint32_t now, uint32_t was, uint32_t mask) {
-    return (now & mask) && !(was & mask);
-}
+#define TAG "GALLERY"
 
 int gallery_start(const payload_args_t *args);
 
@@ -44,11 +36,11 @@ int gallery_start(const payload_args_t *args) {
     if (args) {
         sys_call_init(args);
     }
-    klog("gallery payload entry reached");
+    oops_log_info(TAG, "gallery payload entry reached");
 
     oops_display_t *disp = oops_display_open(OOPS_DISPLAY_BACKEND_AUTO, 1280, 720);
     if (!disp || !oops_display_is_ready(disp)) {
-        klog("display would not open - see oops_display_get_last_error");
+        oops_log_info(TAG, "display would not open - see oops_display_get_last_error");
         return -1;
     }
     oops_input_init();
@@ -121,13 +113,13 @@ int gallery_start(const payload_args_t *args) {
         oops_pad_state_t pad;
         if (oops_input_poll(0, &pad) == 0) {
             state.pad = pad;
-            if (pressed(pad.buttons, last_buttons, OOPS_BUTTON_R1)) {
+            if (app_pressed(pad.buttons, last_buttons, OOPS_BUTTON_R1)) {
                 state.page = gallery_wrap_page(state.page + 1);
             }
-            if (pressed(pad.buttons, last_buttons, OOPS_BUTTON_L1)) {
+            if (app_pressed(pad.buttons, last_buttons, OOPS_BUTTON_L1)) {
                 state.page = gallery_wrap_page(state.page - 1);
             }
-            if (pressed(pad.buttons, last_buttons, OOPS_BUTTON_CIRCLE)) {
+            if (app_pressed(pad.buttons, last_buttons, OOPS_BUTTON_CIRCLE)) {
                 running = 0;
             }
             if (state.page == GALLERY_PAGE_AUDIO && audio &&
@@ -144,7 +136,7 @@ int gallery_start(const payload_args_t *args) {
         oops_display_flip(disp);
     }
 
-    klog("gallery exiting");
+    oops_log_info(TAG, "gallery exiting");
     if (audio) {
         oops_audio_close(audio);
     }

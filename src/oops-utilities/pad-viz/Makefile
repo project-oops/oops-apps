@@ -8,11 +8,14 @@
 # Configuration & release formats loaded from app.env
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
+EXTRA_CFLAGS += -I$(OOPS_APPS_ROOT)/common
+EXTRA_TARGET_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 
 OOPS_FEATURES := display draw input
 
 # Host test sources
-HOST_TEST_SRCS = pad-viz_selftest.c pad-viz.c $(OOPS_FEATURE_draw_SRCS)
+HOST_TEST_SRCS = pad-viz_selftest.c pad-viz.c $(OOPS_FEATURE_draw_SRCS) \
+                 $(OOPS_SDK_DIR)/src/system/freestd.c
 
 # Target payload sources
 PAYLOAD_SRCS = pad-viz.c pad-viz_main.c

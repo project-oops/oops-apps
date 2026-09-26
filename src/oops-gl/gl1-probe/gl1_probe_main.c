@@ -34,9 +34,7 @@
 #endif
 
 #ifndef OOPS_HOST_BUILD
-static void probe_klog(const char *msg) {
-    oops_klog("gl1-probe", msg);
-}
+#define PROBE_TAG "gl1-probe"
 
 /* Builds "  name            pass" without a printf, which a freestanding payload does
  * not have. Padded so a column of results reads as a column. */
@@ -53,7 +51,7 @@ static void report(const char *name, int passed) {
     for (int i = 0; verdict[i] && at < (int)sizeof(line) - 1; i++)
         line[at++] = verdict[i];
     line[at] = '\0';
-    probe_klog(line);
+    oops_log_info(PROBE_TAG, "%s", line);
 }
 
 /*
@@ -78,7 +76,7 @@ static void trace(const char *name, int verdict) {
             line[at++] = v[i];
     }
     line[at] = '\0';
-    probe_klog(line);
+    oops_log_info(PROBE_TAG, "%s", line);
 }
 
 /* "   name                saw 0xff204060" - the colour a failing check left at the
@@ -101,7 +99,7 @@ static void saw(const char *name, uint32_t centre) {
     for (int s = 28; s >= 0; s -= 4)
         line[at++] = hex[(centre >> s) & 0xfu];
     line[at] = '\0';
-    probe_klog(line);
+    oops_log_info(PROBE_TAG, "%s", line);
 }
 
 /* **Three digits, because the suite is allowed a hundred and twenty-eight checks** -
@@ -129,7 +127,7 @@ static void report_total(int passed, int ran) {
     for (int i = 0; tail[i] && at < (int)sizeof(line) - 1; i++)
         line[at++] = tail[i];
     line[at] = '\0';
-    probe_klog(line);
+    oops_log_info(PROBE_TAG, "%s", line);
 }
 #endif
 
@@ -168,7 +166,7 @@ static void replay_capture(int fd) {
     }
     saw("capture-bytes", (uint32_t)got);
     if (got < 12u) {
-        probe_klog("gl1-probe: the capture is too short to be one");
+        oops_log_info(PROBE_TAG, "gl1-probe: the capture is too short to be one");
         return;
     }
 
@@ -197,12 +195,12 @@ static void replay_capture(int fd) {
 
     oops_display_t *disp = oops_display_open(OOPS_DISPLAY_BACKEND_AUTO, 1920, 1080);
     if (!disp || !oops_display_is_ready(disp)) {
-        probe_klog("gl1-probe: no display for the replay");
+        oops_log_info(PROBE_TAG, "gl1-probe: no display for the replay");
         return;
     }
     void *ctx = glContextCreate(disp);
     if (!ctx) {
-        probe_klog("gl1-probe: no context for the replay");
+        oops_log_info(PROBE_TAG, "gl1-probe: no context for the replay");
         return;
     }
 
@@ -238,7 +236,9 @@ static void replay_capture(int fd) {
         glColor4f(0.0f, 0.0f, 0.0f, 1.0f);
         glRectf(-1.0f, -1.0f, 1.0f, 1.0f);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        probe_klog("gl1-probe: alpha forced to 1 across the frame before presenting");
+        oops_log_info(
+            PROBE_TAG,
+            "gl1-probe: alpha forced to 1 across the frame before presenting");
     }
 
     /* **What the replayed frame actually holds**, because the panel shows it for a
@@ -323,7 +323,7 @@ static void replay_capture(int fd) {
                 }
             }
         } else {
-            probe_klog("gl1-probe: no readable frame after the replay");
+            oops_log_info(PROBE_TAG, "gl1-probe: no readable frame after the replay");
         }
     }
     /* **Once, not twice.** Swapping twice does not put the frame in both buffers - it
@@ -344,8 +344,9 @@ __attribute__((visibility("default"))) int gl1_probe_start(const payload_args_t 
     if (args) {
         sys_call_init(args);
     }
-    probe_klog("gl1-probe: running the OpenGL 1.x check suite [build " OOPS_APP_VERSION
-               "]");
+    oops_log_info(
+        PROBE_TAG,
+        "gl1-probe: running the OpenGL 1.x check suite [build " OOPS_APP_VERSION "]");
     gl1_probe_trace = trace;
     gl1_probe_saw = saw;
 #else
@@ -396,18 +397,11 @@ __attribute__((visibility("default"))) int gl1_probe_start(const payload_args_t 
         for (size_t i = 0; i < sizeof(cap_paths) / sizeof(cap_paths[0]); i++) {
             const int fd = oops_fs_open(cap_paths[i], 0 /* O_RDONLY */, 0);
             if (fd < 0) {
-                char m[96];
-                int at = 0;
-                const char *head = "gl1-probe: no capture at ";
-                for (int k = 0; head[k]; k++)
-                    m[at++] = head[k];
-                for (int k = 0; cap_paths[i][k] && at < 90; k++)
-                    m[at++] = cap_paths[i][k];
-                m[at] = 0;
-                probe_klog(m);
+                oops_log_info(PROBE_TAG, "gl1-probe: no capture at %s", cap_paths[i]);
                 continue;
             }
-            probe_klog(
+            oops_log_info(
+                PROBE_TAG,
                 "gl1-probe: a capture is present; replaying it instead of the suite");
             replay_capture(fd);
             oops_fs_close(fd);
@@ -420,7 +414,7 @@ __attribute__((visibility("default"))) int gl1_probe_start(const payload_args_t 
     const int ran = gl1_probe_run(results, (int)(sizeof(results) / sizeof(results[0])));
     if (ran < 0) {
 #ifndef OOPS_HOST_BUILD
-        probe_klog("gl1-probe: no GL context; nothing measured");
+        oops_log_info(PROBE_TAG, "gl1-probe: no GL context; nothing measured");
         oops_system_park_until_closed();
 #endif
         return -1;

@@ -7,6 +7,7 @@
  * a surface; the things that are not pure go out through the host dispatch in home.h.
  */
 
+#include "app_pad.h"
 #include "home.h"
 #include "oops/system.h"
 #include "oops/freestd.h"
@@ -2259,10 +2260,6 @@ void home_input_reset(home_input_t *in) {
     in->held_dir = 0u;
 }
 
-static int pressed(uint32_t previous, uint32_t now, uint32_t mask) {
-    return ((now & mask) != 0u) && ((previous & mask) == 0u);
-}
-
 static uint32_t direction_down(uint32_t buttons) {
     if ((buttons & OOPS_BUTTON_UP) != 0u) {
         return OOPS_BUTTON_UP;
@@ -2307,13 +2304,13 @@ int home_input_apply(home_input_t *in, home_model_t *m, uint32_t buttons) {
     int changed = 0;
 
     /* PS button toggles Control Centre */
-    if (pressed(previous, buttons, HOME_BUTTON_PS)) {
+    if (app_pressed(buttons, previous, HOME_BUTTON_PS)) {
         home_toggle_control_centre(m);
         changed = 1;
     }
 
     /* Mode switching / Bumper navigation via L1 / R1 */
-    if (pressed(previous, buttons, OOPS_BUTTON_L1)) {
+    if (app_pressed(buttons, previous, OOPS_BUTTON_L1)) {
         const home_skin_t *skin = home_current_skin(m);
         if (skin && skin->bumper_nav) {
             home_move(m, HOME_LEFT);
@@ -2322,7 +2319,7 @@ int home_input_apply(home_input_t *in, home_model_t *m, uint32_t buttons) {
         }
         changed = 1;
     }
-    if (pressed(previous, buttons, OOPS_BUTTON_R1)) {
+    if (app_pressed(buttons, previous, OOPS_BUTTON_R1)) {
         const home_skin_t *skin = home_current_skin(m);
         if (skin && skin->bumper_nav) {
             home_move(m, HOME_RIGHT);
@@ -2360,31 +2357,31 @@ int home_input_apply(home_input_t *in, home_model_t *m, uint32_t buttons) {
     }
 
     /* Face buttons */
-    if (pressed(previous, buttons, OOPS_BUTTON_CROSS)) {
+    if (app_pressed(buttons, previous, OOPS_BUTTON_CROSS)) {
         oops_log_debug("INPUT", "apply: CROSS pressed (screen=%d, cur=%d)",
                        (int)home_screen(m), m->title_cursor);
         if (home_activate(m) != 0) {
             changed = 1;
         }
     }
-    if (pressed(previous, buttons, OOPS_BUTTON_CIRCLE)) {
+    if (app_pressed(buttons, previous, OOPS_BUTTON_CIRCLE)) {
         oops_log_debug("INPUT", "apply: CIRCLE pressed (screen=%d, depth=%d)",
                        (int)home_screen(m), m->depth);
         if (home_back(m) != 0) {
             changed = 1;
         }
     }
-    if (pressed(previous, buttons, OOPS_BUTTON_SQUARE)) {
+    if (app_pressed(buttons, previous, OOPS_BUTTON_SQUARE)) {
         oops_log_debug("INPUT", "apply: SQUARE pressed (opening library)");
         home_open(m, HOME_SCREEN_LIBRARY);
         changed = 1;
     }
-    if (pressed(previous, buttons, OOPS_BUTTON_TRIANGLE)) {
+    if (app_pressed(buttons, previous, OOPS_BUTTON_TRIANGLE)) {
         oops_log_debug("INPUT", "apply: TRIANGLE pressed (opening search)");
         home_open(m, HOME_SCREEN_SEARCH);
         changed = 1;
     }
-    if (pressed(previous, buttons, OOPS_BUTTON_OPTIONS)) {
+    if (app_pressed(buttons, previous, OOPS_BUTTON_OPTIONS)) {
         home_screen_t screen = home_screen(m);
         oops_log_debug("INPUT", "apply: OPTIONS pressed (screen=%d)", (int)screen);
         if (screen_is_carousel(screen)) {

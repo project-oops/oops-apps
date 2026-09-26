@@ -1,6 +1,8 @@
 #include "pad-viz.h"
 
+#include "app_ui.h"
 #include "oops/draw.h"
+#include "oops/freestd.h"
 
 #define BG 0xFF0D1116u
 #define DIM OOPS_COLOR_GRAY
@@ -8,22 +10,6 @@
 #define VALUE OOPS_COLOR_WHITE
 #define ACCENT OOPS_COLOR_CYAN
 #define LABEL OOPS_COLOR_GRAY
-
-/* Freestanding decimal, so this file compiles for the target as well as the host. */
-static const char *u32_dec(uint32_t value, char *out) {
-    char rev[11];
-    int n = 0;
-    do {
-        rev[n++] = (char)('0' + (value % 10u));
-        value /= 10u;
-    } while (value != 0u && n < 10);
-    int i = 0;
-    while (n > 0) {
-        out[i++] = rev[--n];
-    }
-    out[i] = '\0';
-    return out;
-}
 
 /* A one-pixel-thick rectangle border, since draw offers only filled rects. */
 static void rect_outline(oops_surface_t *s, int x, int y, int w, int h,
@@ -121,24 +107,9 @@ int padviz_render(oops_surface_t *surf, const padviz_state_t *state) {
     const oops_pad_state_t *pad = &state->pad;
     uint32_t b = pad->buttons;
 
-#ifndef OOPS_APP_VERSION
-#define OOPS_APP_VERSION "dev"
-#endif
-
     oops_draw_clear(surf, BG);
     oops_draw_text(surf, 48, 36, "OOPS pad", ACCENT, 4);
-
-    /* UI version placeholder */
-    char ver_buf[64];
-    int vi = 0;
-    ver_buf[vi++] = 'v';
-    ver_buf[vi++] = ' ';
-    const char *vp = OOPS_APP_VERSION;
-    while (*vp && vi < (int)sizeof(ver_buf) - 1) {
-        ver_buf[vi++] = *vp++;
-    }
-    ver_buf[vi] = '\0';
-    oops_draw_text(surf, 330, 48, ver_buf, LABEL, 2);
+    app_ui_version(surf, 330, 48);
 
     oops_draw_text(surf, 1000, 44, pad->connected ? "connected" : "no pad",
                    pad->connected ? OOPS_COLOR_GREEN : OOPS_COLOR_RED, 2);
@@ -180,17 +151,9 @@ int padviz_render(oops_surface_t *surf, const padviz_state_t *state) {
 
     /* Footer: the batched-read sample count (proof the low-latency path delivers), and
      * how to leave. */
-    char num[11];
     char footer[48];
-    int k = 0;
-    const char *pfx = "samples: ";
-    while (*pfx)
-        footer[k++] = *pfx++;
-    const char *p =
-        u32_dec((uint32_t)(state->sample_count < 0 ? 0 : state->sample_count), num);
-    while (*p)
-        footer[k++] = *p++;
-    footer[k] = '\0';
+    oops_snprintf(footer, sizeof(footer), "samples: %d",
+                  state->sample_count < 0 ? 0 : state->sample_count);
     oops_draw_text(surf, 48, (int)surf->height - 52, footer, VALUE, 2);
     oops_draw_text(surf, 260, (int)surf->height - 52,
                    "Triangle: rumble | L1+R1+Options to exit", LABEL, 2);

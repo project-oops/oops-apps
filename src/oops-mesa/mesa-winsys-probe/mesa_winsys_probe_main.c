@@ -58,9 +58,7 @@
 
 #include <stdint.h>
 
-static void say(const char *msg) {
-    oops_klog("MESA-PROBE", msg);
-}
+#define TAG "MESA-PROBE"
 
 /*
  * How this title finishes, which is by not finishing.
@@ -78,7 +76,7 @@ static void say(const char *msg) {
  * tag, which is what a reader greps for. The idling is the helper's.
  */
 _Noreturn static void park(void) {
-    say("idle and finished - close this title from the host");
+    oops_log_info(TAG, "idle and finished - close this title from the host");
     oops_system_park_until_closed();
 }
 
@@ -146,7 +144,9 @@ static const driOptionDescription mesa_winsys_probe_options[] = {
 void mesa_winsys_probe_start(void);
 
 void mesa_winsys_probe_start(void) {
-    say("linking upstream Mesa and walking its startup path (v" OOPS_APP_VERSION ")");
+    oops_log_info(
+        TAG,
+        "linking upstream Mesa and walking its startup path (v" OOPS_APP_VERSION ")");
 
     /*
      * The device. On Linux this is a file in /dev; here it is a token the winsys hands
@@ -155,10 +155,12 @@ void mesa_winsys_probe_start(void) {
      */
     int fd = oops_winsys_open();
     if (fd < 0) {
-        say("the platform graphics driver is not bound; nothing further is possible");
+        oops_log_info(
+            TAG,
+            "the platform graphics driver is not bound; nothing further is possible");
         park();
     }
-    say("winsys device opened");
+    oops_log_info(TAG, "winsys device opened");
 
     /*
      * Everything from here belongs to Mesa. It will ask the driver version, then
@@ -232,7 +234,7 @@ void mesa_winsys_probe_start(void) {
                             .screenNum = 0,
                             .driverName = "radeonsi",
                         });
-    say("screen options built");
+    oops_log_info(TAG, "screen options built");
 
     const struct pipe_screen_config config = {
         .driver_name_is_inferred = false,
@@ -242,7 +244,7 @@ void mesa_winsys_probe_start(void) {
     struct pipe_screen *screen = radeonsi_screen_create(fd, &config);
 
     if (screen) {
-        say("radeonsi created a screen: the startup path is complete");
+        oops_log_info(TAG, "radeonsi created a screen: the startup path is complete");
     } else {
         /*
          * Deliberately states no cause, and now also says why it might not be able to.
@@ -263,14 +265,17 @@ void mesa_winsys_probe_start(void) {
          * are any, and treat the absence of both as a fact about where the failure was
          * rather than as no information.
          */
-        say("radeonsi did not create a screen");
-        say("if a winsys line above names a refused command, that command is the "
-            "result");
-        say("if none does, it stopped on an answer it was given - do not assume the "
+        oops_log_info(TAG, "radeonsi did not create a screen");
+        oops_log_info(
+            TAG, "if a winsys line above names a refused command, that command is the "
+                 "result");
+        oops_log_info(
+            TAG,
+            "if none does, it stopped on an answer it was given - do not assume the "
             "reason");
     }
 
     oops_winsys_close(fd);
-    say("done");
+    oops_log_info(TAG, "done");
     park();
 }

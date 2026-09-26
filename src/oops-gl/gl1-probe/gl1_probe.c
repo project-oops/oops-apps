@@ -42,35 +42,7 @@
 #include <oops/freestd.h>
 #endif
 
-/*
- * The area a check works in - a **corner of a full-size display**, not a display of its
- * own.
- *
- * This used to open the display at 128x96, which works perfectly on the host and cannot
- * work on a console: `libSceVideoOut` will not register a buffer of that size. oops-sdk
- * already knew the shape of this - `agc_display.c` promotes a requested 1280x720 to
- * 1080p because 720p buffer registration is refused unless the console is configured
- * for 720p scanout, and records that "universal 1080p is supported across all output
- * modes" - but nothing promotes 128x96, so the open failed, the framebuffer was NULL,
- * and the first check to touch it took the process down with a null read. Every app in
- * this repository that runs on hardware opens 1920x1080.
- *
- * So the display is opened at a size the hardware will scan out, and the probe draws
- * into a PROBE_W x PROBE_H viewport **at GL's origin**, which is the bottom-left.
- * Keeping it there is what makes the change small: `glScissor` is flipped against the
- * framebuffer height by the rasteriser, so a scissor box at the origin lands in the
- * probe's own region exactly as it did when the framebuffer was the probe's size, and
- * every check's coordinates are unchanged. Only `px()` has to know where the region
- * starts.
- */
-#define PROBE_W 128
-#define PROBE_H 96
-#define PROBE_DISPLAY_W 1920
-#define PROBE_DISPLAY_H 1080
-
-/* The clear colour every check starts from: a value no check draws, so "unchanged" is
- * distinguishable from "drawn black" and from "drawn white". */
-#define PROBE_BG 0xff202020u
+#include "probe_px.h"
 
 static uint32_t *g_fb;
 static oops_display_t *g_disp;
@@ -82,75 +54,12 @@ static unsigned int g_fb_w; /* the display's real width, which is the row stride
 static unsigned int g_fb_h;
 static unsigned int g_row0; /* the framebuffer row the probe's logical row 0 sits on */
 
-/*
- * Where a check's pixels come from, and why it is not simply the render target.
- *
- * On the host the software rasteriser writes the target directly, so reading it
- * straight back is both free and correct. **On a console neither is true**, and this
- * file used to do it anyway:
- *
- *   - The draw path builds PM4 into the command buffer and returns. oops-sdk's
- * `gl_draw.c` says it in as many words - "Host builds have no GPU: the software
- * rasterizer stands in for it there, and only there" - so until the stream is submitted
- * and its end-of-pipe fence comes back, nothing has touched the target. `glFinish()` is
- * what does that, and it blocks on the fence rather than returning optimistically.
- *   - `glClear` takes the same split. So without this a check would not merely miss
- * what it drew, it would compare against a background that was never painted, and the
- * very first check would fail on `PROBE_BG`.
- *   - The target is uncached write-combined memory. The copy worth reading is the one
- * the command processor makes into cached memory inside the same submission.
- *
- * Every sample goes through here, rather than each of the checks remembering to.
- * `glFinish()` with nothing pending is a no-op, so the cost is one submission per
- * draw-then-sample sequence - which is the fewest the question can be asked in.
- */
 static const uint32_t *frame(void) {
-    glFinish();
-#ifndef OOPS_HOST_BUILD
-    const GLuint *rb = glGetFrameReadback();
-    if (rb)
-        return (const uint32_t *)rb;
-#endif
-    return (const uint32_t *)g_fb;
+    return probe_frame(g_fb);
 }
 
-/*
- * **One pixel is not evidence about a blend.**
- *
- * The fault this was written for is fixed - see below - but the rule it produced is the
- * reason it was found, and it stands.
- *
- * Until 2026-09-23 a blend whose result *combines* both terms was correct at one pixel
- * in four and wrong at the other three, while a blend whose result is a single operand
- * was correct everywhere. On the scanout path the correct pixel was the one with **both
- * coordinates even**, which looked like a 2x2 quad and was not: on a linear target the
- * period is four in x with y irrelevant, and the two are the same sixteen bytes seen
- * through different swizzles. The cause was this repository's, not the part's - the
- * pixel shader exported four 32-bit floats to an 8_8_8_8 target, where RB+ requires
- * half-floats, so the render backend unpacked a correct blend result into two-byte
- * slices across its sixteen-byte transaction. obSCEne request
- * `REQ-20260923T2015Z-5b8e`, closed by `oops-sdk`'s `gl_ps_patch_export`.
- *
- * `PROBE_W / 2` is 64 and `PROBE_H / 2` is 48. **Both are even**, so the centre pixel -
- * which fifty-odd checks in this file use as their verdict - was exactly the lane the
- * fault spared. A blended check that read it passed whatever the other three lanes did.
- *
- * That is not hypothetical. `blend-over-texture` and `blend-additive-strip` were
- * written on 2026-09-23, reported their arithmetic to the byte - `0x8cb4dc` against an
- * expected `0x8cb4dc` - and were offered as evidence that compositing on this part was
- * sound. Censused, the same draws were wrong at 2,304 of 3,072 pixels. The centre was
- * right and three quarters of the region was not. `front-and-back` had been failing
- * since the day it was written for the mirror-image reason: `read_centre` reads through
- * `glReadPixels`, whose y origin is the bottom, so at `PROBE_H / 2` it landed on an odd
- * row and saw nothing but the fault.
- *
- * **So: if a check blends, count the region with `census_wrong` and return on the
- * count.** Use `px` for an unblended draw, or for reporting a sample alongside a
- * census. A verdict from `px` on a blended draw is a verdict about one pixel, and a
- * whole class of defect - anything with a period the sampling point happens to be in
- * step with - is invisible to it. That is how this one survived ninety-three passing
- * checks.
- */
+/* One pixel, synchronised. A check that blends decides with census_wrong instead: a
+ * fault with a period the sample point is in step with is invisible to one pixel. */
 static uint32_t px(int x, int y) {
     if (!g_fb || x < 0 || y < 0 || x >= PROBE_W || y >= PROBE_H)
         return 0u;
@@ -160,24 +69,10 @@ static uint32_t px(int x, int y) {
     return f[(size_t)(g_row0 + (unsigned int)y) * (size_t)g_fb_w + (size_t)x];
 }
 
-/* Several checks draw one picture two ways and require the results to match word for
- * word. Both go through frame(), so both are synchronised the same way a single sample
- * is - and both walk the probe's own rectangle rather than the whole display, which is
- * now much larger than the area any check touches.
- *
- * **The NULL check is not defensive dressing.** `frame()` answers NULL when the display
- * never opened, and these two used to index it anyway; that is the null read that took
- * the first hardware run of this probe down. `px()` guarded itself and these did not.
- */
+/* For checks that draw one picture two ways and require the results to match word for
+ * word. frame() is NULL when the display never opened. */
 static void frame_snapshot(uint32_t *out) {
-    const uint32_t *f = frame();
-    if (!f)
-        return;
-    for (int y = 0; y < PROBE_H; y++) {
-        const uint32_t *row = f + (size_t)(g_row0 + (unsigned int)y) * (size_t)g_fb_w;
-        for (int x = 0; x < PROBE_W; x++)
-            out[y * PROBE_W + x] = row[x];
-    }
+    probe_snapshot(frame(), g_row0, g_fb_w, out);
 }
 
 static int frame_matches(const uint32_t *want) {
@@ -194,20 +89,8 @@ static int frame_matches(const uint32_t *want) {
     return 1;
 }
 
-/*
- * **The probe's rectangle, synchronised once.**
- *
- * `px()` calls `frame()`, and `frame()` calls `glFinish()`. For a point sample that is
- * exactly right: the question "what is at this pixel" is only answerable after the GPU
- * has finished. For a *scan* it is catastrophic, and on 2026-09-20 the first console
- * run of this suite proved it - `raster-ops` counts every pixel of the 128x96 region,
- * so it asked for 12,288 synchronisations, each one a command-buffer submission and a
- * fence wait of about half a second. That is nearly two hours, which from the outside
- * is indistinguishable from a hang: the run reported five checks and then went silent.
- *
- * On the host `glFinish()` is free, which is why the suite has always passed there. A
- * scan takes one snapshot and reads that.
- */
+/* The probe's rectangle, synchronised once. A scan reads a snapshot: through px() every
+ * pixel would be its own submission and fence wait. */
 static uint32_t g_scan[PROBE_W * PROBE_H];
 
 static const uint32_t *scan_frame(void) {
@@ -217,38 +100,7 @@ static const uint32_t *scan_frame(void) {
     return g_scan;
 }
 
-#define SCAN_PX(s, x, y) ((s)[(y) * PROBE_W + (x)])
-
-static int chan_r(uint32_t c) {
-    return (int)((c >> 16) & 0xffu);
-}
-static int chan_g(uint32_t c) {
-    return (int)((c >> 8) & 0xffu);
-}
-static int chan_b(uint32_t c) {
-    return (int)(c & 0xffu);
-}
-
-/* Within a tolerance, because the rasteriser interpolates and the hardware path may
- * round differently from the software one. A check that needs exactness says so by
- * using == itself. */
-/* **Count a region, do not sample it.**
- *
- * On this part a blend whose result combines both terms is correct at one pixel in
- * every 2x2 quad - the one with both coordinates even - and wrong at the other three
- * (obSCEne `REQ-20260923T2015Z-5b8e`, measured over 12,288 pixels). Every check here
- * decides from `px(PROBE_W / 2, PROBE_H / 2)`, and 64 and 48 are both even, so a
- * single-pixel verdict on a blend reads the one lane in four that works and passes
- * whatever the other three did.
- *
- * Two checks written today did exactly that and reported exact arithmetic while three
- * quarters of their region was wrong. This returns how many pixels of a rectangle miss
- * the expected colour, so a blended check says how much of it was right rather than
- * whether one pixel was. The frame pointer is taken once: `px` synchronises on every
- * call, and twelve thousand of those is a different check.
- */
-static int near_rgb(uint32_t c, int r, int g, int b, int tol);
-
+/* How many pixels of a rectangle miss the expected colour, from one synchronisation. */
 static int census_wrong(int x0, int y0, int w, int h, int r, int g, int b, int tol) {
     const uint32_t *f = frame();
     if (!f)
@@ -265,17 +117,6 @@ static int census_wrong(int x0, int y0, int w, int h, int r, int g, int b, int t
         }
     }
     return bad;
-}
-
-static int near_rgb(uint32_t c, int r, int g, int b, int tol) {
-    int dr = chan_r(c) - r, dg = chan_g(c) - g, db = chan_b(c) - b;
-    if (dr < 0)
-        dr = -dr;
-    if (dg < 0)
-        dg = -dg;
-    if (db < 0)
-        db = -db;
-    return dr <= tol && dg <= tol && db <= tol;
 }
 
 static void reset_view(void) {

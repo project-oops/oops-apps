@@ -23,12 +23,11 @@
 #include "oops/net.h"
 #include "oops/time.h"
 
+#include "app_pad.h"
 #include "home.h"
 
-/* A line to the system log, using standardized oops_log prefixing. */
-static void klog(const char *msg) {
-    oops_log("%s", msg);
-}
+/* The app id as the tag: the log line carries the id alone, as oops_log's does. */
+#define TAG OOPS_APP_ID
 
 /*
  * Dynamic Real Filesystem Title & Payload Scanner.
@@ -718,7 +717,7 @@ static int console_perform(void *ctx, home_action_t action, int arg) {
             }
 #endif
         } else {
-            klog("launch requested - delegating to title loader");
+            oops_log_info(TAG, "launch requested - delegating to title loader");
         }
         return 1;
     }
@@ -729,14 +728,14 @@ static int console_perform(void *ctx, home_action_t action, int arg) {
         save_settings(m);
         return 1;
     case HOME_ACTION_SUSPEND_TITLE:
-        klog("suspend requested");
+        oops_log_info(TAG, "suspend requested");
         if (m != 0) {
             m->switcher.has_running_title = 1;
             home_show_toast(m, "SWITCHER", "TITLE SUSPENDED");
         }
         return 1;
     case HOME_ACTION_RESUME_TITLE: {
-        klog("resume requested");
+        oops_log_info(TAG, "resume requested");
         if (m != 0 && m->switcher.has_running_title &&
             m->switcher.running_title_index >= 0 &&
             m->switcher.running_title_index < m->title_count) {
@@ -755,7 +754,7 @@ static int console_perform(void *ctx, home_action_t action, int arg) {
         return 1;
     }
     case HOME_ACTION_TERMINATE_TITLE: {
-        klog("terminate requested");
+        oops_log_info(TAG, "terminate requested");
         if (m != 0) {
 #ifndef OOPS_HOST_BUILD
             oops_system_kill_app(0);
@@ -767,7 +766,7 @@ static int console_perform(void *ctx, home_action_t action, int arg) {
         return 1;
     }
     case HOME_ACTION_INSTALL_PACKAGE: {
-        klog("install package requested - scanning USB & /data/pkg/...");
+        oops_log_info(TAG, "install package requested - scanning USB & /data/pkg/...");
         static const char *const pkg_search_paths[] = {
             "/mnt/usb0/app.pkg",     "/mnt/usb0/package.pkg", "/mnt/usb1/app.pkg",
             "/mnt/usb1/package.pkg", "/data/pkg/app.pkg",     "/data/app.pkg"};
@@ -789,14 +788,14 @@ static int console_perform(void *ctx, home_action_t action, int arg) {
                     home_show_toast(m, "PACKAGE INSTALL", "INSTALLATION FAILED");
             }
         } else {
-            klog("no package file found on USB or /data/");
+            oops_log_info(TAG, "no package file found on USB or /data/");
             if (m != 0)
                 home_show_toast(m, "PACKAGE INSTALLER", "NO .PKG ON USB OR /DATA");
         }
         return 1;
     }
     case HOME_ACTION_RUN_PAYLOAD: {
-        klog("run payload requested - scanning USB & /data/...");
+        oops_log_info(TAG, "run payload requested - scanning USB & /data/...");
         static const char *const pld_search_paths[] = {
             "/mnt/usb0/payload.elf", "/mnt/usb0/tracer.elf", "/mnt/usb1/payload.elf",
             "/mnt/usb1/tracer.elf",  "/data/payload.elf",    "/data/tracer.elf"};
@@ -813,7 +812,7 @@ static int console_perform(void *ctx, home_action_t action, int arg) {
             if (m != 0)
                 home_show_toast(m, "PAYLOAD RUNNER", pld_path);
         } else {
-            klog("no standalone payload found on USB or /data/");
+            oops_log_info(TAG, "no standalone payload found on USB or /data/");
             if (m != 0)
                 home_show_toast(m, "PAYLOAD RUNNER", "NO .ELF ON USB OR /DATA");
         }
@@ -829,12 +828,12 @@ static int console_perform(void *ctx, home_action_t action, int arg) {
         return 1;
     }
     case HOME_ACTION_CHECK_UPDATE:
-        klog("check update requested");
+        oops_log_info(TAG, "check update requested");
         if (m != 0)
             home_show_toast(m, "SYSTEM UPDATE", "LATEST VERSION INSTALLED");
         return 1;
     case HOME_ACTION_MANAGE_CONTENT:
-        klog("manage content requested");
+        oops_log_info(TAG, "manage content requested");
         if (m != 0)
             home_show_toast(m, "CONTENT MANAGER", "NO ADD-ONS FOUND");
         return 1;
@@ -842,50 +841,50 @@ static int console_perform(void *ctx, home_action_t action, int arg) {
     case HOME_ACTION_EXPORT_SAVE:
     case HOME_ACTION_IMPORT_SAVE:
     case HOME_ACTION_DELETE_SAVE:
-        klog("save data operation requested");
+        oops_log_info(TAG, "save data operation requested");
         if (m != 0)
             home_show_toast(m, "SAVED DATA", "OPERATION COMPLETE");
         return 1;
     case HOME_ACTION_SAVE_STATE:
-        klog("emulator save state requested");
+        oops_log_info(TAG, "emulator save state requested");
         if (m != 0)
             home_show_toast(m, "EMULATOR", "SAVED STATE SLOT 1");
         return 1;
     case HOME_ACTION_LOAD_STATE:
-        klog("emulator load state requested");
+        oops_log_info(TAG, "emulator load state requested");
         if (m != 0)
             home_show_toast(m, "EMULATOR", "LOADED STATE SLOT 1");
         return 1;
     case HOME_ACTION_TAKE_SCREENSHOT:
-        klog("screenshot capture requested");
+        oops_log_info(TAG, "screenshot capture requested");
         if (m != 0)
             home_show_toast(m, "SCREENSHOT", "CAPTURED TO /DATA");
         return 1;
     case HOME_ACTION_TOGGLE_MUSIC:
-        klog("music playback toggle requested");
+        oops_log_info(TAG, "music playback toggle requested");
         if (m != 0)
             home_show_toast(m, "MUSIC", "PLAYBACK TOGGLED");
         return 1;
     case HOME_ACTION_REST_MODE:
-        klog("rest mode requested");
+        oops_log_info(TAG, "rest mode requested");
         (void)oops_system_power_tick();
         if (m != 0)
             home_show_toast(m, "POWER", "ENTERING REST MODE");
         return 1;
     case HOME_ACTION_RESTART:
-        klog("restart requested");
+        oops_log_info(TAG, "restart requested");
         (void)oops_system_power_tick();
         if (m != 0)
             home_show_toast(m, "POWER", "RESTARTING CONSOLE");
         return 1;
     case HOME_ACTION_POWER_OFF:
-        klog("power off requested");
+        oops_log_info(TAG, "power off requested");
         (void)oops_system_power_tick();
         if (m != 0)
             home_show_toast(m, "POWER", "POWERING OFF");
         return 1;
     case HOME_ACTION_RESCAN_TITLES: {
-        klog("manual storage rescan requested");
+        oops_log_info(TAG, "manual storage rescan requested");
         int prev = m ? m->title_count : 0;
         (void)scan_storage_for_titles(m, 0);
         char toast[64];
@@ -898,14 +897,6 @@ static int console_perform(void *ctx, home_action_t action, int arg) {
     default:
         return 0;
     }
-}
-
-/*
- * The exit gesture: L1, R1 and Options together.
- */
-static int exit_combo(uint32_t buttons) {
-    return ((buttons & OOPS_BUTTON_L1) != 0u) && ((buttons & OOPS_BUTTON_R1) != 0u) &&
-           ((buttons & OOPS_BUTTON_OPTIONS) != 0u);
 }
 
 /* Buttons a pad sample contributes, sticks folded onto the d-pad.
@@ -970,13 +961,13 @@ int seashell_start(const payload_args_t *args) {
 
     oops_display_t *disp = oops_display_open(OOPS_DISPLAY_BACKEND_AUTO, 1280, 720);
     if (disp == 0 || !oops_display_is_ready(disp)) {
-        klog("display would not open - see oops_display_get_last_error");
+        oops_log_info(TAG, "display would not open - see oops_display_get_last_error");
         return -1;
     }
     if (oops_display_is_gpu_accelerated(disp)) {
-        klog("display: hardware RDNA2 compute presentation enabled");
+        oops_log_info(TAG, "display: hardware RDNA2 compute presentation enabled");
     } else {
-        klog("display: software presentation active");
+        oops_log_info(TAG, "display: software presentation active");
     }
     int in_rc = oops_input_init();
     oops_log_debug("INPUT", "oops_input_init returned %d", in_rc);
@@ -992,9 +983,9 @@ int seashell_start(const payload_args_t *args) {
 
     /* Request filesystem namespace elevation to access global /user and /data */
     if (oops_system_escape_sandbox() == 0) {
-        klog("namespace initialized: global filesystem storage active");
+        oops_log_info(TAG, "namespace initialized: global filesystem storage active");
     } else {
-        klog("sandbox escape unavailable: continuing in restricted mode");
+        oops_log_info(TAG, "sandbox escape unavailable: continuing in restricted mode");
     }
 
     /* Dynamically probe for on-disk titles and payloads */
@@ -1015,8 +1006,9 @@ int seashell_start(const payload_args_t *args) {
     home_input_t input;
     home_input_reset(&input);
 
-    klog("home: select activates, back cancels, square library, triangle search, "
-         "options menu, control centre, L1/R1 navigation, L1+R1+options exits");
+    oops_log_info(
+        TAG, "home: select activates, back cancels, square library, triangle search, "
+             "options menu, control centre, L1/R1 navigation, L1+R1+options exits");
 
     int running = 1;
 
@@ -1066,7 +1058,7 @@ int seashell_start(const payload_args_t *args) {
             s_last_logged_buttons = buttons;
         }
 
-        if (s_exit_signal != 0 || exit_combo(buttons) != 0) {
+        if (s_exit_signal != 0 || app_exit_combo(buttons) != 0) {
             running = 0;
         } else {
             (void)home_input_apply(&input, &model, buttons);
@@ -1113,7 +1105,7 @@ int seashell_start(const payload_args_t *args) {
         }
     }
 
-    klog("home exiting");
+    oops_log_info(TAG, "home exiting");
     save_settings(&model);
     oops_keyboard_close();
     oops_input_close();

@@ -40,18 +40,7 @@
 #include <oops/freestd.h>
 #endif
 
-/*
- * The area a check works in - a corner of a full-size display, not a display of its
- * own. `libSceVideoOut` will not register a buffer of 128x96, and gl1-probe's first
- * hardware run died on the NULL framebuffer that produced. The viewport sits at GL's
- * origin, the bottom-left, so only `scan_frame()` has to know where the region starts.
- */
-#define PROBE_W 128
-#define PROBE_H 96
-#define PROBE_DISPLAY_W 1920
-#define PROBE_DISPLAY_H 1080
-
-#define PROBE_BG 0xff202020u
+#include "probe_px.h"
 
 static uint32_t *g_fb;
 static oops_display_t *g_disp;
@@ -68,72 +57,17 @@ void (*gl2_probe_trace)(const char *name, int verdict);
 void (*gl2_probe_saw)(const char *name, uint32_t centre, unsigned int err, int drawn,
                       uint32_t left, uint32_t right);
 
-/*
- * Where a check's pixels come from. On the host the software rasteriser writes the
- * target directly; on a console nothing has touched it until the stream is submitted
- * and its end-of-pipe fence comes back, and the copy worth reading is the one the
- * command processor makes into cached memory. `glFinish()` with nothing pending is a
- * no-op.
- */
-static const uint32_t *frame(void) {
-    glFinish();
-#ifndef OOPS_HOST_BUILD
-    const GLuint *rb = glGetFrameReadback();
-    if (rb)
-        return (const uint32_t *)rb;
-#endif
-    return (const uint32_t *)g_fb;
-}
-
-/* **A scan takes one snapshot and reads that**, and it is the only way this file reads
- * a pixel.
- *
- * There was a single-pixel `px()` beside it until 2026-09-22. Two things were wrong
- * with it and the second is why it is gone rather than merely unused. A pixel at a time
- * would ask for 12,288 synchronisations, which on console hardware is about two hours -
- * gl1-probe measured that, and from the outside it was indistinguishable from a hang.
- * And each one calls `glFinish`: on a console oops-gl draws straight into the rotating
- * scanout buffers, so a read taken *after* a check had already scanned landed on the
- * next buffer round - cleared, never drawn into - and reported the reset colour
- * whatever the check had produced. A helper that is wrong only on the target, only when
- * called a second time, is worse than no helper. */
+/* The probe's rectangle, synchronised once; the only way this file reads a pixel. Each
+ * glFinish can move the target to the next scanout buffer, so a second read after a
+ * scan would see a cleared buffer. */
 static uint32_t g_scan[PROBE_W * PROBE_H];
 
 static const uint32_t *scan_frame(void) {
-    const uint32_t *f = frame();
+    const uint32_t *f = probe_frame(g_fb);
     for (int i = 0; i < PROBE_W * PROBE_H; i++)
         g_scan[i] = 0u;
-    if (!f)
-        return g_scan;
-    for (int y = 0; y < PROBE_H; y++) {
-        const uint32_t *row = f + (size_t)(g_row0 + (unsigned int)y) * (size_t)g_fb_w;
-        for (int x = 0; x < PROBE_W; x++)
-            g_scan[y * PROBE_W + x] = row[x];
-    }
+    probe_snapshot(f, g_row0, g_fb_w, g_scan);
     return g_scan;
-}
-
-#define SCAN_PX(s, x, y) ((s)[(y) * PROBE_W + (x)])
-
-static int chan_r(uint32_t c) {
-    return (int)((c >> 16) & 0xffu);
-}
-static int chan_g(uint32_t c) {
-    return (int)((c >> 8) & 0xffu);
-}
-static int chan_b(uint32_t c) {
-    return (int)(c & 0xffu);
-}
-
-static int near_rgb(uint32_t c, int r, int g, int b, int tol) {
-    int dr = chan_r(c) - r, dg = chan_g(c) - g, db = chan_b(c) - b;
-    if (dr < 0)
-        dr = -dr;
-    if (dg < 0)
-        dg = -dg;
-    if (db < 0)
-        db = -db;
-    return dr <= tol && dg <= tol && db <= tol;
 }
 
 static int near_chan(int got, int want, int tol) {

@@ -8,13 +8,16 @@
 # Configuration & release formats loaded from app.env
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
+EXTRA_CFLAGS += -I$(OOPS_APPS_ROOT)/common
+EXTRA_TARGET_CFLAGS += -I$(OOPS_APPS_ROOT)/common
 
 OOPS_FEATURES := display draw input net
 
 # Host test sources
 HOST_TEST_SRCS = net-tool_selftest.c net-tool.c \
                  $(OOPS_FEATURE_draw_SRCS) \
-                 $(OOPS_SDK_DIR)/src/net/net.c
+                 $(OOPS_SDK_DIR)/src/net/net.c \
+                 $(OOPS_SDK_DIR)/src/system/freestd.c
 
 # Target payload sources
 PAYLOAD_SRCS = net-tool.c net-tool_main.c

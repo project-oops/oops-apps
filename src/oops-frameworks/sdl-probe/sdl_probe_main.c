@@ -49,9 +49,7 @@
  */
 #define PROBE_FRAMES 3000
 
-static void probe_log(const char *msg) {
-    oops_klog("SDLPB", msg);
-}
+#define PROBE_TAG "SDLPB"
 
 int sdl_probe_start(const payload_args_t *args);
 
@@ -76,12 +74,12 @@ __attribute__((visibility("default"))) int sdl_probe_start(const payload_args_t 
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER |
                  SDL_INIT_TIMER) != 0) {
-        probe_log("SDL_Init failed");
-        probe_log(SDL_GetError());
+        oops_log_info(PROBE_TAG, "SDL_Init failed");
+        oops_log_info(PROBE_TAG, "%s", SDL_GetError());
         return 1;
     }
-    probe_log("SDL_Init ok");
-    probe_log(SDL_GetCurrentVideoDriver());
+    oops_log_info(PROBE_TAG, "SDL_Init ok");
+    oops_log_info(PROBE_TAG, "%s", SDL_GetCurrentVideoDriver());
 
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
@@ -90,23 +88,23 @@ __attribute__((visibility("default"))) int sdl_probe_start(const payload_args_t 
         SDL_CreateWindow("sdl-probe", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                          1920, 1080, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN);
     if (!window) {
-        probe_log("SDL_CreateWindow failed");
-        probe_log(SDL_GetError());
+        oops_log_info(PROBE_TAG, "SDL_CreateWindow failed");
+        oops_log_info(PROBE_TAG, "%s", SDL_GetError());
         SDL_Quit();
         return 2;
     }
 
     context = SDL_GL_CreateContext(window);
     if (!context) {
-        probe_log("SDL_GL_CreateContext failed");
-        probe_log(SDL_GetError());
+        oops_log_info(PROBE_TAG, "SDL_GL_CreateContext failed");
+        oops_log_info(PROBE_TAG, "%s", SDL_GetError());
         SDL_DestroyWindow(window);
         SDL_Quit();
         return 3;
     }
     if (SDL_GL_MakeCurrent(window, context) != 0) {
-        probe_log("SDL_GL_MakeCurrent failed");
-        probe_log(SDL_GetError());
+        oops_log_info(PROBE_TAG, "SDL_GL_MakeCurrent failed");
+        oops_log_info(PROBE_TAG, "%s", SDL_GetError());
     }
 
     /*
@@ -116,11 +114,12 @@ __attribute__((visibility("default"))) int sdl_probe_start(const payload_args_t 
      */
     pads = SDL_NumJoysticks();
     if (pads > 0) {
-        probe_log("a pad is present");
+        oops_log_info(PROBE_TAG, "a pad is present");
         if (SDL_IsGameController(0)) {
             pad = SDL_GameControllerOpen(0);
-            probe_log(pad ? "opened as a game controller"
-                          : "not opened as a game controller");
+            oops_log_info(PROBE_TAG, "%s",
+                          pad ? "opened as a game controller"
+                              : "not opened as a game controller");
             if (pad) {
                 int a;
                 /*
@@ -138,7 +137,8 @@ __attribute__((visibility("default"))) int sdl_probe_start(const payload_args_t 
                 }
             }
         } else {
-            probe_log("present, but not recognised as a game controller");
+            oops_log_info(PROBE_TAG,
+                          "present, but not recognised as a game controller");
         }
     } else {
         /*
@@ -151,9 +151,10 @@ __attribute__((visibility("default"))) int sdl_probe_start(const payload_args_t 
         oops_pad_state_t st;
         int rc;
 
-        probe_log("no pad");
-        probe_log(SDL_WasInit(SDL_INIT_JOYSTICK) ? "joystick subsystem: up"
-                                                 : "joystick subsystem: DOWN");
+        oops_log_info(PROBE_TAG, "no pad");
+        oops_log_info(PROBE_TAG, "%s",
+                      SDL_WasInit(SDL_INIT_JOYSTICK) ? "joystick subsystem: up"
+                                                     : "joystick subsystem: DOWN");
         rc = oops_input_poll(0, &st);
         oops_kprintf("SDLPB", "oops_input_poll rc=%d connected=%d buttons=0x%x\n", rc,
                      rc == 0 ? st.connected : -1, rc == 0 ? st.buttons : 0u);
@@ -207,7 +208,7 @@ __attribute__((visibility("default"))) int sdl_probe_start(const payload_args_t 
             }
         }
         if (quit) {
-            probe_log("asked to stop");
+            oops_log_info(PROBE_TAG, "asked to stop");
             break;
         }
 
@@ -216,7 +217,7 @@ __attribute__((visibility("default"))) int sdl_probe_start(const payload_args_t 
         SDL_GL_SwapWindow(window);
     }
 
-    probe_log("park] work done");
+    oops_log_info(PROBE_TAG, "park] work done");
 
     if (pad) {
         SDL_GameControllerClose(pad);
