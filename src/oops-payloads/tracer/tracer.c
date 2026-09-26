@@ -20,8 +20,11 @@
 #include "oops/syscall.h"
 #include "oops/fs.h"
 #include "oops/system.h"
+#include "oops/inject.h"
 #define TRACER_LOG(msg) oops_klog("TRACER", msg)
 #endif
+
+static char s_trace_path[64] = "/data/trace.bin";
 
 #include "trace_format.h"
 #include "trace_encode.h"
@@ -184,7 +187,7 @@ static int hook_sceVideoOutSubmitFlip(int handle, int buffer_index, int flip_mod
                                       int64_t flip_arg) {
     s_flip_counter++;
     if ((s_flip_counter % TRACER_FLUSH_INTERVAL == 0) || (s_buf.head >= 256u)) {
-        (void)tracer_flush_to_file("/data/trace.bin");
+        (void)tracer_flush_to_file(s_trace_path);
     }
     if (g_hook_video_out_flip.trampoline != NULL) {
         int (*real_flip)(int, int, int, int64_t) =
@@ -550,6 +553,20 @@ int tracer_start(payload_args_t *args) {
         (void)krw_init(args);
         if (args->kexport_table != NULL) {
             s_kexport_table = (const obs_kexport_table_t *)args->kexport_table;
+        }
+    }
+    pid_t my_pid = (pid_t)sys_call(SYS_getpid, 0, 0, 0, 0, 0, 0);
+    char title_id[32] = {0};
+    if (target_get_title_id(my_pid, title_id, sizeof(title_id)) > 0 && title_id[0] != '\0') {
+        size_t tlen = 0;
+        while (title_id[tlen] != '\0' && tlen < 20) {
+            tlen++;
+        }
+        if (tlen > 0) {
+            char path[64] = "/data/trace-";
+            memcpy(path + 12, title_id, tlen);
+            memcpy(path + 12 + tlen, ".bin", 5);
+            memcpy(s_trace_path, path, sizeof(s_trace_path));
         }
     }
 #else
