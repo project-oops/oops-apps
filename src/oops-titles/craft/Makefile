@@ -53,10 +53,9 @@ CRAFT_DEP_SRCS := upstream/deps/lodepng/lodepng.c \
 
 # `-Ishim/include` first, then upstream's include directories in its CMakeLists order.
 #
-# `CRAFT_DATA_DIR` is the install directory rather than `/app0`, because a homebrew
-# title launched from `/data/homebrew/<id>` cannot open `/app0` or anything under it.
-# The id is written out because `$(TITLE_ID)` comes from `common/app.mk`, included
-# later.
+# `CRAFT_DATA_DIR` roots every asset path, `OOPS_POSIX_HOME` every relative `open`, and
+# `DB_PATH` the world. All three are `/app0`, the package mount: assets ship inside it
+# and it is writable, so the world file lands beside them.
 CRAFT_CFLAGS := -Ishim/include \
                 -Iupstream/src \
                 -Iupstream/deps/lodepng \

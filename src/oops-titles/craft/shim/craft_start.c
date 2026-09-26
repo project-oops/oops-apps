@@ -28,28 +28,17 @@ __attribute__((visibility("default"))) int craft_start(const payload_args_t *arg
 
     (void)args;
 
-    /*
-     * Applies `system=` from `/app0/oops-log`, so a run can be turned up without a rebuild.
-     */
+    /* Applies `system=` from `/app0/oops-log`, so a run can be turned up without a
+     * rebuild. */
     oops_log_init(OOPS_APP_ID);
 
     oops_log_info("CRFT", "entry");
 
     /*
-     * **The disk sink is not enabled here, and must not be.**
-     *
-     * `oops_log_enable_disk_sink` resolves its location through the SDK's storage helper, and with
-     * no USB present that helper calls `oops_system_escape_sandbox` on the way to `/data`
-     * (`oops-sdk/src/system/fs.c:494`). Leaving the sandbox takes `/app0` with it - the package,
-     * and every texture and shader in it.
-     *
-     * That is not a theory. Enabling the sink is what made `/app0` unopenable for several runs of
-     * this title, which sent the asset path to `/data/homebrew/<id>` - and that in turn only
-     * worked *because* the sink had escaped. Turning the sink off restored `/app0` and broke the
-     * `/data` path, which is how the loop closed. `oops-sdk`'s header now says so.
-     *
-     * A run needing the sink has to accept losing the assets, so it is a deliberate edit here, not
-     * a flag.
+     * There is no disk sink. It writes outside `/app0`, and reaching outside unmounts
+     * `/app0` along with every asset this title reads. The SDK refuses that unless a
+     * title calls `oops_system_allow_sandbox_escape`; this one keeps its assets, so the
+     * kernel log is the only sink.
      */
 
     /*
