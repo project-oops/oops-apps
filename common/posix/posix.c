@@ -29,6 +29,7 @@
  * A tenth function added because POSIX has one is a function nothing calls, which is what
  * `oops-sdk#D009` argues against from the other side.
  */
+#include "oops/freestd.h"
 #include "oops/fs.h"
 #include "oops/heap.h"
 #include "oops/net.h" /* the socket and resolver calls the BSD-socket shims below map onto */
@@ -94,17 +95,21 @@
 #define OOPS_POSIX_HOME "/app0"
 #endif
 
+/* `<path>/.` resolves only through a directory; for a file the kernel answers ENOTDIR. */
 static int is_directory(const char *path) {
-    oops_dirent_t ent;
-    oops_dir_t *dir = oops_fs_opendir(path);
-    int found;
+    char dot[1024];
+    int fd;
 
-    if (!dir) {
+    if (oops_snprintf(dot, sizeof(dot), "%s/.", path) >= (int)sizeof(dot)) {
         return 0;
     }
-    found = oops_fs_readdir(dir, &ent) == 1;
-    oops_fs_closedir(dir);
-    return found;
+    fd = oops_fs_open(dot, OOPS_O_RDONLY, 0);
+    oops_log_debug("posix", "stat: %s is %s", path, fd >= 0 ? "a directory" : "not a directory");
+    if (fd < 0) {
+        return 0;
+    }
+    oops_fs_close(fd);
+    return 1;
 }
 
 int stat(const char *path, struct stat *out) {
@@ -120,8 +125,7 @@ int stat(const char *path, struct stat *out) {
     }
 
     /* A directory opens read-only and seeks like a file on this kernel, so its size says
-     * nothing. It is a directory when `getdents` yields an entry (every directory has `.`);
-     * on a regular file's descriptor `getdents` fails. */
+     * nothing; `is_directory` resolves the path instead. */
     if (is_directory(path)) {
         out->st_mode = S_IFDIR;
         out->st_size = 0;

@@ -185,6 +185,14 @@ __attribute__((weak)) void *oops_gl_get_proc_address(const char *name) {
     return NULL;
 }
 
+/* Weak for the same reason; oops-gl's gates its GL 2.0 entry points on this version. */
+__attribute__((weak)) unsigned char glContextSetVersion(unsigned int major,
+                                                        unsigned int minor) {
+    (void)major;
+    (void)minor;
+    return 0;
+}
+
 static void *PROSPERO_GL_GetProcAddress(_THIS, const char *proc) {
     (void)_this;
     /*
@@ -223,6 +231,17 @@ static SDL_GLContext PROSPERO_GL_CreateContext(_THIS, SDL_Window *window) {
     _this->gl_config.multisamplebuffers = 0;
     _this->gl_config.multisamplesamples = 0;
     _this->gl_config.accelerated = 1;
+
+    /* An ES 2.0 request is a request for the programmable pipeline, which oops-gl
+     * enables at version 2.0. Desktop requests keep oops-gl's default: SDL's own default
+     * is 2.1, so honouring it would move every fixed-function title onto the 2.x badge. */
+    if (_this->gl_config.profile_mask == SDL_GL_CONTEXT_PROFILE_ES &&
+        _this->gl_config.major_version >= 2) {
+        if (!glContextSetVersion(2, 0)) {
+            SDL_SetError("prospero: oops-gl refused GL 2.0 for an ES 2.0 context");
+            return NULL;
+        }
+    }
 
     return (SDL_GLContext)&prospero_the_context;
 }
