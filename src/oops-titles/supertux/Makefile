@@ -163,6 +163,11 @@ OOPS_CXX_INCLUDE     += $(OOPS_LIBCXX_INCLUDE) -include functional -include ccty
                         -include sstream -include iostream
 EXTRA_TARGET_CFLAGS  += $(STX_INCLUDE) $(STX_DEFINES) $(STX_DEP_INCLUDE)
 
+# libc++ owns `operator new`/`delete`. Its weak copies in `__lcxx_override` assert that
+# `&operator new` lies in that section, so `cxxrt.cpp`'s strong one would fault on the
+# first allocation. Allocation still reaches `oops_malloc` through libc++'s `malloc`.
+EXTRA_TARGET_CFLAGS  += -DOOPS_CXX_EXTERNAL_NEW_DELETE
+
 # ---------------------------------------------------------------------------
 # The C sources: PhysFS and three vendored helpers, under upstream's flags
 # ---------------------------------------------------------------------------
@@ -173,8 +178,8 @@ include $(OOPS_APPS_ROOT)/common/deps.mk
 
 STX_C_SRCS   := $(STX_PHYSFS_C) $(STX_VENDORED_C)
 STX_C_BUILD  := build/c
-# The header order is `app.mk`'s - oops-sdk's libc, then the POSIX shim - and `shim/include`
-# ahead of both, for its `<pthread.h>`. `stx_physfs_fcntl.h` is forced in for the two `fcntl`
+# The header order is `app.mk`'s - oops-sdk's libc, then the POSIX shim - with `shim/include`
+# ahead of both. `stx_physfs_fcntl.h` is forced in for the two `fcntl`
 # names PhysFS's flush uses, which oops-sdk's `<fcntl.h>` (found first) does not declare; the
 # header says why reordering the path does not solve it.
 STX_C_CFLAGS  = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \

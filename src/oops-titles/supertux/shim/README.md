@@ -10,7 +10,6 @@ What each file answers. The shim and patch policy is in
 | `include/SDL_opengles2.h` | oops-gl's `GL/gl.h` and `GL/glext.h`, for the ES 2.0 build |
 | `include/boost/` | the slice of Boost the game uses: `optional`, `format`, eight `filesystem` operations |
 | `include/curl/`, `curl_offline.cpp` | libcurl, answered "no network": every transfer finishes, failed |
-| `include/pthread.h` | mutexes and `pthread_self` for PhysFS, over `oops/thread.h` |
 | `include/stx_physfs_fcntl.h` | forced into the C objects: `fcntl` and `F_GETFL`, which the SDK's `<fcntl.h>` lacks |
 | `include/SDL2/SDL.h` | `<SDL2/SDL.h>`, which one upstream header spells with the directory |
 | `include/tinygettext_Export.h` | what tinygettext's CMake generates for a static build: empty export macros |
