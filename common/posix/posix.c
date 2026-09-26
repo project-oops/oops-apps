@@ -564,6 +564,40 @@ int ftruncate(int fd, off_t length) {
 }
 
 /*
+ * `open`, over `oops_fs_open`.
+ *
+ * **`fcntl.h` deliberately declared this without defining it**, so that a title reaching for it
+ * got an undefined symbol naming the function rather than a silent fault - and for a long time
+ * nothing here called it. `openat` below now does, which makes the shim itself the caller and the
+ * definition mandatory: without it the link fails on `open`, which is how this was found.
+ *
+ * The flag values in `fcntl.h` are FreeBSD's and `oops/fs.h` takes the same numbers, so the flags
+ * pass straight through. `mode` is read only when `O_CREAT` is set, as POSIX says.
+ */
+int open(const char *path, int flags, ...) {
+    int mode = 0;
+
+    if (path == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (flags & O_CREAT) {
+        va_list ap;
+        va_start(ap, flags);
+        mode = va_arg(ap, int);
+        va_end(ap);
+    }
+    {
+        const int fd = oops_fs_open(path, flags, mode);
+        if (fd < 0) {
+            errno = EIO;
+            return -1;
+        }
+        return fd;
+    }
+}
+
+/*
  * `openat`, which is `open` for the one anchor this platform has and a refusal for the rest.
  *
  * `fcntl.h` argues it: there are no directory descriptors here, so `AT_FDCWD` - "relative to the
