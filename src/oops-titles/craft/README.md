@@ -1,10 +1,14 @@
 # Craft
 
 <p align="center">
-  <img src="assets/screenshot2.png" alt="Craft running on the console, 38fps at 790124 triangles" width="760">
+  <img src="assets/logo.png" alt="Craft" width="200">
 </p>
 
 A voxel world to dig, build and fly through, ported to the hardware.
+
+<p align="center">
+  <img src="assets/screenshot2.png" alt="Craft on the console: 441 chunks, 790124 triangles, 38fps" width="760">
+</p>
 
 ## About
 
