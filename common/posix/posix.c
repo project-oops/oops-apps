@@ -44,6 +44,7 @@
 #include <arpa/inet.h>  /* the inet_* conversions this file defines */
 #include <fcntl.h>      /* F_GETFL/F_SETFL and O_* , for the fcntl below */
 #include <ifaddrs.h>    /* struct ifaddrs, for the getifaddrs below */
+#include <langinfo.h>   /* nl_item and CODESET, for the nl_langinfo below */
 #include <libgen.h>     /* the basename/dirname declarations this file answers */
 #include <net/if.h>     /* if_nametoindex, likewise */
 #include <netdb.h>      /* struct hostent and h_errno, which this file defines */
@@ -62,6 +63,7 @@
 #include <string.h>
 #include <strings.h> /* the declarations this file's strcasecmp pair answers */
 #include <sys/stat.h>
+#include <sys/statvfs.h> /* struct statvfs, for the always-failing statvfs below */
 #include <sys/sysctl.h> /* the declaration this file's sysctl answers */
 #include <sys/time.h>
 /* For `struct timespec` and the `CLOCK_*` ids that `clock_gettime` below answers - declared in
@@ -544,6 +546,48 @@ off_t lseek(int fd, off_t offset, int whence) {
  */
 int ftruncate(int fd, off_t length) {
     (void)length;
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    errno = ENOSYS;
+    return -1;
+}
+
+/*
+ * `nl_langinfo`, which answers `CODESET` and nothing else - `langinfo.h` says why the one answer
+ * is a fact rather than a convenience.
+ *
+ * The returned strings are literals, so the "caller may not free it, and the next call may
+ * overwrite it" contract costs nothing here: nothing is overwritten.
+ */
+char *nl_langinfo(nl_item item) {
+    if (item == CODESET) {
+        /* The kernel takes UTF-8 path bytes and the SDK passes them through unchanged. */
+        return (char *)"UTF-8";
+    }
+    return (char *)"";
+}
+
+/*
+ * **`statvfs` fails, and `sys/statvfs.h` argues why at length.** The short version: nothing in the
+ * SDK reports a filesystem's capacity, and the numbers are the whole point of the call. The one
+ * caller here - `ghc::filesystem`'s `space()`, which Bugdom's Pomme bundles - turns the failure
+ * into "cannot find out", which is the truth.
+ *
+ * `*buf` is deliberately left untouched rather than zeroed: a caller that ignores the return and
+ * reads the structure gets whatever it had, which is more likely to look wrong than a tidy zero
+ * would - and looking wrong is the useful outcome.
+ */
+int statvfs(const char *path, struct statvfs *buf) {
+    (void)path;
+    (void)buf;
+    errno = ENOSYS;
+    return -1;
+}
+
+int fstatvfs(int fd, struct statvfs *buf) {
+    (void)buf;
     if (fd < 0) {
         errno = EBADF;
         return -1;

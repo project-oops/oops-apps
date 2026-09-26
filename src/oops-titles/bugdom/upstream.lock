@@ -14,9 +14,12 @@
 # freeware and jorio's port ships it. So this title needs nothing from the player, which is the
 # bar `src/oops-titles/README.md` sets.
 #
-# UPSTREAM_SUBMODULES is not set: `extern/Pomme` is vendored as a submodule upstream, so the fetch
-# needs it. See docs/PORTING.md - this is the first thing to settle, and Ship of Harkinian's lock
-# is the precedent for how (`UPSTREAM_SUBMODULES=1`).
+# **`extern/Pomme` is a submodule and the build does not exist without it.** Pomme is jorio's
+# reimplementation of the classic Mac OS toolbox - QuickDraw, Sound Manager, Resource Manager - and
+# Bugdom is a 1999 Mac game, so it is not an optional dependency but most of the platform layer.
+# The submodule revision is not repeated here and does not need to be: it is recorded in the pinned
+# commit's own tree, so one hash still pins everything. Ship of Harkinian's lock is the precedent.
+UPSTREAM_SUBMODULES=1
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/jorio/Bugdom
 UPSTREAM_REV=18b413f8636010b373adbd1ea4de4a660d5eefdc
