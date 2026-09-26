@@ -6,6 +6,7 @@
 #   ./bin/oops-apps list              # the apps here
 #   ./bin/oops-apps build [app...]    # build each (default: all)
 #   ./bin/oops-apps check [app...]    # each app's own gate (default: all)
+#   ./bin/oops-apps fmt [--check]     # clang-format first-party C and C++ in place
 #   ./bin/oops-apps dist [app...]     # stage each app's shippable artifacts under <app>/dist/
 #   ./bin/oops-apps clean [app...]    # remove build output
 #
@@ -210,8 +211,49 @@ distribute() {
     fi
 }
 
+# clang-format over first-party C and C++, at the pinned clang major (toolchain.mk). A
+# clang-format of that major on PATH runs directly; otherwise silkeh/clang:<major> runs it.
+# Files are rewritten by redirection, not `clang-format -i`, because -i renames and a Windows
+# bind mount refuses the rename.
+format() {
+    local major image files run
+    major=$(sed -n 's/^OOPS_CLANG_MAJOR *:= *//p' toolchain.mk)
+    image="silkeh/clang:$major"
+    # Vendored upstream copies and generated files are not ours to format.
+    local not_ours=(-e '^src/oops-deps/libcxx/src/rune_table\.c$'
+        -e '^src/oops-deps/libjpeg-turbo/include/jversion\.h$'
+        -e '^src/oops-deps/libpng/include/pnglibconf\.h$')
+    # Temporary: uncommitted work in progress under these; the next formatting commit drops it.
+    local held=(-e '^common/posix/' -e '^src/oops-payloads/porthole/'
+        -e '^src/oops-utilities/oopsy-daisy/' -e '^src/oops-utilities/porthole-companion/')
+    mapfile -t files < <(git ls-files '*.c' '*.h' '*.cpp' '*.hpp' '*.cc' |
+        grep -v "${not_ours[@]}" "${held[@]}")
+
+    if clang-format --version 2>/dev/null | grep -q "version $major\."; then
+        run=()
+    elif command -v docker >/dev/null 2>&1; then
+        # Git Bash rewrites Unix-looking arguments; `pwd -W` gives the path the daemon mounts.
+        run=(env MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W 2>/dev/null || pwd):/w"
+            -w /w "$image")
+    else
+        echo "oops-apps: needs clang-format $major on PATH, or docker to run $image" >&2
+        exit 1
+    fi
+
+    if [ "${1:-}" = "--check" ]; then
+        "${run[@]}" clang-format --dry-run --Werror "${files[@]}"
+        echo "oops-apps: formatting clean (${#files[@]} files)"
+    else
+        # shellcheck disable=SC2016
+        "${run[@]}" sh -c \
+            'for f; do clang-format "$f" > /tmp/fmt.out && cat /tmp/fmt.out > "$f"; done' \
+            sh "${files[@]}"
+        echo "oops-apps: formatted ${#files[@]} files"
+    fi
+}
+
 usage() {
-    sed -n '2,12p' "$0" | sed 's|^# \{0,1\}||'
+    sed -n '2,13p' "$0" | sed 's|^# \{0,1\}||'
     exit "${1:-0}"
 }
 
@@ -221,6 +263,7 @@ case "$cmd" in
     list) apps ;;
     build) over all "$@" ;;
     check) over check "$@" ;;
+    fmt) format "$@" ;;
     dist) distribute "$@" ;;
     clean) over clean "$@" ;;
     -h | --help | help) usage ;;
