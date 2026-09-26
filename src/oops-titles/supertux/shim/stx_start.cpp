@@ -35,5 +35,9 @@ stx_start(const payload_args_t *args) {
      */
     oops_run_init_array();
 
-    return main(3, argv);
+    /* The loader calls this entry with no return address; returning jumps to 0. Park
+     * instead, after saying how `main` ended. */
+    const int rc = main(3, argv);
+    oops_log_info("STUX", "main returned %d", rc);
+    oops_system_park_until_closed();
 }

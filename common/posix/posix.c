@@ -94,6 +94,19 @@
 #define OOPS_POSIX_HOME "/app0"
 #endif
 
+static int is_directory(const char *path) {
+    oops_dirent_t ent;
+    oops_dir_t *dir = oops_fs_opendir(path);
+    int found;
+
+    if (!dir) {
+        return 0;
+    }
+    found = oops_fs_readdir(dir, &ent) == 1;
+    oops_fs_closedir(dir);
+    return found;
+}
+
 int stat(const char *path, struct stat *out) {
     int64_t size;
 
@@ -106,11 +119,16 @@ int stat(const char *path, struct stat *out) {
         return -1;
     }
 
-    /*
-     * `oops_fs_file_size` answers for a file. A directory has no size to report and this SDK has
-     * no call that distinguishes the two, so a negative size is read as "exists but is not a
-     * readable file" - which for everything the titles do with this is a directory.
-     */
+    /* A directory opens read-only and seeks like a file on this kernel, so its size says
+     * nothing. It is a directory when `getdents` yields an entry (every directory has `.`);
+     * on a regular file's descriptor `getdents` fails. */
+    if (is_directory(path)) {
+        out->st_mode = S_IFDIR;
+        out->st_size = 0;
+        return 0;
+    }
+    /* Exists, does not list, will not open: reported as a directory, which every caller
+     * here treats as "not a file to read". */
     size = oops_fs_file_size(path);
     if (size < 0) {
         out->st_mode = S_IFDIR;
