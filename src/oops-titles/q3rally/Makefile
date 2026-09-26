@@ -252,9 +252,31 @@ Q3_WARNINGS := -Wno-strict-prototypes -Wno-missing-prototypes -Wno-conversion \
 
 EXTRA_TARGET_CFLAGS += $(Q3_CFLAGS) $(Q3_WARNINGS)
 
-# Nothing links yet, so nothing should fail. `craft/Makefile` is the shape this grows into: a real
-# source list, named and deliberately not armed, beside a measurement that decides the title.
-FORMATS = check-only
+# --- the link --------------------------------------------------------------
+#
+# **Armed.** The census reached 132 of 132 on 2026-09-26 and the shim is written, so there is a
+# payload to build. `common/app.mk` builds an ELF whenever `PAYLOAD_SRCS` is non-empty.
+#
+# `shim/q3_start.c` is the entry point and the only file here that is ours. It finds `baseq3r` by
+# probing rather than deciding - the file says why, and it is because two titles in this collection
+# disagree about `/app0` and both are right about themselves.
+Q3_SHIM_SRCS := shim/q3_start.c
+
+PAYLOAD_SRCS := $(Q3_SHIM_SRCS) $(Q3_SRCS) $(OOPS_POSIX_SRCS)
+
+# **The SDK subsystems, as capabilities.** `OOPS_FEATURES` is live now - `oops-sdk.mk` ships
+# `OOPS_FEATURES_AVAILABLE`, and `app.mk` turns each name into that subsystem's sources - so this
+# title never names a file under `oops-sdk/src`. `net` is the one the other titles here do not
+# list, and it brings `net.c`, `netctl.c` and `dns.c`; `suspend` and `draw` are what the SDL titles
+# carry, and `audio` is here because ioquake3's `snd_dma.c` opens an SDL audio device on the way up
+# whether or not anything is playing.
+OOPS_FEATURES := display input keyboard mouse audio suspend thread draw net
+
+# The vendored archives. `zlib` and `libjpeg-turbo` replace the copies ioquake3 bundles, which is
+# why `USE_INTERNAL_ZLIB=0` and `USE_INTERNAL_JPEG=0` are in the source-list derivation above -
+# two `inflate`s in one link resolve to whichever the linker reached first and nothing reports it.
+EXTRA_TARGET_LDFLAGS += $(OOPS_SDL_LDFLAGS) $(OOPS_ZLIB_LDFLAGS) $(OOPS_JPEG_LDFLAGS)
+PAYLOAD_EXTRA_DEPS   += $(OOPS_SDL_LIB) $(OOPS_ZLIB_LIB) $(OOPS_JPEG_LIB)
 
 include $(OOPS_APPS_ROOT)/common/app.mk
 

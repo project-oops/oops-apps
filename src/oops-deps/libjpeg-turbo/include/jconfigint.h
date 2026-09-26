@@ -14,7 +14,13 @@
 #define HIDDEN __attribute__((visibility("hidden")))
 #define INLINE __inline__ __attribute__((always_inline))
 #define THREAD_LOCAL
-#define CMAKE_PROJECT_NAME "libjpeg-turbo"
+/*
+ * **`PACKAGE_NAME`, not `CMAKE_PROJECT_NAME`.** This said the latter until 2026-09-26, which is the
+ * *placeholder* in upstream's template - `#define PACKAGE_NAME "@CMAKE_PROJECT_NAME@"` - read as
+ * though it were the macro's name. Nothing noticed, because the only reader is `jcmaster.c:800`
+ * building the version string, and that is on the encode side which this build did not have.
+ */
+#define PACKAGE_NAME "libjpeg-turbo"
 #define VERSION "3.1.4"
 #define SIZEOF_SIZE_T 8
 #define HAVE_BUILTIN_CTZL 1

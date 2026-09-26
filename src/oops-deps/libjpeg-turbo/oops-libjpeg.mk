@@ -3,11 +3,22 @@
 #   OOPS_JPEG ?= $(abspath ../../oops-deps/libjpeg-turbo)
 #   include $(OOPS_JPEG)/oops-libjpeg.mk
 #
-# # The decoder only
+# # Both halves now, and the encoder arrived because something asked
 #
-# 27 sources of the 95 upstream ships: the shared core plus the decode half. Neverball reads
-# JPEG textures and writes none, and the encoder is a second body of code with its own
-# entropy coders.
+# It was the decode half alone until 2026-09-26 - Neverball reads JPEG textures and writes none -
+# with a note that the encoder was a second body of code to add when a title wanted it. q3rally
+# wants it: `renderercommon/tr_image_jpg.c` holds `RE_SaveJPG` beside the loader, so a title that
+# takes screenshots links `jpeg_CreateCompress` and its six companions out of the same file that
+# decodes its textures. **There was no version of this that stubbed out cleanly** - a stub would be
+# a screenshot key that silently writes nothing.
+#
+# The lists below are transcribed from upstream's `CMakeLists.txt:637` rather than assembled from
+# what a link happened to be missing, because getting a *precision wrapper* wrong does not fail the
+# link - `jdmaster.c` dispatches on the image's sample depth at run time, so a missing 12-bit
+# encoder is a fault when somebody opens a 12-bit JPEG and nothing before.
+#
+# Arithmetic coding stays off on both sides, so `jcarith.c` joins `jdarith.c` and `jaricom.c` in
+# being absent. SIMD stays off; see below.
 #
 # **Arithmetic coding is off**, so `jdarith.c` and `jaricom.c` are not in the list - their error
 # codes are not compiled either, which is how leaving them in first showed up.
@@ -27,9 +38,14 @@ OOPS_JPEG_INCLUDE := -I$(OOPS_JPEG_DIR)/include -I$(OOPS_JPEG_UPSTREAM)/src
 OOPS_JPEG_LIB := $(OOPS_JPEG_BUILD)/libjpeg.a
 OOPS_JPEG_LDFLAGS := $(OOPS_JPEG_LIB)
 # **The precision-independent core.** Everything here compiles once.
-OOPS_JPEG_SRCS := $(addsuffix .c,$(addprefix $(OOPS_JPEG_UPSTREAM)/src/,jcomapi jdapimin \
-    jdatasrc jdhuff jdinput jdmarker jdmaster jdtrans jerror jmemmgr jmemnobs jdphuff jdicc \
-    jdlhuff))
+#
+# `jpeg_nbits.c` is on the encode side only - it is the bit-count table `jchuff` and `jcphuff` index
+# - which is why a decode-only build never needed it.
+OOPS_JPEG_SRCS := $(addsuffix .c,$(addprefix $(OOPS_JPEG_UPSTREAM)/src/, \
+    jcomapi jerror jmemmgr jmemnobs \
+    jdapimin jdatasrc jdhuff jdinput jdmarker jdmaster jdtrans jdphuff jdicc jdlhuff \
+    jcapimin jdatadst jchuff jcicc jcinit jclhuff jcmarker jcmaster jcparam jcphuff jctrans \
+    jfdctflt jpeg_nbits))
 
 # **And the sources that compile once per sample precision**, which is the part a plain file
 # list gets wrong.
@@ -43,8 +59,10 @@ OOPS_JPEG_SRCS := $(addsuffix .c,$(addprefix $(OOPS_JPEG_UPSTREAM)/src/,jcomapi 
 # CMake generates those wrappers from `src/wrapper/template.c`. We do not run its CMake, so the
 # rule below writes them - two lines each, exactly what the template produces. Compiling only the
 # base files gave 27 clean compiles and a link that failed on 18 undefined `j12*` symbols.
-OOPS_JPEG_WRAP_3 := jdapistd jdcolor jddiffct jdlossls jdmainct jdpostct jdsample jutils
-OOPS_JPEG_WRAP_2 := jdcoefct jddctmgr jdmerge jidctflt jidctfst jidctint jidctred jquant1 jquant2
+OOPS_JPEG_WRAP_3 := jdapistd jdcolor jddiffct jdlossls jdmainct jdpostct jdsample jutils \
+                    jcapistd jccolor jcdiffct jclossls jcmainct jcprepct jcsample
+OOPS_JPEG_WRAP_2 := jdcoefct jddctmgr jdmerge jidctflt jidctfst jidctint jidctred jquant1 jquant2 \
+                    jccoefct jcdctmgr jfdctfst jfdctint
 OOPS_JPEG_WRAPDIR := $(OOPS_JPEG_BUILD)/wrapper
 OOPS_JPEG_WRAP_SRCS := \
     $(foreach f,$(OOPS_JPEG_WRAP_3),$(foreach b,8 12 16,$(OOPS_JPEG_WRAPDIR)/$(f)-$(b).c)) \
