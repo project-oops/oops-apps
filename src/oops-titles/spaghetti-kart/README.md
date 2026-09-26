@@ -30,5 +30,14 @@ of Harkinian at `9.2.3` takes the older `ZAPDTR` + `OTRExporter` pair.
 
 ## Run time, not build time
 
-Like Ship of Harkinian and unlike [`../sm64`](../sm64/README.md), it builds with no ROM and
-converts the player's own copy on the device.
+Like Ship of Harkinian and unlike [`../sm64`](../sm64/README.md), it builds with no ROM.
+
+The game reads its assets from two archives beside the payload: `spaghetti.o2r`, the port's own,
+which ships with the build, and `mk64.o2r`, converted from a Mario Kart 64 ROM. The conversion is
+`torch`, a host tool with its own dependency set - yaml-cpp, GSL, its own N64 graphics and binary
+readers - and it runs once, on a desktop, to produce a file. Nothing in a frame reaches it, so it
+is not in the payload: `shim/GameExtractor.cpp` replaces upstream's `src/port/GameExtractor.cpp`
+and names the archive and where it goes, on screen and in the log, when it is absent.
+
+`shim/include/Companion.h` is what lets that work without `torch` on the include path at all -
+`src/port/GameExtractor.h` opens with it for one namespace alias.

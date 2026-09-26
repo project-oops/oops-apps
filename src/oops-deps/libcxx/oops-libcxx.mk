@@ -269,6 +269,28 @@ OOPS_LIBCXX_SRCS += \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/filesystem/operations.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/filesystem/path.cpp
 
+# `<charconv>`'s floating-point half. The integer `to_chars` and `from_chars` are templates the
+# header carries, so a title using only those links without any of this; `to_chars(char*, char*,
+# float)` and its `chars_format` overloads are in the library, and `charconv.cpp` reaches Ryu for
+# the shortest round-trip representation. Nine undefined `std::to_chars` symbols at Spaghetti
+# Kart's link are what named them, through `semver`.
+#
+# Ryu is three sources and not optional: `charconv.cpp` calls into all three - `f2s` for float,
+# `d2s` for double's shortest form and `d2fixed` for its fixed and scientific ones.
+#
+# `charconv.cpp` reaches `shared/fp_bits.h`, which is LLVM's own libc rather than libc++: the two
+# live side by side in the monorepo this checkout is of, and upstream's build has that directory on
+# the path. It is a build-time path only and not in `OOPS_LIBCXX_INCLUDE`, so no title gets LLVM
+# libc's tree on its own include path; nothing sits directly under `libc/` but directories, so
+# nothing there can shadow a header of ours.
+OOPS_LIBC_SHARED_INCLUDE := -I$(OOPS_LIBCXX_UPSTREAM)/libc
+
+OOPS_LIBCXX_SRCS += \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/charconv.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/ryu/d2fixed.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/ryu/d2s.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/ryu/f2s.cpp
+
 # `rune_table.c` is the freestanding build's answer to `_DefaultRuneLocale`, which
 # `std::ctype<char>::classic_table()` returns. **The hosted build must not have it**: the Mesa
 # sysroot's `librune.a` defines the same symbol, from FreeBSD's own `locale/table.c`, and two
@@ -353,7 +375,7 @@ OOPS_LIBCXX_CFLAGS = -target x86_64-unknown-freebsd --sysroot=$(OOPS_MESA_SYSROO
                      -fexceptions -frtti -fPIC -std=c++20 -O2 -w \
                      -D_LIBCPP_BUILDING_LIBRARY -D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS \
                      $(OOPS_LIBCXX_ABI_FLAGS) \
-                     $(OOPS_LIBCXX_INCLUDE) $(OOPS_SDK_INCLUDE)
+                     $(OOPS_LIBCXX_INCLUDE) $(OOPS_LIBC_SHARED_INCLUDE) $(OOPS_SDK_INCLUDE)
 else
 # # The exceptions variant: `OOPS_CXX_EXCEPTIONS = 1`
 #
@@ -384,11 +406,19 @@ endif
 OOPS_LIBCXX_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                      $(OOPS_LIBCXX_EH_FLAGS) -fPIC -std=c++20 -O2 -w -D_POSIX_TIMERS=200809L \
                      -D_LIBCPP_BUILDING_LIBRARY -D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS \
-                     $(OOPS_LIBCXX_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) \
+                     $(OOPS_LIBCXX_INCLUDE) $(OOPS_LIBC_SHARED_INCLUDE) \
+                     $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) \
                      $(OOPS_LIBCXX_POSIX_INCLUDE)
 endif
 
 TARGET_CXX ?= clang++
+
+# `<filesystem>` picks its copy implementation by platform test and takes `copy_file_range` on
+# FreeBSD, which the sysroot declares under `__BSD_VISIBLE` - cleared by the `_POSIX_C_SOURCE`
+# above. Restored for that source alone, because the reason `_POSIX_C_SOURCE` is set holds for
+# the rest. The call reaches `common/posix`, which refuses it, and libc++ falls back to its
+# `fstream` path.
+OOPS_LIBCXX_BSD_FLAGS := -U_POSIX_C_SOURCE -D__BSD_VISIBLE=1
 
 # `ar` is handed the list rather than the directory - `common/deps.mk` says what the glob cost.
 $(OOPS_LIBCXX_LIB): $(OOPS_LIBCXX_SRCS) $(lastword $(MAKEFILE_LIST)) \
@@ -397,7 +427,10 @@ $(OOPS_LIBCXX_LIB): $(OOPS_LIBCXX_SRCS) $(lastword $(MAKEFILE_LIST)) \
 	@rm -f $@
 	@n=0; objs=""; for src in $(OOPS_LIBCXX_SRCS); do \
 	    n=$$((n+1)); o=$(OOPS_LIBCXX_BUILD)/cxx$$n.o; \
-	    $(TARGET_CXX) $(OOPS_LIBCXX_CFLAGS) -c -o "$$o" "$$src" || exit 1; objs="$$objs $$o"; \
+	    extra=""; \
+	    case "$$src" in *filesystem/operations.cpp) extra="$(OOPS_LIBCXX_BSD_FLAGS)";; esac; \
+	    $(TARGET_CXX) $(OOPS_LIBCXX_CFLAGS) $$extra -c -o "$$o" "$$src" || exit 1; \
+	    objs="$$objs $$o"; \
 	done; \
 	echo "libc++: compiled $$n sources"; \
 	ar_tool=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \

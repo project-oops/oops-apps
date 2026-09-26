@@ -1,0 +1,42 @@
+A trivially copyable label for the interpolation union
+
+`union Data` in `src/port/interpolation/FrameInterpolation.cpp` is the element type
+of a `vector<Data>`, and a vector relocates its elements when it grows. libc++
+static-asserts Cpp17MoveInsertable at that point, and the union fails it: one
+variant member is a `label`, which was `std::pair<const void*, uintptr_t>`, and
+libc++'s pair carries `__non_trivially_copyable_base`. A union with a variant
+member whose copy constructor is non-trivial has its own copy constructor deleted,
+so the vector cannot move the element anywhere.
+
+libstdc++'s pair has no such base, which is why upstream builds elsewhere.
+
+A plain aggregate instead. `label` is constructed as `{ a, b }` and compared as a
+`map` key, so it needs the two members and `operator<` and nothing else; the
+`.first`/`.second` spellings are not used on it anywhere in the file.
+
+Ship of Harkinian carries the same patch against its own copy of this file - see
+`../ship-of-harkinian/patches/0005`.
+
+diff --git a/src/port/interpolation/FrameInterpolation.cpp b/src/port/interpolation/FrameInterpolation.cpp
+index 1d30696..1d542bd 100644
+--- a/src/port/interpolation/FrameInterpolation.cpp
++++ b/src/port/interpolation/FrameInterpolation.cpp
+@@ -85,7 +85,17 @@ enum class Op {
+     SetApplyMatrixTransformations,
+ };
+ 
+-typedef pair<const void*, uintptr_t> label;
++// A plain aggregate rather than a std::pair, because it is a member of the union below and that
++// union has to be trivially copyable for `vector<Data>` to relocate on growth. libc++'s pair
++// carries a non-trivially-copyable base, which deletes the union's copy constructor.
++struct label {
++    const void* ptr;
++    uintptr_t idx;
++
++    bool operator<(const label& o) const {
++        return ptr != o.ptr ? ptr < o.ptr : idx < o.idx;
++    }
++};
+ 
+ union Data {
+     Data() {

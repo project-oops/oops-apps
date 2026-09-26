@@ -1,0 +1,71 @@
+This target has desktop GL linked in, at the GLSL version oops-gl implements
+
+Three arms in `libultraship`'s GL backends assume something this platform answers
+differently. Two are narrowed on `__PROSPERO__`, so every other platform keeps
+exactly what upstream gave it; the third is a version number.
+
+Ship of Harkinian carries the same two narrowings against its own
+`libultraship` revision - see `../ship-of-harkinian/patches/0001` and `0002`,
+where the reasoning is written out in full. In short:
+
+**`glewInit()` - nothing to load.** `gfx_opengl.cpp` calls GLEW everywhere but
+Linux, because elsewhere the GL entry points past 1.1 have to be fetched from a
+driver at run time. Here they do not exist to be fetched: `oops-gl` *is* the GL,
+linked into the payload, every name an ordinary symbol the linker resolved.
+
+**`SDL2/SDL_opengles2.h` - the wrong GL.** `gfx_sdl2.cpp`'s `#else` arm is
+written for a Linux desktop, where SDL's GLES2 header is present. This target has
+desktop GL and no GLES at all, so that include fails at `GLES2/gl2platform.h`
+before anything else is parsed. The new arm goes *before* the `#else` rather than
+inside it: the existing branch means "a Unix with SDL's GLES2 headers", which
+stays true.
+
+**`#version 130` - one version too high.** oops-gl's GLSL front end implements
+1.20, and 1.30 is refused at compile. The fragment shader upstream generates for
+the non-core desktop arm uses nothing 1.30 adds; the number is what is wrong
+about it. `BuildVsShader` already asks for `#version 110` and is untouched.
+
+`oops-gl` ever implementing 1.30 retires that third hunk - `gl2-probe`'s
+`libultraship-dialect` arm asserts separately that 130 is still refused, and
+whoever sees that arm fail should delete this hunk rather than the assertion.
+
+Note what is deliberately *not* patched: the vertex-array pair in
+`gfx_opengl.cpp` stays inside `#if defined(__APPLE__) || defined(USE_OPENGLES)`,
+because this port genuinely does not call it. The vertex array objects oops-gl
+needs come from ImGui's GL3 backend, which is a different library.
+
+diff --git a/libultraship/src/fast/backends/gfx_opengl.cpp b/libultraship/src/fast/backends/gfx_opengl.cpp
+--- a/libultraship/src/fast/backends/gfx_opengl.cpp
++++ b/libultraship/src/fast/backends/gfx_opengl.cpp
+@@ -283,7 +283,7 @@ std::string GfxRenderingAPIOGL::BuildFsShader(const CCFeatures& cc_features) {
+         { "texture", "texture" },
+         { "vOutColor", "vOutColor" },
+ #else
+-        { "GLSL_VERSION", "#version 130" },
++        { "GLSL_VERSION", "#version 120" },
+         { "attr", "varying" },
+         { "opengles", false },
+         { "core_opengl", false },
+@@ -652,7 +652,7 @@ void GfxRenderingAPIOGL::DrawTriangles(float buf_vbo[], size_t buf_vbo_len, size
+ }
+
+ void GfxRenderingAPIOGL::Init() {
+-#ifndef __linux__
++#if !defined(__linux__) && !defined(__PROSPERO__)
+     glewInit();
+ #endif
+
+diff --git a/libultraship/src/fast/backends/gfx_sdl2.cpp b/libultraship/src/fast/backends/gfx_sdl2.cpp
+--- a/libultraship/src/fast/backends/gfx_sdl2.cpp
++++ b/libultraship/src/fast/backends/gfx_sdl2.cpp
+@@ -23,6 +23,10 @@
+ #include <SDL.h>
+ #include "fast/backends/gfx_metal.h"
+ #include "ship/utils/macUtils.h"
++#elif defined(__PROSPERO__)
++#include <SDL2/SDL.h>
++#define GL_GLEXT_PROTOTYPES 1
++#include <GL/gl.h>
+ #else
+ #include <SDL2/SDL.h>
+ #define GL_GLEXT_PROTOTYPES 1
