@@ -5,5 +5,5 @@
 # newest release; upstream names no version, taking whatever the system package manager supplies.
 UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/xiph/opus
-UPSTREAM_REV=5ec2f3c915d0529b94a3a302969c673531654824
+UPSTREAM_REV=ddbe48383984d56acd9e1ab6a090c54ca6b735a6
 UPSTREAM_REF=v1.5.2
