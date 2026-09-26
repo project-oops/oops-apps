@@ -158,7 +158,7 @@ OOPS_CXX_INCLUDE += $(OOPS_LIBCXX_INCLUDE)
 PAYLOAD_SRCS := $(BUG2_C_SRCS) $(OOPS_POSIX_SRCS)
 
 # glu for the camera. No net: the game has no networking.
-OOPS_FEATURES := glu display input keyboard mouse audio suspend thread draw
+OOPS_FEATURES := glu display input keyboard mouse audio suspend thread draw dialog
 
 # Each archive after everything that calls it, app.mk putting LDFLAGS ahead of the payload objects and
 # a plain archive seen before its callers contributing nothing. libc++ calls libc++abi, which calls

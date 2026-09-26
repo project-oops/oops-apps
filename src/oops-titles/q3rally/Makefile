@@ -227,7 +227,7 @@ PAYLOAD_SRCS := $(Q3_SHIM_SRCS) $(Q3_SRCS) $(OOPS_POSIX_SRCS)
 
 # SDK subsystems by feature; `app.mk` supplies their sources. `net` brings the network stack,
 # and `audio` is needed because `snd_dma.c` opens an SDL audio device at start-up.
-OOPS_FEATURES := display input keyboard mouse audio suspend thread draw net
+OOPS_FEATURES := display input keyboard mouse audio suspend thread draw net dialog
 
 # The vendored archives, replacing the copies ioquake3 bundles (see USE_INTERNAL_* above).
 EXTRA_TARGET_LDFLAGS += $(OOPS_SDL_LDFLAGS) $(OOPS_ZLIB_LDFLAGS) $(OOPS_JPEG_LDFLAGS)

@@ -81,7 +81,7 @@ PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_SDL_LIB) $(OOPS_MIX_LIB) \
                         $(OOPS_LIBCXX_LIB)
 
 OOPS_RENDERER = gl1
-OOPS_FEATURES := glu display input keyboard mouse audio suspend thread draw
+OOPS_FEATURES := glu display input keyboard mouse audio suspend thread draw dialog
 
 PAYLOAD_SRCS = $(OOPS_POSIX_SRCS)
 

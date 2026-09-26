@@ -138,7 +138,7 @@ EXTRA_TARGET_CFLAGS += $(SM64_CFLAGS) $(SM64_WARNINGS)
 PAYLOAD_SRCS = shim/sm64_start.c $(SM64_C_SRCS) $(OOPS_POSIX_SRCS)
 
 # No net: the game has no networking.
-OOPS_FEATURES := display input keyboard mouse audio suspend thread draw
+OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog
 
 EXTRA_TARGET_LDFLAGS += $(OOPS_SDL_LDFLAGS)
 PAYLOAD_EXTRA_DEPS   += $(OOPS_SDL_LIB)
