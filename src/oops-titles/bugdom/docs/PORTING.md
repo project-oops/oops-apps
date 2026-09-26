@@ -6,12 +6,13 @@ What is measured, what is decided, and what has not happened. Every number here 
 
 | | |
 |---|---|
-| C sources compiling for the target | **78 of 78** — `make census` |
-| C++ sources compiling | **18 of 26** — the eight are all Pomme's filesystem layer |
+| C sources compiling for the target | **78 of 78** — `make census`, and all 78 are in the payload |
+| C++ sources compiling | **27 of 27** — 25 Pomme, 1 upstream (`Boot.cpp`), 1 ours (the entry point) |
 | SDL | **SDL2**, which this collection already vendors — see below |
-| GL entry points | **51**, all covered by oops-gl, and called **by symbol** |
-| Game data | ships with upstream, `Data/`, **207 files** — no player purchase, no archive needed |
-| Linked | **no.** `PAYLOAD_SRCS` is not armed |
+| GL entry points | **51**, all covered by oops-gl, and called **by symbol** — no loader |
+| Game data | ships with upstream, `Data/`, **207 files / 66 MB** — no player purchase, no archive |
+| Linked | **yes.** `build/bugdom.elf`, 4,981,312 bytes, `app.mk`'s undefined-symbol guard clean |
+| Packaged | **yes.** `make package` — eboot 4,722,768 bytes, `sce_sys/`, `sce_module/libc.prx`, `Data/` |
 | Run on hardware | **no** |
 
 ## The pin uses SDL2, and reading the clone said otherwise
@@ -35,12 +36,11 @@ Pomme is jorio's reimplementation of the classic Mac OS toolbox — Resource Man
 QuickDraw 3D. Bugdom is a 1999 Mac game, so this is not an optional dependency but most of the
 platform layer. It is a submodule, which is why the lock carries `UPSTREAM_SUBMODULES=1`.
 
-Bugdom's own sources *are* globbed, because upstream globs them —
-`CMakeLists.txt:79` is `file(GLOB_RECURSE GAME_SOURCES ...)`, so the directory is the list. Pomme's
-are not, because Bugdom switches four of its subsystems off (`POMME_NO_VIDEO`, `_INPUT`,
-`_GRAPHICS`, `_MP3`) and each switch both drops sources *and* defines a macro the remaining sources
-compile against. A glob would compile the four that are off, against headers those very macros
-have emptied.
+Bugdom's own sources *are* globbed, because upstream globs them — `CMakeLists.txt:79` is
+`file(GLOB_RECURSE GAME_SOURCES ...)`, so the directory is the list. Pomme's are not, because
+Bugdom switches four of its subsystems off (`POMME_NO_VIDEO`, `_INPUT`, `_GRAPHICS`, `_MP3`) and
+each switch both drops sources *and* defines a macro the remaining sources compile against. A glob
+would compile the four that are off, against headers those very macros have emptied.
 
 ## What the platform was missing, and what it now says
 
@@ -54,45 +54,88 @@ Each of these is in `oops-apps/common/posix` or `oops-sdk/include/libc` and is s
 | `langinfo.h` | New. `nl_langinfo(CODESET)` answers `"UTF-8"`, which is a fact — the kernel takes UTF-8 path bytes and the SDK passes them through |
 | `st_dev`, `st_ino`, `st_nlink` | Added to `struct stat`, and **all zero**. A program comparing `st_dev`/`st_ino` pairs finds every file identical; `sys/stat.h` says so where somebody will read it |
 | `O_EXCL`, `pathconf`, `link`, `symlink` | Defined and refused. There is no exclusive create, no path-configurable limit but `PATH_MAX`, and no links of either kind |
+| `realpath`, `utimes`, `truncate`, `fchmod`, `openat`/`fchmodat`/`unlinkat`, `fdopendir`, `copy_file_range` | New, for libc++'s `<filesystem>` — see the next section. `realpath` is **complete**: there are no symbolic links here, so collapsing `.` and `..` is the whole job. The `*at()` family answers for `AT_FDCWD` and refuses any other anchor, there being no directory descriptors. `copy_file_range` failing is what makes libc++ fall back to its portable copy |
+| `__divti3`, `__modti3`, `__umodti3` | Signed and unsigned 128-bit division in `oops-sdk/src/system/freestd.c`, beside the `__udivti3` that was already there. `<filesystem>`'s file-clock arithmetic is 128-bit, and a freestanding build links no compiler-rt |
 
-## The eight C++ sources, and why the answer is not a bigger libc++
+## The eight C++ sources: a small `<filesystem>` beat a bigger libc++
 
-All eight fail inside `ghc::filesystem`, the `std::filesystem` stand-in Pomme bundles. The first
-symptom was `std::wstring`, which our libc++ does not have — `_LIBCPP_HAS_WIDE_CHARACTERS 0` — and
-which ghc names in two `path` methods nobody calls.
+Eight Pomme sources failed, all inside `ghc::filesystem`, the `std::filesystem` stand-in Pomme
+bundles for platforms without one. The first symptom was `std::wstring`, which our libc++ does not
+have — `_LIBCPP_HAS_WIDE_CHARACTERS 0`.
 
-**Turning wide characters on would be the wrong fix**, and `oops-sdk/include/libc/wchar.h` already
-sets the bar: the functions are absent deliberately, and a port that "genuinely needs `wcslen` and
-friends" is the trigger for adding them. A type mentioned in two unused method signatures is not
-that. The flag is also global — every C++ title would rebuild against it.
+**Turning wide characters on would have been the wrong fix.** `oops-sdk/include/libc/wchar.h` sets
+the bar: those functions are absent deliberately, and a port that "genuinely needs `wcslen` and
+friends" is the trigger for adding them. A type named in two `path` methods nobody calls is not
+that, and the flag is global — every C++ title would rebuild against it.
 
-And `wstring` is not the end of it. With the POSIX gaps above filled, one Pomme source still wants
-`S_ISCHR`, `AT_FDCWD`, `AT_SYMLINK_NOFOLLOW`, `utimensat`, `truncate` and `fchmod`. ghc wants a
-full POSIX filesystem — device nodes, timestamps, hard links, `*at()` — and this platform has
-almost none of it. Each one added is another honest failure propping up a library whose model does
-not fit.
+And `wstring` was not the end of it. With the POSIX gaps above filled, one Pomme source still wanted
+`S_ISCHR`, `AT_FDCWD`, `AT_SYMLINK_NOFOLLOW`, `utimensat`, `truncate` and `fchmod`. ghc wants a full
+POSIX filesystem — device nodes, timestamps, hard links, `*at()` — and this platform has almost none
+of it. Each one added is another honest failure propping up a library whose model does not fit.
 
-**So: a small `<filesystem>` of our own, in the shared C++ layer, over `oops/fs.h`.** What Pomme
-actually uses is tiny, and every call maps onto something the SDK already has:
+**So the second option was taken: build libc++'s own `<filesystem>` and let Pomme use it.** It cost
+eleven declarations in the port layer, every one of which had a real answer, against ghc's demand for
+file identity and hard links, which do not exist here. It also takes 5,000 lines of somebody else's
+portability layer out of the build. `src/oops-deps/libcxx/oops-libcxx.mk` carries the reasoning and
+the source list.
 
-```
-fs::path ×23     fs::exists ×6          fs::is_regular_file ×3   fs::is_directory ×3
-fs::remove       fs::directory_iterator fs::current_path         fs::create_directory
-fs::create_directories                  fs::filesystem_error
-.c_str() .lexically_normal() .u8string() .filename() .extension() .parent_path()
-```
+**It needs one patch**, `patches/0001-take-the-real-filesystem-on-this-console.patch`.
+`CompilerSupport/filesystem.h:8-12` takes `<filesystem>` when `__has_include` finds one, and two arms
+of its condition exclude this build:
 
-That is less code than making ghc compile, it needs no wide characters and no `st_dev`, and it
-takes 5,000 lines of somebody else's portability layer out of the build.
+- `!__FreeBSD__`, on a 2021 note about FreeBSD 13.0-BETA1's libc++ being "problematic". That is an
+  observation about one system's implementation; ours is a freestanding libc++ built from source in
+  this tree, five years newer. Lifted for `__PROSPERO__` only, so a real FreeBSD build is unchanged.
+- `!(defined(__GNUC__) && __GNUC__ < 9)` **excludes clang, which is not what it says.** Clang defines
+  `__GNUC__` as **4** and has for its whole life, so this arm rejects every clang at every version on
+  every platform. The comment above it is about libstdc++ needing an extra library. Adding
+  `!defined(__clang__)` makes the test mean what the comment says — and that arm is not specific to
+  this console: any clang build of Pomme silently takes ghc today, including on Linux.
 
-**It needs one patch.** `CompilerSupport/filesystem.h:8-12` takes `<filesystem>` when
-`__has_include` finds one — but excludes `__FreeBSD__` outright, on a 2021 note about FreeBSD
-13.0-BETA1's libc++ being "problematic". That observation is about the system's implementation, not
-this freestanding one, so the exclusion has to be lifted for this platform.
+## The link, and three things that only a link finds
+
+A clean census said nothing about any of these.
+
+**The no-exceptions libc++ collides with libc++abi.** `oops-libcxx.mk:66` reads
+`OOPS_CXX_EXCEPTIONS` to choose between `build-eh/libc++.a` and `build/libc++.a`, and it reads it
+with `?=` **at include time**. Setting the flag lower down, with the rest of the C++ settings, took
+the no-exceptions archive — which defines `std::terminate`, `std::bad_alloc` and eighteen more itself
+instead of deferring to libc++abi. The failure was twenty duplicate symbols naming neither the
+archive nor the ordering. The flag now sits above the include, which is where `supertux/Makefile` has
+always had it.
+
+**`main` is mangled here.** In a freestanding C++ translation unit `main` is an ordinary function, so
+`Boot.cpp` exports it as `_Z4mainiPPc`. The entry-point shim was C and asked for `main`; the payload
+link ignores unresolved symbols, so it linked, and the only thing between that and a fault at the
+first instruction on the console was `app.mk`'s guard, which printed one line: `main`. The shim is
+C++ now — which is what `extreme-tux-racer/shim/etr_start.cpp` already said, in a comment.
+
+**A C++ shim had no `OOPS_APP_ID`.** `app.mk` puts the three identity defines in `TARGET_CFLAGS`, and
+`common/cxx.mk` did not have them. Fixed in `cxx.mk`, so every C++ title gets them.
+
+## The entry point
+
+`shim/bugdom_start.cpp`. `FindGameData` (`src/Boot.cpp:35`) derives the data directory from
+`argv[0]` — on a non-Apple build its first attempt is `parent_path(argv[0]) / "Data"` — and accepts
+the result only when `Data/Skeletons/DoodleBug.3dmf` opens. So the shim probes for **that one file**
+under `/data/homebrew/BUGD00001` and then `/app0`, and sets `argv[0]` to the root that answered.
+Probing for `Data/` alone would pass on a package whose assets failed to copy.
+
+It refuses to start when neither root answers, rather than letting `FindGameData` fall through to its
+later attempts: those end in `throw std::runtime_error("Couldn't find the Data folder.")`, which
+`main` turns into `SDL_ShowSimpleMessageBox` — a dialog that names no path and needs a controller to
+dismiss.
+
+It also exports **`HOME`**. Pomme's `FindFolder` (`Files.cpp:186`) reads `XDG_CONFIG_HOME` then
+`HOME` and returns `fnfErr` when both are unset, which Bugdom answers with another alert box. The
+environment starts empty on this platform, so the one name a payload genuinely knows is set here, and
+`OOPS_POSIX_HOME/.config` is created for it.
 
 ## What has not been measured
 
-- **Nothing has linked.** `PAYLOAD_SRCS` is unarmed, so there is no ELF and no undefined-symbol
-  check. The 51 GL entry points are "covered" by a name census, not by a link.
-- **Nothing has run.** No frame, no sound, no input.
-- The entry point, the icon and the package do not exist yet.
+- **Nothing has run.** No frame, no sound, no input, no controller mapping. The 51 GL entry points
+  are covered by name and by link, not by a draw.
+- The eboot has not been on the console. `pros restore` has not run for this title.
+- `oops-deps/sdl2`'s joystick driver sends both Back and Guide from `OOPS_BUTTON_CREATE`
+  (`OOPS_BUTTON_CREATE` and `OOPS_BUTTON_PS` are the same bit). Bugdom's menus read Back; whether
+  that matters here is unknown until it runs.

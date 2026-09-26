@@ -1,0 +1,43 @@
+Take the real <filesystem> on this console, and do not mistake clang for GCC 8
+
+`filesystem.h` uses the standard header when the compiler has one and falls back to the bundled
+`ghc::filesystem` otherwise. Two arms of its condition exclude this build, and only one of them
+was meant to.
+
+**`!__FreeBSD__`** carries a comment recording that FreeBSD's implementation "appears problematic
+(on version 13.0-BETA1 with clang 11)". That is an observation about one system libc++ in 2021.
+This target is FreeBSD-derived but its C++ library is a freestanding libc++ built from source in
+this tree, five years newer, whose `<filesystem>` is built and works here. Lifted for this
+platform only - `__PROSPERO__` - so a real FreeBSD build keeps upstream's behaviour exactly.
+
+**`!(defined(__GNUC__) && __GNUC__ < 9)` excludes clang, which is not what it says.** Clang
+defines `__GNUC__` as **4** - it has masqueraded as GCC 4.2.1 for its whole life - so this arm
+rejects every clang, at every version, on every platform. The comment above it says "GCC 8: its
+implementation requires linking an extra library", which is about libstdc++ and has nothing to do
+with clang or libc++. Adding `!defined(__clang__)` makes the test mean what the comment says.
+
+That second one is not specific to this console: any clang build of Pomme silently takes ghc
+today, including on Linux with a perfectly good `<filesystem>`.
+
+Taking the standard header rather than ghc is not a preference. ghc wants a full POSIX filesystem
+underneath it - `st_dev`/`st_ino` file identity, hard links, `utimensat`, the `*at()` family,
+`std::wstring` - and this console has almost none of that, so each would have been a stub propping
+up a library whose model does not fit. libc++'s own implementation wanted eleven declarations, all
+of which had an honest answer, and `realpath` among them is complete rather than refused: the only
+thing it does that this filesystem cannot is resolve symbolic links, and there are none.
+---
+diff --git a/extern/Pomme/src/CompilerSupport/filesystem.h b/extern/Pomme/src/CompilerSupport/filesystem.h
+index 1bcff28..1a24692 100644
+--- a/extern/Pomme/src/CompilerSupport/filesystem.h
++++ b/extern/Pomme/src/CompilerSupport/filesystem.h
+@@ -6,8 +6,8 @@
+ // - GCC 8: its implementation requires linking an extra library; don't bother with that
+ 
+ #if !__APPLE__ \
+-	&& !__FreeBSD__ \
+-	&& !(defined(__GNUC__) && __GNUC__ < 9) \
++	&& !(defined(__FreeBSD__) && !defined(__PROSPERO__)) \
++	&& !(defined(__GNUC__) && !defined(__clang__) && __GNUC__ < 9) \
+ 	&& defined(__cplusplus) && __cplusplus >= 201703L \
+ 	&& defined(__has_include) && __has_include(<filesystem>)
+ 

@@ -1,9 +1,13 @@
 # Bugdom, through oops-sdk.
 #
-#   make census   compile every source this title needs, for the target, and report
+#   make               the payload
+#   make title         the payload, packaged
+#   make package       the title package with the game data, which is what runs
+#   make census        compile every source this title needs, for the target, and report
+#   make census-one F=<path> [X=1]   every error in one source, C or C++
 #
-# **This does not build a payload yet.** `make census` compiles the whole source list under the
-# real target flags and prints what each one died on; docs/PORTING.md keeps the standing numbers.
+# `census` survives the arming on purpose: it is the cheaper half of a build when a dependency bump
+# breaks the tree, and it names the source beside each error, which a `-j` link does not.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
@@ -102,8 +106,23 @@ include $(OOPS_APPS_ROOT)/common/posix.mk
 OOPS_SDL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/sdl2)
 include $(OOPS_SDL)/oops-sdl.mk
 
+# **libc++, and libunwind and libc++abi with it.** Bugdom throws: `Boot.cpp` wraps the whole game
+# in `catch (std::exception&)`, and `std::filesystem` reports failures as `filesystem_error`. The
+# platform exports no Itanium unwind or C++ ABI symbols, so both come from here (oops-apps#D005).
+#
+# **`OOPS_CXX_EXCEPTIONS` has to be set before this include, not with the rest of the C++ settings
+# further down.** `oops-libcxx.mk:66` reads it to choose between `build-eh/libc++.a` and
+# `build/libc++.a`, and it reads it with `?=` at include time - so setting it afterwards silently
+# took the no-exceptions archive, which defines `std::terminate`, `std::bad_alloc` and eighteen more
+# itself rather than deferring to libc++abi. The link failed on those as duplicate symbols, naming
+# neither archive nor this ordering. `supertux/Makefile` has it in this order for the same reason.
+OOPS_CXX_EXCEPTIONS = 1
+OOPS_CXX_STD        = c++20
+
 OOPS_LIBCXX ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libcxx)
 include $(OOPS_LIBCXX)/oops-libcxx.mk
+include $(OOPS_LIBCXX)/oops-libunwind.mk
+include $(OOPS_LIBCXX)/oops-libcxxabi.mk
 
 # **The include list is upstream's, transcribed.** `CMakeLists.txt:123` names
 # `extern/Pomme/src`, `extern/Pomme/src/QD3D` and `src/Headers` - and the QD3D one is not
@@ -124,7 +143,8 @@ BUG_WARNINGS := -Wno-strict-prototypes -Wno-missing-prototypes -Wno-conversion \
                 -Wno-unused-parameter -Wno-unused-but-set-variable -Wno-shadow \
                 -Wno-sign-compare -Wno-char-subscripts -Wno-unused-function \
                 -Wno-unused-const-variable -Wno-missing-field-initializers \
-                -Wno-unused-variable
+                -Wno-unused-variable \
+                -Wno-multichar
 
 EXTRA_TARGET_CFLAGS += $(BUG_CFLAGS) $(BUG_WARNINGS)
 
@@ -138,9 +158,55 @@ BUG_CXX_FLAGS = -x c++ -std=c++20 $(OOPS_LIBCXX_INCLUDE) \
                 $(filter-out -std=c11 -Wstrict-prototypes -Wmissing-prototypes,$(TARGET_CFLAGS)) \
                 $(EXTRA_TARGET_CFLAGS)
 
-# Nothing links yet. `q3rally/Makefile` is the shape this grows into: a real source list, named and
-# deliberately not armed, beside a measurement that decides the title.
-FORMATS = check-only
+# --- the link --------------------------------------------------------------
+#
+# **Armed.** The census reached 78 of 78 C and 26 of 26 C++ once Pomme took the real
+# `<filesystem>`, so there is a payload to build.
+#
+# `shim/bugdom_start.cpp` is the entry point and the only source here that is ours.
+#
+# **C++, and it has to be.** In a freestanding C++ translation unit `main` is an ordinary function,
+# so `Boot.cpp` exports it *mangled* - `_Z4mainiPPc`. A C shim asking for `main` linked fine, because
+# a payload link ignores unresolved symbols, and `app.mk`'s guard is the only reason that did not
+# reach the console. So this goes in `OOPS_CXX_SRCS`, not `PAYLOAD_SRCS`; the file says so too.
+BUG_SHIM_CXX := shim/bugdom_start.cpp
+
+# **The C++ half goes through `common/cxx.mk`**, which compiles it with its own flags: `app.mk`
+# builds every `PAYLOAD_SRCS` entry as C11, which is wrong for C++ and actively wrong for C++20.
+#
+# `OOPS_CXX_SRCS` is set **before** the include on purpose - `cxx.mk` names it as a prerequisite of
+# the archive, and make expands a rule's prerequisites when it reads the rule, so a title that set
+# it afterwards got an archive that never rebuilt when its own C++ changed. Extreme Tux Racer did
+# exactly that until 2026-09-23.
+#
+# `OOPS_CXX_EXCEPTIONS` and `OOPS_CXX_STD` are set further up, beside the libc++ include that also
+# reads the first one.
+#
+# No `OOPS_CXX_LINK_OBJECTS`: checked, and no two sources in the list share a basename, so the
+# archive is safe. `oops_ar_check` would say so anyway.
+OOPS_CXX_SRCS := $(POMME_CXX) $(BUG_OWN_CXX) $(BUG_SHIM_CXX)
+include $(OOPS_APPS_ROOT)/common/cxx.mk
+
+# **`OOPS_CXX_INCLUDE` after the include, because `cxx.mk` clears it** - and only libc++'s headers
+# go here. The rest of this title's include path reaches C++ through `EXTRA_TARGET_CFLAGS`, which
+# `OOPS_CXX_FLAGS` appends last; naming `BUG_CFLAGS` here as well would put the POSIX shim's
+# headers *ahead* of libc++'s, which is the ordering `census` proved wrong.
+OOPS_CXX_INCLUDE += $(OOPS_LIBCXX_INCLUDE)
+
+PAYLOAD_SRCS := $(BUG_C_SRCS) $(OOPS_POSIX_SRCS)
+
+# **The SDK subsystems, as capabilities.** Bugdom is an SDL2 title of the same shape as Neverball
+# and Extreme Tux Racer, so the set is theirs. No `net`: it has no networking.
+OOPS_FEATURES := display input keyboard mouse audio suspend thread draw
+
+# **Each archive after everything that calls it.** `app.mk` puts LDFLAGS ahead of the payload
+# objects, and a plain archive seen before its callers contributes nothing - so the title's own C++
+# first, then SDL2, then the three standard-library archives innermost-last: libc++ calls libc++abi,
+# which calls libunwind.
+EXTRA_TARGET_LDFLAGS += $(OOPS_CXX_LDFLAGS) $(OOPS_SDL_LDFLAGS) \
+                        $(OOPS_LIBCXX_LDFLAGS) $(OOPS_LIBCXXABI_LDFLAGS) $(OOPS_LIBUNWIND_LDFLAGS)
+PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_SDL_LIB) \
+                        $(OOPS_LIBCXX_LIB) $(OOPS_LIBCXXABI_LIB) $(OOPS_LIBUNWIND_LIB)
 
 include $(OOPS_APPS_ROOT)/common/app.mk
 
@@ -196,3 +262,21 @@ census-one:
 	 else \
 	    $(TARGET_CC) $(TARGET_CFLAGS) $(EXTRA_TARGET_CFLAGS) -fsyntax-only $(BUG_UP)/$(F) 2>&1; \
 	 fi | grep 'error:' | sed 's|.*error: ||' | sort | uniq -c | sort -rn
+
+# ---------------------------------------------------------------------------
+# `make package`: the title package with the game data, which is what runs
+#
+# `common/app.mk`'s `title` builds the eboot and `sce_sys/`, and stops there - a title's content is
+# the title's business. Bugdom's is `Data/`, shipped in the upstream repository, and the entry point
+# probes for `Data/Skeletons/DoodleBug.3dmf` under the package root.
+# ---------------------------------------------------------------------------
+.PHONY: package
+package: title
+	@test -d upstream/Data || { echo "bugdom: no upstream/Data - run make first" >&2; exit 1; }
+	@echo "bugdom: copying $$(du -sh upstream/Data | cut -f1) of data into the package"
+	@rm -rf build/title/$(TITLE_ID)/Data
+	@cp -r upstream/Data build/title/$(TITLE_ID)/Data
+	@# The file the shim probes for, so a truncated copy fails here rather than on the console.
+	@test -f build/title/$(TITLE_ID)/Data/Skeletons/DoodleBug.3dmf || { \
+	    echo "bugdom: Data/Skeletons/DoodleBug.3dmf is missing from the package" >&2; exit 1; }
+	@echo "bugdom: package is build/title/$(TITLE_ID) ($$(du -sh build/title/$(TITLE_ID) | cut -f1), $$(find build/title/$(TITLE_ID) -type f | wc -l) files)"
