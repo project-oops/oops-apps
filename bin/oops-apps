@@ -181,7 +181,10 @@ format() {
     # Vendored upstream copies and generated files are not ours to format.
     local not_ours=(-e '^src/oops-deps/libcxx/src/rune_table\.c$'
         -e '^src/oops-deps/libjpeg-turbo/include/jversion\.h$'
-        -e '^src/oops-deps/libpng/include/pnglibconf\.h$')
+        -e '^src/oops-deps/libpng/include/pnglibconf\.h$'
+        -e '^src/oops-deps/opus/'
+        -e '\.gen\.'
+        -e '/shim/include/')
     # Temporary: uncommitted work in progress under these; the next formatting commit drops it.
     local held=(-e '^common/posix/' -e '^src/oops-payloads/porthole/'
         -e '^src/oops-utilities/oopsy-daisy/' -e '^src/oops-utilities/porthole-companion/')
