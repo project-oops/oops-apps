@@ -107,7 +107,10 @@ OOPS_MESA ?= $(abspath $(OOPS_APPS_ROOT)/../oops-mesa)
 SYMBOLS_FILE := $(abspath build/imports.txt)
 
 # The SDK subsystems this title uses, declared as capabilities via OOPS_FEATURES.
-OOPS_FEATURES := display input keyboard mouse thread net
+# `suspend` is not optional for a big app: the kernel suspends asynchronously and kills
+# a title that has not reached a suspend point, which is what closing this one used to
+# do. `shim/glfw_shim.c` pumps the queue every frame and quiesces on the way out.
+OOPS_FEATURES := display input keyboard mouse thread net suspend
 
 include $(OOPS_APPS_ROOT)/common/app.mk
 

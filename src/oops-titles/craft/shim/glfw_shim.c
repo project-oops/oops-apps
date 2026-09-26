@@ -16,6 +16,7 @@
 #include "oops/input.h"
 #include "oops/keyboard.h"
 #include "oops/mouse.h"
+#include "oops/system.h"
 #include "oops/time.h"
 
 #include <string.h>
@@ -42,6 +43,9 @@ struct GLFWwindow {
     oops_display_t *display;
     int width, height;
     int should_close;
+    /* The system asked, as opposed to the game deciding; latched so the prepare runs
+     * once. */
+    int closing;
     int cursor_mode;
 
     GLFWkeyfun on_key;
@@ -75,6 +79,9 @@ static double s_time_base;
 int glfwInit(void) {
     memset(&s_window, 0, sizeof(s_window));
     s_window.cursor_mode = GLFW_CURSOR_NORMAL;
+    /* The dashboard's Close Application arrives as a signal; without this the title
+     * keeps drawing and is killed mid-frame. `glfwWindowShouldClose` reports it. */
+    oops_system_install_close_handler();
     /* Neither device is required: a console with no USB keyboard is the normal case,
      * and the pad below is what that player uses. Both initialisers report and are not
      * checked. */
@@ -138,7 +145,22 @@ void glfwSwapInterval(int interval) {
     (void)interval;
 }
 
+/*
+ * Craft's own loop condition, and where the system's request to go away is answered.
+ *
+ * `oops_system_prepare_for_suspend` runs once on the way out and leaves the process
+ * quiescent, which is what the kernel is waiting for: it suspends asynchronously and
+ * allows 100 seconds to reach a suspend point, then kills with
+ * CPU_FAULT_SUSPENDPOINT_TIMEOUT_IN_SUSPEND_ASYNC. Craft then leaves its loop and
+ * returns normally, so the shutdown below it still runs.
+ */
 int glfwWindowShouldClose(GLFWwindow *window) {
+    if (oops_system_close_requested() && !s_window.closing) {
+        s_window.closing = 1;
+        oops_system_prepare_for_suspend();
+    }
+    if (s_window.closing)
+        return 1;
     return window ? window->should_close : 1;
 }
 
@@ -416,6 +438,12 @@ static void drain_pad(struct GLFWwindow *w) {
 
 void glfwPollEvents(void) {
     struct GLFWwindow *w = &s_window;
+
+    /* Every frame, not only when closing: the system event queue is what a suspend
+     * point is reached through, and one serviced only at the end was ignored until
+     * then. */
+    (void)oops_system_pump_events();
+
     /* The keys the pad writes are cleared first: a pad reports its whole state every
      * poll, while a keyboard reports transitions and a key stays down until release. */
     w->key_down['W'] = 0;
