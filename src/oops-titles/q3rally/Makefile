@@ -248,7 +248,7 @@ Q3_WARNINGS := -Wno-strict-prototypes -Wno-missing-prototypes -Wno-conversion \
                -Wno-unused-parameter -Wno-unused-but-set-variable -Wno-shadow \
                -Wno-sign-compare -Wno-char-subscripts -Wno-unused-function \
                -Wno-unused-const-variable -Wno-missing-field-initializers \
-               -Wno-invalid-noreturn
+               -Wno-invalid-noreturn -Wno-unused-variable
 
 EXTRA_TARGET_CFLAGS += $(Q3_CFLAGS) $(Q3_WARNINGS)
 

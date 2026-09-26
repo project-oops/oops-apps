@@ -12,8 +12,13 @@
 #define S_IFDIR  0040000u
 #define S_IFREG  0100000u
 #define S_IFLNK  0120000u
+#define S_IFIFO  0010000u
 #define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
 #define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
+/* Never true, for the same reason `S_ISLNK` never is: `stat` below reports a file or a directory
+ * and nothing else. Named because ioquake3's `sys_unix.c:320` refuses to treat a FIFO as a game
+ * file, and has to be able to ask. */
+#define S_ISFIFO(m) (((m) & S_IFMT) == S_IFIFO)
 /* Never true: `stat` below reports a file or a directory and nothing else. Named because PhysFS
  * asks it of every path it stats. */
 #define S_ISLNK(m) (((m) & S_IFMT) == S_IFLNK)
@@ -61,6 +66,10 @@ int lstat(const char *path, struct stat *out);
  * - see `posix.c` for how the size is taken without disturbing the file pointer. */
 int fstat(int fd, struct stat *out);
 int mkdir(const char *path, mode_t mode);
+/* **Always fails with `ENOSYS`.** There are no FIFOs on this filesystem, which is also why
+ * `S_ISFIFO` above is never true. ioquake3's `sys_unix.c` creates one for a pipe-based console it
+ * does not use here; it checks the return. */
+int mkfifo(const char *path, mode_t mode);
 /* **Always fails with `ENOSYS`.** There are no file permissions on this platform to change - see
  * `posix.c`, and `ftruncate` in `unistd.h` for the same reasoning. */
 int chmod(const char *path, mode_t mode);

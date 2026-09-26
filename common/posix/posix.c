@@ -40,8 +40,17 @@
 #include <dlfcn.h> /* Dl_info, for the dladdr below */
 #include <errno.h>
 #include <locale.h>
+#include <arpa/inet.h>  /* the inet_* conversions this file defines */
+#include <fcntl.h>      /* F_GETFL/F_SETFL and O_* , for the fcntl below */
+#include <ifaddrs.h>    /* struct ifaddrs, for the getifaddrs below */
+#include <libgen.h>     /* the basename/dirname declarations this file answers */
+#include <net/if.h>     /* if_nametoindex, likewise */
 #include <netdb.h>      /* struct hostent and h_errno, which this file defines */
 #include <netinet/in.h> /* sockaddr_in, htons/ntohs */
+#include <signal.h>     /* sighandler_t and the SIG* numbers, for the signal() below */
+#include <stdarg.h>     /* va_list, for the variadic ioctl below */
+#include <sys/ioctl.h>  /* FIONBIO and the ioctl declaration this file answers */
+#include <sys/wait.h>   /* waitpid/wait, likewise */
 #include <pthread_np.h> /* the declaration this file's pthread_getthreadid_np answers */
 #include <pwd.h>
 #include <sched.h> /* the declaration this file's sched_yield answers */
@@ -338,7 +347,7 @@ int closedir(DIR *dir) {
  * refusing one it cannot honour: a program that asks for a locale and is told no tends to stop,
  * and a program told "C" carries on formatting the way it already assumed.
  */
-char *setlocale(int category, const char *locale) {
+__attribute__((weak)) char *setlocale(int category, const char *locale) {
     static char c_locale[] = "C";
 
     (void)category;
@@ -346,7 +355,7 @@ char *setlocale(int category, const char *locale) {
     return c_locale;
 }
 
-struct lconv *localeconv(void) {
+__attribute__((weak)) struct lconv *localeconv(void) {
     static char point[] = ".";
     static char empty[] = "";
     static struct lconv lc;
@@ -364,7 +373,7 @@ struct lconv *localeconv(void) {
     return &lc;
 }
 
-int gettimeofday(struct timeval *tv, void *tz) {
+__attribute__((weak)) int gettimeofday(struct timeval *tv, void *tz) {
     uint64_t us;
 
     (void)tz;
@@ -419,7 +428,7 @@ static int oops_ascii_lower(unsigned char c) {
     return (c >= 'A' && c <= 'Z') ? (c - 'A' + 'a') : c;
 }
 
-int strcasecmp(const char *a, const char *b) {
+__attribute__((weak)) int strcasecmp(const char *a, const char *b) {
     if (!a || !b) return a == b ? 0 : (a ? 1 : -1);
     for (;;) {
         const int ca = oops_ascii_lower((unsigned char)*a);
@@ -431,7 +440,7 @@ int strcasecmp(const char *a, const char *b) {
     }
 }
 
-int strncasecmp(const char *a, const char *b, size_t n) {
+__attribute__((weak)) int strncasecmp(const char *a, const char *b, size_t n) {
     if (!a || !b) return a == b ? 0 : (a ? 1 : -1);
     while (n--) {
         const int ca = oops_ascii_lower((unsigned char)*a);
@@ -552,10 +561,353 @@ int ftruncate(int fd, off_t length) {
  * that is the kind of answer someone eventually relies on.
  */
 /* ---------------------------------------------------------------------------
+ * `basename` / `dirname`, and the interface list that cannot be listed.
+ * See `libgen.h`, `net/if.h` and `ifaddrs.h` for the reasoning behind each.
+ * ------------------------------------------------------------------------- */
+
+/* One buffer each, so a caller holding both results at once still has two valid strings. */
+static char s_basename_buf[256];
+static char s_dirname_buf[256];
+
+static void oops_copy_bounded(char *dst, size_t cap, const char *src, size_t n) {
+    if (n >= cap) {
+        n = cap - 1u;
+    }
+    memcpy(dst, src, n);
+    dst[n] = '\0';
+}
+
+char *basename(const char *path) {
+    const char *last;
+
+    if (path == NULL || path[0] == '\0') {
+        s_basename_buf[0] = '.';
+        s_basename_buf[1] = '\0';
+        return s_basename_buf;
+    }
+    /* Trailing slashes are not part of the name: "/usr/lib/" basenames to "lib". */
+    {
+        size_t end = strlen(path);
+        while (end > 1u && path[end - 1u] == '/') {
+            end--;
+        }
+        if (end == 1u && path[0] == '/') {
+            s_basename_buf[0] = '/';
+            s_basename_buf[1] = '\0';
+            return s_basename_buf;
+        }
+        last = path;
+        for (size_t i = 0; i < end; i++) {
+            if (path[i] == '/') {
+                last = &path[i + 1u];
+            }
+        }
+        oops_copy_bounded(s_basename_buf, sizeof(s_basename_buf), last,
+                          (size_t)(&path[end] - last));
+    }
+    return s_basename_buf;
+}
+
+char *dirname(const char *path) {
+    size_t end;
+    size_t cut;
+
+    if (path == NULL || path[0] == '\0') {
+        s_dirname_buf[0] = '.';
+        s_dirname_buf[1] = '\0';
+        return s_dirname_buf;
+    }
+    end = strlen(path);
+    while (end > 1u && path[end - 1u] == '/') {
+        end--;
+    }
+    /* Find the separator before the last component. */
+    cut = end;
+    while (cut > 0u && path[cut - 1u] != '/') {
+        cut--;
+    }
+    if (cut == 0u) {
+        /* No separator at all: the directory is the current one, per POSIX. */
+        s_dirname_buf[0] = '.';
+        s_dirname_buf[1] = '\0';
+        return s_dirname_buf;
+    }
+    /* Drop the separator itself, and any run of them, but keep a lone leading "/". */
+    while (cut > 1u && path[cut - 1u] == '/') {
+        cut--;
+    }
+    oops_copy_bounded(s_dirname_buf, sizeof(s_dirname_buf), path, cut);
+    return s_dirname_buf;
+}
+
+/*
+ * `ioctl`, and only `FIONBIO` - see `sys/ioctl.h` for why the rest fail rather than pretend.
+ *
+ * The variadic third argument is `int *` for this request, which is what every caller passes.
+ */
+int ioctl(int fd, unsigned long request, ...) {
+    va_list ap;
+    int rc;
+
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    if (request != FIONBIO) {
+        errno = EINVAL;
+        return -1;
+    }
+    va_start(ap, request);
+    {
+        const int *on = va_arg(ap, int *);
+        rc = oops_set_nonblocking(fd, (on != NULL && *on != 0) ? 1 : 0);
+    }
+    va_end(ap);
+    if (rc != 0) {
+        errno = EIO;
+        return -1;
+    }
+    return 0;
+}
+
+/*
+ * `fcntl`, and only the non-blocking flag.
+ *
+ * `F_SETFL` with `O_NONBLOCK` is the one request anything here makes - ioquake3's `sys_unix.c:331`
+ * is the only call site in this tree - and it maps onto `oops_set_nonblocking`, so it is real.
+ *
+ * `F_GETFL` answers `O_RDWR` and nothing else. That is a partial truth rather than a guess: this
+ * shim does not track a descriptor's access mode, and the usual reason to ask is to add a flag and
+ * set it back, which `F_SETFL` below handles on its own.
+ *
+ * It also happens to satisfy the other caller in this tree. PhysFS's flush does
+ * `if ((fcntl(fd, F_GETFL) & O_ACCMODE) != O_RDONLY) fsync(fd)`, and `O_RDWR` reads as "not
+ * read-only", so it calls `fsync` - which is correct for any descriptor. An earlier version of this
+ * function failed with `ENOSYS` for that caller's sake; a failure reads the same way to PhysFS, but
+ * it silently leaves a socket blocking for ioquake3, which asks for `O_NONBLOCK` and ignores the
+ * return. Answering both properly costs nothing.
+ *
+ * Everything else fails with `EINVAL`. Descriptor duplication, locking and close-on-exec have no
+ * meaning here, and `fcntl` is too open-ended an interface to answer generally - the same
+ * reasoning as `ioctl` above.
+ */
+int fcntl(int fd, int cmd, ...) {
+    va_list ap;
+    int rc = 0;
+
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    switch (cmd) {
+        case F_GETFL:
+            return O_RDWR; /* see the note above */
+        case F_SETFL:
+            va_start(ap, cmd);
+            {
+                const int flags = va_arg(ap, int);
+                rc = oops_set_nonblocking(fd, (flags & O_NONBLOCK) ? 1 : 0);
+            }
+            va_end(ap);
+            if (rc != 0) {
+                errno = EIO;
+                return -1;
+            }
+            return 0;
+        default:
+            errno = EINVAL;
+            return -1;
+    }
+}
+
+/* No FIFOs on this filesystem - see `sys/stat.h`, and `S_ISFIFO`, which is never true. */
+int mkfifo(const char *path, mode_t mode) {
+    (void)mode;
+    if (path == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    errno = ENOSYS;
+    return -1;
+}
+
+/* No second process exists here, so there is never a child to reap. */
+pid_t waitpid(pid_t pid, int *status, int options) {
+    (void)pid;
+    (void)options;
+    if (status != NULL) {
+        *status = 0;
+    }
+    errno = ECHILD;
+    return -1;
+}
+
+pid_t wait(int *status) {
+    return waitpid(-1, status, 0);
+}
+
+/* 0 is the documented "no such interface", and here it means "no mapping to consult". */
+unsigned int if_nametoindex(const char *ifname) {
+    (void)ifname;
+    return 0u;
+}
+
+/* Fails, deliberately - `ifaddrs.h` argues why this is better than an empty list, and names the
+ * `oops_net_ctl_get_info` upgrade path. `*ifap` is cleared so a caller that ignores the return does
+ * not walk an uninitialised pointer. */
+int getifaddrs(struct ifaddrs **ifap) {
+    if (ifap != NULL) {
+        *ifap = NULL;
+    }
+    errno = ENOSYS;
+    return -1;
+}
+
+void freeifaddrs(struct ifaddrs *ifa) {
+    (void)ifa; /* nothing was allocated */
+}
+
+/* ---------------------------------------------------------------------------
+ * `signal`, over `oops_thread_install_exception_handler`.
+ *
+ * **The handler signatures differ, which is why there is a trampoline.** POSIX hands the handler
+ * only the signal number; the SDK's is `(int signum, void *arg1, void *arg2)`. Calling a
+ * one-argument function through the three-argument pointer type happens to work on this ABI, and
+ * "happens to work" is not a thing to build a crash handler on - so the caller's handler goes in a
+ * table and one trampoline of the SDK's own shape calls it.
+ *
+ * Which signals are real is argued in `signal.h`. The short version: faults are, because the SDK
+ * can install them; the rest are not, because nothing here can deliver them.
+ * ------------------------------------------------------------------------- */
+
+/* Indexed by signal number. Small and fixed: the highest signal this shim names is SIGTERM (15). */
+#define OOPS_POSIX_NSIG 32
+static sighandler_t s_sig_handlers[OOPS_POSIX_NSIG];
+
+/* Is this a fault the SDK's exception handler can actually deliver? */
+static int oops_signal_is_deliverable(int sig) {
+    switch (sig) {
+        case SIGSEGV:
+        case SIGILL:
+        case SIGFPE:
+        case SIGBUS:
+        case SIGABRT:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+static void oops_signal_trampoline(int signum, void *arg1, void *arg2) {
+    (void)arg1;
+    (void)arg2;
+    if (signum > 0 && signum < OOPS_POSIX_NSIG) {
+        const sighandler_t h = s_sig_handlers[signum];
+        /* SIG_IGN is recorded and does nothing, which is what ignoring means. SIG_DFL never gets
+         * here - installing it removes the SDK handler below. */
+        if (h != NULL && h != SIG_IGN && h != SIG_ERR) {
+            h(signum);
+        }
+    }
+}
+
+sighandler_t signal(int sig, sighandler_t handler) {
+    sighandler_t previous;
+
+    if (sig <= 0 || sig >= OOPS_POSIX_NSIG) {
+        errno = EINVAL;
+        return SIG_ERR;
+    }
+    if (!oops_signal_is_deliverable(sig)) {
+        /* Not an error in the caller's code - a property of the platform. See `signal.h`. */
+        errno = EINVAL;
+        return SIG_ERR;
+    }
+
+    previous = s_sig_handlers[sig];
+    s_sig_handlers[sig] = handler;
+
+    if (handler == SIG_DFL) {
+        (void)oops_thread_remove_exception_handler(sig);
+        return previous;
+    }
+    if (oops_thread_install_exception_handler(sig, oops_signal_trampoline) != 0) {
+        /* The install failed, so the table entry would be a promise nothing keeps. */
+        s_sig_handlers[sig] = previous;
+        return SIG_ERR;
+    }
+    return previous;
+}
+
+/* ---------------------------------------------------------------------------
  * Sockets, over `oops/net.h`. See `sys/socket.h` and `netdb.h` for what is and is not here.
  * ------------------------------------------------------------------------- */
 
 int h_errno = 0;
+
+/*
+ * The `inet_*` conversions, over the SDK's own pair. `oops_net_inet_pton` builds and
+ * `oops_net_inet_ntop` reads **network byte order** - `oops-sdk/src/net/net.c:71-72` is where that
+ * is established - so nothing here swaps, and `s_addr` passes straight through.
+ */
+in_addr_t inet_addr(const char *cp) {
+    uint32_t packed = 0;
+    if (cp == NULL || oops_net_inet_pton(cp, &packed) != 0) {
+        return INADDR_NONE;
+    }
+    return (in_addr_t)packed;
+}
+
+/* Static storage, overwritten by the next call - see `arpa/inet.h`. 16 is the most an IPv4
+ * dotted-quad plus its terminator can need, which is also `oops_net_inet_ntop`'s minimum. */
+char *inet_ntoa(struct in_addr in) {
+    static char buf[16];
+    if (oops_net_inet_ntop(in.s_addr, buf, sizeof(buf)) != 0) {
+        buf[0] = '\0';
+    }
+    return buf;
+}
+
+int inet_pton(int af, const char *src, void *dst) {
+    uint32_t packed = 0;
+    if (af != AF_INET) {
+        errno = EAFNOSUPPORT;
+        return -1;
+    }
+    if (src == NULL || dst == NULL || oops_net_inet_pton(src, &packed) != 0) {
+        return 0; /* malformed, which POSIX distinguishes from an unsupported family */
+    }
+    memcpy(dst, &packed, sizeof(packed));
+    return 1;
+}
+
+const char *inet_ntop(int af, const void *src, char *dst, socklen_t size) {
+    uint32_t packed;
+    if (af != AF_INET) {
+        errno = EAFNOSUPPORT;
+        return NULL;
+    }
+    if (src == NULL || dst == NULL || size < 16u) {
+        errno = ENOSPC;
+        return NULL;
+    }
+    memcpy(&packed, src, sizeof(packed));
+    if (oops_net_inet_ntop(packed, dst, (size_t)size) != 0) {
+        errno = ENOSPC;
+        return NULL;
+    }
+    return dst;
+}
+
+/* Weak fallbacks when OOPS_FEATURES does not include 'net' */
+__attribute__((weak)) int oops_socket(int d, int t, int p) { (void)d; (void)t; (void)p; errno = ENOSYS; return -1; }
+__attribute__((weak)) int oops_connect(int s, const char *ip, uint16_t port) { (void)s; (void)ip; (void)port; errno = ENOSYS; return -1; }
+__attribute__((weak)) long oops_send(int s, const void *b, size_t l, int f) { (void)s; (void)b; (void)l; (void)f; errno = ENOSYS; return -1; }
+__attribute__((weak)) long oops_recv(int s, void *b, size_t l, int f) { (void)s; (void)b; (void)l; (void)f; errno = ENOSYS; return -1; }
+__attribute__((weak)) void oops_close(int s) { (void)s; }
+__attribute__((weak)) int oops_net_resolve(const char *n, char *ip, size_t sz) { (void)n; (void)ip; (void)sz; return -1; }
+__attribute__((weak)) int oops_net_inet_ntop(uint32_t a, char *d, size_t s) { (void)a; (void)d; (void)s; return -1; }
+__attribute__((weak)) int oops_net_inet_pton(const char *s, uint32_t *d) { (void)s; (void)d; return -1; }
 
 int socket(int domain, int type, int protocol) {
     if (domain != AF_INET) {
@@ -794,34 +1146,7 @@ int fsync(int fd) {
     return 0;
 }
 
-int fileno(FILE *stream) {
-    if (!stream) {
-        errno = EINVAL;
-        return -1;
-    }
-    return stream->fd;
-}
-
-int fstat(int fd, struct stat *out) {
-    int64_t here;
-/*
- * **`fcntl` fails with `ENOSYS`.** Nothing here records a descriptor's flags to report, and the
- * one caller so far asks only to decide whether to `fsync` - PhysFS's flush does
- * `if ((fcntl(fd, F_GETFL) & O_ACCMODE) != O_RDONLY) fsync(fd)`. A failure reads as "not
- * read-only", so it calls `fsync` above, which is correct for any descriptor. An invented flag
- * word would be a guess another caller could believe.
- *
- * Declared again here because oops-sdk's `include/libc/fcntl.h` now precedes this shim's
- * `include/fcntl.h` on the payload's path and declares `open` without `fcntl` - so the
- * shim's declaration is not the one a payload build sees.
- */
-int fcntl(int fd, int cmd, ...);
-int fcntl(int fd, int cmd, ...) {
-    (void)fd;
-    (void)cmd;
-    errno = ENOSYS;
-    return -1;
-}
+/* `fcntl` is defined once, further up, and honours F_SETFL's O_NONBLOCK. */
 
 /* `stat`: there are no symbolic links here - see `<sys/stat.h>`. */
 int lstat(const char *path, struct stat *out) { return stat(path, out); }
@@ -852,6 +1177,16 @@ int sysctl(const int *name, unsigned int namelen, void *oldp, size_t *oldlenp,
     return -1;
 }
 
+int fileno(FILE *stream) {
+    if (!stream) {
+        errno = EINVAL;
+        return -1;
+    }
+    return stream->fd;
+}
+
+int fstat(int fd, struct stat *out) {
+    int64_t here;
     int64_t size;
 
     if (!out || fd < 0) {
@@ -905,7 +1240,7 @@ int pthread_getthreadid_np(void) {
  * An unknown clock id is `EINVAL` rather than a best guess, because a program asking for
  * `CLOCK_PROCESS_CPUTIME_ID` and getting wall time would draw the wrong conclusion quietly.
  */
-int clock_gettime(int clk_id, struct timespec *ts) {
+__attribute__((weak)) int clock_gettime(int clk_id, struct timespec *ts) {
     uint64_t ns;
 
     if (!ts) {

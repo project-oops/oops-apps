@@ -34,6 +34,28 @@ struct sockaddr {
     char        sa_data[14];
 };
 
+/*
+ * **Big enough for any address family, and aligned like one.** `sockaddr_storage` exists so a
+ * caller can hold an address without knowing its family - ioquake3's `net_ip.c:141` keeps one per
+ * local interface. The two properties that matter are the size (128 bytes, which is FreeBSD's and
+ * every other platform's) and the alignment, which is why the `__ss_align` member is `int64_t`
+ * rather than the padding being a bare array: a `sockaddr_in6` cast onto a misaligned buffer is a
+ * fault on some targets and silently slow on this one.
+ */
+#define _SS_MAXSIZE   128u
+#define _SS_ALIGNSIZE (sizeof(int64_t))
+#define _SS_PAD1SIZE  (_SS_ALIGNSIZE - sizeof(uint8_t) - sizeof(sa_family_t))
+#define _SS_PAD2SIZE  (_SS_MAXSIZE - sizeof(uint8_t) - sizeof(sa_family_t) \
+                       - _SS_PAD1SIZE - _SS_ALIGNSIZE)
+
+struct sockaddr_storage {
+    uint8_t     ss_len;
+    sa_family_t ss_family;
+    char        __ss_pad1[_SS_PAD1SIZE];
+    int64_t     __ss_align;
+    char        __ss_pad2[_SS_PAD2SIZE];
+};
+
 #define AF_UNSPEC 0
 #define AF_INET   2
 #define PF_INET   AF_INET

@@ -1,30 +1,52 @@
 Let the no-cURL build compile
 
-q3rally's own additions to ioquake3 - the ladder logger and the version check -
-have never been built with `USE_CURL` off. Each defines a helper inside its
-`#ifdef USE_CURL` block and then calls it from outside:
+q3rally's own additions to ioquake3 - the ladder logger, the version check and
+the download manager - have never been built with `USE_CURL` off. Each reaches a
+cURL-only declaration from code that is not cURL-only:
 
-  sv_ladder.c:1833   SV_LadderLogSubmitSnapshot  defined inside #ifdef USE_CURL
-                     (opened at :1558), called at :2531 at conditional depth 0
-  cl_update.c:102    CL_UpdateVersionCheck_Fail  defined inside #ifdef USE_CURL
-                     (opened at :61), called at :244 inside #ifndef USE_CURL -
-                     the branch whose whole job is to report "cURL support not
-                     compiled"
+  sv_ladder.c    SV_LadderLogSubmitSnapshot defined inside #ifdef USE_CURL
+                 (opened at :1558), called at :2531 at conditional depth 0
+  cl_update.c    CL_UpdateVersionCheck_Fail defined inside #ifdef USE_CURL
+                 (opened at :61), called at :244 inside #ifndef USE_CURL - the
+                 branch whose whole job is to report "cURL support not compiled"
+  cl_downloads.c curl_off_t used at :147 and :394 at conditional depth 0, so the
+                 file needs cURL's header to declare its own structures
 
-Neither is a portability problem; both are ordinary build breaks on a
+None is a portability problem; all three are ordinary build breaks on a
 configuration upstream ships a switch for.
 
-Each is fixed the way its own intent points, rather than uniformly:
+Each is fixed the way its own intent points rather than uniformly:
 
 **`sv_ladder.c` guards the call.** Without cURL there is no transport to submit a
-snapshot over, so there is nothing to do and nothing to report.
+snapshot over, so there is nothing to do.
 
 **`cl_update.c` moves the helper out of the block.** The !USE_CURL path needs it
-to say why the check is unavailable, and it depends only on setters that are
-already outside the guard. Its one cURL-specific line, the handle cleanup, stays
-guarded in place.
+to say why the check is unavailable, and it depends only on setters already
+outside the guard. Its one cURL-specific line, the handle cleanup, stays guarded
+in place.
 
-Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+**`cl_downloads.c` defines the type when cURL is absent.** Nothing crosses an ABI
+boundary on that path - the progress callback is only ever handed to cURL - so a
+local definition of the same width is enough, and it keeps the cURL-enabled build
+byte-identical.
+
+diff --git a/engine/code/client/cl_downloads.c b/engine/code/client/cl_downloads.c
+index 1ef8dc6..4fce4e7 100644
+--- a/engine/code/client/cl_downloads.c
++++ b/engine/code/client/cl_downloads.c
+@@ -57,6 +57,12 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ #ifdef USE_CURL_DLOPEN
+ #include "../sys/sys_loadlib.h"
+ #endif
++#else
++/* This module's own structures and the progress callback are declared with curl_off_t at file
++   scope, outside any USE_CURL guard, so the file does not compile without cURL's header. Nothing
++   crosses an ABI boundary on this path - the callback is only ever handed to cURL - so a local
++   definition of the same width is enough to keep the no-cURL build honest. */
++typedef long long curl_off_t;
+ #endif
+ 
+ // ---------------------------------------------------------------------------
 diff --git a/engine/code/client/cl_update.c b/engine/code/client/cl_update.c
 index f9efd34..bc550ff 100644
 --- a/engine/code/client/cl_update.c

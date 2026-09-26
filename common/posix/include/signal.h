@@ -35,9 +35,43 @@
 #define SIGALRM 14
 #define SIGTERM 15
 
+/*
+ * **`signal()` is here now, and it is real for the signals that can be real.**
+ *
+ * An earlier version of this header left it out on the reasoning that a handler which never fires
+ * is worse than a missing function. That reasoning still holds and the conclusion was wrong:
+ * `oops_thread_install_exception_handler` exists, so a handler for a *fault* - `SIGSEGV`, `SIGILL`,
+ * `SIGFPE`, `SIGBUS` - does fire. ioquake3's `sys_main.c:864` installs exactly those, plus two that
+ * cannot work.
+ *
+ * So the split is honest rather than uniform:
+ *
+ *   SIGSEGV, SIGILL, SIGFPE, SIGBUS, SIGABRT   installed through the SDK; they fire
+ *   everything else (SIGINT, SIGTERM, SIGHUP, SIGPIPE, SIGALRM, ...)
+ *                                              **`SIG_ERR`**, because nothing on this platform
+ *                                              can deliver them - there is no shell to interrupt
+ *                                              a payload and no pipe to break. A caller that
+ *                                              checks the return is told the truth; one that
+ *                                              ignores it, as ioquake3 does, is no worse off than
+ *                                              on a system where the signal simply never arrives.
+ *
+ * `sigaction` is still absent. It carries flags, masks and a three-argument handler that this
+ * platform has nothing to map onto, and a partial `sigaction` would be the silent kind of wrong.
+ */
+#define SIGBUS  10
+
+typedef void (*sighandler_t)(int);
+
+#define SIG_DFL ((sighandler_t)0)
+#define SIG_IGN ((sighandler_t)1)
+#define SIG_ERR ((sighandler_t)-1)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* The previous handler, or `SIG_ERR` if this signal cannot be delivered here. See above. */
+sighandler_t signal(int sig, sighandler_t handler);
 
 /* Ends the process. Inline so that nothing has to link a definition for a header this thin, and
  * so the `noreturn` is visible to the caller's flow analysis. */
