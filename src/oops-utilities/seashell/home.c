@@ -494,16 +494,9 @@ void home_refresh_telemetry(home_model_t *m) {
 /* ---- model initialization
  * --------------------------------------------------------------- */
 
-void home_model_init(home_model_t *m) {
-    if (m == 0) {
-        return;
-    }
-    /* Zero first, then set. Callers hold the model as a local, so everything
-     * this function does not reach - padding, the tail of titles[] past
-     * title_count, the unused depth of stack[] - would otherwise keep whatever
-     * was on the stack. Nothing reads those (every loop is bounded by its
-     * count), but home_model_digest() hashes the whole struct, and a digest
-     * over indeterminate bytes is only as stable as the bytes happen to be. */
+/* Zeroes the whole model, padding and unused array tails included, because
+ * home_model_digest() hashes every byte; then sets the navigation state. */
+static void init_state(home_model_t *m) {
     {
         unsigned char *raw = (unsigned char *)m;
         for (size_t i = 0; i < sizeof(*m); i++) {
@@ -544,7 +537,11 @@ void home_model_init(home_model_t *m) {
     m->last_action = HOME_ACTION_NONE;
     m->last_arg = 0;
     m->last_refused = 0;
+}
 
+/* The library (host builds only; the payload scans storage), the media apps and the
+ * control centre's dock. */
+static void init_catalogue(home_model_t *m) {
 #ifdef OOPS_HOST_BUILD
     /* Baseline test titles for host selftest */
     static const home_title_t default_titles[] = {
@@ -604,7 +601,10 @@ void home_model_init(home_model_t *m) {
     for (int i = 0; i < m->card_count && i < HOME_MAX_CARDS; i++) {
         m->cards[i] = default_cards[i];
     }
+}
 
+/* Switcher, storage, developer, status bar, notifications, dialog and toast. */
+static void init_status(home_model_t *m) {
     /* Friends, Saves, Captures: no fake data */
     m->friend_count = 0;
     m->save_count = 0;
@@ -670,11 +670,10 @@ void home_model_init(home_model_t *m) {
     m->toast.frames_left = 0;
     m->toast.title = 0;
     m->toast.message = 0;
+}
 
-    /* Gather live hardware and system telemetry */
-    home_refresh_telemetry(m);
-
-    /* Build static menus */
+/* Every screen's menu. */
+static void build_menus(home_model_t *m) {
     home_menu_t *menu = &m->menus[HOME_SCREEN_SETTINGS];
     menu_reset(menu, "SETTINGS");
     menu_add(menu, "USERS AND ACCOUNTS", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_PROFILE,
@@ -786,6 +785,17 @@ void home_model_init(home_model_t *m) {
     build_storage_menu(m);
     build_library_menu(m);
     build_search_menu(m);
+}
+
+void home_model_init(home_model_t *m) {
+    if (m == 0) {
+        return;
+    }
+    init_state(m);
+    init_catalogue(m);
+    init_status(m);
+    home_refresh_telemetry(m);
+    build_menus(m);
 }
 
 void home_set_host(home_model_t *m, const home_host_t *host) {

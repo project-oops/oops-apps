@@ -39,8 +39,10 @@ unsigned int oops_display_get_height(const oops_display_t *disp) {
 
 static uint32_t s_pixels[HOME_TEST_W * HOME_TEST_H];
 
+/* A linear surface: every field is set, layout included. */
 static oops_surface_t test_surface(void) {
     oops_surface_t surf;
+    memset(&surf, 0, sizeof(surf));
     surf.pixels = s_pixels;
     surf.width = (uint32_t)HOME_TEST_W;
     surf.height = (uint32_t)HOME_TEST_H;
@@ -100,12 +102,12 @@ static const home_theme_t *theme_with_layout(home_layout_t layout) {
     return skin ? &skin->theme : 0;
 }
 
-int main(void) {
-    unsigned int failures = 0;
-    home_model_t m;
+static unsigned int failures;
+/* The model under test; every case initialises it first. */
+static home_model_t m;
 
-    /* ---- 1. Shell model & realistic defaults
-     * ------------------------------------------ */
+/* A fresh model opens on Games with a populated library, media and dock. */
+static void test_defaults(void) {
 
     home_model_init(&m);
     if (home_screen(&m) != HOME_SCREEN_GAMES) {
@@ -133,9 +135,10 @@ int main(void) {
         printf("FAIL: activity cards must not contain placeholder data\n");
         failures++;
     }
+}
 
-    /* ---- 2. Carousel navigation
-     * -------------------------------------------------------- */
+/* The carousel wraps at both ends and the top bar is reachable from it. */
+static void test_carousel(void) {
 
     home_model_init(&m);
     home_move(&m, HOME_LEFT);
@@ -181,9 +184,10 @@ int main(void) {
         printf("FAIL: switching back to games mode failed\n");
         failures++;
     }
+}
 
-    /* ---- 3. Screen stack & deep menus
-     * -------------------------------------------------- */
+/* Opening a menu pushes a screen and back pops it. */
+static void test_screen_stack(void) {
 
     home_model_init(&m);
     home_open(&m, HOME_SCREEN_SETTINGS);
@@ -201,9 +205,10 @@ int main(void) {
         printf("FAIL: backing out of settings must return to games home\n");
         failures++;
     }
+}
 
-    /* ---- 4. Title Options & Information
-     * ------------------------------------------------ */
+/* Activating a tile opens its options, and its information screen from there. */
+static void test_title_options(void) {
 
     home_model_init(&m);
     (void)home_activate(&m); /* Activating tile opens Title Options */
@@ -221,9 +226,10 @@ int main(void) {
             failures++;
         }
     }
+}
 
-    /* ---- 5. Control Centre & Switcher
-     * -------------------------------------------------- */
+/* The control centre toggles open and closed, and the switcher lists what runs. */
+static void test_control_centre(void) {
 
     home_model_init(&m);
     home_toggle_control_centre(&m);
@@ -254,9 +260,10 @@ int main(void) {
                "actions\n");
         failures++;
     }
+}
 
-    /* ---- 6. Common Dialogs & IME Keyboard
-     * ---------------------------------------------- */
+/* The confirm, keyboard and error dialogs take input and close. */
+static void test_dialogs(void) {
 
     /* Confirm Dialog */
     home_model_init(&m);
@@ -308,9 +315,10 @@ int main(void) {
         printf("FAIL: dismissing error dialog failed\n");
         failures++;
     }
+}
 
-    /* ---- 7. Toast Notification Timer
-     * --------------------------------------------------- */
+/* A toast shows, counts down, and dismisses itself. */
+static void test_toast(void) {
 
     home_model_init(&m);
     home_show_toast(&m, "DOWNLOAD READY", "PATCH 1.003");
@@ -325,9 +333,10 @@ int main(void) {
         printf("FAIL: toast notification did not auto-dismiss after timer\n");
         failures++;
     }
+}
 
-    /* ---- 8. Host Seam & Actions
-     * --------------------------------------------------------- */
+/* Settings actions that need the console reach the host through the seam. */
+static void test_host_seam(void) {
 
     home_model_init(&m);
     {
@@ -368,9 +377,10 @@ int main(void) {
             }
         }
     }
+}
 
-    /* ---- 9. Pad Input Mapping (Real Prospero Controls)
-     * ---------------------------------- */
+/* Pad buttons drive the shell, and a held direction repeats only after its delay. */
+static void test_pad_input(void) {
 
     home_model_init(&m);
     {
@@ -460,9 +470,10 @@ int main(void) {
             failures++;
         }
     }
+}
 
-    /* ---- 10. Renderer across all screens and themes
-     * ------------------------------------- */
+/* Every skin draws every screen with the cursor on the surface, and overlays draw. */
+static void test_renderer(void) {
 
     home_model_init(&m);
     if (home_render(0, &m, home_theme_at(0)) != 0) {
@@ -505,8 +516,10 @@ int main(void) {
             failures++;
         }
     }
+}
 
-    /* Test theme layouts and pixel rendering */
+/* Each layout has a skin and draws pixels where its layout puts them. */
+static void test_theme_layouts(void) {
     {
         if (theme_with_layout(HOME_LAYOUT_TILES) == 0 ||
             theme_with_layout(HOME_LAYOUT_XMB) == 0 ||
@@ -602,9 +615,10 @@ int main(void) {
             }
         }
     }
+}
 
-    /* ---- XMB Rotated Navigation & Activation
-     * -------------------------------------------- */
+/* The XMB skin navigates on its rotated axes and activates its items. */
+static void test_xmb(void) {
     {
         home_model_init(&m);
         /* Switch skin to XMB */
@@ -663,9 +677,10 @@ int main(void) {
         }
         (void)home_back(&m);
     }
+}
 
-    /* ---- Blades Navigation & Activation
-     * ------------------------------------------------- */
+/* The blades skin moves between blades and activates their items. */
+static void test_blades(void) {
     {
         home_model_init(&m);
         /* Switch skin to BLADES */
@@ -735,9 +750,10 @@ int main(void) {
             failures++;
         }
     }
+}
 
-    /* ---- Revolution Navigation & Activation
-     * --------------------------------------------- */
+/* The revolution skin navigates its channels and activates them. */
+static void test_revolution(void) {
     {
         home_model_init(&m);
         /* Switch skin to REVOLUTION */
@@ -881,9 +897,10 @@ int main(void) {
             }
         }
     }
+}
 
-    /* ---- MEMCARD PS2 Seven Orbs & Browser Navigation
-     * ------------------------------------ */
+/* The memory-card skin's orbs and browser navigate and activate. */
+static void test_memcard(void) {
     {
         home_model_init(&m);
         /* Switch skin to MEMCARD ("list") */
@@ -994,10 +1011,11 @@ int main(void) {
         /* Return to main menu */
         (void)home_back(&m);
     }
+}
 
-    /* The frame digest: the console loop skips rendering and flipping whenever
-     * this does not change, so a state change it fails to notice is a shell that
-     * stops redrawing. Each case below is a thing the renderer shows. */
+/* The frame digest changes with every state the renderer shows: the console loop skips
+ * rendering and flipping whenever it does not. */
+static void test_digest(void) {
     {
         home_model_init(&m);
 
@@ -1114,8 +1132,10 @@ int main(void) {
             failures++;
         }
     }
+}
 
-    /* Test live telemetry and settings menu updates */
+/* Refreshed telemetry reaches the settings menus. */
+static void test_telemetry(void) {
     {
         home_model_init(&m);
         home_refresh_telemetry(&m);
@@ -1180,8 +1200,10 @@ int main(void) {
         }
         (void)home_back(&m);
     }
+}
 
-    /* Test icon rendering and first-letter fallback */
+/* A tile blits its icon, or draws its first letter when it has none. */
+static void test_icons(void) {
     {
         oops_surface_t surf = test_surface();
         home_model_init(&m);
@@ -1238,23 +1260,35 @@ int main(void) {
             failures++;
         }
     }
+}
 
-    /* ---- 13. Search, Favorites, Library Filtering, and Switcher lifecycle -----------
-     */
+/* The index of the first item in menu that carries action, or -1. */
+static int find_action(const home_menu_t *menu, home_action_t action) {
+    for (int it = 0; it < menu->count; it++) {
+        if (menu->items[it].action == action)
+            return it;
+    }
+    return -1;
+}
+
+/* One model and host carried through the favourites, library, switcher and search
+ * cases in order: each case starts from the state the one before it left. */
+static home_model_t tm;
+static recorder_t trec;
+static home_host_t thost;
+
+/* A title's favourite flag toggles from its options menu; title 1 is left pinned. */
+static void test_favorites(void) {
+    home_model_init(&tm);
+    trec.calls = 0;
+    trec.last = HOME_ACTION_NONE;
+    trec.last_arg = 0;
+    trec.accept = 1;
+    thost.ctx = &trec;
+    thost.perform = record_action;
+    home_set_host(&tm, &thost);
+
     {
-        home_model_t tm;
-        home_model_init(&tm);
-        recorder_t trec;
-        trec.calls = 0;
-        trec.last = HOME_ACTION_NONE;
-        trec.last_arg = 0;
-        trec.accept = 1;
-        home_host_t thost;
-        thost.ctx = &trec;
-        thost.perform = record_action;
-        home_set_host(&tm, &thost);
-
-        /* 13.1 Favorites toggle */
         if (tm.titles[1].favorite != 0) {
             printf("FAIL: title favorite should default to 0\n");
             failures++;
@@ -1263,13 +1297,7 @@ int main(void) {
         tm.selected_title = 1;
         home_open(&tm, HOME_SCREEN_TITLE_OPTIONS);
         home_menu_t *opt_menu = home_current_menu(&tm);
-        int fav_item_idx = -1;
-        for (int it = 0; it < opt_menu->count; it++) {
-            if (opt_menu->items[it].action == HOME_ACTION_TOGGLE_FAVORITE) {
-                fav_item_idx = it;
-                break;
-            }
-        }
+        const int fav_item_idx = find_action(opt_menu, HOME_ACTION_TOGGLE_FAVORITE);
         if (fav_item_idx < 0) {
             printf("FAIL: TITLE_OPTIONS menu missing TOGGLE_FAVORITE item\n");
             failures++;
@@ -1286,12 +1314,16 @@ int main(void) {
                 printf("FAIL: toggling favorite again should set favorite to 0\n");
                 failures++;
             }
-            /* Re-pin title 1 for library test */
+            /* Re-pin title 1 for the library case. */
             opt_menu->cursor = fav_item_idx;
             (void)home_activate(&tm);
         }
+    }
+}
 
-        /* 13.2 Library category filtering */
+/* The library filter cycles, and the favourites filter lists only the pinned title. */
+static void test_library_filter(void) {
+    {
         home_open(&tm, HOME_SCREEN_LIBRARY);
         if (tm.library_filter != HOME_FILTER_ALL) {
             printf("FAIL: library_filter should default to HOME_FILTER_ALL\n");
@@ -1322,8 +1354,12 @@ int main(void) {
                    lib_titles);
             failures++;
         }
+    }
+}
 
-        /* 13.3 Switcher lifecycle */
+/* A launched title runs in the switcher, and suspends, resumes and terminates there. */
+static void test_switcher_lifecycle(void) {
+    {
         if (tm.switcher.has_running_title != 0) {
             printf("FAIL: switcher should not have running title initially\n");
             failures++;
@@ -1331,7 +1367,7 @@ int main(void) {
         /* Launch title index 2 */
         tm.selected_title = 2;
         home_open(&tm, HOME_SCREEN_TITLE_OPTIONS);
-        opt_menu = home_current_menu(&tm);
+        home_menu_t *opt_menu = home_current_menu(&tm);
         opt_menu->cursor = 0; /* PLAY */
         (void)home_activate(&tm);
         if (tm.switcher.has_running_title != 1 ||
@@ -1347,13 +1383,7 @@ int main(void) {
         /* Suspend title */
         home_open(&tm, HOME_SCREEN_SWITCHER);
         home_menu_t *tsw_menu = home_current_menu(&tm);
-        int susp_item = -1;
-        for (int it = 0; it < tsw_menu->count; it++) {
-            if (tsw_menu->items[it].action == HOME_ACTION_SUSPEND_TITLE) {
-                susp_item = it;
-                break;
-            }
-        }
+        const int susp_item = find_action(tsw_menu, HOME_ACTION_SUSPEND_TITLE);
         if (susp_item < 0) {
             printf("FAIL: switcher menu missing SUSPEND_TITLE item\n");
             failures++;
@@ -1367,13 +1397,7 @@ int main(void) {
             /* Resume title */
             home_open(&tm, HOME_SCREEN_SWITCHER);
             tsw_menu = home_current_menu(&tm);
-            int res_item = -1;
-            for (int it = 0; it < tsw_menu->count; it++) {
-                if (tsw_menu->items[it].action == HOME_ACTION_RESUME_TITLE) {
-                    res_item = it;
-                    break;
-                }
-            }
+            const int res_item = find_action(tsw_menu, HOME_ACTION_RESUME_TITLE);
             if (res_item < 0) {
                 printf("FAIL: switcher menu missing RESUME_TITLE item\n");
                 failures++;
@@ -1389,13 +1413,7 @@ int main(void) {
         /* Terminate title */
         home_open(&tm, HOME_SCREEN_SWITCHER);
         tsw_menu = home_current_menu(&tm);
-        int term_item = -1;
-        for (int it = 0; it < tsw_menu->count; it++) {
-            if (tsw_menu->items[it].action == HOME_ACTION_TERMINATE_TITLE) {
-                term_item = it;
-                break;
-            }
-        }
+        const int term_item = find_action(tsw_menu, HOME_ACTION_TERMINATE_TITLE);
         if (term_item < 0) {
             printf("FAIL: switcher menu missing TERMINATE_TITLE item\n");
             failures++;
@@ -1407,8 +1425,12 @@ int main(void) {
                 failures++;
             }
         }
+    }
+}
 
-        /* 13.4 Universal Search */
+/* Done on the search keyboard opens Search with the typed query's single match. */
+static void test_search(void) {
+    {
         home_show_dialog(&tm, HOME_DIALOG_IME, "SEARCH", "");
         tm.dialog.ime_row = 4;
         tm.dialog.ime_col = 8; /* Done button */
@@ -1442,6 +1464,23 @@ int main(void) {
             failures++;
         }
     }
+}
+
+/* In order: the search cases share one model. */
+static void (*const k_cases[])(void) = {
+    test_defaults,      test_carousel,       test_screen_stack,
+    test_title_options, test_control_centre, test_dialogs,
+    test_toast,         test_host_seam,      test_pad_input,
+    test_renderer,      test_theme_layouts,  test_xmb,
+    test_blades,        test_revolution,     test_memcard,
+    test_digest,        test_telemetry,      test_icons,
+    test_favorites,     test_library_filter, test_switcher_lifecycle,
+    test_search,
+};
+
+int main(void) {
+    for (size_t i = 0; i < sizeof(k_cases) / sizeof(k_cases[0]); i++)
+        k_cases[i]();
 
     if (failures == 0) {
         printf("home selftest: ok (full Prospero shell model, seam, dialogs, IME, and "

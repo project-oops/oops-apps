@@ -1,216 +1,137 @@
 /*
- * gl1-cube: Clean-room 3D Colored Cube Demo using oops-gl (OpenGL 1.x / GLU)
+ * gl1-cube: a rotating cube, torus and sphere through oops-gl's OpenGL 1.x path.
  *
- * **The pinned hardware oracle**, and named `gl1-` since 2026-09-17 to pair with
- * `gl2-cube`. Its frame is measured on a retail console and asserted register by
- * register by `test_pm4_gl_honours_the_gl_cube_oracle_record` in oops-sdk - so unlike
- * `gl1-probe`, which checks that features produce the right pixels, this checks that
- * the emitted command stream is still the one a console was proven to accept. The title
- * id stays `GLCB00001` because the record names it; see `app.env`. Target: Sony
- * PlayStation 5 (AMD RDNA2 GFX10.3 / Prospero FW 12.40)
+ * The pinned hardware oracle. The frame a `dump` run records at frame 30 is asserted
+ * register by register by test_pm4_gl_honours_the_gl_cube_oracle_record in oops-sdk, so
+ * the command stream this title emits is held to one the hardware accepted. The title
+ * id stays GLCB00001 because that record names it (app.env).
  */
 
 #include "GL/gl.h"
 #include "GL/glu.h"
-#include "oops/gfx.h"
-#include "oops/hud.h"
+#include "cube_frame.h"
 #include "cube_hud.h"
+#include "gl1_cube_scene.h"
+#include "obj_loader.h"
 #include "oops/display.h"
 #include "oops/draw.h"
-#include "oops/input.h"
-#include "oops/time.h"
-#include "oops/memory.h"
-#include "oops/syscall.h"
 #include "oops/freestd.h"
 #include "oops/fs.h"
+#include "oops/gfx.h"
+#include "oops/hud.h"
+#include "oops/input.h"
+#include "oops/memory.h"
+#include "oops/syscall.h"
 #include "oops/system.h"
-#include "obj_loader.h"
-#include "gl1_cube_scene.h"
+#include "oops/time.h"
 #include <stdbool.h>
+
+#ifndef OOPS_APP_VERSION
+#define OOPS_APP_VERSION "dev"
+#endif
+
+#define TAG "GL-CUBE"
 
 typedef enum { GEOM_CUBE = 0, GEOM_TORUS = 1, GEOM_SPHERE = 2, GEOM_MAX } geom_mode_t;
 
-#ifndef OOPS_HOST_BUILD
-/* A file pushed to the title directory ends the session cleanly - for a target driven
- * over the network, where no controller is at hand and no signal ends a process holding
- * a GPU queue. The name carries this run's process id, so a file left behind by an
- * earlier run is ignored and nothing has to be read or unlinked: existence is the whole
- * signal. */
-#define GL1_CUBE_STOP_PREFIX                                                           \
-    "/app0/stop." /* the title directory as the sandbox mounts it; pushed to           \
-                     /data/homebrew/GLCB00001/stop.<pid> from outside */
+/* Control files pushed to the title directory before launch; existence is the signal.
+ */
+typedef struct cube_controls {
+    bool pause; /* /app0/pause: one fixed orientation, depth toggled at frames 60, 90 */
+    bool dump;  /* /app0/dump: frame 30 logs the oracle record */
+    bool nodepth; /* /app0/nodepth: start with the depth test off */
+    bool tex;     /* /app0/tex: start with the texture on */
+} cube_controls_t;
 
-/* The command-stream preamble Mesa's AMD driver would emit for this hardware, generated
- * by oops-mesa (tools/preamble-dump) from the pinned Mesa and included when that
- * sibling checkout is present; the control files preamble-a and preamble-b put it in
- * front of every frame. */
-#if !defined(OOPS_HOST_BUILD) && defined(__has_include)
-#if __has_include("preamble_gfx1013.h")
-#include "preamble_gfx1013.h"
-#define GL1_CUBE_HAVE_MESA_PREAMBLE 1
-#endif
-#endif
-#ifndef GL1_CUBE_HAVE_MESA_PREAMBLE
-#define GL1_CUBE_HAVE_MESA_PREAMBLE 0
-#endif
+typedef struct cube {
+    oops_gfx_t *gfx;
+    oops_display_t *disp;
+    oops_hud_t *hud;
+    GLuint tex_id;
+    oops_mesh_t torus;
+    oops_mesh_t sphere;
+    cube_controls_t ctl;
+    char stop_path[64];
 
-static int cube_stop_file_present(const char *path) {
-    return oops_fs_exists(path) ? 1 : 0;
-}
+    geom_mode_t geom;
+    float rot_x, rot_y, rot_z;
+    bool auto_rotate, opt_texture, opt_depth, opt_lighting, opt_cull;
+    uint32_t prev_buttons;
+    uint32_t last_frame_us; /* the previous frame, top to swap, for the HUD */
+    uint64_t frame;
+    /* The previous frame's pixels, kept only in paused runs so the frames either side
+     * of a depth toggle can be compared. */
+    uint32_t *prev_frame;
+} cube_t;
 
-static void cube_klog(const char *msg) {
-    oops_klog("GL-CUBE", msg);
-}
-#endif
+/* What one frame drew and measured. */
+typedef struct cube_frame_info {
+    const char *geom_name;
+    size_t tri_count;
+    GLsizei vcount;
+    bool full_scan;
+    cube_frame_stats_t stats;
+    uint64_t t_top, t_finish, t_hash, t_hud;
+} cube_frame_info_t;
 
-/* The cube's vertices, colours, texture coordinates, normals and procedural texture
- * live in gl1_cube_scene.h, shared with the host self-test so the two cannot drift
- * apart again. */
+static const float k_light_pos[4] = {2.0f, 3.5f, 4.0f, 1.0f};
+static const float k_cam_dist = -4.5f;
+
+/* The cube's arrays and procedural texture live in gl1_cube_scene.h, shared with the
+ * host self-test. */
 static uint32_t s_cube_texture[TEX_DIM * TEX_DIM];
 
-static void int_to_str(int val, char *buf) {
-    if (val == 0) {
-        buf[0] = '0';
-        buf[1] = '\0';
-        return;
-    }
-    char tmp[16];
-    int pos = 0;
-    int v = val < 0 ? -val : val;
-    while (v > 0) {
-        tmp[pos++] = (char)('0' + (v % 10));
-        v /= 10;
-    }
-    int out = 0;
-    if (val < 0)
-        buf[out++] = '-';
-    for (int i = pos - 1; i >= 0; i--) {
-        buf[out++] = tmp[i];
-    }
-    buf[out] = '\0';
+static void set_cap(GLenum cap, bool on) {
+    if (on)
+        glEnable(cap);
+    else
+        glDisable(cap);
 }
 
-static void hex_to_str(uint32_t val, char *buf) {
-    buf[0] = '0';
-    buf[1] = 'x';
-    for (int i = 7; i >= 0; i--) {
-        uint8_t d = (uint8_t)(val & 0xf);
-        buf[2 + i] = (char)(d < 10 ? ('0' + d) : ('a' + d - 10));
-        val >>= 4;
-    }
-    buf[10] = '\0';
+static void bind_arrays(const GLfloat *pos, const GLfloat *nrm, const GLfloat *col,
+                        const GLfloat *uv) {
+    glVertexPointer(3, GL_FLOAT, 0, pos);
+    glNormalPointer(GL_FLOAT, 0, nrm);
+    glColorPointer(3, GL_FLOAT, 0, col);
+    glTexCoordPointer(2, GL_FLOAT, 0, uv);
 }
 
-#ifndef OOPS_HOST_BUILD
-static void cube_klog_hex(const char *tag, uint32_t v) {
-    char msg[64];
-    int n = 0;
-    while (tag[n] && n < 40) {
-        msg[n] = tag[n];
-        n++;
-    }
-    msg[n++] = ' ';
-    hex_to_str(v, &msg[n]);
-    cube_klog(msg);
+static void setup_texture(cube_t *c) {
+    generate_cube_texture(s_cube_texture);
+    glGenTextures(1, &c->tex_id);
+    glBindTexture(GL_TEXTURE_2D, c->tex_id);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TEX_DIM, TEX_DIM, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, s_cube_texture);
+    /* GL_OUT_OF_MEMORY here means no GPU memory for the texture. */
+    oops_log_info(TAG, "tex-image-error 0x%08x", (unsigned)glGetError());
+    glDisable(GL_TEXTURE_2D);
 }
 
-/* The previous frame's pixels, kept only in paused runs so the frames either side of a
- * state toggle can be compared pixel for pixel. */
-static uint32_t *s_prev_frame; /* allocated on first use, only in paused runs */
-#endif
+static void setup_lighting(void) {
+    static const float diffuse[4] = {1.0f, 0.96f, 0.90f, 1.0f};
+    static const float ambient[4] = {0.25f, 0.25f, 0.30f, 1.0f};
+    static const float specular[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    static const float mat_spec[4] = {0.9f, 0.9f, 0.9f, 1.0f};
 
-static int cube_append(char *dst, int at, const char *s) {
-    while (*s && at < 126)
-        dst[at++] = *s++;
-    dst[at] = '\0';
-    return at;
+    glEnable(GL_LIGHTING);
+    glEnable(GL_LIGHT0);
+    glEnable(GL_NORMALIZE);
+    glEnable(GL_COLOR_MATERIAL);
+    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+    glLightfv(GL_LIGHT0, GL_POSITION, k_light_pos);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuse);
+    glLightfv(GL_LIGHT0, GL_AMBIENT, ambient);
+    glLightfv(GL_LIGHT0, GL_SPECULAR, specular);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, mat_spec);
+    glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 32.0f);
 }
 
-int gl1_cube_start(const payload_args_t *args);
-
-__attribute__((visibility("default"))) int gl1_cube_start(const payload_args_t *args) {
-#ifndef OOPS_HOST_BUILD
-    if (args) {
-        sys_call_init(args);
-    }
-    cube_klog("starting gl1-cube (oops-gl 1.x 3D cube, the pinned oracle)...");
-    char stop_path[64];
-    {
-        char pid_str[16];
-        int_to_str((int)sys_call(SYS_getpid, 0, 0, 0, 0, 0, 0), pid_str);
-        int sp = 0;
-        for (int i = 0; GL1_CUBE_STOP_PREFIX[i]; i++)
-            stop_path[sp++] = GL1_CUBE_STOP_PREFIX[i];
-        for (int i = 0; pid_str[i] && sp < (int)sizeof(stop_path) - 1; i++)
-            stop_path[sp++] = pid_str[i];
-        stop_path[sp] = '\0';
-        cube_klog(stop_path);
-    }
-#endif
-
-    /* 1. Bring up the renderer: the display and the GL context in one call
-     * (oops/gfx.h), made current for us. This is the one renderer API mesa-cube uses
-     * too; here it resolves to the oops-gl backend because this title links oops-gl. */
-    oops_gfx_t *gfx = oops_gfx_create(&(oops_gfx_desc_t){
-        .width = 1920, .height = 1080, .depth = true, .vsync = true});
-    if (!gfx) {
-#ifndef OOPS_HOST_BUILD
-        cube_klog("failed to bring up the renderer (display or context)");
-#endif
-        return -1;
-    }
-    oops_display_t *disp = oops_gfx_display(gfx);
-    if (!disp || !oops_display_is_ready(disp)) {
-#ifndef OOPS_HOST_BUILD
-        cube_klog("display not ready");
-#endif
-        oops_gfx_destroy(gfx);
-        return -1;
-    }
-
-#ifndef OOPS_HOST_BUILD
-    /*
-     * Presenting a frame means converting the linear render target into the
-     * display-tiled scanout surface, and on the CPU that is a full read of
-     * write-combined video memory and a scattered write back - the most expensive thing
-     * in the frame, paid at every flip. oops-sdk has carried a compute shader that does
-     * it since the AGC backend was written, with no caller and no public entry point,
-     * so every app has been tiling on the CPU.
-     *
-     * Behind a control file rather than on by default, because what it costs and
-     * whether the dispatch is accepted are both unmeasured: one deploy with the file
-     * and one without gives `t-swap-us` for each path, and the difference is what the
-     * CPU tiler costs. The default stays the path the oracle record was measured on
-     * until that number exists.
-     *
-     * It must run before the first flip - the compute tiler refuses once the display
-     * has flipped - and the context is up by now, which does not flip. Bringing the
-     * context up first is pixel-neutral: `try_gpu_tiler` only changes how a *flip*
-     * tiles, not the render target the context caches, so the oracle frame is unchanged
-     * by the reorder that `oops_gfx_create` (which fuses the open and the context)
-     * forced here.
-     */
-    if (cube_stop_file_present("/app0/gputile")) {
-        int tiler = oops_display_try_gpu_tiler(disp);
-        cube_klog(tiler == 1
-                      ? "gputile: compute tiler matched the CPU tiler and is now in use"
-                      : "gputile: refused, flips keep tiling on the CPU");
-    }
-#endif
-
-    /* The overlay, created once. It draws on the GPU (common/cube_hud.c) - the same
-     * dashboard mesa-cube shows. NULL is not fatal: cube_hud_draw does nothing with a
-     * NULL hud, so the cube still runs. */
-    oops_hud_t *hud = oops_hud_create(1920, 1080);
-#ifndef OOPS_HOST_BUILD
-    if (hud == NULL) {
-        cube_klog("overlay did not come up; drawing without it");
-    }
-#endif
-
-    /* 3. Configure OpenGL state machine */
-    /* Configure initial OpenGL state */
-    glViewport(0, 0, 1920, 1080);
+static void setup_gl(cube_t *c) {
+    glViewport(0, 0, (GLsizei)CUBE_FRAME_W, (GLsizei)CUBE_FRAME_H);
     glDisable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glDepthMask(GL_TRUE);
@@ -219,648 +140,358 @@ __attribute__((visibility("default"))) int gl1_cube_start(const payload_args_t *
     glFrontFace(GL_CCW);
     glShadeModel(GL_SMOOTH);
 
-    /* Generate and upload 2D procedural test texture */
-    generate_cube_texture(s_cube_texture);
-    GLuint tex_id = 0;
-    glGenTextures(1, &tex_id);
-    glBindTexture(GL_TEXTURE_2D, tex_id);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, TEX_DIM, TEX_DIM, 0, GL_RGBA,
-                 GL_UNSIGNED_BYTE, s_cube_texture);
-#ifndef OOPS_HOST_BUILD
-    cube_klog_hex("tex-image-error",
-                  (uint32_t)glGetError()); /* GL_OUT_OF_MEMORY would mean no GPU memory
-                                              for the texture */
-#endif
-    glDisable(GL_TEXTURE_2D);
+    setup_texture(c);
+    setup_lighting();
 
-    /* 4. Configure Fixed-Function Lighting & Materials (Stage 6) */
-    glEnable(GL_LIGHTING);
-    glEnable(GL_LIGHT0);
-    glEnable(GL_NORMALIZE);
-    glEnable(GL_COLOR_MATERIAL);
-    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-
-    float light_pos[4] = {2.0f, 3.5f, 4.0f, 1.0f};
-    float light_diff[4] = {1.0f, 0.96f, 0.90f, 1.0f};
-    float light_amb[4] = {0.25f, 0.25f, 0.30f, 1.0f};
-    float light_spec[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-    glLightfv(GL_LIGHT0, GL_POSITION, light_pos);
-    glLightfv(GL_LIGHT0, GL_DIFFUSE, light_diff);
-    glLightfv(GL_LIGHT0, GL_AMBIENT, light_amb);
-    glLightfv(GL_LIGHT0, GL_SPECULAR, light_spec);
-
-    float mat_spec[4] = {0.9f, 0.9f, 0.9f, 1.0f};
-    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, mat_spec);
-    glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 32.0f);
-
-    /* Bind vertex, normal, color, and texture coordinate arrays */
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_NORMAL_ARRAY);
     glEnableClientState(GL_COLOR_ARRAY);
     glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-    glVertexPointer(3, GL_FLOAT, 0, s_cube_vertices);
-    glNormalPointer(GL_FLOAT, 0, s_cube_normals);
-    glColorPointer(3, GL_FLOAT, 0, s_cube_colors);
-    glTexCoordPointer(2, GL_FLOAT, 0, s_cube_texcoords);
+    bind_arrays(s_cube_vertices, s_cube_normals, s_cube_colors, s_cube_texcoords);
 
-    /* Initialize procedural meshes (Torus & Sphere) */
-    oops_mesh_t torus_mesh;
-    memset(&torus_mesh, 0, sizeof(torus_mesh));
-    (void)oops_mesh_create_torus(&torus_mesh, 24, 16, 0.75f, 0.35f);
+    memset(&c->torus, 0, sizeof(c->torus));
+    (void)oops_mesh_create_torus(&c->torus, 24, 16, 0.75f, 0.35f);
+    memset(&c->sphere, 0, sizeof(c->sphere));
+    (void)oops_mesh_create_sphere(&c->sphere, 20, 20, 0.95f);
+}
 
-    oops_mesh_t sphere_mesh;
-    memset(&sphere_mesh, 0, sizeof(sphere_mesh));
-    (void)oops_mesh_create_sphere(&sphere_mesh, 20, 20, 0.95f);
+/* Brings up the renderer, the overlay and the GL state. Returns false when there is no
+ * display to draw on. */
+static bool cube_init(cube_t *c, const payload_args_t *args) {
+    memset(c, 0, sizeof(*c));
+    if (args)
+        sys_call_init(args);
+    oops_log_info(TAG, "starting gl1-cube (oops-gl 1.x 3D cube, the pinned oracle)...");
+    cube_stop_path(c->stop_path, sizeof(c->stop_path),
+                   (int)sys_call(SYS_getpid, 0, 0, 0, 0, 0, 0));
+    oops_log_info(TAG, "%s", c->stop_path);
 
-    /* Initialize controller input */
+    /* The display and the GL context in one call, made current (oops/gfx.h). */
+    c->gfx = oops_gfx_create(&(oops_gfx_desc_t){
+        .width = CUBE_FRAME_W, .height = CUBE_FRAME_H, .depth = true, .vsync = true});
+    if (!c->gfx) {
+        oops_log_info(TAG, "failed to bring up the renderer (display or context)");
+        return false;
+    }
+    c->disp = oops_gfx_display(c->gfx);
+    if (!c->disp || !oops_display_is_ready(c->disp)) {
+        oops_log_info(TAG, "display not ready");
+        oops_gfx_destroy(c->gfx);
+        return false;
+    }
+
+    /* The GPU overlay (common/cube_hud.c); drawing with a NULL one does nothing. */
+    c->hud = oops_hud_create((int)CUBE_FRAME_W, (int)CUBE_FRAME_H);
+    if (c->hud == NULL)
+        oops_log_info(TAG, "overlay did not come up; drawing without it");
+
+    setup_gl(c);
     oops_input_init();
-
-    /* Cooperate with the dashboard's Close: the handler sets a flag the loop checks, so
-     * the title leaves its render loop and tears down instead of being killed mid-frame
-     * (oops/system.h). */
+    /* The dashboard's Close sets a flag the loop checks, so the title tears down
+     * instead of being killed mid-frame (oops/system.h). */
     oops_system_install_close_handler();
 
-    geom_mode_t geom_mode = GEOM_CUBE;
-    float rot_x = 25.0f;
-    float rot_y = 35.0f;
-    float rot_z = 10.0f;
-    float cam_dist = -4.5f;
-#ifndef OOPS_HOST_BUILD
-    /* Control files pushed next to the stop file before launch fix the run's mode. */
-    const bool ctl_pause = cube_stop_file_present("/app0/pause") !=
-                           0; /* no animation: one fixed orientation */
-    const bool ctl_dump =
-        cube_stop_file_present("/app0/dump") != 0; /* frame 30 logs the oracle record */
-    const bool ctl_nodepth = cube_stop_file_present("/app0/nodepth") !=
-                             0; /* start with the depth test off */
-    const bool ctl_tex =
-        cube_stop_file_present("/app0/tex") != 0; /* start with the texture on */
-    /* oops-mesa unit 2: open every frame's stream with the preamble Mesa's AMD driver
-     * would emit, variant A (with CLEAR_STATE) or B (without), and measure what the
-     * compositor makes of it. */
-    const bool ctl_preamble_a = cube_stop_file_present("/app0/preamble-a") != 0;
-    const bool ctl_preamble_b = cube_stop_file_present("/app0/preamble-b") != 0;
-    /* Read a hardware configuration register with a command stream, because the vendor
-     * library has no call that does it: obSCEne's sweep of 2026-09-14 found
-     * `sceAgcGetRegisterDefaults` and `sceAgcGetDeviceInfo` unresolvable, and recorded
-     * that a command-stream capture is what is left (its `166-agc/hardware-registers`,
-     * partial, for 0x263e). */
-    const bool ctl_gbaddr = cube_stop_file_present("/app0/gbaddr") != 0;
-#else
-    const bool ctl_pause = false, ctl_dump = false, ctl_nodepth = false,
-               ctl_tex = false;
-    const bool ctl_preamble_a = false, ctl_preamble_b = false, ctl_gbaddr = false;
-#endif
-    bool auto_rotate = !ctl_pause;
-    bool opt_texture = ctl_tex;
-    bool opt_depth = !ctl_nodepth;
-#if GL1_CUBE_HAVE_MESA_PREAMBLE
-    if (ctl_preamble_a) {
-        glSetHardwarePrelude(
-            oops_mesa_preamble_a,
-            (GLuint)(sizeof(oops_mesa_preamble_a) / sizeof(oops_mesa_preamble_a[0])));
-        cube_klog("prelude: mesa preamble A (CONTEXT_CONTROL, CLEAR_STATE, radeonsi "
-                  "initial state)");
-    } else if (ctl_preamble_b) {
-        glSetHardwarePrelude(
-            oops_mesa_preamble_b,
-            (GLuint)(sizeof(oops_mesa_preamble_b) / sizeof(oops_mesa_preamble_b[0])));
-        cube_klog("prelude: mesa preamble B (CONTEXT_CONTROL, radeonsi initial state, "
-                  "no CLEAR_STATE)");
-    }
-#else
-    if (ctl_preamble_a || ctl_preamble_b)
-        cube_klog("prelude: requested but this build has no oops-mesa preamble header");
-#endif
+    c->ctl.pause = oops_fs_exists("/app0/pause");
+    c->ctl.dump = oops_fs_exists("/app0/dump");
+    c->ctl.nodepth = oops_fs_exists("/app0/nodepth");
+    c->ctl.tex = oops_fs_exists("/app0/tex");
 
-    /*
-     * Reading GB_ADDR_CONFIG off the GPU.
-     *
-     * It describes how memory is banked, interleaved and pipe-mapped, and a tiling
-     * library computes every surface layout from it. Nothing in the collection has ever
-     * read it, and oops-mesa's winsys refuses to answer for it rather than supply a
-     * plausible number (oops-mesa worklog 010, REQ-20260914T1712Z-5b60).
-     *
-     * The command processor can copy a register into memory, which is the route obSCEne
-     * said was left once it found no register-read function exported. So this builds a
-     * five-dword COPY_DATA packet naming the register and a buffer, hands it to the
-     * frame as a prelude, and reads the buffer back afterwards. The GPU answers the
-     * question about itself.
-     *
-     * The register is R_0098F8_GB_ADDR_CONFIG: byte offset 0x98f8, which is dword
-     * 0x263e, and the same number libdrm passes to its own register read.
-     */
-    uint32_t *gb_buf = NULL;
-    uint32_t gb_prelude[5 + 1];
-    if (ctl_gbaddr) {
-        gb_buf = (uint32_t *)oops_mem_alloc(256, 256, OOPS_MEM_WB_ONION);
-        if (!gb_buf) {
-            cube_klog("gbaddr: could not allocate the destination buffer");
-        } else {
-            uint64_t dst = (uint64_t)(uintptr_t)gb_buf;
-            gb_buf[0] = 0xa5a5a5a5u; /* so an untouched buffer is obvious in the log */
-
-            /*
-             * The packet, copied from Mesa's own emitter rather than assembled from
-             * memory. The first version of this was assembled from memory, two of its
-             * six dwords were wrong, and it took the console down.
-             *
-             * Mesa reads a hardware register into memory in exactly one place,
-             * `ac_sqtt.c:579`, and it uses:
-             *
-             *     PKT3(PKT3_COPY_DATA, 4, 0)
-             *     COPY_DATA_SRC_SEL(COPY_DATA_PERF) |
-             * COPY_DATA_DST_SEL(COPY_DATA_TC_L2) | COPY_DATA_WR_CONFIRM reg >> 2
-             *     0
-             *     dst_lo
-             *     dst_hi
-             *
-             * The two corrections, and why each matters:
-             *
-             *   SRC_SEL is PERF (4), not REG (0). GB_ADDR_CONFIG sits at byte 0x98f8,
-             * inside the configuration register range (0x8000 to 0xb000), and Mesa
-             * reaches that range through the PERF selector -
-             * `ac_pm4_set_privileged_reg` asserts exactly that range and uses PERF to
-             * write it. Across the whole Mesa tree, REG is never used as a source
-             * selector. It is the one value I picked.
-             *
-             *   DST_SEL is TC_L2 (2), not MEM (5). The write goes through the GPU's
-             * level-two cache, which is the same path oops-gl's frame readback already
-             * uses so that the CPU sees the result after the end-of-pipe flush.
-             */
-            gb_prelude[0] = 0xc0044000u; /* PKT3 COPY_DATA, five data dwords */
-            gb_prelude[1] =
-                0x00100204u; /* SRC_SEL=PERF(4) | DST_SEL=TC_L2(2)<<8 | WR_CONFIRM */
-            gb_prelude[2] =
-                0x000098f8u >> 2; /* R_0098F8_GB_ADDR_CONFIG, as Mesa passes it */
-            gb_prelude[3] = 0u;
-            gb_prelude[4] = (uint32_t)dst;
-            gb_prelude[5] = (uint32_t)(dst >> 32);
-
-            glSetHardwarePrelude(gb_prelude, 6u);
-            cube_klog("gbaddr: reading GB_ADDR_CONFIG (dword 0x263e) through a command "
-                      "stream");
-        }
-    }
-    bool opt_lighting = true;
-    bool opt_cull = true;
-    if (opt_depth)
-        glEnable(GL_DEPTH_TEST);
-    else
-        glDisable(GL_DEPTH_TEST);
-    if (opt_texture)
+    c->geom = GEOM_CUBE;
+    c->rot_x = 25.0f;
+    c->rot_y = 35.0f;
+    c->rot_z = 10.0f;
+    c->auto_rotate = !c->ctl.pause;
+    c->opt_texture = c->ctl.tex;
+    c->opt_depth = !c->ctl.nodepth;
+    c->opt_lighting = true;
+    c->opt_cull = true;
+    set_cap(GL_DEPTH_TEST, c->opt_depth);
+    if (c->opt_texture)
         glEnable(GL_TEXTURE_2D);
-    uint32_t last_frame_us = 0; /* the previous frame, top to swap, for the HUD */
-    uint32_t prev_buttons = 0;
-    uint64_t frame = 0;
-    bool running = true;
+    oops_log_info(TAG, "entering 3D rendering loop at 60 FPS...");
+    return true;
+}
 
-#ifndef OOPS_HOST_BUILD
-    cube_klog("entering 3D rendering loop at 60 FPS...");
-#endif
-
-    while (running) {
-#ifndef OOPS_HOST_BUILD
-        uint64_t t_top =
-            oops_time_get_us(); /* frame phase timing, logged every 60 frames */
-        uint64_t t_finish = 0, t_hash = 0, t_hud = 0;
-
-        /* The dashboard asked to close: leave the loop so the teardown below runs and
-         * the process is quiesced before the system kills it, rather than being killed
-         * mid-frame. */
-        if (oops_system_close_requested()) {
-            cube_klog("dashboard close received, terminating cleanly");
-            running = false;
-            break;
-        }
-#endif
-        /* Poll DualSense controller */
-        oops_pad_state_t pad;
-        if (oops_input_poll(0, &pad) == 0 && pad.connected) {
-            uint32_t pressed = pad.buttons & ~prev_buttons;
-            prev_buttons = pad.buttons;
-
-            /* Exit combo: L1 + R1 + OPTIONS or CIRCLE */
-            if (((pad.buttons & OOPS_BUTTON_L1) && (pad.buttons & OOPS_BUTTON_R1) &&
-                 (pad.buttons & OOPS_BUTTON_OPTIONS)) ||
-                (pad.buttons & OOPS_BUTTON_CIRCLE) ||
-                (pad.buttons & OOPS_BUTTON_OPTIONS)) {
-#ifndef OOPS_HOST_BUILD
-                cube_klog("exit combo received, terminating cleanly");
-#endif
-                running = false;
-                break;
-            }
-
-            /* Toggle auto-rotation with CROSS */
-            if (pressed & OOPS_BUTTON_CROSS) {
-                auto_rotate = !auto_rotate;
-            }
-
-            /* Toggle Texture 2D with TRIANGLE */
-            if (pressed & OOPS_BUTTON_TRIANGLE) {
-                opt_texture = !opt_texture;
-                if (opt_texture)
-                    glEnable(GL_TEXTURE_2D);
-                else
-                    glDisable(GL_TEXTURE_2D);
-            }
-
-            /* Toggle Depth Test with SQUARE */
-            if (pressed & OOPS_BUTTON_SQUARE) {
-                opt_depth = !opt_depth;
-                if (opt_depth)
-                    glEnable(GL_DEPTH_TEST);
-                else
-                    glDisable(GL_DEPTH_TEST);
-            }
-
-            /* Toggle Lighting with L1 */
-            if (pressed & OOPS_BUTTON_L1) {
-                opt_lighting = !opt_lighting;
-                if (opt_lighting)
-                    glEnable(GL_LIGHTING);
-                else
-                    glDisable(GL_LIGHTING);
-            }
-
-            /* Toggle Culling with R1 */
-            if (pressed & OOPS_BUTTON_R1) {
-                opt_cull = !opt_cull;
-                if (opt_cull)
-                    glEnable(GL_CULL_FACE);
-                else
-                    glDisable(GL_CULL_FACE);
-            }
-
-            /* Cycle geometry mesh with R2 or L2 */
-            if (pressed & (OOPS_BUTTON_R2 | OOPS_BUTTON_L2)) {
-                geom_mode = (geom_mode_t)((geom_mode + 1) % GEOM_MAX);
-            }
-
-            /* Manual control: D-Pad / Analog sticks */
-            if (pad.buttons & OOPS_BUTTON_LEFT)
-                rot_y -= 2.0f;
-            if (pad.buttons & OOPS_BUTTON_RIGHT)
-                rot_y += 2.0f;
-            if (pad.buttons & OOPS_BUTTON_UP)
-                rot_x -= 2.0f;
-            if (pad.buttons & OOPS_BUTTON_DOWN)
-                rot_x += 2.0f;
-        } else {
-            prev_buttons = 0;
-        }
-
-#ifndef OOPS_HOST_BUILD
-        if ((frame % 30u) == 0u) {
-            if (cube_stop_file_present(stop_path)) {
-                cube_klog("stop file found, terminating cleanly");
-                running = false;
-                break;
-            }
-        }
-#endif
-
-#ifndef OOPS_HOST_BUILD
-        if (ctl_dump && frame == 30u)
-            glRequestHardwareDump(); /* this frame's stream becomes the oracle record */
-
-        /*
-         * Read back what the command processor copied. Frame 3 rather than frame 1, so
-         * that several frames have certainly retired and the answer cannot be a race.
-         * It is logged once and then the prelude is removed, because the register does
-         * not change and there is no reason for every later frame to carry the packet.
-         */
-        if (ctl_gbaddr && gb_buf && frame == 3u) {
-            /* The buffer is CPU-cached, so the line has to be dropped before reading or
-             * the stale fill pattern comes back. Same step the frame readback takes. */
-            __builtin_ia32_clflush((const void *)gb_buf);
-            if (gb_buf[0] == 0xa5a5a5a5u) {
-                cube_klog(
-                    "gbaddr: the buffer was never written; the copy did not happen");
-            } else {
-                cube_klog_hex("gbaddr-GB_ADDR_CONFIG", gb_buf[0]);
-            }
-            glSetHardwarePrelude(NULL, 0);
-        }
-        /* Paused runs toggle the depth test at frames 60 and 90, so the frames either
-         * side compare. */
-        if (ctl_pause && (frame == 60u || frame == 90u)) {
-            opt_depth = !opt_depth;
-            if (opt_depth)
-                glEnable(GL_DEPTH_TEST);
-            else
-                glDisable(GL_DEPTH_TEST);
-        }
-#endif
-
-        if (auto_rotate) {
-            rot_x += 0.75f;
-            rot_y += 1.25f;
-            rot_z += 0.50f;
-            if (rot_x >= 360.0f)
-                rot_x -= 360.0f;
-            if (rot_y >= 360.0f)
-                rot_y -= 360.0f;
-            if (rot_z >= 360.0f)
-                rot_z -= 360.0f;
-        }
-
-        /* 1. Clear Color and Depth Buffers */
-        glClearColor(0.05f, 0.07f, 0.12f, 1.0f);
-        glClearDepth(1.0);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        /* 2. Setup Perspective Projection Matrix */
-        glMatrixMode(GL_PROJECTION);
-        glLoadIdentity();
-        gluPerspective(45.0, 1920.0 / 1080.0, 0.1, 100.0);
-
-        /* 3. Setup ModelView Matrix Stack */
-        glMatrixMode(GL_MODELVIEW);
-        glLoadIdentity();
-        glTranslatef(0.0f, 0.0f, cam_dist);
-
-        /* Set light in camera space before rotation so light remains stationary while
-         * cube rotates */
-        glLightfv(GL_LIGHT0, GL_POSITION, light_pos);
-
-        glRotatef(rot_x, 1.0f, 0.0f, 0.0f);
-        glRotatef(rot_y, 0.0f, 1.0f, 0.0f);
-        glRotatef(rot_z, 0.0f, 0.0f, 1.0f);
-
-        /* 4. Render Active 3D Geometry */
-        GLsizei vcount = 0;
-        const char *geom_name = "CUBE";
-        size_t tri_count = 12;
-
-        switch (geom_mode) {
-        case GEOM_CUBE:
-            glVertexPointer(3, GL_FLOAT, 0, s_cube_vertices);
-            glNormalPointer(GL_FLOAT, 0, s_cube_normals);
-            glColorPointer(3, GL_FLOAT, 0, s_cube_colors);
-            glTexCoordPointer(2, GL_FLOAT, 0, s_cube_texcoords);
-            vcount = 36;
-            geom_name = "CUBE";
-            tri_count = 12;
-            break;
-        /* A mesh that would not allocate leaves vcount at 0 and nothing is drawn. The
-         * HUD is told which mesh that was, rather than keeping the "CUBE" it was
-         * initialised with and reporting twelve triangles over an empty screen. */
-        case GEOM_TORUS:
-            geom_name = "TORUS";
-            tri_count = 0;
-            if (torus_mesh.positions) {
-                glVertexPointer(3, GL_FLOAT, 0, torus_mesh.positions);
-                glNormalPointer(GL_FLOAT, 0, torus_mesh.normals);
-                glColorPointer(3, GL_FLOAT, 0, torus_mesh.colors);
-                glTexCoordPointer(2, GL_FLOAT, 0, torus_mesh.texcoords);
-                vcount = (GLsizei)torus_mesh.vertex_count;
-                tri_count = torus_mesh.triangle_count;
-            }
-            break;
-        case GEOM_SPHERE:
-            geom_name = "SPHERE";
-            tri_count = 0;
-            if (sphere_mesh.positions) {
-                glVertexPointer(3, GL_FLOAT, 0, sphere_mesh.positions);
-                glNormalPointer(GL_FLOAT, 0, sphere_mesh.normals);
-                glColorPointer(3, GL_FLOAT, 0, sphere_mesh.colors);
-                glTexCoordPointer(2, GL_FLOAT, 0, sphere_mesh.texcoords);
-                vcount = (GLsizei)sphere_mesh.vertex_count;
-                tri_count = sphere_mesh.triangle_count;
-            }
-            break;
-        default:
-            break;
-        }
-
-        if (vcount > 0) {
-            glDrawArrays(GL_TRIANGLES, 0, vcount);
-        }
-        glFinish();
-#ifndef OOPS_HOST_BUILD
-        t_finish = oops_time_get_us();
-#endif
-        (void)geom_name;
-        (void)tri_count;
-
-        /* Measured from the render target, console-side, after the fence and before the
-         * HUD or the flip touch anything: a hash of every pixel, the count outside the
-         * clear colour, and the centre pixel. The HDMI capture is lossy; this is not.
-         */
-        uint32_t *fb = oops_display_get_framebuffer(disp);
-        const uint32_t *src = fb;
-        /*
-         * **The full-frame pass runs only in the runs that read it back.**
-         *
-         * A 1920x1080 frame is 2,073,600 words. Hashing all of them, having first
-         * invalidated the 129,600 cache lines that hold them, is the price of the
-         * oracle record - and it was being paid by every frame of every run, including
-         * the ones nobody measures. Those runs now sample one word in 64: the same
-         * question ("did anything draw, and did it change?") asked 64 times more
-         * cheaply. The HUD names which of the two it is showing, because a sampled hash
-         * and a full-frame hash are not comparable numbers and a reader who mistook one
-         * for the other would conclude the frame had changed when it had not.
-         */
-        const bool full_scan = ctl_pause || ctl_dump;
-        const size_t scan_step = full_scan ? (size_t)1 : (size_t)64;
-#ifndef OOPS_HOST_BUILD
-        /* The CP's cached copy of the target: the target itself is uncached for the CPU
-         * and a full read of it drops the demo to two frames a second. Only the lines
-         * about to be read are invalidated - one in four when sampling, since 64 words
-         * span four cache lines. */
-        const GLuint *rb = glGetFrameReadbackSampled(full_scan ? 1u : 4u);
-        if (rb)
-            src = rb;
-        /* Without a readback the scan falls back to the render target itself, which the
-         * CPU may still hold lines of; flush those as they are reached rather than the
-         * whole frame. */
-        const bool flush_src = (rb == NULL);
-        uint64_t hash_t0 = oops_time_get_us();
-#endif
-        uint32_t center_pix = 0;
-        uint32_t mod_pixels = 0;
-        uint32_t frame_hash = 0x811c9dc5u; /* FNV-1a, 32-bit */
-        if (src) {
-#ifndef OOPS_HOST_BUILD
-            __builtin_ia32_clflush((const void *)&src[540 * 1920 + 960]);
-#endif
-            center_pix = src[540 * 1920 + 960];
-            for (size_t p = 0; p < (size_t)1920 * 1080; p += scan_step) {
-#ifndef OOPS_HOST_BUILD
-                if (flush_src && (p & 15u) == 0u)
-                    __builtin_ia32_clflush((const void *)&src[p]);
-#endif
-                uint32_t v = src[p];
-                if (v != 0xff0d121fu)
-                    mod_pixels++;
-                frame_hash ^= v;
-                frame_hash *= 0x01000193u;
-            }
-        }
-#ifndef OOPS_HOST_BUILD
-        t_hash = oops_time_get_us();
-        if (frame == 1u || (frame % 300u) == 0u)
-            cube_klog_hex("hash-us", (uint32_t)(oops_time_get_us() - hash_t0));
-        if (ctl_pause || ctl_dump) {
-            if (frame < 300u || (frame % 60u) == 0u)
-                cube_klog_hex("frame-hash", frame_hash);
-            if (frame == 0u) {
-                cube_klog_hex("frame-rot-x-deg", (uint32_t)(int32_t)rot_x);
-                cube_klog_hex("frame-rot-y-deg", (uint32_t)(int32_t)rot_y);
-                cube_klog_hex("frame-rot-z-deg", (uint32_t)(int32_t)rot_z);
-            }
-            if (ctl_dump && frame == 30u) {
-                cube_klog_hex("oracle-hash", frame_hash);
-                cube_klog_hex("oracle-mod-pixels", mod_pixels);
-                cube_klog_hex("oracle-center-pixel", center_pix);
-                cube_klog_hex("oracle-depth-on", opt_depth ? 1u : 0u);
-                cube_klog_hex("oracle-cull-on", opt_cull ? 1u : 0u);
-            }
-            if (ctl_pause && src && !s_prev_frame)
-                s_prev_frame = (uint32_t *)oops_mem_alloc((size_t)1920 * 1080 * 4, 64,
-                                                          OOPS_MEM_WB_ONION);
-            if (ctl_pause && src && s_prev_frame) {
-                /* The frame after a depth toggle against the frame before it, pixel for
-                 * pixel. */
-                if (frame == 61u || frame == 91u) {
-                    uint32_t diff = 0;
-                    for (size_t p = 0; p < (size_t)1920 * 1080; p++) {
-                        if (src[p] != s_prev_frame[p])
-                            diff++;
-                    }
-                    cube_klog_hex(opt_depth ? "depth-on-minus-off-pixels"
-                                            : "depth-off-minus-on-pixels",
-                                  diff);
-                }
-                memcpy(s_prev_frame, src, (size_t)1920 * 1080 * 4);
-            }
-        }
-#endif
-        /* A second scan of the render target used to run here, sampling one word in 64
-         * and adding its count to `mod_pixels` - which had already been counted in full
-         * from the readback. The HUD's "Mod Pix" was therefore the sum of two different
-         * measurements of the same frame, and the 32,400 uncached reads it took to
-         * produce the wrong half of that number were the most expensive thing in it.
-         *
-         * The oracle record is not affected and its published numbers still stand: the
-         * block that logs `oracle-mod-pixels` runs above this point, on the readback
-         * count alone. Only the HUD ever saw the sum. */
-
-        /* 5. The dashboard, drawn on the GPU (common/cube_hud.c) - the same one
-         * mesa-cube shows. The frame hash above was read before this point (see the
-         * note there), so the overlay never enters the oracle measurement, exactly as
-         * the old CPU HUD did not. */
-#ifndef OOPS_APP_VERSION
-#define OOPS_APP_VERSION "dev"
-#endif
-        gl_hw_status_t hw;
-        memset(&hw, 0, sizeof(hw));
-#ifndef OOPS_HOST_BUILD
-        glGetHardwareStatus(&hw);
-#endif
-        const uint32_t badge_col =
-            hw.verified ? 0xff44ff88u : (hw.failed ? 0xffff5544u : 0xffffcc44u);
-
-        /* The per-stack status line: this stack's GPU-verified badge, the frame hash
-         * (labelled 1:64 when sampled), and which scanout tiler is live. Built with the
-         * same string helpers the old dashboard used, since oops_snprintf here does not
-         * carry %x. The deeper diagnostics the old HUD printed - canaries, mod-pixel
-         * count, centre pixel - are still in the klog (the dump path above), just not
-         * on this shared overlay. */
-        char status[96];
-        char hx[16];
-        int sl = cube_append(status, 0,
-                             hw.verified
-                                 ? "GPU verified  hash "
-                                 : (hw.failed ? "GPU FAILED  hash " : "GPU ?  hash "));
-        if (!full_scan)
-            sl = cube_append(status, sl, "(1:64) ");
-        hex_to_str(frame_hash, hx);
-        sl = cube_append(status, sl, hx);
-        sl = cube_append(status, sl, "  tile ");
-        (void)cube_append(status, sl,
-                          oops_display_is_gpu_accelerated(disp) ? "GPU" : "CPU");
-
-        oops_cube_hud_draw(hud,
-                           &(oops_cube_hud_t){
-                               .title = "GL1 CUBE",
-                               .backend = oops_gfx_backend_name(),
-                               .api = "OpenGL 1.x",
-                               .build = OOPS_APP_VERSION,
-                               .width = 1920u,
-                               .height = 1080u,
-                               .frame = (unsigned)frame,
-                               .us_per_frame = (unsigned)last_frame_us,
-                               .paused = !auto_rotate,
-                               .mesh = geom_name,
-                               .tris = (unsigned)tri_count,
-                               .verts = (unsigned)vcount,
-                               .cull = opt_cull,
-                               .depth = opt_depth,
-                               .texture = opt_texture,
-                               .lighting = opt_lighting,
-                               .status = status,
-                               .status_color = badge_col,
-                               .controls = "D-Pad orbit  X rotate  R2 mesh  /_\\ tex  "
-                                           "[] depth  L1 light  R1 cull  (O) quit",
-                           });
-
-#ifndef OOPS_HOST_BUILD
-        t_hud = oops_time_get_us();
-#endif
-        /* 6. Present Frame */
-        (void)oops_gfx_present(gfx);
-#ifndef OOPS_HOST_BUILD
-        {
-            uint64_t t_end = oops_time_get_us();
-            last_frame_us = (uint32_t)(t_end - t_top);
-        }
-        /* The GPU clock the end-of-pipe event writes, against the CPU clock: its rate
-         * is data. */
-        if (frame == 5u || frame == 35u) {
-            static uint64_t clk0 = 0, us0 = 0;
-            gl_hw_status_t st;
-            glGetHardwareStatus(&st);
-            uint64_t clk = ((uint64_t)st.timestamp_hi << 32) | st.timestamp_lo;
-            uint64_t us = oops_time_get_us();
-            if (frame == 5u) {
-                clk0 = clk;
-                us0 = us;
-            } else if (us > us0) {
-                cube_klog_hex("gpu-clock-delta-lo", (uint32_t)(clk - clk0));
-                cube_klog_hex("cpu-us-delta", (uint32_t)(us - us0));
-                cube_klog_hex("gpu-clock-per-us",
-                              (uint32_t)((clk - clk0) / (us - us0)));
-            }
-        }
-        if (frame == 5u || (frame % 60u) == 0u) {
-            uint64_t t_end = oops_time_get_us();
-            last_frame_us = (uint32_t)(t_end - t_top);
-            cube_klog_hex("t-draw-finish-us", (uint32_t)(t_finish - t_top));
-            cube_klog_hex("t-hash-us", (uint32_t)(t_hash - t_finish));
-            cube_klog_hex("t-hud-us", (uint32_t)(t_hud - t_hash));
-            cube_klog_hex("t-swap-us", (uint32_t)(t_end - t_hud));
-        }
-#endif
-
-        frame++;
+/* Reads the pad and applies its toggles. Returns false when the run should end. */
+static bool cube_input(cube_t *c) {
+    oops_pad_state_t pad;
+    if (oops_input_poll(0, &pad) != 0 || !pad.connected) {
+        c->prev_buttons = 0;
+        return true;
     }
+    const uint32_t pressed = pad.buttons & ~c->prev_buttons;
+    c->prev_buttons = pad.buttons;
 
-    /* Clean up */
-    oops_mesh_free(&torus_mesh);
-    oops_mesh_free(&sphere_mesh);
-    glDeleteTextures(1, &tex_id);
-    oops_hud_destroy(hud);
-    oops_gfx_destroy(gfx);
+    if (pad.buttons & (OOPS_BUTTON_CIRCLE | OOPS_BUTTON_OPTIONS)) {
+        oops_log_info(TAG, "exit combo received, terminating cleanly");
+        return false;
+    }
+    if (pressed & OOPS_BUTTON_CROSS)
+        c->auto_rotate = !c->auto_rotate;
+    if (pressed & OOPS_BUTTON_TRIANGLE)
+        set_cap(GL_TEXTURE_2D, c->opt_texture = !c->opt_texture);
+    if (pressed & OOPS_BUTTON_SQUARE)
+        set_cap(GL_DEPTH_TEST, c->opt_depth = !c->opt_depth);
+    if (pressed & OOPS_BUTTON_L1)
+        set_cap(GL_LIGHTING, c->opt_lighting = !c->opt_lighting);
+    if (pressed & OOPS_BUTTON_R1)
+        set_cap(GL_CULL_FACE, c->opt_cull = !c->opt_cull);
+    if (pressed & (OOPS_BUTTON_R2 | OOPS_BUTTON_L2))
+        c->geom = (geom_mode_t)((c->geom + 1) % GEOM_MAX);
 
-#ifndef OOPS_HOST_BUILD
-    cube_klog("gl1-cube session closed cleanly");
-#endif
+    if (pad.buttons & OOPS_BUTTON_LEFT)
+        c->rot_y -= 2.0f;
+    if (pad.buttons & OOPS_BUTTON_RIGHT)
+        c->rot_y += 2.0f;
+    if (pad.buttons & OOPS_BUTTON_UP)
+        c->rot_x -= 2.0f;
+    if (pad.buttons & OOPS_BUTTON_DOWN)
+        c->rot_x += 2.0f;
+    return true;
+}
+
+static void advance_rotation(cube_t *c) {
+    if (!c->auto_rotate)
+        return;
+    c->rot_x += 0.75f;
+    c->rot_y += 1.25f;
+    c->rot_z += 0.50f;
+    if (c->rot_x >= 360.0f)
+        c->rot_x -= 360.0f;
+    if (c->rot_y >= 360.0f)
+        c->rot_y -= 360.0f;
+    if (c->rot_z >= 360.0f)
+        c->rot_z -= 360.0f;
+}
+
+/* Binds the active mesh and draws it. A mesh that did not allocate draws nothing and
+ * reports zero triangles under its own name. */
+static void draw_geometry(cube_t *c, cube_frame_info_t *fi) {
+    glClearColor(0.05f, 0.07f, 0.12f, 1.0f);
+    glClearDepth(1.0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    gluPerspective(45.0, 1920.0 / 1080.0, 0.1, 100.0);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glTranslatef(0.0f, 0.0f, k_cam_dist);
+    /* The light is set in camera space, before the rotation, so it stays put. */
+    glLightfv(GL_LIGHT0, GL_POSITION, k_light_pos);
+    glRotatef(c->rot_x, 1.0f, 0.0f, 0.0f);
+    glRotatef(c->rot_y, 0.0f, 1.0f, 0.0f);
+    glRotatef(c->rot_z, 0.0f, 0.0f, 1.0f);
+
+    const oops_mesh_t *mesh = NULL;
+    fi->vcount = 0;
+    fi->geom_name = "CUBE";
+    fi->tri_count = 12;
+    if (c->geom == GEOM_CUBE) {
+        bind_arrays(s_cube_vertices, s_cube_normals, s_cube_colors, s_cube_texcoords);
+        fi->vcount = 36;
+    } else if (c->geom == GEOM_TORUS || c->geom == GEOM_SPHERE) {
+        mesh = c->geom == GEOM_TORUS ? &c->torus : &c->sphere;
+        fi->geom_name = c->geom == GEOM_TORUS ? "TORUS" : "SPHERE";
+        fi->tri_count = 0;
+    }
+    if (mesh && mesh->positions) {
+        bind_arrays(mesh->positions, mesh->normals, mesh->colors, mesh->texcoords);
+        fi->vcount = (GLsizei)mesh->vertex_count;
+        fi->tri_count = mesh->triangle_count;
+    }
+    if (fi->vcount > 0)
+        glDrawArrays(GL_TRIANGLES, 0, fi->vcount);
+    glFinish();
+    fi->t_finish = oops_time_get_us();
+}
+
+/* Logs the frame numbers of a paused or dump run, and in a paused run the pixel count
+ * a depth toggle changed. */
+static void log_full_scan(cube_t *c, const cube_frame_info_t *fi, const uint32_t *src) {
+    const cube_frame_stats_t *st = &fi->stats;
+    if (c->frame < 300u || (c->frame % 60u) == 0u)
+        oops_log_info(TAG, "frame-hash 0x%08x", (unsigned)st->hash);
+    if (c->frame == 0u) {
+        oops_log_info(TAG, "frame-rot-x-deg 0x%08x", (unsigned)(int32_t)c->rot_x);
+        oops_log_info(TAG, "frame-rot-y-deg 0x%08x", (unsigned)(int32_t)c->rot_y);
+        oops_log_info(TAG, "frame-rot-z-deg 0x%08x", (unsigned)(int32_t)c->rot_z);
+    }
+    if (c->ctl.dump && c->frame == 30u) {
+        oops_log_info(TAG, "oracle-hash 0x%08x", (unsigned)st->hash);
+        oops_log_info(TAG, "oracle-mod-pixels 0x%08x", (unsigned)st->mod_pixels);
+        oops_log_info(TAG, "oracle-center-pixel 0x%08x", (unsigned)st->center);
+        oops_log_info(TAG, "oracle-depth-on 0x%08x", c->opt_depth ? 1u : 0u);
+        oops_log_info(TAG, "oracle-cull-on 0x%08x", c->opt_cull ? 1u : 0u);
+    }
+    if (!c->ctl.pause || !src)
+        return;
+    const size_t words = (size_t)CUBE_FRAME_W * CUBE_FRAME_H;
+    if (!c->prev_frame)
+        c->prev_frame = (uint32_t *)oops_mem_alloc(words * 4, 64, OOPS_MEM_WB_ONION);
+    if (!c->prev_frame)
+        return;
+    if (c->frame == 61u || c->frame == 91u) {
+        uint32_t diff = 0;
+        for (size_t p = 0; p < words; p++) {
+            if (src[p] != c->prev_frame[p])
+                diff++;
+        }
+        oops_log_info(TAG, "%s 0x%08x",
+                      c->opt_depth ? "depth-on-minus-off-pixels"
+                                   : "depth-off-minus-on-pixels",
+                      (unsigned)diff);
+    }
+    memcpy(c->prev_frame, src, words * 4);
+}
+
+/* Measures the render target after the fence and before the HUD or the flip touch it.
+ * Paused and dump runs hash every word; other runs sample one word in 64, and the HUD
+ * labels which. The command processor's cached copy is read where there is one: a full
+ * read of the uncached target drops the demo to two frames a second. */
+static void measure_frame(cube_t *c, cube_frame_info_t *fi) {
+    fi->full_scan = c->ctl.pause || c->ctl.dump;
+    const uint32_t *src = oops_display_get_framebuffer(c->disp);
+    /* Only the lines about to be read are invalidated: one in four when sampling, since
+     * 64 words span four cache lines. */
+    const GLuint *rb = glGetFrameReadbackSampled(fi->full_scan ? 1u : 4u);
+    if (rb)
+        src = rb;
+    const uint64_t t0 = oops_time_get_us();
+    fi->stats =
+        cube_frame_measure(src, fi->full_scan ? (size_t)1 : (size_t)64, rb == NULL);
+    fi->t_hash = oops_time_get_us();
+    if (c->frame == 1u || (c->frame % 300u) == 0u)
+        oops_log_info(TAG, "hash-us 0x%08x", (unsigned)(oops_time_get_us() - t0));
+    if (fi->full_scan)
+        log_full_scan(c, fi, src);
+}
+
+/* The shared dashboard (common/cube_hud.c), drawn after the measurement so the overlay
+ * never enters it. */
+static void draw_hud(cube_t *c, const cube_frame_info_t *fi) {
+    gl_hw_status_t hw;
+    memset(&hw, 0, sizeof(hw));
+    glGetHardwareStatus(&hw);
+    const uint32_t badge_col =
+        hw.verified ? 0xff44ff88u : (hw.failed ? 0xffff5544u : 0xffffcc44u);
+
+    /* This stack's GPU-verified badge, the frame hash (1:64 when sampled) and which
+     * scanout tiler is live. */
+    char status[96];
+    oops_snprintf(status, sizeof(status), "%s%s0x%08x  tile %s",
+                  hw.verified ? "GPU verified  hash "
+                              : (hw.failed ? "GPU FAILED  hash " : "GPU ?  hash "),
+                  fi->full_scan ? "" : "(1:64) ", (unsigned)fi->stats.hash,
+                  oops_display_is_gpu_accelerated(c->disp) ? "GPU" : "CPU");
+
+    oops_cube_hud_draw(c->hud,
+                       &(oops_cube_hud_t){
+                           .title = "GL1 CUBE",
+                           .backend = oops_gfx_backend_name(),
+                           .api = "OpenGL 1.x",
+                           .build = OOPS_APP_VERSION,
+                           .width = CUBE_FRAME_W,
+                           .height = CUBE_FRAME_H,
+                           .frame = (unsigned)c->frame,
+                           .us_per_frame = (unsigned)c->last_frame_us,
+                           .paused = !c->auto_rotate,
+                           .mesh = fi->geom_name,
+                           .tris = (unsigned)fi->tri_count,
+                           .verts = (unsigned)fi->vcount,
+                           .cull = c->opt_cull,
+                           .depth = c->opt_depth,
+                           .texture = c->opt_texture,
+                           .lighting = c->opt_lighting,
+                           .status = status,
+                           .status_color = badge_col,
+                           .controls =
+                               "D-Pad orbit  X rotate  R2 mesh  /_\\ tex  [] depth  L1 "
+                               "light  R1 cull  (O) quit",
+                       });
+}
+
+/* Frame timing in phases at frame 5 and every 60th, and at frames 5 and 35 the GPU
+ * clock the end-of-pipe event writes against the CPU clock: its rate is data. */
+static void log_timing(cube_t *c, const cube_frame_info_t *fi) {
+    static uint64_t clk0 = 0, us0 = 0;
+    if (c->frame == 5u || c->frame == 35u) {
+        gl_hw_status_t st;
+        glGetHardwareStatus(&st);
+        const uint64_t clk = ((uint64_t)st.timestamp_hi << 32) | st.timestamp_lo;
+        const uint64_t us = oops_time_get_us();
+        if (c->frame == 5u) {
+            clk0 = clk;
+            us0 = us;
+        } else if (us > us0) {
+            oops_log_info(TAG, "gpu-clock-delta-lo 0x%08x", (unsigned)(clk - clk0));
+            oops_log_info(TAG, "cpu-us-delta 0x%08x", (unsigned)(us - us0));
+            oops_log_info(TAG, "gpu-clock-per-us 0x%08x",
+                          (unsigned)((clk - clk0) / (us - us0)));
+        }
+    }
+    if (c->frame == 5u || (c->frame % 60u) == 0u) {
+        const uint64_t t_end = oops_time_get_us();
+        c->last_frame_us = (uint32_t)(t_end - fi->t_top);
+        oops_log_info(TAG, "t-draw-finish-us 0x%08x",
+                      (unsigned)(fi->t_finish - fi->t_top));
+        oops_log_info(TAG, "t-hash-us 0x%08x", (unsigned)(fi->t_hash - fi->t_finish));
+        oops_log_info(TAG, "t-hud-us 0x%08x", (unsigned)(fi->t_hud - fi->t_hash));
+        oops_log_info(TAG, "t-swap-us 0x%08x", (unsigned)(t_end - fi->t_hud));
+    }
+}
+
+/* One frame, top to swap. Returns false when the run should end. */
+static bool cube_frame(cube_t *c) {
+    cube_frame_info_t fi;
+    memset(&fi, 0, sizeof(fi));
+    fi.t_top = oops_time_get_us();
+
+    if (oops_system_close_requested()) {
+        oops_log_info(TAG, "dashboard close received, terminating cleanly");
+        return false;
+    }
+    if (!cube_input(c))
+        return false;
+    if ((c->frame % 30u) == 0u && oops_fs_exists(c->stop_path)) {
+        oops_log_info(TAG, "stop file found, terminating cleanly");
+        return false;
+    }
+    if (c->ctl.dump && c->frame == 30u)
+        glRequestHardwareDump(); /* this frame's stream becomes the oracle record */
+    if (c->ctl.pause && (c->frame == 60u || c->frame == 90u))
+        set_cap(GL_DEPTH_TEST, c->opt_depth = !c->opt_depth);
+    advance_rotation(c);
+
+    draw_geometry(c, &fi);
+    measure_frame(c, &fi);
+    draw_hud(c, &fi);
+    fi.t_hud = oops_time_get_us();
+
+    (void)oops_gfx_present(c->gfx);
+    c->last_frame_us = (uint32_t)(oops_time_get_us() - fi.t_top);
+    log_timing(c, &fi);
+    c->frame++;
+    return true;
+}
+
+static void cube_shutdown(cube_t *c) {
+    oops_mesh_free(&c->torus);
+    oops_mesh_free(&c->sphere);
+    glDeleteTextures(1, &c->tex_id);
+    oops_hud_destroy(c->hud);
+    oops_gfx_destroy(c->gfx);
+    oops_log_info(TAG, "gl1-cube session closed cleanly");
+}
+
+int gl1_cube_start(const payload_args_t *args);
+
+__attribute__((visibility("default"))) int gl1_cube_start(const payload_args_t *args) {
+    static cube_t cube;
+    if (!cube_init(&cube, args))
+        return -1;
+    while (cube_frame(&cube)) {
+    }
+    cube_shutdown(&cube);
     return 0;
 }
