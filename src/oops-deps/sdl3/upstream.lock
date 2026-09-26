@@ -1,0 +1,27 @@
+# SDL3's origin. Read by `common/upstream-fetch.sh`, which is shared with the titles - the same
+# KEY=value shape `app.env` has, so make needs no parser for it.
+#
+# UPSTREAM_REV is what gets checked out and must be a full commit hash: a tag can be moved and a
+# branch always is, so neither is a pin. UPSTREAM_REF says which release that hash is, for a
+# reader.
+#
+# **Lightweight, like SDL2's tag and unlike Neverball's.** `git ls-remote refs/tags/release-3.4.16`
+# answers with the commit itself and the peeled `^{}` form answers with nothing, which is what a
+# lightweight tag looks like - checked, because an annotated tag is what put the wrong hash in a
+# title's lock the first time.
+#
+# # Why a second SDL rather than a bump
+#
+# `oops-deps/sdl2` stays exactly where it is: Neverball, Neverputt, Extreme Tux Racer, SuperTux and
+# q3rally are all built against it, and Extreme Tux Racer reaches it through `sdl12-compat`, which
+# is an SDL2 program. Bugdom and Bugdom 2 need SDL3, and SDL3 is not a version bump - it renamed the
+# configuration header, changed the driver interfaces the backends implement, and removed the parts
+# of the 2.x API those ports would have used. Two vendored copies is the honest shape; the titles
+# pick one by which `.mk` they include.
+#
+# **`sdl2-compat` is not the answer to this**, and it is worth writing down because the name
+# suggests otherwise: it runs *SDL2 programs* on top of SDL3. Bugdom is an SDL3 program.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/libsdl-org/SDL
+UPSTREAM_REV=fa2c02bb6e21974a89ea9824bc53c9932abe5f9c
+UPSTREAM_REF=release-3.4.16

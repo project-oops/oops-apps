@@ -1,0 +1,33 @@
+Let a private platform name its own thread backend
+
+SDL3's private-platform support is otherwise complete: `SDL_PLATFORM_PRIVATE` selects a build
+config, and `SDL_video.c`, `SDL_audio.c` and `SDL_joystick.c` each begin their driver list with a
+`_PRIVATE` entry. `SDL_build_config.h.cmake` offers `SDL_THREAD_PRIVATE` alongside the rest.
+
+`SDL_thread_c.h` is the one place that does not honour it. Its chain ends at
+`#error Need thread implementation for this platform`, so a platform that sets `SDL_THREAD_PRIVATE`
+- as the generated config invites - stops six sources dead.
+
+The arm added here includes `SDL_systhread_private_c.h` by a plain name rather than a directory,
+so the header can live outside upstream's tree with the rest of the platform's code, reached
+through the include path. Every other arm names a subdirectory that exists upstream; a private
+platform has none.
+
+It reads like a gap between the cmake config and this header rather than a design choice, so it may
+be worth raising with SDL. **Not by pasting this file at them**: `upstream/CLAUDE.md` asks that
+generative AI not be used in contributions or bug reports to SDL, so a report would have to be
+written by a person, in their own words. The observation is free; the wording is not ours to send.
+---
+diff --git a/src/thread/SDL_thread_c.h b/src/thread/SDL_thread_c.h
+index 3659b85..06ad93a 100644
+--- a/src/thread/SDL_thread_c.h
++++ b/src/thread/SDL_thread_c.h
+@@ -38,6 +38,8 @@
+ #include "vita/SDL_systhread_c.h"
+ #elif defined(SDL_THREAD_N3DS)
+ #include "n3ds/SDL_systhread_c.h"
++#elif defined(SDL_THREAD_PRIVATE)
++#include "SDL_systhread_private_c.h"
+ #else
+ #error Need thread implementation for this platform
+ #include "generic/SDL_systhread_c.h"
