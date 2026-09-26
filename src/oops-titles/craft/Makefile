@@ -72,6 +72,7 @@ CRAFT_CFLAGS := -Ishim/include \
                 -DOOPS_POSIX_HOME=\"/app0\" \
                 -DCRAFT_DATA_DIR=\"/app0\" \
                 -DDB_PATH=\"/app0/craft.db\" \
+                -DSHOW_CONTROLS_TEXT=1 \
                 $(OOPS_SQLITE_INCLUDE) $(OOPS_SQLITE_DEFS)
 
 # Upstream's code under upstream's warnings. `common/app.mk` compiles at `-Werror` with

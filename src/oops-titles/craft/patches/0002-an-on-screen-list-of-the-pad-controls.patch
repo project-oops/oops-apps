@@ -1,0 +1,65 @@
+An on-screen list of the pad controls
+
+Craft is a keyboard and mouse game and says nowhere what its keys are: it
+expects a player who has read the README. On a console there is no README and
+no keyboard, so the mapping in `shim/glfw_shim.c` is the only description of
+how to play, and it is not on screen.
+
+This draws the pad's mapping in the bottom right, through Craft's own
+`render_text` and the font it already loads, so it costs one more text pass and
+no new asset. It reads the same way the HUD does and sits opposite it.
+
+The lines name pad buttons rather than the keys they produce, because the key is
+an implementation detail of the shim: Square and Circle arrive as mouse buttons,
+and L1 and R1 as `CRAFT_KEY_ITEM_PREV` and `CRAFT_KEY_ITEM_NEXT`. Jump and chat
+are listed because nothing else says they exist. There is no entry for a pause
+menu because Craft has none - `main.c` handles Escape by cancelling the chat
+line or releasing the cursor, and neither is reachable from a pad.
+
+The array is `char *const` and not `const char *`, because upstream's
+`render_text` takes a non-const `char *`.
+
+`SHOW_CONTROLS_TEXT` defaults to 0 and is wrapped in `#ifndef`, so this changes
+nothing for a desktop build and the port turns it on with
+`-DSHOW_CONTROLS_TEXT=1`. Made overridable rather than changed, as patch 0001
+is, so the file stays close to upstream and the next rebase is a smaller job.
+
+--- a/src/config.h
++++ b/src/config.h
+@@ -33,6 +33,9 @@
+ #define SHOW_INFO_TEXT 1
+ #define SHOW_CHAT_TEXT 1
+ #define SHOW_PLAYER_NAMES 1
++#ifndef SHOW_CONTROLS_TEXT
++#define SHOW_CONTROLS_TEXT 0
++#endif
+ 
+ // key bindings
+ #define CRAFT_KEY_FORWARD 'W'
+--- a/src/main.c
++++ b/src/main.c
+@@ -2885,6 +2885,24 @@
+                 render_text(&text_attrib, ALIGN_LEFT, tx, ty, ts, text_buffer);
+                 ty -= ts * 2;
+             }
++            if (SHOW_CONTROLS_TEXT) {
++                static char *const controls[] = {
++                    "left stick - move",
++                    "right stick - look",
++                    "square - break",
++                    "circle - place",
++                    "L1 / R1 - block",
++                    "cross - jump",
++                    "options - chat",
++                };
++                int count = sizeof(controls) / sizeof(controls[0]);
++                float cx = g->width - ts / 2;
++                float cy = ts / 2 + ts * 2 * (count - 1);
++                for (int i = 0; i < count; i++) {
++                    render_text(&text_attrib, ALIGN_RIGHT, cx, cy, ts, controls[i]);
++                    cy -= ts * 2;
++                }
++            }
+             if (SHOW_PLAYER_NAMES) {
+                 if (player != me) {
+                     render_text(&text_attrib, ALIGN_CENTER,
