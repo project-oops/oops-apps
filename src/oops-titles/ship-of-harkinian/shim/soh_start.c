@@ -23,13 +23,14 @@ int ship_of_harkinian_start(const payload_args_t *args);
  * Says which game data is present, before libultraship looks.
  *
  * The build ships soh.o2r, the port's own archive, and carries no game assets. oot.o2r
- * and oot-mq.o2r are generated on device from a ROM the player supplies, so a fresh
- * install has neither. libultraship answers that with SDL_ShowSimpleMessageBox ("Main
- * OTR file not found"), which on a console is a dialog with no pointer to dismiss it,
- * so the same fact goes to the log where it can be read.
+ * and oot-mq.o2r are converted from a ROM the player supplies, on a desktop - see
+ * `shim/Extract.cpp` for why the converter is not in this payload - so a fresh install
+ * has neither. libultraship answers a missing one with SDL_ShowSimpleMessageBox ("Main
+ * OTR file not found"), and the same fact goes to the log, where it can be read without
+ * a screen.
  *
- * It reports rather than refuses: generating the archive is a thing the title itself
- * does, so reaching main with no archive and a ROM present is the normal first run.
+ * It reports rather than refuses: whether the game can start is libultraship's answer to
+ * give, and it gives it a few frames later with more of the picture than this has.
  */
 static void soh_report_game_data(void);
 
@@ -58,8 +59,8 @@ static void soh_report_game_data(void) {
     }
 
     oops_log_error("SOH",
-                   "oot.o2r missing - put an Ocarina of Time ROM in %s "
-                   "and the title will build the archive from it",
+                   "oot.o2r missing - convert an Ocarina of Time ROM to it on a desktop "
+                   "and copy the archive to %s",
                    OOPS_POSIX_HOME);
 }
 

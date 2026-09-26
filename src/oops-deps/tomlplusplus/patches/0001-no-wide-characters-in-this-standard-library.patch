@@ -1,0 +1,65 @@
+The standard library here has no wide characters, so neither does toml++
+
+`oops-deps/libcxx` is built with `_LIBCPP_HAS_WIDE_CHARACTERS 0`: `std::wstring`
+and `std::wstring_view` do not exist, and `<wchar.h>` omits the functions they
+would need. toml++ already has a switch for the feature that uses them -
+`TOML_ENABLE_WINDOWS_COMPAT`, off here because this is not Windows - but two
+places name the types outside it.
+
+**The `is_wide_string` trait.** Its definition names `std::wstring_view` and
+`std::wstring` unconditionally, although every *use* of it is behind
+`TOML_ENABLE_WINDOWS_COMPAT` (`make_node.hpp:45`, `node_view.hpp:490` and the
+comparison operators beside them, each a `static_assert` saying a wide string is
+not accepted without the switch). With the switch off the trait is false for
+every type that reaches it, so that is what it is defined as.
+
+**The `std::wstring` arm of `value::get()`.** `if constexpr` discards the branch
+but the type still has to be declared for the condition to be written, so the
+arm itself moves inside the switch rather than its body. The `static_assert`
+that stood in the `#else` goes with it: an unreachable branch cannot be reached,
+and the arm no longer exists to reach.
+
+Turning wide characters on in libc++ instead is the other way to fix this, and a
+larger one: it wants `wmemcpy`, `wcslen`, `mbrtowc`, `wcsrtombs` and the rest
+from the C library, and a libc++ that compiles and then fails to link is worse
+than the flag being off. It also affects every C++ title here rather than this
+one header.
+
+diff --git a/include/toml++/impl/forward_declarations.hpp b/include/toml++/impl/forward_declarations.hpp
+index 386a9e0..97d01f3 100644
+--- a/include/toml++/impl/forward_declarations.hpp
++++ b/include/toml++/impl/forward_declarations.hpp
+@@ -401,8 +401,12 @@ TOML_IMPL_NAMESPACE_START
+ 	inline constexpr bool is_cvref = std::is_reference_v<T> || std::is_const_v<T> || std::is_volatile_v<T>;
+ 
+ 	template <typename T>
++#if TOML_ENABLE_WINDOWS_COMPAT
+ 	inline constexpr bool is_wide_string =
+ 		is_one_of<std::decay_t<T>, const wchar_t*, wchar_t*, std::wstring_view, std::wstring>;
++#else
++	inline constexpr bool is_wide_string = false;
++#endif
+ 
+ 	template <typename T>
+ 	inline constexpr bool value_retrieval_is_nothrow = !std::is_same_v<remove_cvref<T>, std::string>
+diff --git a/include/toml++/impl/value.hpp b/include/toml++/impl/value.hpp
+index 6fb35dc..54e34fe 100644
+--- a/include/toml++/impl/value.hpp
++++ b/include/toml++/impl/value.hpp
+@@ -1006,14 +1006,12 @@ TOML_NAMESPACE_START
+ 			else if constexpr (std::is_same_v<T, const char*>)
+ 				return str.c_str();
+ 
++#if TOML_ENABLE_WINDOWS_COMPAT
+ 			else if constexpr (std::is_same_v<T, std::wstring>)
+ 			{
+-#if TOML_ENABLE_WINDOWS_COMPAT
+ 				return widen(str);
+-#else
+-				static_assert(always_false<T>, "Evaluated unreachable branch!");
+-#endif
+ 			}
++#endif
+ 
+ #if TOML_HAS_CHAR8
+ 

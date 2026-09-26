@@ -24,7 +24,10 @@ OOPS_OPUS_LDFLAGS := $(OOPS_OPUS_LIB)
 
 # Programs, test harnesses and the architecture-specific kernels, which a configure check would
 # pick. Everything else in the three trees is portable C.
-OOPS_OPUS_EXCLUDE := %/opus_demo.c %/repacketizer_demo.c %/opus_compare.c %/trivial_example.c \
+# The programs are named by `%_demo.c` rather than one by one: `celt/opus_custom_demo.c` is not in
+# `src/` with the others, and its `main` collided with the payload's. `src/extensions.c` and
+# `celt/laplace.c` carry a `main` too, each behind `#if 0`, so they stay.
+OOPS_OPUS_EXCLUDE := %_demo.c %/opus_compare.c %/trivial_example.c \
                      %_sse.c %_sse2.c %_sse4_1.c %_avx2.c %_neon_intr.c %_arm.c %_dump.c \
                      %/mlp_train.c %/dump_modes.c %/tansig_table.c
 

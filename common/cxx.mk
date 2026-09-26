@@ -66,8 +66,13 @@ endif
 #
 # Safe although app.mk has not been read yet: OOPS_CXX_FLAGS is recursive (`=`), so these expand when
 # a compile runs, by which time app.mk has set all three.
-OOPS_CXX_APP_DEFINES = -DOOPS_APP_ID=\"$(TITLE_ID)\" -DOOPS_APP_NAME=\"$(APP_NAME)\" \
-                       -D'OOPS_APP_VERSION="$(BUILD_VERSION)"'
+#
+# `OOPS_APP_VERSION` is deliberately not among them. app.mk sets `BUILD_VERSION` from the clock to the
+# minute outside CI, and only the gl1/gl2 probe and cube payloads read the macro - all of them C. On
+# the C++ side it bought nothing and cost the precompiled header: clang compares the macros a header
+# was precompiled with against each source's command line and refuses a mismatch, so a build that
+# crossed a minute boundary stopped with the two timestamps quoted at it.
+OOPS_CXX_APP_DEFINES = -DOOPS_APP_ID=\"$(TITLE_ID)\" -DOOPS_APP_NAME=\"$(APP_NAME)\"
 
 OOPS_CXX_FLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                  -nostdinc++ $(OOPS_CXX_EH_FLAGS) -fPIC -fno-stack-protector \
@@ -77,6 +82,40 @@ OOPS_CXX_FLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nos
                  $(OOPS_CXX_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) \
                  $(EXTRA_TARGET_CFLAGS)
 
+# --- the precompiled header --------------------------------------------------
+#
+# 4,372 of the 7,907 headers one Ship of Harkinian source reads are libc++'s own and another 2,126 are
+# the compiler's builtins: 82% of a parse that is 52 of that source's 63 seconds, repeated across
+# every source in the title. `cxx_pch.hpp` holds the standard headers they share, precompiled once and
+# injected ahead of each source.
+#
+# Once per title rather than once for the collection: the precompiled form is only valid for the exact
+# flags it was built with, and each title's differ.
+#
+# `OOPS_CXX_PCH = 0` turns it off - for a title whose sources set a macro that a standard header
+# reads, which arriving first would change the meaning of.
+OOPS_CXX_PCH ?= 1
+ifeq ($(OOPS_CXX_PCH),1)
+OOPS_CXX_PCH_HEADER := $(OOPS_CXX_MK_DIR)/cxx_pch.hpp
+OOPS_CXX_PCH_OUT    := $(OOPS_CXX_BUILD)/cxx_pch.pch
+# Built with `OOPS_CXX_FLAGS` and used with those flags plus this one, which is the rule clang
+# enforces: a mismatch is an error naming the flag that differs, not a silently stale header.
+OOPS_CXX_OBJ_FLAGS = -include-pch $(OOPS_CXX_PCH_OUT) $(OOPS_CXX_FLAGS)
+
+# `-MMD`, and the depfile read back below, because the precompiled form holds the *contents* of
+# several thousand headers: without it, editing one of them leaves the file stale and every source
+# keeps compiling against what it said before. That is a silent wrong answer rather than a build
+# failure - an `oops-sdk/include/libc/wchar.h` addition went missing exactly this way.
+$(OOPS_CXX_PCH_OUT): $(OOPS_CXX_PCH_HEADER) $(oops_makefiles)
+	@mkdir -p $(@D)
+	$(TARGET_CXX) $(OOPS_CXX_FLAGS) -MMD -MP -MF $@.d -x c++-header -o $@ $(OOPS_CXX_PCH_HEADER)
+	@echo "cxx: precompiled header -> $@"
+
+-include $(OOPS_CXX_PCH_OUT).d
+else
+OOPS_CXX_OBJ_FLAGS = $(OOPS_CXX_FLAGS)
+endif
+
 # `--whole-archive`: `app.mk` puts LDFLAGS before the objects that need the archive.
 OOPS_CXX_LDFLAGS := -Wl,--whole-archive $(OOPS_CXX_LIB) -Wl,--no-whole-archive
 
@@ -84,7 +123,12 @@ OOPS_CXX_LDFLAGS := -Wl,--whole-archive $(OOPS_CXX_LIB) -Wl,--no-whole-archive
 # leaves nothing behind in the archive.
 OOPS_CXX_OBJS := $(call oops_objs,$(OOPS_CXX_BUILD)/obj,$(OOPS_CXX_RT_SRC) $(OOPS_CXX_SRCS))
 -include $(OOPS_CXX_OBJS:.o=.d)
-$(call oops_obj_rules,$(OOPS_CXX_BUILD)/obj,TARGET_CXX,OOPS_CXX_FLAGS,$(OOPS_CXX_RT_SRC) $(OOPS_CXX_SRCS))
+$(call oops_obj_rules,$(OOPS_CXX_BUILD)/obj,TARGET_CXX,OOPS_CXX_OBJ_FLAGS,$(OOPS_CXX_RT_SRC) $(OOPS_CXX_SRCS))
+ifeq ($(OOPS_CXX_PCH),1)
+# An extra prerequisite on the rules above: `oops_obj_rules` has no hook for one, and prerequisites
+# from separate rules accumulate.
+$(OOPS_CXX_OBJS): $(OOPS_CXX_PCH_OUT)
+endif
 
 # OOPS_CXX_LINK_OBJECTS = 1 links the objects directly, for a title whose sources share
 # file names (see `oops_ar_check` in `common/deps.mk`). The archive is whole-archive, so
