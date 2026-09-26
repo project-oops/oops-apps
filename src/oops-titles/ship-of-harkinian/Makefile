@@ -360,3 +360,10 @@ TARGET_CFLAGS += $(SOH_WARNINGS)
 ifneq ($(SOH_ARMED),1)
 .DEFAULT_GOAL := survey
 endif
+
+# `skeleton` compiles the first payload source with the target flags, and every one of
+# them is compiled with `-include ship/cvars_generated.h`. The rule in `common/app.mk`
+# orders itself against `$(BUILD)` alone, so on a clean tree it runs before the header
+# is generated and the compile stops on a missing include. Order-only, so regenerating
+# the header does not force the smoke compile to run again.
+skeleton: | $(SOH_CVARS_H)
