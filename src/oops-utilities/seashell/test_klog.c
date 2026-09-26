@@ -13,10 +13,12 @@ static void simple_klog(const char *msg) {
     size_t pos = 0;
     const char *tag = "TEST";
     buf[pos++] = '[';
-    for (int i = 0; tag[i] && pos < 200; i++) buf[pos++] = tag[i];
+    for (int i = 0; tag[i] && pos < 200; i++)
+        buf[pos++] = tag[i];
     buf[pos++] = ']';
     buf[pos++] = ' ';
-    for (int i = 0; msg[i] && pos < 250; i++) buf[pos++] = msg[i];
+    for (int i = 0; msg[i] && pos < 250; i++)
+        buf[pos++] = msg[i];
     buf[pos++] = '\n';
     buf[pos] = '\0';
     sys_call(601, 7, (long)buf, 0, 0, 0, 0);

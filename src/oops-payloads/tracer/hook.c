@@ -25,13 +25,15 @@ static void *allocate_rwx_pool(size_t size) {
 
 static int set_memory_rwx(void *addr, size_t len) {
     uintptr_t start = (uintptr_t)addr & ~((uintptr_t)PAGE_SIZE - 1u);
-    uintptr_t end = ((uintptr_t)addr + len + PAGE_SIZE - 1u) & ~((uintptr_t)PAGE_SIZE - 1u);
+    uintptr_t end =
+        ((uintptr_t)addr + len + PAGE_SIZE - 1u) & ~((uintptr_t)PAGE_SIZE - 1u);
     size_t size = end - start;
     return mprotect((void *)start, size, PROT_READ | PROT_WRITE | PROT_EXEC);
 }
 #else
 static void *allocate_rwx_pool(size_t size) {
-    /* SYS_mmap 477, PROT_READ|PROT_WRITE|PROT_EXEC = 7, MAP_PRIVATE|MAP_ANON = 0x1002 */
+    /* SYS_mmap 477, PROT_READ|PROT_WRITE|PROT_EXEC = 7, MAP_PRIVATE|MAP_ANON = 0x1002
+     */
     long ret = sys_call(SYS_mmap, 0, (long)size, 7, 0x1002, -1, 0);
     if (ret <= 0 || (unsigned long)ret >= 0xFFFFFFFFFFFFF000ULL) {
         return NULL;
@@ -41,7 +43,8 @@ static void *allocate_rwx_pool(size_t size) {
 
 static int set_memory_rwx(void *addr, size_t len) {
     uintptr_t start = (uintptr_t)addr & ~((uintptr_t)PAGE_SIZE - 1u);
-    uintptr_t end = ((uintptr_t)addr + len + PAGE_SIZE - 1u) & ~((uintptr_t)PAGE_SIZE - 1u);
+    uintptr_t end =
+        ((uintptr_t)addr + len + PAGE_SIZE - 1u) & ~((uintptr_t)PAGE_SIZE - 1u);
     size_t size = end - start;
     long ret = sys_call(SYS_mprotect, (long)start, (long)size, 7, 0, 0, 0);
     return (ret == 0) ? 0 : -1;
@@ -102,7 +105,8 @@ static void emit_abs_jump(uint8_t *dst, void *target) {
     }
 }
 
-int tracer_hook_install(tracer_hook_t *hook, void *target_fn, void *hook_fn, size_t patch_size) {
+int tracer_hook_install(tracer_hook_t *hook, void *target_fn, void *hook_fn,
+                        size_t patch_size) {
     if (hook == NULL || target_fn == NULL || hook_fn == NULL) {
         return -1;
     }

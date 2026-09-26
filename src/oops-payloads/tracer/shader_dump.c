@@ -68,15 +68,19 @@ static void hash_to_hex(uint64_t hash, char *out17) {
     out17[16] = '\0';
 }
 
-static void make_path(char *dst, size_t dst_size, const char *dir, const char *hex, const char *ext) {
+static void make_path(char *dst, size_t dst_size, const char *dir, const char *hex,
+                      const char *ext) {
     size_t dlen = 0;
-    while (dir[dlen] != '\0') dlen++;
+    while (dir[dlen] != '\0')
+        dlen++;
 
     size_t hlen = 0;
-    while (hex[hlen] != '\0') hlen++;
+    while (hex[hlen] != '\0')
+        hlen++;
 
     size_t elen = 0;
-    while (ext[elen] != '\0') elen++;
+    while (ext[elen] != '\0')
+        elen++;
 
     size_t pos = 0;
     for (size_t i = 0; i < dlen && pos + 1 < dst_size; i++) {
@@ -157,7 +161,8 @@ static uint32_t parse_shader_size(const void *header, const void *payload) {
     return size;
 }
 
-int hook_sceAgcCreateShader(void *shader_obj, const void *header, void *gpu_payload, uint32_t flags) {
+int hook_sceAgcCreateShader(void *shader_obj, const void *header, void *gpu_payload,
+                            uint32_t flags) {
     if (gpu_payload != NULL) {
         uint32_t stage = parse_shader_stage(header);
         uint32_t size = parse_shader_size(header, gpu_payload);
@@ -180,12 +185,13 @@ int hook_sceAgcCreateShader(void *shader_obj, const void *header, void *gpu_payl
             add_hash_seen(hash);
         }
 
-        tracer_record_shader((uint64_t)(uintptr_t)gpu_payload, size, stage, (const uint8_t *)gpu_payload);
+        tracer_record_shader((uint64_t)(uintptr_t)gpu_payload, size, stage,
+                             (const uint8_t *)gpu_payload);
     }
 
     if (g_hook_agc_create_shader.trampoline != NULL) {
-        int (*real_create)(void *, const void *, void *, uint32_t) =
-            (int (*)(void *, const void *, void *, uint32_t))g_hook_agc_create_shader.trampoline;
+        int (*real_create)(void *, const void *, void *, uint32_t) = (int (*)(
+            void *, const void *, void *, uint32_t))g_hook_agc_create_shader.trampoline;
         return real_create(shader_obj, header, gpu_payload, flags);
     }
     return 0;

@@ -11,10 +11,10 @@
 #include <stdbool.h>
 
 typedef struct {
-    float *positions;   /* 3 floats per vertex (x, y, z) */
-    float *normals;     /* 3 floats per vertex (nx, ny, nz) */
-    float *texcoords;   /* 2 floats per vertex (u, v) */
-    float *colors;      /* 3 floats per vertex (r, g, b) */
+    float *positions; /* 3 floats per vertex (x, y, z) */
+    float *normals;   /* 3 floats per vertex (nx, ny, nz) */
+    float *texcoords; /* 2 floats per vertex (u, v) */
+    float *colors;    /* 3 floats per vertex (r, g, b) */
     size_t vertex_count;
     size_t triangle_count;
 } oops_mesh_t;
@@ -42,7 +42,8 @@ int oops_mesh_create_torus(oops_mesh_t *out_mesh, int num_major, int num_minor,
 /*
  * Generates a smooth 3D UV Sphere with normals, colors, and UV coordinates.
  */
-int oops_mesh_create_sphere(oops_mesh_t *out_mesh, int num_lat, int num_lon, float radius);
+int oops_mesh_create_sphere(oops_mesh_t *out_mesh, int num_lat, int num_lon,
+                            float radius);
 
 /*
  * Frees allocated vertex buffers within oops_mesh_t.

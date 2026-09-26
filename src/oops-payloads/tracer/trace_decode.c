@@ -46,7 +46,8 @@ void obs_trace_decode_record(const struct obs_trace_rec *r, FILE *out) {
             const uint8_t *payload = (const uint8_t *)&r->arg[2];
             fprintf(out, "OBS|outbuf|");
             print_nid(out, r->nid);
-            fprintf(out, "|%llx|%llu|", (unsigned long long)addr, (unsigned long long)len);
+            fprintf(out, "|%llx|%llu|", (unsigned long long)addr,
+                    (unsigned long long)len);
             for (unsigned i = 0; i < r->argc && i < OBS_TRACE_OUTBUF_INLINE; i++) {
                 fprintf(out, "%02x", payload[i]);
             }
@@ -83,8 +84,8 @@ void obs_trace_decode_record(const struct obs_trace_rec *r, FILE *out) {
         uint64_t addr = r->arg[0];
         uint64_t dwords = r->arg[1];
         uint32_t queue = (uint32_t)r->arg[2];
-        fprintf(out, "OBS|dcb|%u|%llu|%llx\n", queue,
-                (unsigned long long)dwords, (unsigned long long)addr);
+        fprintf(out, "OBS|dcb|%u|%llu|%llx\n", queue, (unsigned long long)dwords,
+                (unsigned long long)addr);
         break;
     }
     default:
@@ -108,7 +109,8 @@ int obs_trace_decode_stream(FILE *in, FILE *out) {
         return 2;
     }
     if (hdr.version != OBS_TRACE_VERSION && hdr.version != 1u) {
-        fprintf(stderr, "trace_decode: unsupported version %u\n", (unsigned)hdr.version);
+        fprintf(stderr, "trace_decode: unsupported version %u\n",
+                (unsigned)hdr.version);
         return 3;
     }
     if (hdr.rec_size != OBS_TRACE_REC_SIZE) {
@@ -135,4 +137,3 @@ int main(void) {
     return obs_trace_decode_stream(stdin, stdout);
 }
 #endif
-

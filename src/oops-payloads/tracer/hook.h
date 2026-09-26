@@ -24,7 +24,8 @@ typedef struct tracer_hook {
 int tracer_hook_subsystem_init(void);
 
 /* Install an inline detour hook on target_fn redirecting to hook_fn */
-int tracer_hook_install(tracer_hook_t *hook, void *target_fn, void *hook_fn, size_t patch_size);
+int tracer_hook_install(tracer_hook_t *hook, void *target_fn, void *hook_fn,
+                        size_t patch_size);
 
 /* Uninstall an inline detour hook, restoring original instructions */
 int tracer_hook_uninstall(tracer_hook_t *hook);
@@ -34,4 +35,3 @@ int tracer_hook_uninstall(tracer_hook_t *hook);
 #endif
 
 #endif /* OOPS_TRACER_HOOK_H */
-

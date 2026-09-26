@@ -5,8 +5,8 @@
 #include "oops/input.h"
 
 /*
- * home - clean-room reimplementation of the Prospero shell (Prospero UX / SceShellCore) for homebrew
- * and the Orbistoun emulator.
+ * home - clean-room reimplementation of the Prospero shell (Prospero UX / SceShellCore)
+ * for homebrew and the Orbistoun emulator.
  *
  * Two audiences, one codebase:
  * 1. The front-end UI and system software shell for Orbistoun.
@@ -14,11 +14,13 @@
  *
  * # The split: the model does everything that does not touch a machine
  *
- * - The model (home.c) manages screens, navigation, dialogs, cursor state, and software drawing.
- *   It runs headlessly, allocates nothing from libc, and has zero external dependencies.
- * - The host (home_host_t, home_main.c) handles title launching, process lifecycle, package
- *   installation, save states, captures, and machine power. In Orbistoun, the host dispatch
- *   drives the emulator's subsystems; on real hardware, it talks to kernel services.
+ * - The model (home.c) manages screens, navigation, dialogs, cursor state, and software
+ * drawing. It runs headlessly, allocates nothing from libc, and has zero external
+ * dependencies.
+ * - The host (home_host_t, home_main.c) handles title launching, process lifecycle,
+ * package installation, save states, captures, and machine power. In Orbistoun, the
+ * host dispatch drives the emulator's subsystems; on real hardware, it talks to kernel
+ * services.
  *
  * # Controller binding
  *
@@ -48,7 +50,8 @@
 #define HOME_MAX_CAPTURES 8
 #define HOME_NAV_DEPTH 8
 
-/* ---- skins & themes --------------------------------------------------------------------- */
+/* ---- skins & themes
+ * --------------------------------------------------------------------- */
 
 #include "skin.h"
 
@@ -70,12 +73,10 @@ int home_theme_count(void);
 const home_theme_t *home_theme_at(int index);
 void home_next_theme(struct home_model *m);
 
-/* ---- navigation modes & top bar --------------------------------------------------------- */
+/* ---- navigation modes & top bar
+ * --------------------------------------------------------- */
 
-typedef enum home_mode {
-    HOME_MODE_GAMES = 0,
-    HOME_MODE_MEDIA = 1
-} home_mode_t;
+typedef enum home_mode { HOME_MODE_GAMES = 0, HOME_MODE_MEDIA = 1 } home_mode_t;
 
 typedef enum home_top_nav {
     HOME_TOP_NAV_NONE = 0,     /* Focus on main carousel/content */
@@ -85,60 +86,62 @@ typedef enum home_top_nav {
     HOME_TOP_NAV_PROFILE = 4   /* Focus on Profile avatar */
 } home_top_nav_t;
 
-/* ---- screens ---------------------------------------------------------------------------- */
+/* ---- screens
+ * ---------------------------------------------------------------------------- */
 
 typedef enum home_screen {
-    HOME_SCREEN_GAMES = 0,             /* Games carousel & game hub (default) */
-    HOME_SCREEN_MEDIA,                 /* Media apps carousel */
-    HOME_SCREEN_LIBRARY,               /* Installed / Collection / Homebrew */
-    HOME_SCREEN_TITLE_OPTIONS,         /* Options context menu on title */
-    HOME_SCREEN_TITLE_INFO,            /* Metadata & file details */
-    HOME_SCREEN_CONTROL,               /* Quick menu: 13-dock + cards */
-    HOME_SCREEN_SWITCHER,              /* Active running title & recent switcher */
-    HOME_SCREEN_NOTIFICATIONS,         /* Unread and history notifications */
-    HOME_SCREEN_GAME_BASE,             /* Friends online & voice parties */
-    HOME_SCREEN_MUSIC,                 /* Background audio player */
-    HOME_SCREEN_CAPTURES,              /* Media gallery (screenshots & video clips) */
-    HOME_SCREEN_PROFILE,               /* User status, trophies, switch user */
-    HOME_SCREEN_POWER,                 /* Rest mode, Restart, Power Off, Log Out */
-    HOME_SCREEN_SETTINGS,              /* Root settings tree */
-    HOME_SCREEN_SETTINGS_SYSTEM,       /* Console info, FW, Power Saving, HDMI */
-    HOME_SCREEN_SETTINGS_STORAGE,      /* Storage visual meter & content manager */
-    HOME_SCREEN_SETTINGS_SOUND,        /* Output device, 3D audio, volume, mic */
-    HOME_SCREEN_SETTINGS_VIDEO,        /* Resolution, refresh rate, HDR, display */
-    HOME_SCREEN_SETTINGS_ACCESSORIES,  /* Controllers, input devices, haptics */
-    HOME_SCREEN_SETTINGS_SAVES,        /* Save data management (backup, USB, delete) */
-    HOME_SCREEN_SETTINGS_DEVELOPER,    /* Package installer, payload runner, klog */
-    HOME_SCREEN_SETTINGS_EMULATOR,     /* Save states, FPS toggle, host sync */
-    HOME_SCREEN_SETTINGS_THEME,        /* Themes and skins selection */
-    HOME_SCREEN_SEARCH,                /* Universal search with on-screen keyboard */
+    HOME_SCREEN_GAMES = 0,            /* Games carousel & game hub (default) */
+    HOME_SCREEN_MEDIA,                /* Media apps carousel */
+    HOME_SCREEN_LIBRARY,              /* Installed / Collection / Homebrew */
+    HOME_SCREEN_TITLE_OPTIONS,        /* Options context menu on title */
+    HOME_SCREEN_TITLE_INFO,           /* Metadata & file details */
+    HOME_SCREEN_CONTROL,              /* Quick menu: 13-dock + cards */
+    HOME_SCREEN_SWITCHER,             /* Active running title & recent switcher */
+    HOME_SCREEN_NOTIFICATIONS,        /* Unread and history notifications */
+    HOME_SCREEN_GAME_BASE,            /* Friends online & voice parties */
+    HOME_SCREEN_MUSIC,                /* Background audio player */
+    HOME_SCREEN_CAPTURES,             /* Media gallery (screenshots & video clips) */
+    HOME_SCREEN_PROFILE,              /* User status, trophies, switch user */
+    HOME_SCREEN_POWER,                /* Rest mode, Restart, Power Off, Log Out */
+    HOME_SCREEN_SETTINGS,             /* Root settings tree */
+    HOME_SCREEN_SETTINGS_SYSTEM,      /* Console info, FW, Power Saving, HDMI */
+    HOME_SCREEN_SETTINGS_STORAGE,     /* Storage visual meter & content manager */
+    HOME_SCREEN_SETTINGS_SOUND,       /* Output device, 3D audio, volume, mic */
+    HOME_SCREEN_SETTINGS_VIDEO,       /* Resolution, refresh rate, HDR, display */
+    HOME_SCREEN_SETTINGS_ACCESSORIES, /* Controllers, input devices, haptics */
+    HOME_SCREEN_SETTINGS_SAVES,       /* Save data management (backup, USB, delete) */
+    HOME_SCREEN_SETTINGS_DEVELOPER,   /* Package installer, payload runner, klog */
+    HOME_SCREEN_SETTINGS_EMULATOR,    /* Save states, FPS toggle, host sync */
+    HOME_SCREEN_SETTINGS_THEME,       /* Themes and skins selection */
+    HOME_SCREEN_SEARCH,               /* Universal search with on-screen keyboard */
     HOME_SCREEN_COUNT
 } home_screen_t;
 
 /* Aliases for compatibility */
-#define HOME_SCREEN_HOME  HOME_SCREEN_GAMES
+#define HOME_SCREEN_HOME HOME_SCREEN_GAMES
 #define HOME_SCREEN_TITLE HOME_SCREEN_TITLE_OPTIONS
 
-/* ---- actions ---------------------------------------------------------------------------- */
+/* ---- actions
+ * ---------------------------------------------------------------------------- */
 
 typedef enum home_action {
     HOME_ACTION_NONE = 0,
-    HOME_ACTION_OPEN,             /* arg: home_screen_t */
+    HOME_ACTION_OPEN, /* arg: home_screen_t */
     HOME_ACTION_BACK,
     HOME_ACTION_NEXT_THEME,
-    HOME_ACTION_SET_THEME,         /* arg: skin index */
-    HOME_ACTION_TOGGLE_MODE,      /* Games <-> Media */
-    HOME_ACTION_LAUNCH_TITLE,     /* arg: index into titles */
-    HOME_ACTION_TITLE_INFO,       /* arg: index into titles */
-    HOME_ACTION_DELETE_TITLE,     /* arg: index into titles */
-    HOME_ACTION_CHECK_UPDATE,     /* arg: index into titles */
-    HOME_ACTION_MANAGE_CONTENT,   /* arg: index into titles */
-    HOME_ACTION_SYNC_SAVE,        /* arg: index into titles */
-    HOME_ACTION_SUSPEND_TITLE,    /* suspend current title */
-    HOME_ACTION_RESUME_TITLE,     /* resume suspended title */
-    HOME_ACTION_TERMINATE_TITLE,  /* close running title */
-    HOME_ACTION_INSTALL_PACKAGE,  /* install pkg */
-    HOME_ACTION_RUN_PAYLOAD,      /* run payload */
+    HOME_ACTION_SET_THEME,       /* arg: skin index */
+    HOME_ACTION_TOGGLE_MODE,     /* Games <-> Media */
+    HOME_ACTION_LAUNCH_TITLE,    /* arg: index into titles */
+    HOME_ACTION_TITLE_INFO,      /* arg: index into titles */
+    HOME_ACTION_DELETE_TITLE,    /* arg: index into titles */
+    HOME_ACTION_CHECK_UPDATE,    /* arg: index into titles */
+    HOME_ACTION_MANAGE_CONTENT,  /* arg: index into titles */
+    HOME_ACTION_SYNC_SAVE,       /* arg: index into titles */
+    HOME_ACTION_SUSPEND_TITLE,   /* suspend current title */
+    HOME_ACTION_RESUME_TITLE,    /* resume suspended title */
+    HOME_ACTION_TERMINATE_TITLE, /* close running title */
+    HOME_ACTION_INSTALL_PACKAGE, /* install pkg */
+    HOME_ACTION_RUN_PAYLOAD,     /* run payload */
     HOME_ACTION_SWITCH_USER,
     HOME_ACTION_TOGGLE_SOUND,
     HOME_ACTION_TOGGLE_MIC,
@@ -153,15 +156,15 @@ typedef enum home_action {
     HOME_ACTION_RESTART,
     HOME_ACTION_POWER_OFF,
     HOME_ACTION_DISMISS_NOTICE,
-    HOME_ACTION_TRIGGER_DIALOG,   /* arg: home_dialog_type_t */
+    HOME_ACTION_TRIGGER_DIALOG, /* arg: home_dialog_type_t */
     HOME_ACTION_CLOSE_DIALOG,
     HOME_ACTION_CONFIRM_DIALOG,
-    HOME_ACTION_IME_KEY,          /* arg: character */
+    HOME_ACTION_IME_KEY, /* arg: character */
     HOME_ACTION_IME_BACKSPACE,
     HOME_ACTION_IME_SUBMIT,
-    HOME_ACTION_TOGGLE_FAVORITE,  /* arg: index into titles */
+    HOME_ACTION_TOGGLE_FAVORITE,    /* arg: index into titles */
     HOME_ACTION_SET_LIBRARY_FILTER, /* arg: home_filter_t */
-    HOME_ACTION_RESCAN_TITLES     /* refresh/rescan titles on disk */
+    HOME_ACTION_RESCAN_TITLES       /* refresh/rescan titles on disk */
 } home_action_t;
 
 /* Library category filter modes */
@@ -190,16 +193,17 @@ typedef struct home_menu {
     int cursor;
 } home_menu_t;
 
-/* ---- data structures -------------------------------------------------------------------- */
+/* ---- data structures
+ * -------------------------------------------------------------------- */
 
 /* One title on the carousel / library */
 typedef struct home_title {
-    const char *id;           /* "PPSA01325" or "OOPS00001" */
-    const char *name;         /* Uppercase */
-    const char *category;     /* "PROSPERO BIG APP (0)", "MINI APP (1)", "ORBIS", "ELF" */
-    const char *version;      /* "1.002.000" */
+    const char *id;       /* "PPSA01325" or "OOPS00001" */
+    const char *name;     /* Uppercase */
+    const char *category; /* "PROSPERO BIG APP (0)", "MINI APP (1)", "ORBIS", "ELF" */
+    const char *version;  /* "1.002.000" */
     int size_mb;
-    int installed;            /* 1 = installed, 0 = available */
+    int installed; /* 1 = installed, 0 = available */
     int minutes_played;
     int last_played_days_ago;
     int trophy_unlocked;
@@ -207,7 +211,7 @@ typedef struct home_title {
     const uint32_t *icon_pixels; /* 32bpp ARGB pixels or NULL */
     int icon_width;
     int icon_height;
-    int favorite;             /* 1 = pinned to favorites, 0 = normal */
+    int favorite; /* 1 = pinned to favorites, 0 = normal */
 } home_title_t;
 
 /* One activity card beneath carousel */
@@ -298,10 +302,10 @@ typedef struct home_dev_state {
 /* Common dialog types */
 typedef enum home_dialog_type {
     HOME_DIALOG_NONE = 0,
-    HOME_DIALOG_CONFIRM,   /* OK / Cancel prompt */
-    HOME_DIALOG_PROGRESS,  /* Visual progress bar */
-    HOME_DIALOG_IME,       /* Virtual on-screen keyboard */
-    HOME_DIALOG_ERROR      /* Formatted error code modal */
+    HOME_DIALOG_CONFIRM,  /* OK / Cancel prompt */
+    HOME_DIALOG_PROGRESS, /* Visual progress bar */
+    HOME_DIALOG_IME,      /* Virtual on-screen keyboard */
+    HOME_DIALOG_ERROR     /* Formatted error code modal */
 } home_dialog_type_t;
 
 /* Common dialog state */
@@ -310,7 +314,7 @@ typedef struct home_dialog {
     const char *title;
     const char *message;
     int progress_percent;
-    int confirm_choice;    /* 0 = Cancel, 1 = Confirm */
+    int confirm_choice; /* 0 = Cancel, 1 = Confirm */
     home_action_t on_confirm;
     int on_confirm_arg;
 
@@ -351,8 +355,8 @@ typedef struct home_status {
 #define HOME_MAX_PERSIST_FAVORITES 16
 
 typedef struct home_settings_persist {
-    uint32_t magic;           /* HOME_SETTINGS_MAGIC */
-    uint32_t version;         /* HOME_SETTINGS_VERSION */
+    uint32_t magic;   /* HOME_SETTINGS_MAGIC */
+    uint32_t version; /* HOME_SETTINGS_VERSION */
     int theme_index;
     int mode;
     int sound_volume;
@@ -368,7 +372,8 @@ typedef struct home_host {
     int (*perform)(void *ctx, home_action_t action, int arg);
 } home_host_t;
 
-/* ---- the model -------------------------------------------------------------------------- */
+/* ---- the model
+ * -------------------------------------------------------------------------- */
 
 typedef struct home_model {
     home_menu_t menus[HOME_SCREEN_COUNT];
@@ -434,12 +439,12 @@ typedef struct home_model {
 
     /* Status bar, skin & theme */
     home_status_t status;
-    int skin_idx;                         /* 0..home_skin_count()-1 */
-    int theme;                            /* alias synchronized with skin_idx */
+    int skin_idx; /* 0..home_skin_count()-1 */
+    int theme;    /* alias synchronized with skin_idx */
 
     /* Generic multi-category navigation state */
-    int category_idx;                                /* active category / section */
-    int category_cursor[HOME_MAX_SKIN_CATEGORIES];   /* per-category item cursor */
+    int category_idx;                              /* active category / section */
+    int category_cursor[HOME_MAX_SKIN_CATEGORIES]; /* per-category item cursor */
 
     home_host_t host;
 
@@ -457,7 +462,8 @@ typedef enum home_direction {
     HOME_DOWN = 3
 } home_direction_t;
 
-/* ---- model API -------------------------------------------------------------------------- */
+/* ---- model API
+ * -------------------------------------------------------------------------- */
 
 void home_model_init(home_model_t *m);
 void home_refresh_telemetry(home_model_t *m);
@@ -466,7 +472,7 @@ void home_set_titles(home_model_t *m, const home_title_t *titles, int count);
 
 home_screen_t home_screen(const home_model_t *m);
 void home_open(home_model_t *m, home_screen_t screen);
-int  home_back(home_model_t *m);
+int home_back(home_model_t *m);
 void home_toggle_control_centre(home_model_t *m);
 void home_switch_mode(home_model_t *m, home_mode_t mode);
 
@@ -474,9 +480,10 @@ home_menu_t *home_current_menu(home_model_t *m);
 const home_menu_t *home_current_menu_const(const home_model_t *m);
 
 void home_move(home_model_t *m, home_direction_t dir);
-int  home_activate(home_model_t *m);
+int home_activate(home_model_t *m);
 
-void home_show_dialog(home_model_t *m, home_dialog_type_t type, const char *title, const char *msg);
+void home_show_dialog(home_model_t *m, home_dialog_type_t type, const char *title,
+                      const char *msg);
 void home_show_error(home_model_t *m, const char *code, const char *desc);
 void home_close_dialog(home_model_t *m);
 void home_show_toast(home_model_t *m, const char *title, const char *msg);
@@ -494,19 +501,21 @@ const home_title_t *home_selected_title(const home_model_t *m);
 const home_item_t *home_selected_item(const home_model_t *m);
 
 void home_next_theme(home_model_t *m);
-int  home_unread_count(const home_model_t *m);
+int home_unread_count(const home_model_t *m);
 
-/* ---- rendering -------------------------------------------------------------------------- */
+/* ---- rendering
+ * -------------------------------------------------------------------------- */
 
-int home_cursor_rect(const home_model_t *m, const home_theme_t *theme,
-                     int *x, int *y, int *w, int *h);
+int home_cursor_rect(const home_model_t *m, const home_theme_t *theme, int *x, int *y,
+                     int *w, int *h);
 int home_render(oops_surface_t *surf, const home_model_t *m, const home_theme_t *theme);
 
-/* ---- pad input -------------------------------------------------------------------------- */
+/* ---- pad input
+ * -------------------------------------------------------------------------- */
 
 #define HOME_REPEAT_DELAY_FRAMES 18
 #define HOME_REPEAT_EVERY_FRAMES 5
-#define HOME_REPEAT_FAST_FRAMES  2
+#define HOME_REPEAT_FAST_FRAMES 2
 
 typedef struct home_input {
     uint32_t previous;
@@ -516,6 +525,6 @@ typedef struct home_input {
 } home_input_t;
 
 void home_input_reset(home_input_t *in);
-int  home_input_apply(home_input_t *in, home_model_t *m, uint32_t buttons);
+int home_input_apply(home_input_t *in, home_model_t *m, uint32_t buttons);
 
 #endif /* OOPS_APPS_HOME_H */

@@ -34,12 +34,15 @@ static inline bool is_digit(char c) {
 }
 
 static void skip_spaces(const char **p) {
-    while (**p && is_space(**p)) (*p)++;
+    while (**p && is_space(**p))
+        (*p)++;
 }
 
 static void skip_line(const char **p) {
-    while (**p && **p != '\n') (*p)++;
-    if (**p == '\n') (*p)++;
+    while (**p && **p != '\n')
+        (*p)++;
+    if (**p == '\n')
+        (*p)++;
 }
 
 static float parse_float(const char **p) {
@@ -90,8 +93,10 @@ static float parse_float(const char **p) {
         for (int i = 0; i < exp_val; i++) {
             mult *= 10.0f;
         }
-        if (exp_sign > 0.0f) res *= mult;
-        else if (mult > 0.0f) res /= mult;
+        if (exp_sign > 0.0f)
+            res *= mult;
+        else if (mult > 0.0f)
+            res /= mult;
     }
 
     return res;
@@ -121,7 +126,8 @@ static void parse_face_indices(const char **p, int *out_v, int *out_vt, int *out
     *out_vn = 0;
 
     skip_spaces(p);
-    if (!is_digit(**p) && **p != '-') return;
+    if (!is_digit(**p) && **p != '-')
+        return;
 
     *out_v = parse_int(p);
 
@@ -138,7 +144,8 @@ static void parse_face_indices(const char **p, int *out_v, int *out_vt, int *out
 }
 
 int oops_mesh_load_obj(const char *data, size_t size, oops_mesh_t *out_mesh) {
-    if (!data || size == 0 || !out_mesh) return -1;
+    if (!data || size == 0 || !out_mesh)
+        return -1;
     memset(out_mesh, 0, sizeof(*out_mesh));
 
     /* Pass 1: Count elements */
@@ -169,7 +176,8 @@ int oops_mesh_load_obj(const char *data, size_t size, oops_mesh_t *out_mesh) {
                 skip_spaces(&p);
                 if (is_digit(*p) || *p == '-') {
                     face_verts++;
-                    while (*p && !is_space(*p) && *p != '\n' && *p != '\r') p++;
+                    while (*p && !is_space(*p) && *p != '\n' && *p != '\r')
+                        p++;
                 } else {
                     break;
                 }
@@ -183,27 +191,41 @@ int oops_mesh_load_obj(const char *data, size_t size, oops_mesh_t *out_mesh) {
         }
     }
 
-    if (count_v == 0 || count_triangles == 0) return -2;
+    if (count_v == 0 || count_triangles == 0)
+        return -2;
 
     /* Temporary arrays for raw indexed data */
-    float *raw_v = (float *)oops_mem_alloc(count_v * 3 * sizeof(float), 16, OOPS_MEM_WB_ONION);
-    float *raw_vt = count_vt ? (float *)oops_mem_alloc(count_vt * 2 * sizeof(float), 16, OOPS_MEM_WB_ONION) : NULL;
-    float *raw_vn = count_vn ? (float *)oops_mem_alloc(count_vn * 3 * sizeof(float), 16, OOPS_MEM_WB_ONION) : NULL;
+    float *raw_v =
+        (float *)oops_mem_alloc(count_v * 3 * sizeof(float), 16, OOPS_MEM_WB_ONION);
+    float *raw_vt = count_vt ? (float *)oops_mem_alloc(count_vt * 2 * sizeof(float), 16,
+                                                       OOPS_MEM_WB_ONION)
+                             : NULL;
+    float *raw_vn = count_vn ? (float *)oops_mem_alloc(count_vn * 3 * sizeof(float), 16,
+                                                       OOPS_MEM_WB_ONION)
+                             : NULL;
 
-    if (!raw_v) return -3;
+    if (!raw_v)
+        return -3;
 
     /* Output unrolled vertex arrays (3 vertices per triangle) */
     size_t out_vcount = count_triangles * 3;
-    out_mesh->positions = (float *)oops_mem_alloc(out_vcount * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
-    out_mesh->normals   = (float *)oops_mem_alloc(out_vcount * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
-    out_mesh->texcoords = (float *)oops_mem_alloc(out_vcount * 2 * sizeof(float), 64, OOPS_MEM_WB_ONION);
-    out_mesh->colors    = (float *)oops_mem_alloc(out_vcount * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
+    out_mesh->positions =
+        (float *)oops_mem_alloc(out_vcount * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
+    out_mesh->normals =
+        (float *)oops_mem_alloc(out_vcount * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
+    out_mesh->texcoords =
+        (float *)oops_mem_alloc(out_vcount * 2 * sizeof(float), 64, OOPS_MEM_WB_ONION);
+    out_mesh->colors =
+        (float *)oops_mem_alloc(out_vcount * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
 
     if (!out_mesh->positions || !out_mesh->normals || !out_mesh->colors) {
         oops_mesh_free(out_mesh);
-        if (raw_v) oops_mem_free(raw_v);
-        if (raw_vt) oops_mem_free(raw_vt);
-        if (raw_vn) oops_mem_free(raw_vn);
+        if (raw_v)
+            oops_mem_free(raw_v);
+        if (raw_vt)
+            oops_mem_free(raw_vt);
+        if (raw_vn)
+            oops_mem_free(raw_vn);
         return -4;
     }
 
@@ -256,7 +278,8 @@ int oops_mesh_load_obj(const char *data, size_t size, oops_mesh_t *out_mesh) {
             while (p < end && *p != '\n' && *p != '\r' && nverts < 32) {
                 skip_spaces(&p);
                 if (is_digit(*p) || *p == '-') {
-                    parse_face_indices(&p, &poly_v[nverts], &poly_vt[nverts], &poly_vn[nverts]);
+                    parse_face_indices(&p, &poly_v[nverts], &poly_vt[nverts],
+                                       &poly_vn[nverts]);
                     nverts++;
                 } else {
                     break;
@@ -269,14 +292,23 @@ int oops_mesh_load_obj(const char *data, size_t size, oops_mesh_t *out_mesh) {
                 int corner[3] = {0, t + 1, t + 2};
                 for (int c = 0; c < 3; c++) {
                     int k = corner[c];
-                    int vi  = poly_v[k];
+                    int vi = poly_v[k];
                     int vti = poly_vt[k];
                     int vni = poly_vn[k];
 
                     /* Resolve 1-indexed (or negative relative) indices */
-                    if (vi > 0) vi -= 1; else if (vi < 0) vi = (int)count_v + vi;
-                    if (vti > 0) vti -= 1; else if (vti < 0 && raw_vt) vti = (int)count_vt + vti;
-                    if (vni > 0) vni -= 1; else if (vni < 0 && raw_vn) vni = (int)count_vn + vni;
+                    if (vi > 0)
+                        vi -= 1;
+                    else if (vi < 0)
+                        vi = (int)count_v + vi;
+                    if (vti > 0)
+                        vti -= 1;
+                    else if (vti < 0 && raw_vt)
+                        vti = (int)count_vt + vti;
+                    if (vni > 0)
+                        vni -= 1;
+                    else if (vni < 0 && raw_vn)
+                        vni = (int)count_vn + vni;
 
                     /* Position */
                     if (vi >= 0 && (size_t)vi < count_v) {
@@ -286,7 +318,8 @@ int oops_mesh_load_obj(const char *data, size_t size, oops_mesh_t *out_mesh) {
                     }
 
                     /* Texcoord */
-                    if (raw_vt && vti >= 0 && (size_t)vti < count_vt && out_mesh->texcoords) {
+                    if (raw_vt && vti >= 0 && (size_t)vti < count_vt &&
+                        out_mesh->texcoords) {
                         out_mesh->texcoords[out_idx * 2 + 0] = raw_vt[vti * 2 + 0];
                         out_mesh->texcoords[out_idx * 2 + 1] = raw_vt[vti * 2 + 1];
                     }
@@ -311,8 +344,10 @@ int oops_mesh_load_obj(const char *data, size_t size, oops_mesh_t *out_mesh) {
 
     /* Free temp raw buffers */
     oops_mem_free(raw_v);
-    if (raw_vt) oops_mem_free(raw_vt);
-    if (raw_vn) oops_mem_free(raw_vn);
+    if (raw_vt)
+        oops_mem_free(raw_vt);
+    if (raw_vn)
+        oops_mem_free(raw_vn);
 
     /* Generate smooth surface normals if OBJ had no normals */
     if (count_vn == 0) {
@@ -330,9 +365,13 @@ int oops_mesh_load_obj(const char *data, size_t size, oops_mesh_t *out_mesh) {
             float len = mesh_sqrt(nx * nx + ny * ny + nz * nz);
             if (len > 1e-6f) {
                 float inv = 1.0f / len;
-                nx *= inv; ny *= inv; nz *= inv;
+                nx *= inv;
+                ny *= inv;
+                nz *= inv;
             } else {
-                nx = 0.0f; ny = 1.0f; nz = 0.0f;
+                nx = 0.0f;
+                ny = 1.0f;
+                nz = 0.0f;
             }
 
             for (size_t c = 0; c < 3; c++) {
@@ -353,9 +392,18 @@ int oops_mesh_load_obj(const char *data, size_t size, oops_mesh_t *out_mesh) {
             float x = out_mesh->positions[i * 3 + 0];
             float y = out_mesh->positions[i * 3 + 1];
             float z = out_mesh->positions[i * 3 + 2];
-            if (x < min_x) min_x = x; if (x > max_x) max_x = x;
-            if (y < min_y) min_y = y; if (y > max_y) max_y = y;
-            if (z < min_z) min_z = z; if (z > max_z) max_z = z;
+            if (x < min_x)
+                min_x = x;
+            if (x > max_x)
+                max_x = x;
+            if (y < min_y)
+                min_y = y;
+            if (y > max_y)
+                max_y = y;
+            if (z < min_z)
+                min_z = z;
+            if (z > max_z)
+                max_z = z;
         }
 
         float cx = (min_x + max_x) * 0.5f;
@@ -366,17 +414,23 @@ int oops_mesh_load_obj(const char *data, size_t size, oops_mesh_t *out_mesh) {
         float dy = max_y - min_y;
         float dz = max_z - min_z;
         float max_extent = dx;
-        if (dy > max_extent) max_extent = dy;
-        if (dz > max_extent) max_extent = dz;
+        if (dy > max_extent)
+            max_extent = dy;
+        if (dz > max_extent)
+            max_extent = dz;
 
         float scale = (max_extent > 1e-6f) ? (2.0f / max_extent) : 1.0f;
 
         for (size_t i = 0; i < out_mesh->vertex_count; i++) {
-            out_mesh->positions[i * 3 + 0] = (out_mesh->positions[i * 3 + 0] - cx) * scale;
-            out_mesh->positions[i * 3 + 1] = (out_mesh->positions[i * 3 + 1] - cy) * scale;
-            out_mesh->positions[i * 3 + 2] = (out_mesh->positions[i * 3 + 2] - cz) * scale;
+            out_mesh->positions[i * 3 + 0] =
+                (out_mesh->positions[i * 3 + 0] - cx) * scale;
+            out_mesh->positions[i * 3 + 1] =
+                (out_mesh->positions[i * 3 + 1] - cy) * scale;
+            out_mesh->positions[i * 3 + 2] =
+                (out_mesh->positions[i * 3 + 2] - cz) * scale;
 
-            /* Vibrant normal-derived Gouraud colors: mapped from [-1, 1] to [0.2, 0.9] */
+            /* Vibrant normal-derived Gouraud colors: mapped from [-1, 1] to [0.2, 0.9]
+             */
             float nx = out_mesh->normals[i * 3 + 0];
             float ny = out_mesh->normals[i * 3 + 1];
             float nz = out_mesh->normals[i * 3 + 2];
@@ -391,17 +445,22 @@ int oops_mesh_load_obj(const char *data, size_t size, oops_mesh_t *out_mesh) {
 
 int oops_mesh_create_torus(oops_mesh_t *out_mesh, int num_major, int num_minor,
                            float major_radius, float minor_radius) {
-    if (!out_mesh || num_major < 3 || num_minor < 3) return -1;
+    if (!out_mesh || num_major < 3 || num_minor < 3)
+        return -1;
     memset(out_mesh, 0, sizeof(*out_mesh));
 
     size_t num_quads = (size_t)num_major * (size_t)num_minor;
     size_t num_tris = num_quads * 2;
     size_t num_verts = num_tris * 3;
 
-    out_mesh->positions = (float *)oops_mem_alloc(num_verts * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
-    out_mesh->normals   = (float *)oops_mem_alloc(num_verts * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
-    out_mesh->texcoords = (float *)oops_mem_alloc(num_verts * 2 * sizeof(float), 64, OOPS_MEM_WB_ONION);
-    out_mesh->colors    = (float *)oops_mem_alloc(num_verts * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
+    out_mesh->positions =
+        (float *)oops_mem_alloc(num_verts * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
+    out_mesh->normals =
+        (float *)oops_mem_alloc(num_verts * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
+    out_mesh->texcoords =
+        (float *)oops_mem_alloc(num_verts * 2 * sizeof(float), 64, OOPS_MEM_WB_ONION);
+    out_mesh->colors =
+        (float *)oops_mem_alloc(num_verts * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
 
     if (!out_mesh->positions || !out_mesh->normals || !out_mesh->colors) {
         oops_mesh_free(out_mesh);
@@ -467,8 +526,10 @@ int oops_mesh_create_torus(oops_mesh_t *out_mesh, int num_major, int num_minor,
                 out_mesh->colors[v_idx * 3 + 2] = 0.5f + 0.5f * tri1_n[k][2];
 
                 if (out_mesh->texcoords) {
-                    out_mesh->texcoords[v_idx * 2 + 0] = (k == 0) ? 0.0f : ((k == 1) ? 1.0f : 1.0f);
-                    out_mesh->texcoords[v_idx * 2 + 1] = (k == 0) ? 0.0f : ((k == 1) ? 0.0f : 1.0f);
+                    out_mesh->texcoords[v_idx * 2 + 0] =
+                        (k == 0) ? 0.0f : ((k == 1) ? 1.0f : 1.0f);
+                    out_mesh->texcoords[v_idx * 2 + 1] =
+                        (k == 0) ? 0.0f : ((k == 1) ? 0.0f : 1.0f);
                 }
                 v_idx++;
             }
@@ -490,8 +551,10 @@ int oops_mesh_create_torus(oops_mesh_t *out_mesh, int num_major, int num_minor,
                 out_mesh->colors[v_idx * 3 + 2] = 0.5f + 0.5f * tri2_n[k][2];
 
                 if (out_mesh->texcoords) {
-                    out_mesh->texcoords[v_idx * 2 + 0] = (k == 0) ? 0.0f : ((k == 1) ? 1.0f : 0.0f);
-                    out_mesh->texcoords[v_idx * 2 + 1] = (k == 0) ? 0.0f : ((k == 1) ? 1.0f : 1.0f);
+                    out_mesh->texcoords[v_idx * 2 + 0] =
+                        (k == 0) ? 0.0f : ((k == 1) ? 1.0f : 0.0f);
+                    out_mesh->texcoords[v_idx * 2 + 1] =
+                        (k == 0) ? 0.0f : ((k == 1) ? 1.0f : 1.0f);
                 }
                 v_idx++;
             }
@@ -501,18 +564,24 @@ int oops_mesh_create_torus(oops_mesh_t *out_mesh, int num_major, int num_minor,
     return 0;
 }
 
-int oops_mesh_create_sphere(oops_mesh_t *out_mesh, int num_lat, int num_lon, float radius) {
-    if (!out_mesh || num_lat < 3 || num_lon < 3) return -1;
+int oops_mesh_create_sphere(oops_mesh_t *out_mesh, int num_lat, int num_lon,
+                            float radius) {
+    if (!out_mesh || num_lat < 3 || num_lon < 3)
+        return -1;
     memset(out_mesh, 0, sizeof(*out_mesh));
 
     size_t num_quads = (size_t)num_lat * (size_t)num_lon;
     size_t num_tris = num_quads * 2;
     size_t num_verts = num_tris * 3;
 
-    out_mesh->positions = (float *)oops_mem_alloc(num_verts * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
-    out_mesh->normals   = (float *)oops_mem_alloc(num_verts * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
-    out_mesh->texcoords = (float *)oops_mem_alloc(num_verts * 2 * sizeof(float), 64, OOPS_MEM_WB_ONION);
-    out_mesh->colors    = (float *)oops_mem_alloc(num_verts * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
+    out_mesh->positions =
+        (float *)oops_mem_alloc(num_verts * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
+    out_mesh->normals =
+        (float *)oops_mem_alloc(num_verts * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
+    out_mesh->texcoords =
+        (float *)oops_mem_alloc(num_verts * 2 * sizeof(float), 64, OOPS_MEM_WB_ONION);
+    out_mesh->colors =
+        (float *)oops_mem_alloc(num_verts * 3 * sizeof(float), 64, OOPS_MEM_WB_ONION);
 
     if (!out_mesh->positions || !out_mesh->normals || !out_mesh->colors) {
         oops_mesh_free(out_mesh);
@@ -540,16 +609,20 @@ int oops_mesh_create_sphere(oops_mesh_t *out_mesh, int num_lat, int num_lon, flo
             float sin_lon0 = mesh_sin(lon0), cos_lon0 = mesh_cos(lon0);
             float sin_lon1 = mesh_sin(lon1), cos_lon1 = mesh_cos(lon1);
 
-            float p00[3] = {radius * cos_lat0 * cos_lon0, radius * cos_lat0 * sin_lon0, radius * sin_lat0};
+            float p00[3] = {radius * cos_lat0 * cos_lon0, radius * cos_lat0 * sin_lon0,
+                            radius * sin_lat0};
             float n00[3] = {cos_lat0 * cos_lon0, cos_lat0 * sin_lon0, sin_lat0};
 
-            float p10[3] = {radius * cos_lat0 * cos_lon1, radius * cos_lat0 * sin_lon1, radius * sin_lat0};
+            float p10[3] = {radius * cos_lat0 * cos_lon1, radius * cos_lat0 * sin_lon1,
+                            radius * sin_lat0};
             float n10[3] = {cos_lat0 * cos_lon1, cos_lat0 * sin_lon1, sin_lat0};
 
-            float p11[3] = {radius * cos_lat1 * cos_lon1, radius * cos_lat1 * sin_lon1, radius * sin_lat1};
+            float p11[3] = {radius * cos_lat1 * cos_lon1, radius * cos_lat1 * sin_lon1,
+                            radius * sin_lat1};
             float n11[3] = {cos_lat1 * cos_lon1, cos_lat1 * sin_lon1, sin_lat1};
 
-            float p01[3] = {radius * cos_lat1 * cos_lon0, radius * cos_lat1 * sin_lon0, radius * sin_lat1};
+            float p01[3] = {radius * cos_lat1 * cos_lon0, radius * cos_lat1 * sin_lon0,
+                            radius * sin_lat1};
             float n01[3] = {cos_lat1 * cos_lon0, cos_lat1 * sin_lon0, sin_lat1};
 
             /* Triangle 1 */
@@ -594,10 +667,15 @@ int oops_mesh_create_sphere(oops_mesh_t *out_mesh, int num_lat, int num_lon, flo
 }
 
 void oops_mesh_free(oops_mesh_t *mesh) {
-    if (!mesh) return;
-    if (mesh->positions) oops_mem_free(mesh->positions);
-    if (mesh->normals) oops_mem_free(mesh->normals);
-    if (mesh->texcoords) oops_mem_free(mesh->texcoords);
-    if (mesh->colors) oops_mem_free(mesh->colors);
+    if (!mesh)
+        return;
+    if (mesh->positions)
+        oops_mem_free(mesh->positions);
+    if (mesh->normals)
+        oops_mem_free(mesh->normals);
+    if (mesh->texcoords)
+        oops_mem_free(mesh->texcoords);
+    if (mesh->colors)
+        oops_mem_free(mesh->colors);
     memset(mesh, 0, sizeof(*mesh));
 }

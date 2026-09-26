@@ -3,26 +3,28 @@
  *
  * Background:
  * On PS5 (Prospero), native Big Apps (category 0 / native_game) are the ONLY execution
- * mode that receives exclusive direct HDMI scanout (OBS_VIDEO_BUS_MAIN) and direct LibAgc
- * GPU hardware access. PS4 PKGs run under backward compatibility (bc_boost) where rtld
- * rejects PS5 LibAgc libraries with "ERROR: ABIVERSION mismatch".
+ * mode that receives exclusive direct HDMI scanout (OBS_VIDEO_BUS_MAIN) and direct
+ * LibAgc GPU hardware access. PS4 PKGs run under backward compatibility (bc_boost)
+ * where rtld rejects PS5 LibAgc libraries with "ERROR: ABIVERSION mismatch".
  *
- * When launching native Big App 0 without a retail PSN license ticket, PFAuthClient inside
- * SceShellCore queries /dev/pltauth (sceSblPltAuth2VeriR1C2GenR2), receives error -35,
- * logs "[PFAuthClient] Notified error:(0x80de0051)", and SceShellCore terminates the process.
+ * When launching native Big App 0 without a retail PSN license ticket, PFAuthClient
+ * inside SceShellCore queries /dev/pltauth (sceSblPltAuth2VeriR1C2GenR2), receives
+ * error -35, logs "[PFAuthClient] Notified error:(0x80de0051)", and SceShellCore
+ * terminates the process.
  *
  * Solution:
- * SceShellCore is the userland gatekeeper that enforces entitlement checks and terminates
- * unlicensed applications. This payload applies the verified FW 12.40 SceShellCore binary
- * patch set (from SharpProspero / ShellCorePatchData) directly into SceShellCore's resident
- * memory using kernel Direct Map (DMAP) physical page translation.
+ * SceShellCore is the userland gatekeeper that enforces entitlement checks and
+ * terminates unlicensed applications. This payload applies the verified FW 12.40
+ * SceShellCore binary patch set (from SharpProspero / ShellCorePatchData) directly into
+ * SceShellCore's resident memory using kernel Direct Map (DMAP) physical page
+ * translation.
  *
  * By writing directly through the kernel's DMAP (pml4u - cr3) via VirtToPhys page table
- * translation, text segment write protection is completely bypassed with zero ptrace thread
- * interruptions and zero risk of kernel mode page fault panics.
+ * translation, text segment write protection is completely bypassed with zero ptrace
+ * thread interruptions and zero risk of kernel mode page fault panics.
  *
- * Once applied, SceShellCore remains patched for the entire console uptime, allowing native
- * Big App 0 applications to launch and execute uninterrupted.
+ * Once applied, SceShellCore remains patched for the entire console uptime, allowing
+ * native Big App 0 applications to launch and execute uninterrupted.
  */
 
 #include "oops/freestd.h"
@@ -35,7 +37,8 @@ void klog_write_hex(const char *prefix, uint64_t hex);
 void klog_write_num(const char *prefix, int64_t num);
 int pltauth_patch_start(payload_args_t *args);
 
-/* Direct socket/terminal logging: elfldr maps socket to stdout (fd 1) and stderr (fd 2) */
+/* Direct socket/terminal logging: elfldr maps socket to stdout (fd 1) and stderr (fd 2)
+ */
 void klog_write(const char *msg) {
     if (msg == NULL) {
         return;
@@ -55,7 +58,8 @@ void klog_write(const char *msg) {
 
 void klog_write_hex(const char *prefix, uint64_t hex) {
     char buf[128];
-    oops_snprintf(buf, sizeof(buf), "%s: 0x%llx", prefix ? prefix : "", (unsigned long long)hex);
+    oops_snprintf(buf, sizeof(buf), "%s: 0x%llx", prefix ? prefix : "",
+                  (unsigned long long)hex);
     klog_write(buf);
 }
 
@@ -103,59 +107,70 @@ typedef struct {
     uint8_t data[16];
 } shellcore_patch_t;
 
-/* Verified retail SceShellCore patches for FW 12.20 and FW 12.40 (SharpProspero / ShellCorePatchData) */
+/* Verified retail SceShellCore patches for FW 12.20 and FW 12.40 (SharpProspero /
+ * ShellCorePatchData) */
 static const shellcore_patch_t FW_1240_PATCHES[] = {
-    {0x00C870C3ULL, 3,  {0x52, 0xEB, 0xE2}},
-    {0x00C870A8ULL, 7,  {0xE8, 0x23, 0xF8, 0xFF, 0xFF, 0x58, 0xC3}},
-    {0x00C868B6ULL, 5,  {0xE9, 0x07, 0x00, 0x00, 0x00}},
+    {0x00C870C3ULL, 3, {0x52, 0xEB, 0xE2}},
+    {0x00C870A8ULL, 7, {0xE8, 0x23, 0xF8, 0xFF, 0xFF, 0x58, 0xC3}},
+    {0x00C868B6ULL, 5, {0xE9, 0x07, 0x00, 0x00, 0x00}},
     {0x00C868C2ULL, 10, {0x31, 0xC0, 0x50, 0xE8, 0x06, 0x00, 0x00, 0x00, 0x58, 0xC3}},
-    {0x00789EE6ULL, 2,  {0xEB, 0x04}},
-    {0x00330D81ULL, 2,  {0xEB, 0x04}},
-    {0x00331151ULL, 2,  {0xEB, 0x04}},
-    {0x007AC232ULL, 1,  {0xEB}},
-    {0x007930A5ULL, 2,  {0x90, 0xE9}},
-    {0x007AC9C8ULL, 1,  {0xEB}},
-    {0x007AEF86ULL, 4,  {0x9E, 0x01, 0x00, 0x00}},
-    {0x00214E81ULL, 14, {0xE8, 0x3A, 0xFC, 0x67, 0x00, 0x31, 0xC9, 0xFF, 0xC1, 0xE9, 0xC4, 0xFE, 0xFF, 0xFF}},
-    {0x00214D53ULL, 11, {0x83, 0xF8, 0x02, 0x0F, 0x43, 0xC1, 0xE9, 0x60, 0x0A, 0x00, 0x00}},
-    {0x00215260ULL, 5,  {0xE9, 0x1C, 0xFC, 0xFF, 0xFF}},
-    {0x007D2350ULL, 1,  {0xC3}},
-    {0x017438E0ULL, 3,  {0x31, 0xC0, 0xC3}},
-    {0x01747E40ULL, 3,  {0x31, 0xC0, 0xC3}},
-    {0x006557AAULL, 2,  {0x66, 0x90}},
-    {0x00B1BEBAULL, 1,  {0xEB}},
-    {0x00AF9483ULL, 2,  {0xEB, 0x03}},
-    {0x00328EE0ULL, 2,  {0x90, 0xE9}},
-    {0x00328F5AULL, 2,  {0x90, 0xE9}},
-    {0x0032905CULL, 1,  {0xEB}},
-    {0x00329130ULL, 1,  {0xEB}},
-    {0x00329351ULL, 2,  {0x90, 0xE9}},
-    {0x00329462ULL, 1,  {0xEB}},
-    {0x0032993AULL, 2,  {0x90, 0xE9}},
-    {0x003299CDULL, 2,  {0x90, 0xE9}},
-    {0x00788378ULL, 1,  {0xEB}},
-    {0x0078BF72ULL, 1,  {0xEB}},
-    {0x0078FE10ULL, 4,  {0x48, 0x31, 0xC0, 0xC3}},
+    {0x00789EE6ULL, 2, {0xEB, 0x04}},
+    {0x00330D81ULL, 2, {0xEB, 0x04}},
+    {0x00331151ULL, 2, {0xEB, 0x04}},
+    {0x007AC232ULL, 1, {0xEB}},
+    {0x007930A5ULL, 2, {0x90, 0xE9}},
+    {0x007AC9C8ULL, 1, {0xEB}},
+    {0x007AEF86ULL, 4, {0x9E, 0x01, 0x00, 0x00}},
+    {0x00214E81ULL,
+     14,
+     {0xE8, 0x3A, 0xFC, 0x67, 0x00, 0x31, 0xC9, 0xFF, 0xC1, 0xE9, 0xC4, 0xFE, 0xFF,
+      0xFF}},
+    {0x00214D53ULL,
+     11,
+     {0x83, 0xF8, 0x02, 0x0F, 0x43, 0xC1, 0xE9, 0x60, 0x0A, 0x00, 0x00}},
+    {0x00215260ULL, 5, {0xE9, 0x1C, 0xFC, 0xFF, 0xFF}},
+    {0x007D2350ULL, 1, {0xC3}},
+    {0x017438E0ULL, 3, {0x31, 0xC0, 0xC3}},
+    {0x01747E40ULL, 3, {0x31, 0xC0, 0xC3}},
+    {0x006557AAULL, 2, {0x66, 0x90}},
+    {0x00B1BEBAULL, 1, {0xEB}},
+    {0x00AF9483ULL, 2, {0xEB, 0x03}},
+    {0x00328EE0ULL, 2, {0x90, 0xE9}},
+    {0x00328F5AULL, 2, {0x90, 0xE9}},
+    {0x0032905CULL, 1, {0xEB}},
+    {0x00329130ULL, 1, {0xEB}},
+    {0x00329351ULL, 2, {0x90, 0xE9}},
+    {0x00329462ULL, 1, {0xEB}},
+    {0x0032993AULL, 2, {0x90, 0xE9}},
+    {0x003299CDULL, 2, {0x90, 0xE9}},
+    {0x00788378ULL, 1, {0xEB}},
+    {0x0078BF72ULL, 1, {0xEB}},
+    {0x0078FE10ULL, 4, {0x48, 0x31, 0xC0, 0xC3}},
 };
 
 /* Verified retail SceShellCore patches for FW 12.60 */
 static const shellcore_patch_t FW_1260_PATCHES[] = {
-    {0x00C8CF23ULL, 3,  {0x52, 0xEB, 0xE2}},
-    {0x00C8CF08ULL, 7,  {0xE8, 0x23, 0xF8, 0xFF, 0xFF, 0x58, 0xC3}},
-    {0x00C8C716ULL, 5,  {0xE9, 0x07, 0x00, 0x00, 0x00}},
+    {0x00C8CF23ULL, 3, {0x52, 0xEB, 0xE2}},
+    {0x00C8CF08ULL, 7, {0xE8, 0x23, 0xF8, 0xFF, 0xFF, 0x58, 0xC3}},
+    {0x00C8C716ULL, 5, {0xE9, 0x07, 0x00, 0x00, 0x00}},
     {0x00C8C722ULL, 10, {0x31, 0xC0, 0x50, 0xE8, 0x06, 0x00, 0x00, 0x00, 0x58, 0xC3}},
-    {0x0078B136ULL, 2,  {0xEB, 0x04}},
-    {0x00331471ULL, 2,  {0xEB, 0x04}},
-    {0x00331841ULL, 2,  {0xEB, 0x04}},
-    {0x007AD482ULL, 1,  {0xEB}},
-    {0x007942F5ULL, 2,  {0x90, 0xE9}},
-    {0x007ADC18ULL, 1,  {0xEB}},
-    {0x007B01D6ULL, 4,  {0x9E, 0x01, 0x00, 0x00}},
-    {0x00214E81ULL, 14, {0xE8, 0x8A, 0x0E, 0x68, 0x00, 0x31, 0xC9, 0xFF, 0xC1, 0xE9, 0xC4, 0xFE, 0xFF, 0xFF}},
-    {0x00214D53ULL, 11, {0x83, 0xF8, 0x02, 0x0F, 0x43, 0xC1, 0xE9, 0x60, 0x0A, 0x00, 0x00}},
-    {0x00215260ULL, 5,  {0xE9, 0x1C, 0xFC, 0xFF, 0xFF}},
-    {0x007D35A0ULL, 1,  {0xC3}},
-    {0x0174A680ULL, 3,  {0x31, 0xC0, 0xC3}},
+    {0x0078B136ULL, 2, {0xEB, 0x04}},
+    {0x00331471ULL, 2, {0xEB, 0x04}},
+    {0x00331841ULL, 2, {0xEB, 0x04}},
+    {0x007AD482ULL, 1, {0xEB}},
+    {0x007942F5ULL, 2, {0x90, 0xE9}},
+    {0x007ADC18ULL, 1, {0xEB}},
+    {0x007B01D6ULL, 4, {0x9E, 0x01, 0x00, 0x00}},
+    {0x00214E81ULL,
+     14,
+     {0xE8, 0x8A, 0x0E, 0x68, 0x00, 0x31, 0xC9, 0xFF, 0xC1, 0xE9, 0xC4, 0xFE, 0xFF,
+      0xFF}},
+    {0x00214D53ULL,
+     11,
+     {0x83, 0xF8, 0x02, 0x0F, 0x43, 0xC1, 0xE9, 0x60, 0x0A, 0x00, 0x00}},
+    {0x00215260ULL, 5, {0xE9, 0x1C, 0xFC, 0xFF, 0xFF}},
+    {0x007D35A0ULL, 1, {0xC3}},
+    {0x0174A680ULL, 3, {0x31, 0xC0, 0xC3}},
 };
 
 static const shellcore_patch_t *get_shellcore_patches(uint32_t fw, size_t *out_count) {
@@ -295,7 +310,8 @@ static uintptr_t find_shellcore_proc(pid_t *out_pid) {
     return 0;
 }
 
-/* Walk SceShellCore's loaded module list (p_dynlib at kproc + 0x3E8) to find module base */
+/* Walk SceShellCore's loaded module list (p_dynlib at kproc + 0x3E8) to find module
+ * base */
 static uintptr_t find_shellcore_module_base(uintptr_t kproc) {
     uintptr_t kaddr = 0;
     if (krw_copyout(kproc + 0x3E8, &kaddr, sizeof(kaddr)) != 0 || kaddr == 0) {
@@ -335,7 +351,8 @@ static uintptr_t find_shellcore_module_base(uintptr_t kproc) {
             }
             if (str_contains_case_insensitive(mod_path, "shell_core") ||
                 str_contains_case_insensitive(mod_path, "SceShellCore")) {
-                klog_write_hex("pltauth-patch: matched SceShellCore by name, base=", mapbase);
+                klog_write_hex("pltauth-patch: matched SceShellCore by name, base=",
+                               mapbase);
                 return (uintptr_t)mapbase;
             }
             if (handle == 1 && fallback_base == 0) {
@@ -351,7 +368,8 @@ static uintptr_t find_shellcore_module_base(uintptr_t kproc) {
     }
 
     if (fallback_base != 0) {
-        klog_write_hex("pltauth-patch: matched SceShellCore by main handle 1, base=", fallback_base);
+        klog_write_hex("pltauth-patch: matched SceShellCore by main handle 1, base=",
+                       fallback_base);
         return fallback_base;
     }
 
@@ -362,20 +380,23 @@ static uintptr_t find_shellcore_module_base(uintptr_t kproc) {
  * x86-64 4-level page table translation.
  * Resolves user virtual address (va) to physical address (pa) using the process's CR3
  * and kernel direct physical memory map (DMAP_BASE).
- * Checks Present bits at each level, handles 1GB and 2MB superpages, and returns 0 if unmapped.
+ * Checks Present bits at each level, handles 1GB and 2MB superpages, and returns 0 if
+ * unmapped.
  */
 static uint64_t virt_to_phys(uint64_t cr3, uint64_t dmap, uint64_t va) {
     uint64_t pml4i = (va >> 39) & 0x1FFULL;
     uint64_t pdpti = (va >> 30) & 0x1FFULL;
-    uint64_t pdi   = (va >> 21) & 0x1FFULL;
-    uint64_t pti   = (va >> 12) & 0x1FFULL;
+    uint64_t pdi = (va >> 21) & 0x1FFULL;
+    uint64_t pti = (va >> 12) & 0x1FFULL;
 
-    uint64_t pml4e = krw_read64((uintptr_t)(dmap + (cr3 & 0x000FFFFFFFFFF000ULL) + pml4i * 8));
+    uint64_t pml4e =
+        krw_read64((uintptr_t)(dmap + (cr3 & 0x000FFFFFFFFFF000ULL) + pml4i * 8));
     if ((pml4e & 1ULL) == 0) {
         return 0;
     }
 
-    uint64_t pdpte = krw_read64((uintptr_t)(dmap + (pml4e & 0x000FFFFFFFFFF000ULL) + pdpti * 8));
+    uint64_t pdpte =
+        krw_read64((uintptr_t)(dmap + (pml4e & 0x000FFFFFFFFFF000ULL) + pdpti * 8));
     if ((pdpte & 1ULL) == 0) {
         return 0;
     }
@@ -384,7 +405,8 @@ static uint64_t virt_to_phys(uint64_t cr3, uint64_t dmap, uint64_t va) {
         return (pdpte & 0x000FFFFFC0000000ULL) | (va & 0x3FFFFFFFULL);
     }
 
-    uint64_t pde = krw_read64((uintptr_t)(dmap + (pdpte & 0x000FFFFFFFFFF000ULL) + pdi * 8));
+    uint64_t pde =
+        krw_read64((uintptr_t)(dmap + (pdpte & 0x000FFFFFFFFFF000ULL) + pdi * 8));
     if ((pde & 1ULL) == 0) {
         return 0;
     }
@@ -393,7 +415,8 @@ static uint64_t virt_to_phys(uint64_t cr3, uint64_t dmap, uint64_t va) {
         return (pde & 0x000FFFFFFFE00000ULL) | (va & 0x1FFFFFULL);
     }
 
-    uint64_t pte = krw_read64((uintptr_t)(dmap + (pde & 0x000FFFFFFFFFF000ULL) + pti * 8));
+    uint64_t pte =
+        krw_read64((uintptr_t)(dmap + (pde & 0x000FFFFFFFFFF000ULL) + pti * 8));
     if ((pte & 1ULL) == 0) {
         return 0;
     }
@@ -402,7 +425,8 @@ static uint64_t virt_to_phys(uint64_t cr3, uint64_t dmap, uint64_t va) {
 }
 
 /* Copies data to a user virtual address through the direct physical memory map */
-static int phys_copyin(uint64_t cr3, uint64_t dmap, uint64_t uva, const void *src, size_t len) {
+static int phys_copyin(uint64_t cr3, uint64_t dmap, uint64_t uva, const void *src,
+                       size_t len) {
     const uint8_t *s = (const uint8_t *)src;
     while (len > 0) {
         uint64_t pa = virt_to_phys(cr3, dmap, uva);
@@ -422,7 +446,8 @@ static int phys_copyin(uint64_t cr3, uint64_t dmap, uint64_t uva, const void *sr
 }
 
 /* Copies data from a user virtual address through the direct physical memory map */
-static int phys_copyout(uint64_t cr3, uint64_t dmap, uint64_t uva, void *dst, size_t len) {
+static int phys_copyout(uint64_t cr3, uint64_t dmap, uint64_t uva, void *dst,
+                        size_t len) {
     uint8_t *d = (uint8_t *)dst;
     while (len > 0) {
         uint64_t pa = virt_to_phys(cr3, dmap, uva);
@@ -451,7 +476,8 @@ int pltauth_patch_start(payload_args_t *args) {
 #endif
 
     sys_call_init(args);
-    klog_write("pltauth-patch: starting SceShellCore entitlement bypass payload (v " OOPS_APP_VERSION ")...");
+    klog_write("pltauth-patch: starting SceShellCore entitlement bypass payload "
+               "(v " OOPS_APP_VERSION ")...");
 
     if (krw_init(args) != 0) {
         klog_write("pltauth-patch: ERROR - krw_init failed");
@@ -464,7 +490,8 @@ int pltauth_patch_start(payload_args_t *args) {
     size_t patch_count = 0;
     const shellcore_patch_t *patches = get_shellcore_patches(fw, &patch_count);
     if (patches == NULL || patch_count == 0) {
-        klog_write("pltauth-patch: ERROR - unsupported firmware version for SceShellCore bypass");
+        klog_write("pltauth-patch: ERROR - unsupported firmware version for "
+                   "SceShellCore bypass");
         return -3;
     }
     klog_write_num("pltauth-patch: loaded patch set count=", (int64_t)patch_count);
@@ -489,11 +516,13 @@ int pltauth_patch_start(payload_args_t *args) {
     /* Resolve SceShellCore module base address */
     uintptr_t module_base = find_shellcore_module_base(kproc);
     if (module_base == 0) {
-        klog_write("pltauth-patch: ERROR - could not determine SceShellCore module base");
+        klog_write(
+            "pltauth-patch: ERROR - could not determine SceShellCore module base");
         return -5;
     }
     if (module_base < 0x80000000ULL || module_base >= 0x800000000000ULL) {
-        klog_write_hex("pltauth-patch: ERROR - invalid userland module base: ", module_base);
+        klog_write_hex("pltauth-patch: ERROR - invalid userland module base: ",
+                       module_base);
         return -5;
     }
     klog_write_hex("pltauth-patch: SceShellCore module base: ", module_base);
@@ -556,7 +585,8 @@ int pltauth_patch_start(payload_args_t *args) {
 
         /* Read existing instruction bytes before writing */
         if (phys_copyout(cr3, dmap, target_va, cur_data, patches[i].len) != 0) {
-            klog_write_hex("pltauth-patch: cannot read target opcode at offset: ", patches[i].offset);
+            klog_write_hex("pltauth-patch: cannot read target opcode at offset: ",
+                           patches[i].offset);
             failed_count++;
             continue;
         }
@@ -567,22 +597,28 @@ int pltauth_patch_start(payload_args_t *args) {
             continue;
         }
 
-        /* Safety check: ensure target memory is not unmapped/blank (all 0x00 or all 0xFF) */
+        /* Safety check: ensure target memory is not unmapped/blank (all 0x00 or all
+         * 0xFF) */
         int all_zero = 1;
         int all_ff = 1;
         for (uint8_t b = 0; b < patches[i].len; b++) {
-            if (cur_data[b] != 0x00) all_zero = 0;
-            if (cur_data[b] != 0xFF) all_ff = 0;
+            if (cur_data[b] != 0x00)
+                all_zero = 0;
+            if (cur_data[b] != 0xFF)
+                all_ff = 0;
         }
         if (all_zero || all_ff) {
-            klog_write_hex("pltauth-patch: refusing to patch blank/invalid memory at offset: ", patches[i].offset);
+            klog_write_hex(
+                "pltauth-patch: refusing to patch blank/invalid memory at offset: ",
+                patches[i].offset);
             failed_count++;
             continue;
         }
 
         /* Write patch bytes */
         if (phys_copyin(cr3, dmap, target_va, patches[i].data, patches[i].len) != 0) {
-            klog_write_hex("pltauth-patch: failed writing patch offset: ", patches[i].offset);
+            klog_write_hex("pltauth-patch: failed writing patch offset: ",
+                           patches[i].offset);
             failed_count++;
             continue;
         }
@@ -591,7 +627,8 @@ int pltauth_patch_start(payload_args_t *args) {
         memset(cur_data, 0, sizeof(cur_data));
         if (phys_copyout(cr3, dmap, target_va, cur_data, patches[i].len) != 0 ||
             memcmp(cur_data, patches[i].data, patches[i].len) != 0) {
-            klog_write_hex("pltauth-patch: verification failed at offset: ", patches[i].offset);
+            klog_write_hex("pltauth-patch: verification failed at offset: ",
+                           patches[i].offset);
             failed_count++;
             continue;
         }

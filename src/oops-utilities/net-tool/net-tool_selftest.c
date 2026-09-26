@@ -1,9 +1,9 @@
 /*
  * Host self-test for net-tool.
  *
- * Renders the network panel from a made-up info block and checks it drew, and round-trips an
- * address through the SDK's inet helpers - which are pure arithmetic, so they are the same on
- * a host as on the console and worth checking here.
+ * Renders the network panel from a made-up info block and checks it drew, and
+ * round-trips an address through the SDK's inet helpers - which are pure arithmetic, so
+ * they are the same on a host as on the console and worth checking here.
  */
 
 #include <stdint.h>
@@ -26,7 +26,7 @@ int main(void) {
     if (!pixels) {
         return 1;
     }
-    oops_surface_t surf = { .pixels = pixels, .width = W, .height = H, .pitch = W };
+    oops_surface_t surf = {.pixels = pixels, .width = W, .height = H, .pitch = W};
 
     oops_net_info_t info;
     memset(&info, 0, sizeof(info));
@@ -46,7 +46,10 @@ int main(void) {
     }
     int any = 0;
     for (size_t i = 0; i < (size_t)W * H; i++) {
-        if (pixels[i] == 0xFF00FFFFu) { any = 1; break; }
+        if (pixels[i] == 0xFF00FFFFu) {
+            any = 1;
+            break;
+        }
     }
     if (!any) {
         fprintf(stderr, "net-tool selftest: nothing drew\n");
@@ -61,7 +64,8 @@ int main(void) {
         ok = 0;
     } else if (oops_net_inet_ntop(packed, back, sizeof(back)) != 0 ||
                strcmp(back, "192.168.1.211") != 0) {
-        fprintf(stderr, "net-tool selftest: address did not round-trip (got %s)\n", back);
+        fprintf(stderr, "net-tool selftest: address did not round-trip (got %s)\n",
+                back);
         ok = 0;
     }
     /* And a bad address is refused, not quietly accepted. */
@@ -72,7 +76,8 @@ int main(void) {
 
     free(pixels);
     if (ok) {
-        printf("net-tool selftest: ok (panel drew; address round-trips through the SDK)\n");
+        printf("net-tool selftest: ok (panel drew; address round-trips through the "
+               "SDK)\n");
         return 0;
     }
     return 1;

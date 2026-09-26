@@ -52,7 +52,8 @@ int injector_start(payload_args_t *args) {
 #define OOPS_APP_VERSION "dev"
 #endif
 
-    oops_klog("INJECTOR", "starting oops-apps standalone injector (v " OOPS_APP_VERSION ")...");
+    oops_klog("INJECTOR",
+              "starting oops-apps standalone injector (v " OOPS_APP_VERSION ")...");
 
     if (krw_init(args) != 0) {
         oops_klog("INJECTOR", "ERROR: krw_init failed");
@@ -76,21 +77,32 @@ int injector_start(payload_args_t *args) {
     size_t payload_size = 0;
     static uint8_t disk_buffer[0x200000]; /* 2 MiB staging buffer */
 
-    if (__payload_start != NULL && __payload_end != NULL && __payload_end > __payload_start) {
+    if (__payload_start != NULL && __payload_end != NULL &&
+        __payload_end > __payload_start) {
         payload_data = __payload_start;
         payload_size = (size_t)(__payload_end - __payload_start);
-        oops_kprintf("INJECTOR", "using embedded payload blob, size: %llu\n", (unsigned long long)payload_size);
+        oops_kprintf("INJECTOR", "using embedded payload blob, size: %llu\n",
+                     (unsigned long long)payload_size);
     } else {
-        if (read_file_from_disk("/data/tracer-prospero.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0 ||
-            read_file_from_disk("/data/tracer.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0 ||
-            read_file_from_disk("/data/home-launcher-prospero.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0 ||
-            read_file_from_disk("/data/porthole-prospero.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0 ||
-            read_file_from_disk("/data/obscene-probe-prospero.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0 ||
-            read_file_from_disk("/data/porthole.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0 ||
-            read_file_from_disk("/data/payload.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0 ||
-            read_file_from_disk("/data/obscene-payload.elf", disk_buffer, sizeof(disk_buffer), &payload_size) == 0) {
+        if (read_file_from_disk("/data/tracer-prospero.elf", disk_buffer,
+                                sizeof(disk_buffer), &payload_size) == 0 ||
+            read_file_from_disk("/data/tracer.elf", disk_buffer, sizeof(disk_buffer),
+                                &payload_size) == 0 ||
+            read_file_from_disk("/data/home-launcher-prospero.elf", disk_buffer,
+                                sizeof(disk_buffer), &payload_size) == 0 ||
+            read_file_from_disk("/data/porthole-prospero.elf", disk_buffer,
+                                sizeof(disk_buffer), &payload_size) == 0 ||
+            read_file_from_disk("/data/obscene-probe-prospero.elf", disk_buffer,
+                                sizeof(disk_buffer), &payload_size) == 0 ||
+            read_file_from_disk("/data/porthole.elf", disk_buffer, sizeof(disk_buffer),
+                                &payload_size) == 0 ||
+            read_file_from_disk("/data/payload.elf", disk_buffer, sizeof(disk_buffer),
+                                &payload_size) == 0 ||
+            read_file_from_disk("/data/obscene-payload.elf", disk_buffer,
+                                sizeof(disk_buffer), &payload_size) == 0) {
             payload_data = disk_buffer;
-            oops_kprintf("INJECTOR", "loaded payload from disk, size: %llu\n", (unsigned long long)payload_size);
+            oops_kprintf("INJECTOR", "loaded payload from disk, size: %llu\n",
+                         (unsigned long long)payload_size);
         }
     }
 

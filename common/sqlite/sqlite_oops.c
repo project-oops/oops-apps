@@ -1,42 +1,45 @@
 /*
  * SQLite's platform layer, over oops-sdk.
  *
- * Built with `-DSQLITE_OS_OTHER=1`, which removes SQLite's unix backend entirely and makes this
- * file the whole of what SQLite knows about the machine: a VFS, a mutex implementation, and the
- * `sqlite3_os_init` hook that registers them.
+ * Built with `-DSQLITE_OS_OTHER=1`, which removes SQLite's unix backend entirely and
+ * makes this file the whole of what SQLite knows about the machine: a VFS, a mutex
+ * implementation, and the `sqlite3_os_init` hook that registers them.
  *
  * # Why not shim the unix backend instead
  *
- * It was the shorter-looking option and it is the wrong one. SQLite's unix VFS wants `mmap`,
- * `fchown`, `fchmod`, `rmdir` and POSIX record locks, none of which this platform has - but the
- * part that decides it is `struct stat`:
+ * It was the shorter-looking option and it is the wrong one. SQLite's unix VFS wants
+ * `mmap`, `fchown`, `fchmod`, `rmdir` and POSIX record locks, none of which this
+ * platform has - but the part that decides it is `struct stat`:
  *
- *   - `sqlite3.c:24366` builds a file's identity from `st_dev` and `st_ino`, and uses it as the
- *     key of the table that stops two connections to the same file from corrupting each other.
- *     A `stat` that answers zero for both makes *every* file the same file.
- *   - `sqlite3.c:24419` reads `st_nlink == 0` as "this file has already been unlinked". A zero
- *     there tells SQLite its database is gone.
+ *   - `sqlite3.c:24366` builds a file's identity from `st_dev` and `st_ino`, and uses
+ * it as the key of the table that stops two connections to the same file from
+ * corrupting each other. A `stat` that answers zero for both makes *every* file the
+ * same file.
+ *   - `sqlite3.c:24419` reads `st_nlink == 0` as "this file has already been unlinked".
+ * A zero there tells SQLite its database is gone.
  *
- * Both compile. Both are wrong in a way that shows up as lost data much later, and neither would
- * have been caught by anything short of running it. `SQLITE_OS_OTHER` is the supported way to say
- * "this platform is not unix", and SQLite is explicitly designed for it.
+ * Both compile. Both are wrong in a way that shows up as lost data much later, and
+ * neither would have been caught by anything short of running it. `SQLITE_OS_OTHER` is
+ * the supported way to say "this platform is not unix", and SQLite is explicitly
+ * designed for it.
  *
  * # What this VFS does not do, stated rather than faked
  *
- *   - **No locking.** `xLock`, `xUnlock` and `xCheckReservedLock` succeed without doing anything.
- *     That is correct here and not a stub: locking exists to arbitrate between *processes*, and a
- *     payload is one process with one copy of SQLite in it. Concurrency *within* the process is
- *     the mutex layer below, which is real.
- *   - **No `xSync`.** There is no `fsync` in the SDK, so a sync returns OK without forcing
- *     anything to the device. A database is consistent while the machine is up and may lose the
- *     last writes if it loses power. Returning an error instead would make every commit fail.
- *   - **`xTruncate` fails**, with `SQLITE_IOERR_TRUNCATE`, because the SDK's filesystem cannot
- *     shorten a file. It is a real error rather than a silent success: a truncate that reports
- *     success and does nothing leaves a journal with stale bytes past its header, which is how a
- *     rollback reads garbage. Nothing in the intended use reaches it - the default
- *     `journal_mode=DELETE` removes journals rather than truncating them, and a database that
- *     only grows never shrinks - and `oops_fs_truncate` is the one SDK addition that would close
- *     it properly.
+ *   - **No locking.** `xLock`, `xUnlock` and `xCheckReservedLock` succeed without doing
+ * anything. That is correct here and not a stub: locking exists to arbitrate between
+ * *processes*, and a payload is one process with one copy of SQLite in it. Concurrency
+ * *within* the process is the mutex layer below, which is real.
+ *   - **No `xSync`.** There is no `fsync` in the SDK, so a sync returns OK without
+ * forcing anything to the device. A database is consistent while the machine is up and
+ * may lose the last writes if it loses power. Returning an error instead would make
+ * every commit fail.
+ *   - **`xTruncate` fails**, with `SQLITE_IOERR_TRUNCATE`, because the SDK's filesystem
+ * cannot shorten a file. It is a real error rather than a silent success: a truncate
+ * that reports success and does nothing leaves a journal with stale bytes past its
+ * header, which is how a rollback reads garbage. Nothing in the intended use reaches it
+ * - the default `journal_mode=DELETE` removes journals rather than truncating them, and
+ * a database that only grows never shrinks - and `oops_fs_truncate` is the one SDK
+ * addition that would close it properly.
  */
 
 #include "oops/fs.h"
@@ -55,10 +58,11 @@
  * ------------------------------------------------------------------------- */
 
 typedef struct oops_sqlite_file {
-    sqlite3_io_methods const *pMethods; /* must be first: SQLite casts to sqlite3_file */
+    sqlite3_io_methods const
+        *pMethods; /* must be first: SQLite casts to sqlite3_file */
     int fd;
     int delete_on_close; /* SQLITE_OPEN_DELETEONCLOSE */
-    char *path;          /* owned, for delete_on_close; NULL for a temporary with no name */
+    char *path; /* owned, for delete_on_close; NULL for a temporary with no name */
 } oops_sqlite_file;
 
 static int oops_vfs_close(sqlite3_file *pFile) {
@@ -78,12 +82,13 @@ static int oops_vfs_close(sqlite3_file *pFile) {
 }
 
 /*
- * **A short read is zero-filled and reported as `SQLITE_IOERR_SHORT_READ`, not as an error.**
- * SQLite relies on that distinction: reading past the end of a growing database is normal, and
- * the pager treats the tail as zeroes. Returning a plain `SQLITE_IOERR` would turn an ordinary
- * read into a corrupt-database report.
+ * **A short read is zero-filled and reported as `SQLITE_IOERR_SHORT_READ`, not as an
+ * error.** SQLite relies on that distinction: reading past the end of a growing
+ * database is normal, and the pager treats the tail as zeroes. Returning a plain
+ * `SQLITE_IOERR` would turn an ordinary read into a corrupt-database report.
  */
-static int oops_vfs_read(sqlite3_file *pFile, void *buf, int amt, sqlite3_int64 offset) {
+static int oops_vfs_read(sqlite3_file *pFile, void *buf, int amt,
+                         sqlite3_int64 offset) {
     oops_sqlite_file *f = (oops_sqlite_file *)pFile;
     int64_t got;
 
@@ -101,8 +106,10 @@ static int oops_vfs_read(sqlite3_file *pFile, void *buf, int amt, sqlite3_int64 
     return SQLITE_OK;
 }
 
-/* A short write is an error - unlike a short read there is no sense in which it is expected. */
-static int oops_vfs_write(sqlite3_file *pFile, const void *buf, int amt, sqlite3_int64 offset) {
+/* A short write is an error - unlike a short read there is no sense in which it is
+ * expected. */
+static int oops_vfs_write(sqlite3_file *pFile, const void *buf, int amt,
+                          sqlite3_int64 offset) {
     oops_sqlite_file *f = (oops_sqlite_file *)pFile;
     int64_t put;
 
@@ -138,8 +145,9 @@ static int oops_vfs_file_size(sqlite3_file *pFile, sqlite3_int64 *pSize) {
     if (here < 0 || end < 0) {
         return SQLITE_IOERR_FSTAT;
     }
-    /* Put the descriptor back: SQLite does not expect a size query to move it, and every read and
-     * write here seeks first - but a future one that did not would corrupt silently. */
+    /* Put the descriptor back: SQLite does not expect a size query to move it, and
+     * every read and write here seeks first - but a future one that did not would
+     * corrupt silently. */
     if (oops_fs_seek(f->fd, here, OOPS_SEEK_SET) < 0) {
         return SQLITE_IOERR_FSTAT;
     }
@@ -164,8 +172,8 @@ static int oops_vfs_check_reserved_lock(sqlite3_file *pFile, int *pResOut) {
     return SQLITE_OK;
 }
 
-/* `SQLITE_NOTFOUND` is the documented answer for an opcode a VFS does not implement, and SQLite
- * treats it as "no opinion" rather than as a failure. */
+/* `SQLITE_NOTFOUND` is the documented answer for an opcode a VFS does not implement,
+ * and SQLite treats it as "no opinion" rather than as a failure. */
 static int oops_vfs_file_control(sqlite3_file *pFile, int op, void *pArg) {
     (void)pFile;
     (void)op;
@@ -173,8 +181,9 @@ static int oops_vfs_file_control(sqlite3_file *pFile, int op, void *pArg) {
     return SQLITE_NOTFOUND;
 }
 
-/* 512 is SQLite's own default and the value its unix backend reports unless the filesystem says
- * otherwise. Nothing here can ask, so the default is the honest answer. */
+/* 512 is SQLite's own default and the value its unix backend reports unless the
+ * filesystem says otherwise. Nothing here can ask, so the default is the honest answer.
+ */
 static int oops_vfs_sector_size(sqlite3_file *pFile) {
     (void)pFile;
     return 512;
@@ -183,9 +192,9 @@ static int oops_vfs_sector_size(sqlite3_file *pFile) {
 /*
  * Zero: no guarantees claimed.
  *
- * The flags here advertise atomicity properties - `SQLITE_IOCAP_ATOMIC4K` and friends - that let
- * SQLite skip journalling. Claiming one this device does not have trades a journal for silent
- * corruption on an interrupted write, so nothing is claimed.
+ * The flags here advertise atomicity properties - `SQLITE_IOCAP_ATOMIC4K` and friends -
+ * that let SQLite skip journalling. Claiming one this device does not have trades a
+ * journal for silent corruption on an interrupted write, so nothing is claimed.
  */
 static int oops_vfs_device_characteristics(sqlite3_file *pFile) {
     (void)pFile;
@@ -194,25 +203,17 @@ static int oops_vfs_device_characteristics(sqlite3_file *pFile) {
 
 static sqlite3_io_methods const oops_io_methods = {
     1, /* iVersion */
-    oops_vfs_close,
-    oops_vfs_read,
-    oops_vfs_write,
-    oops_vfs_truncate,
-    oops_vfs_sync,
-    oops_vfs_file_size,
-    oops_vfs_lock,
-    oops_vfs_unlock,
-    oops_vfs_check_reserved_lock,
-    oops_vfs_file_control,
-    oops_vfs_sector_size,
-    oops_vfs_device_characteristics,
+    oops_vfs_close, oops_vfs_read, oops_vfs_write, oops_vfs_truncate, oops_vfs_sync,
+    oops_vfs_file_size, oops_vfs_lock, oops_vfs_unlock, oops_vfs_check_reserved_lock,
+    oops_vfs_file_control, oops_vfs_sector_size, oops_vfs_device_characteristics,
     0, /* xShmMap    - WAL only, and this build omits WAL */
     0, /* xShmLock   */
     0, /* xShmBarrier */
     0, /* xShmUnmap  */
-    /* `iVersion` is 1, so SQLite never reads past `xDeviceCharacteristics`. The later fields are
-     * still written out: leaving them off is a `-Wmissing-field-initializers` error under this
-     * tree's warning set, and naming them says they were considered rather than forgotten. */
+    /* `iVersion` is 1, so SQLite never reads past `xDeviceCharacteristics`. The later
+     * fields are still written out: leaving them off is a
+     * `-Wmissing-field-initializers` error under this tree's warning set, and naming
+     * them says they were considered rather than forgotten. */
     0, /* xFetch     - the memory-mapped read path, which needs mmap */
     0  /* xUnfetch   */
 };
@@ -233,8 +234,9 @@ static char *oops_strdup_heap(const char *s) {
 /*
  * A temporary name, for `xOpen` with a NULL path.
  *
- * SQLite asks for one when it needs a scratch file it will delete itself. The counter makes them
- * distinct within a run; the process is alone on its directory, so that is enough.
+ * SQLite asks for one when it needs a scratch file it will delete itself. The counter
+ * makes them distinct within a run; the process is alone on its directory, so that is
+ * enough.
  */
 static unsigned oops_temp_counter = 0;
 
@@ -244,8 +246,8 @@ static void oops_temp_name(char *out, int n) {
                      (unsigned)(oops_time_get_ns() & 0xffffffffu), id);
 }
 
-static int oops_vfs_open(sqlite3_vfs *vfs, const char *zName, sqlite3_file *pFile, int flags,
-                         int *pOutFlags) {
+static int oops_vfs_open(sqlite3_vfs *vfs, const char *zName, sqlite3_file *pFile,
+                         int flags, int *pOutFlags) {
     oops_sqlite_file *f = (oops_sqlite_file *)pFile;
     char tmp[256];
     const char *path = zName;
@@ -271,8 +273,9 @@ static int oops_vfs_open(sqlite3_vfs *vfs, const char *zName, sqlite3_file *pFil
 
     fd = oops_fs_open(path, oflags, 0644);
     if (fd < 0 && (flags & SQLITE_OPEN_READWRITE) && !(flags & SQLITE_OPEN_CREATE)) {
-        /* SQLite opens read-write and falls back to read-only itself when it is told it cannot;
-         * telling it early saves a round trip and is what the unix backend does. */
+        /* SQLite opens read-write and falls back to read-only itself when it is told it
+         * cannot; telling it early saves a round trip and is what the unix backend
+         * does. */
         fd = oops_fs_open(path, OOPS_O_RDONLY, 0644);
         if (fd >= 0 && pOutFlags != NULL) {
             flags = (flags & ~SQLITE_OPEN_READWRITE) | SQLITE_OPEN_READONLY;
@@ -285,8 +288,8 @@ static int oops_vfs_open(sqlite3_vfs *vfs, const char *zName, sqlite3_file *pFil
     f->pMethods = &oops_io_methods;
     f->fd = fd;
     f->delete_on_close = (flags & SQLITE_OPEN_DELETEONCLOSE) ? 1 : 0;
-    /* The path is kept only when it will be needed at close; copying every path would allocate on
-     * every open for nothing. */
+    /* The path is kept only when it will be needed at close; copying every path would
+     * allocate on every open for nothing. */
     f->path = f->delete_on_close ? oops_strdup_heap(path) : NULL;
     if (f->delete_on_close && f->path == NULL) {
         oops_fs_close(fd);
@@ -305,18 +308,21 @@ static int oops_vfs_delete(sqlite3_vfs *vfs, const char *zName, int dirSync) {
     (void)vfs;
     (void)dirSync;
     if (oops_fs_unlink(zName) != 0) {
-        /* A file that was not there is not a failure - SQLite deletes journals speculatively. */
+        /* A file that was not there is not a failure - SQLite deletes journals
+         * speculatively. */
         return oops_fs_exists(zName) ? SQLITE_IOERR_DELETE : SQLITE_OK;
     }
     return SQLITE_OK;
 }
 
 /*
- * **Every existing file answers yes to `SQLITE_ACCESS_READWRITE`.** There are no permissions on
- * this platform to consult, so "can I write it" and "is it there" are the same question. The
- * alternative - answering no - would make SQLite open every database read-only.
+ * **Every existing file answers yes to `SQLITE_ACCESS_READWRITE`.** There are no
+ * permissions on this platform to consult, so "can I write it" and "is it there" are
+ * the same question. The alternative - answering no - would make SQLite open every
+ * database read-only.
  */
-static int oops_vfs_access(sqlite3_vfs *vfs, const char *zName, int flags, int *pResOut) {
+static int oops_vfs_access(sqlite3_vfs *vfs, const char *zName, int flags,
+                           int *pResOut) {
     (void)vfs;
     (void)flags;
     *pResOut = oops_fs_exists(zName) ? 1 : 0;
@@ -324,11 +330,13 @@ static int oops_vfs_access(sqlite3_vfs *vfs, const char *zName, int flags, int *
 }
 
 /*
- * There are no symlinks, no `..` and no working directory to resolve against here, so a path is
- * already full if it starts at the root. A relative one is joined to the title's directory rather
- * than rejected, because SQLite passes through whatever the caller opened with.
+ * There are no symlinks, no `..` and no working directory to resolve against here, so a
+ * path is already full if it starts at the root. A relative one is joined to the
+ * title's directory rather than rejected, because SQLite passes through whatever the
+ * caller opened with.
  */
-static int oops_vfs_full_pathname(sqlite3_vfs *vfs, const char *zPath, int nOut, char *zOut) {
+static int oops_vfs_full_pathname(sqlite3_vfs *vfs, const char *zPath, int nOut,
+                                  char *zOut) {
     (void)vfs;
     if (zPath[0] == '/') {
         sqlite3_snprintf(nOut, zOut, "%s", zPath);
@@ -339,20 +347,20 @@ static int oops_vfs_full_pathname(sqlite3_vfs *vfs, const char *zPath, int nOut,
 }
 
 /*
- * Loadable extensions are not supported, and these four are the documented way to say so: SQLite
- * checks `xDlOpen` for NULL and reports "unable to open shared library" to the caller. Supplying
- * stubs that fail would be the same answer with more code.
+ * Loadable extensions are not supported, and these four are the documented way to say
+ * so: SQLite checks `xDlOpen` for NULL and reports "unable to open shared library" to
+ * the caller. Supplying stubs that fail would be the same answer with more code.
  */
-#define oops_vfs_dlopen  0
+#define oops_vfs_dlopen 0
 #define oops_vfs_dlerror 0
-#define oops_vfs_dlsym   0
+#define oops_vfs_dlsym 0
 #define oops_vfs_dlclose 0
 
 /*
- * **Randomness, and it is not cryptographic.** SQLite uses this to seed its own PRNG, which names
- * temporary files and salts rollback journals - it is not used for anything an attacker sees. The
- * nanosecond clock is what the SDK offers; a caller needing real entropy should not be using a
- * VFS to get it.
+ * **Randomness, and it is not cryptographic.** SQLite uses this to seed its own PRNG,
+ * which names temporary files and salts rollback journals - it is not used for anything
+ * an attacker sees. The nanosecond clock is what the SDK offers; a caller needing real
+ * entropy should not be using a VFS to get it.
  */
 static int oops_vfs_randomness(sqlite3_vfs *vfs, int nByte, char *zOut) {
     int i;
@@ -380,8 +388,8 @@ static int oops_vfs_sleep(sqlite3_vfs *vfs, int microseconds) {
 /*
  * The Julian day number, which is what `xCurrentTime` is defined to return.
  *
- * 2440587.5 is the Julian day of the Unix epoch. The clock underneath is the platform's wall
- * clock; `oops-sdk`'s time is UTC, which is what this wants.
+ * 2440587.5 is the Julian day of the Unix epoch. The clock underneath is the platform's
+ * wall clock; `oops-sdk`'s time is UTC, which is what this wants.
  */
 static int oops_vfs_current_time(sqlite3_vfs *vfs, double *pNow) {
     (void)vfs;
@@ -390,9 +398,10 @@ static int oops_vfs_current_time(sqlite3_vfs *vfs, double *pNow) {
 }
 
 /*
- * SQLite calls this to put a human-readable reason for the last failure into a buffer. The SDK's
- * filesystem answers a sign rather than a reason, so there is nothing to report and this writes
- * an empty string - which is what the documentation says a VFS with no detail should do.
+ * SQLite calls this to put a human-readable reason for the last failure into a buffer.
+ * The SDK's filesystem answers a sign rather than a reason, so there is nothing to
+ * report and this writes an empty string - which is what the documentation says a VFS
+ * with no detail should do.
  */
 static int oops_vfs_get_last_error(sqlite3_vfs *vfs, int nBuf, char *zBuf) {
     (void)vfs;
@@ -403,27 +412,18 @@ static int oops_vfs_get_last_error(sqlite3_vfs *vfs, int nBuf, char *zBuf) {
 }
 
 static sqlite3_vfs oops_vfs = {
-    1,                               /* iVersion */
-    (int)sizeof(oops_sqlite_file),   /* szOsFile */
-    512,                             /* mxPathname */
-    0,                               /* pNext */
-    "oops",                          /* zName */
-    0,                               /* pAppData */
-    oops_vfs_open,
-    oops_vfs_delete,
-    oops_vfs_access,
-    oops_vfs_full_pathname,
-    oops_vfs_dlopen,
-    oops_vfs_dlerror,
-    oops_vfs_dlsym,
-    oops_vfs_dlclose,
-    oops_vfs_randomness,
-    oops_vfs_sleep,
-    oops_vfs_current_time,
-    oops_vfs_get_last_error,
-    /* `iVersion` is 1, so SQLite never reads past `xGetLastError`. Written out for the reason the
-     * io-methods table gives: the warning set here treats a missing initialiser as an error, and
-     * naming them says they were considered. */
+    1,                             /* iVersion */
+    (int)sizeof(oops_sqlite_file), /* szOsFile */
+    512,                           /* mxPathname */
+    0,                             /* pNext */
+    "oops",                        /* zName */
+    0,                             /* pAppData */
+    oops_vfs_open, oops_vfs_delete, oops_vfs_access, oops_vfs_full_pathname,
+    oops_vfs_dlopen, oops_vfs_dlerror, oops_vfs_dlsym, oops_vfs_dlclose,
+    oops_vfs_randomness, oops_vfs_sleep, oops_vfs_current_time, oops_vfs_get_last_error,
+    /* `iVersion` is 1, so SQLite never reads past `xGetLastError`. Written out for the
+     * reason the io-methods table gives: the warning set here treats a missing
+     * initialiser as an error, and naming them says they were considered. */
     0, /* xCurrentTimeInt64 (v2) */
     0, /* xSetSystemCall   (v3) */
     0, /* xGetSystemCall   (v3) */
@@ -433,10 +433,10 @@ static sqlite3_vfs oops_vfs = {
 /* ---------------------------------------------------------------------------
  * Mutexes
  *
- * **These are real, and they have to be.** Craft drives one SQLite connection from two threads -
- * `db.c` runs a writer on a worker (`db_worker_run`) while the main thread reads - and its own
- * locking covers 8 of the 21 functions that touch SQLite. `SQLITE_THREADSAFE=0` would therefore
- * be a data race rather than an optimisation.
+ * **These are real, and they have to be.** Craft drives one SQLite connection from two
+ * threads - `db.c` runs a writer on a worker (`db_worker_run`) while the main thread
+ * reads - and its own locking covers 8 of the 21 functions that touch SQLite.
+ * `SQLITE_THREADSAFE=0` would therefore be a data race rather than an optimisation.
  * ------------------------------------------------------------------------- */
 
 struct sqlite3_mutex {
@@ -447,10 +447,10 @@ struct sqlite3_mutex {
 /*
  * SQLite's static mutexes, which it asks for by number rather than allocating.
  *
- * The count is `SQLITE_MUTEX_STATIC_LRU2 + 1`, which is the highest this version names, with the
- * two dynamic types (`FAST` and `RECURSIVE`, 0 and 1) occupying the first two slots unused. Sizing
- * it from the macro rather than a literal means a SQLite bump that adds one is a compile error
- * here instead of an out-of-bounds write.
+ * The count is `SQLITE_MUTEX_STATIC_LRU2 + 1`, which is the highest this version names,
+ * with the two dynamic types (`FAST` and `RECURSIVE`, 0 and 1) occupying the first two
+ * slots unused. Sizing it from the macro rather than a literal means a SQLite bump that
+ * adds one is a compile error here instead of an out-of-bounds write.
  */
 #define OOPS_SQLITE_STATIC_COUNT (SQLITE_MUTEX_STATIC_LRU2 + 1)
 static struct sqlite3_mutex oops_static_mutexes[OOPS_SQLITE_STATIC_COUNT];
@@ -459,7 +459,8 @@ static int oops_mutex_init_all(void) {
     int i;
     for (i = 0; i < OOPS_SQLITE_STATIC_COUNT; i++) {
         if (!oops_static_mutexes[i].valid) {
-            /* Static mutexes must be recursive: SQLite enters some of them re-entrantly. */
+            /* Static mutexes must be recursive: SQLite enters some of them
+             * re-entrantly. */
             if (oops_mutex_init_recursive(&oops_static_mutexes[i].m, "sqlite") != 0) {
                 return SQLITE_ERROR;
             }
@@ -495,10 +496,10 @@ static sqlite3_mutex *oops_mutex_alloc(int type) {
         return 0;
     }
     /*
-     * **Both dynamic kinds are recursive, deliberately.** `SQLITE_MUTEX_FAST` only promises that
-     * SQLite will not re-enter it, so a recursive mutex satisfies it too; the reverse is not true,
-     * and getting the two the wrong way round is a deadlock rather than an error. The cost is a
-     * counter.
+     * **Both dynamic kinds are recursive, deliberately.** `SQLITE_MUTEX_FAST` only
+     * promises that SQLite will not re-enter it, so a recursive mutex satisfies it too;
+     * the reverse is not true, and getting the two the wrong way round is a deadlock
+     * rather than an error. The cost is a counter.
      */
     if (oops_mutex_init_recursive(&p->m, "sqlite") != 0) {
         oops_free(p);
@@ -509,8 +510,9 @@ static sqlite3_mutex *oops_mutex_alloc(int type) {
 }
 
 static void oops_mutex_free(sqlite3_mutex *p) {
-    /* A static mutex is never freed - SQLite does not free them, and this guards the case anyway
-     * because freeing one would leave the next `xMutexAlloc` handing out a destroyed lock. */
+    /* A static mutex is never freed - SQLite does not free them, and this guards the
+     * case anyway because freeing one would leave the next `xMutexAlloc` handing out a
+     * destroyed lock. */
     if (p == NULL || (p >= &oops_static_mutexes[0] &&
                       p < &oops_static_mutexes[OOPS_SQLITE_STATIC_COUNT])) {
         return;
@@ -540,11 +542,12 @@ static void oops_mutex_leave(sqlite3_mutex *p) {
 }
 
 /*
- * **These two are only ever called from inside `assert()`.** SQLite has no way to ask a mutex who
- * owns it here, so neither can answer honestly - and both return "yes, that is fine", which is
- * what every implementation without ownership tracking does. The consequence is precise and worth
- * naming: SQLite's internal locking assertions become vacuous in a `SQLITE_DEBUG` build. They
- * cost nothing in the build that ships, where `NDEBUG` removes the calls entirely.
+ * **These two are only ever called from inside `assert()`.** SQLite has no way to ask a
+ * mutex who owns it here, so neither can answer honestly - and both return "yes, that
+ * is fine", which is what every implementation without ownership tracking does. The
+ * consequence is precise and worth naming: SQLite's internal locking assertions become
+ * vacuous in a `SQLITE_DEBUG` build. They cost nothing in the build that ships, where
+ * `NDEBUG` removes the calls entirely.
  */
 static int oops_mutex_held(sqlite3_mutex *p) {
     (void)p;
@@ -556,25 +559,19 @@ static int oops_mutex_notheld(sqlite3_mutex *p) {
 }
 
 static sqlite3_mutex_methods const oops_mutex_methods = {
-    oops_mutex_init_all,
-    oops_mutex_end_all,
-    oops_mutex_alloc,
-    oops_mutex_free,
-    oops_mutex_enter,
-    oops_mutex_try,
-    oops_mutex_leave,
-    oops_mutex_held,
-    oops_mutex_notheld
-};
+    oops_mutex_init_all, oops_mutex_end_all, oops_mutex_alloc,
+    oops_mutex_free,     oops_mutex_enter,   oops_mutex_try,
+    oops_mutex_leave,    oops_mutex_held,    oops_mutex_notheld};
 
 /* ---------------------------------------------------------------------------
  * Initialisation
  * ------------------------------------------------------------------------- */
 
 /*
- * `sqlite3_os_init` is SQLite's hook, called from `sqlite3_initialize`. Registering the VFS is all
- * it does - the mutex methods cannot be installed from here, because `sqlite3_config` refuses to
- * run once initialisation has started. That is what `oops_sqlite_init` below is for.
+ * `sqlite3_os_init` is SQLite's hook, called from `sqlite3_initialize`. Registering the
+ * VFS is all it does - the mutex methods cannot be installed from here, because
+ * `sqlite3_config` refuses to run once initialisation has started. That is what
+ * `oops_sqlite_init` below is for.
  */
 int sqlite3_os_init(void) {
     return sqlite3_vfs_register(&oops_vfs, 1 /* make it the default */);
@@ -587,14 +584,14 @@ int sqlite3_os_end(void) {
 /*
  * **Call this before the first SQLite call of any kind.**
  *
- * `sqlite3_config` is only legal before `sqlite3_initialize`, and almost every public SQLite
- * function calls `sqlite3_initialize` on the way in - so "before `sqlite3_open`" is not good
- * enough if anything touched SQLite first.
+ * `sqlite3_config` is only legal before `sqlite3_initialize`, and almost every public
+ * SQLite function calls `sqlite3_initialize` on the way in - so "before `sqlite3_open`"
+ * is not good enough if anything touched SQLite first.
  *
- * It is idempotent: a second call finds SQLite already initialised, `sqlite3_config` answers
- * `SQLITE_MISUSE`, and that is reported rather than swallowed, because the difference between
- * "configured" and "too late to configure" is the difference between real mutexes and the no-op
- * ones this build would otherwise link.
+ * It is idempotent: a second call finds SQLite already initialised, `sqlite3_config`
+ * answers `SQLITE_MISUSE`, and that is reported rather than swallowed, because the
+ * difference between "configured" and "too late to configure" is the difference between
+ * real mutexes and the no-op ones this build would otherwise link.
  */
 int oops_sqlite_init(void) {
     int rc = sqlite3_config(SQLITE_CONFIG_MUTEX, &oops_mutex_methods);

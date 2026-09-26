@@ -1,10 +1,10 @@
 /*
  * Host self-test for the gallery.
  *
- * Renders every page into a plain buffer and checks each drew and none wrote past the surface.
- * It does not check what the pages say - on a host the platform behind the SDK is absent, so
- * the values are defaults - only that the drawing is sound, which is a fact about the app
- * rather than about the machine it is not running on.
+ * Renders every page into a plain buffer and checks each drew and none wrote past the
+ * surface. It does not check what the pages say - on a host the platform behind the SDK
+ * is absent, so the values are defaults - only that the drawing is sound, which is a
+ * fact about the app rather than about the machine it is not running on.
  */
 
 #include <stdint.h>
@@ -30,7 +30,7 @@ int main(void) {
     }
     pixels[(size_t)W * H] = GUARD;
 
-    oops_surface_t surf = { .pixels = pixels, .width = W, .height = H, .pitch = W };
+    oops_surface_t surf = {.pixels = pixels, .width = W, .height = H, .pitch = W};
 
     int ok = 1;
     for (int page = 0; page < gallery_page_count(); page++) {
@@ -45,8 +45,8 @@ int main(void) {
         state.net_ip = "192.168.1.211";
         state.net_linked = 1;
         state.audio_open = 1;
-        /* Mixed capabilities so the caps page exercises both the available (green) and absent
-         * (red) branches, not just one. */
+        /* Mixed capabilities so the caps page exercises both the available (green) and
+         * absent (red) branches, not just one. */
         state.caps.agc_gpu = 1;
         state.caps.videodec = 1;
         state.caps.audiodec = 1;
@@ -64,7 +64,10 @@ int main(void) {
 
         int any = 0;
         for (size_t i = 0; i < (size_t)W * H; i++) {
-            if (pixels[i] != 0) { any = 1; break; }
+            if (pixels[i] != 0) {
+                any = 1;
+                break;
+            }
         }
         if (!any) {
             fprintf(stderr, "gallery selftest: page %d drew nothing\n", page);
@@ -85,8 +88,9 @@ int main(void) {
 
     free(pixels);
     if (ok) {
-        printf("gallery selftest: ok (%d pages rendered; draw path and bounds verified)\n",
-               gallery_page_count());
+        printf(
+            "gallery selftest: ok (%d pages rendered; draw path and bounds verified)\n",
+            gallery_page_count());
         return 0;
     }
     return 1;

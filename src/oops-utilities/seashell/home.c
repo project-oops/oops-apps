@@ -2,9 +2,9 @@
  * home - clean-room reimplementation of the Prospero shell (Prospero UX / SceShellCore)
  * for homebrew and the Orbistoun emulator.
  *
- * Shared between the host self-test and the payload, so nothing here may call libc, allocate, or
- * touch a machine. Everything is a pure function of the model, a theme and a surface; the things
- * that are not pure go out through the host dispatch in home.h.
+ * Shared between the host self-test and the payload, so nothing here may call libc,
+ * allocate, or touch a machine. Everything is a pure function of the model, a theme and
+ * a surface; the things that are not pure go out through the host dispatch in home.h.
  */
 
 #include "home.h"
@@ -15,17 +15,21 @@
 #define OOPS_APP_VERSION "dev"
 #endif
 
-/* ---- skin management -------------------------------------------------------------------- */
+/* ---- skin management
+ * -------------------------------------------------------------------- */
 
 const home_skin_t *home_current_skin(const home_model_t *m) {
-    if (m == 0) return home_skin_at(0);
+    if (m == 0)
+        return home_skin_at(0);
     return home_skin_at(m->skin_idx);
 }
 
 void home_set_skin(home_model_t *m, int index) {
-    if (m == 0) return;
+    if (m == 0)
+        return;
     int count = home_skin_count();
-    if (count <= 0) return;
+    if (count <= 0)
+        return;
     m->skin_idx = (index % count + count) % count;
     m->theme = m->skin_idx;
     const home_skin_t *skin = home_skin_at(m->skin_idx);
@@ -38,7 +42,8 @@ void home_set_skin(home_model_t *m, int index) {
 }
 
 void home_next_skin(home_model_t *m) {
-    if (m == 0) return;
+    if (m == 0)
+        return;
     home_set_skin(m, m->skin_idx + 1);
 }
 
@@ -46,7 +51,8 @@ void home_next_theme(home_model_t *m) {
     home_next_skin(m);
 }
 
-/* ---- menu building ---------------------------------------------------------------------- */
+/* ---- menu building
+ * ---------------------------------------------------------------------- */
 
 static void menu_reset(home_menu_t *menu, const char *heading) {
     menu->heading = heading;
@@ -80,13 +86,16 @@ static int screen_is_carousel(home_screen_t screen) {
 }
 
 static char to_upper_ascii(char c) {
-    if (c >= 'a' && c <= 'z') return (char)(c - 'a' + 'A');
+    if (c >= 'a' && c <= 'z')
+        return (char)(c - 'a' + 'A');
     return c;
 }
 
 static int str_contains_ci(const char *haystack, const char *needle) {
-    if (!needle || needle[0] == '\0') return 1;
-    if (!haystack) return 0;
+    if (!needle || needle[0] == '\0')
+        return 1;
+    if (!haystack)
+        return 0;
     for (int i = 0; haystack[i] != '\0'; i++) {
         int match = 1;
         for (int j = 0; needle[j] != '\0'; j++) {
@@ -96,7 +105,8 @@ static int str_contains_ci(const char *haystack, const char *needle) {
                 break;
             }
         }
-        if (match) return 1;
+        if (match)
+            return 1;
     }
     return 0;
 }
@@ -111,15 +121,21 @@ static void build_title_options_menu(home_model_t *m) {
     }
     const home_title_t *title = &m->titles[index];
     menu_reset(menu, title->name);
-    menu_add(menu, "PLAY", title->id, HOME_ACTION_LAUNCH_TITLE, index, title->installed);
+    menu_add(menu, "PLAY", title->id, HOME_ACTION_LAUNCH_TITLE, index,
+             title->installed);
     menu_add(menu, title->favorite ? "REMOVE FROM FAVORITES" : "ADD TO FAVORITES",
              title->favorite ? "UNPIN FROM FAVORITES" : "PIN TO FAVORITES VIEW",
              HOME_ACTION_TOGGLE_FAVORITE, index, 1);
-    menu_add(menu, "CHECK FOR UPDATE", "VERSION 1.002.000", HOME_ACTION_CHECK_UPDATE, index, 1);
-    menu_add(menu, "MANAGE GAME CONTENT", "1 ADD-ON INSTALLED", HOME_ACTION_MANAGE_CONTENT, index, 1);
-    menu_add(menu, "SAVED DATA", "SYNC WITH CLOUD / USB", HOME_ACTION_SYNC_SAVE, index, 1);
-    menu_add(menu, "INFORMATION", "VIEW METADATA & SPECS", HOME_ACTION_OPEN, (int)HOME_SCREEN_TITLE_INFO, 1);
-    menu_add(menu, "DELETE", "REMOVE FROM STORAGE", HOME_ACTION_DELETE_TITLE, index, title->installed);
+    menu_add(menu, "CHECK FOR UPDATE", "VERSION 1.002.000", HOME_ACTION_CHECK_UPDATE,
+             index, 1);
+    menu_add(menu, "MANAGE GAME CONTENT", "1 ADD-ON INSTALLED",
+             HOME_ACTION_MANAGE_CONTENT, index, 1);
+    menu_add(menu, "SAVED DATA", "SYNC WITH CLOUD / USB", HOME_ACTION_SYNC_SAVE, index,
+             1);
+    menu_add(menu, "INFORMATION", "VIEW METADATA & SPECS", HOME_ACTION_OPEN,
+             (int)HOME_SCREEN_TITLE_INFO, 1);
+    menu_add(menu, "DELETE", "REMOVE FROM STORAGE", HOME_ACTION_DELETE_TITLE, index,
+             title->installed);
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 }
 
@@ -140,7 +156,8 @@ static void build_title_info_menu(home_model_t *m) {
     menu_add(menu, "EXECUTABLE FORMAT", "PROSPERO NATIVE ELF", HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "LOCATION", "CONSOLE SSD /USER/APP/", HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "TARGET SDK", "12.40 (0x12400000)", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "AUDIO FORMAT", "LINEAR PCM 7.1 / TEMPEST 3D", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "AUDIO FORMAT", "LINEAR PCM 7.1 / TEMPEST 3D", HOME_ACTION_NONE, 0,
+             1);
     menu_add(menu, "PARENTAL LEVEL", "LEVEL 1 (ALL AGES)", HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 }
@@ -148,25 +165,30 @@ static void build_title_info_menu(home_model_t *m) {
 static void build_switcher_menu(home_model_t *m) {
     home_menu_t *menu = &m->menus[HOME_SCREEN_SWITCHER];
     menu_reset(menu, "SWITCHER");
-    if (m->switcher.has_running_title != 0 &&
-        m->switcher.running_title_index >= 0 &&
+    if (m->switcher.has_running_title != 0 && m->switcher.running_title_index >= 0 &&
         m->switcher.running_title_index < m->title_count) {
         const home_title_t *running = &m->titles[m->switcher.running_title_index];
-        const char *state_str = m->switcher.is_suspended ? "SUSPENDED (IN BACKGROUND)" : "NOW PLAYING";
+        const char *state_str =
+            m->switcher.is_suspended ? "SUSPENDED (IN BACKGROUND)" : "NOW PLAYING";
         menu_add(menu, state_str, running->name, HOME_ACTION_NONE, 0, 1);
         if (m->switcher.is_suspended) {
-            menu_add(menu, "RESUME GAME", "RETURN TO ACTIVE PLAY", HOME_ACTION_RESUME_TITLE, m->switcher.running_title_index, 1);
+            menu_add(menu, "RESUME GAME", "RETURN TO ACTIVE PLAY",
+                     HOME_ACTION_RESUME_TITLE, m->switcher.running_title_index, 1);
         } else {
-            menu_add(menu, "SUSPEND GAME", "FREEZE IN BACKGROUND", HOME_ACTION_SUSPEND_TITLE, m->switcher.running_title_index, 1);
+            menu_add(menu, "SUSPEND GAME", "FREEZE IN BACKGROUND",
+                     HOME_ACTION_SUSPEND_TITLE, m->switcher.running_title_index, 1);
         }
-        menu_add(menu, "CLOSE GAME", "TERMINATE PROCESS", HOME_ACTION_TERMINATE_TITLE, m->switcher.running_title_index, 1);
+        menu_add(menu, "CLOSE GAME", "TERMINATE PROCESS", HOME_ACTION_TERMINATE_TITLE,
+                 m->switcher.running_title_index, 1);
     } else {
-        menu_add(menu, "NO GAME RUNNING", "SELECT A TITLE TO LAUNCH", HOME_ACTION_NONE, 0, 0);
+        menu_add(menu, "NO GAME RUNNING", "SELECT A TITLE TO LAUNCH", HOME_ACTION_NONE,
+                 0, 0);
     }
     for (int i = 0; i < m->switcher.recent_count; i++) {
         int idx = m->switcher.recent_indices[i];
         if (idx >= 0 && idx < m->title_count) {
-            menu_add(menu, "RECENT", m->titles[idx].name, HOME_ACTION_LAUNCH_TITLE, idx, 1);
+            menu_add(menu, "RECENT", m->titles[idx].name, HOME_ACTION_LAUNCH_TITLE, idx,
+                     1);
         }
     }
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
@@ -175,24 +197,29 @@ static void build_switcher_menu(home_model_t *m) {
 static void build_search_menu(home_model_t *m) {
     home_menu_t *menu = &m->menus[HOME_SCREEN_SEARCH];
     menu_reset(menu, "UNIVERSAL SEARCH");
-    const char *query = (m->last_search[0] != '\0') ? m->last_search : "SEARCH TITLES & PAYLOADS";
-    menu_add(menu, "OPEN KEYBOARD", query, HOME_ACTION_TRIGGER_DIALOG, (int)HOME_DIALOG_IME, 1);
+    const char *query =
+        (m->last_search[0] != '\0') ? m->last_search : "SEARCH TITLES & PAYLOADS";
+    menu_add(menu, "OPEN KEYBOARD", query, HOME_ACTION_TRIGGER_DIALOG,
+             (int)HOME_DIALOG_IME, 1);
 
     int count = 0;
     if (m->last_search[0] != '\0') {
         for (int i = 0; i < m->title_count; i++) {
             const home_title_t *t = &m->titles[i];
-            if (str_contains_ci(t->name, m->last_search) || str_contains_ci(t->id, m->last_search)) {
+            if (str_contains_ci(t->name, m->last_search) ||
+                str_contains_ci(t->id, m->last_search)) {
                 menu_add(menu, t->name, t->id, HOME_ACTION_LAUNCH_TITLE, i, 1);
                 count++;
             }
         }
         if (count == 0) {
-            menu_add(menu, "NO MATCHING TITLES", "PRESS KEYBOARD TO SEARCH AGAIN", HOME_ACTION_NONE, 0, 0);
+            menu_add(menu, "NO MATCHING TITLES", "PRESS KEYBOARD TO SEARCH AGAIN",
+                     HOME_ACTION_NONE, 0, 0);
         }
     } else {
         for (int i = 0; i < m->title_count; i++) {
-            menu_add(menu, m->titles[i].name, m->titles[i].id, HOME_ACTION_LAUNCH_TITLE, i, 1);
+            menu_add(menu, m->titles[i].name, m->titles[i].id, HOME_ACTION_LAUNCH_TITLE,
+                     i, 1);
         }
     }
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
@@ -222,9 +249,11 @@ static void build_captures_menu(home_model_t *m) {
     home_menu_t *menu = &m->menus[HOME_SCREEN_CAPTURES];
     menu_reset(menu, "MEDIA GALLERY");
     for (int i = 0; i < m->capture_count; i++) {
-        menu_add(menu, m->captures[i].title, m->captures[i].type_and_res, HOME_ACTION_NONE, 0, 1);
+        menu_add(menu, m->captures[i].title, m->captures[i].type_and_res,
+                 HOME_ACTION_NONE, 0, 1);
     }
-    menu_add(menu, "TAKE SCREENSHOT", "CAPTURE CURRENT FRAME", HOME_ACTION_TAKE_SCREENSHOT, 0, 1);
+    menu_add(menu, "TAKE SCREENSHOT", "CAPTURE CURRENT FRAME",
+             HOME_ACTION_TAKE_SCREENSHOT, 0, 1);
     menu_add(menu, "EXPORT ALL TO USB / HOST", 0, HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 }
@@ -244,20 +273,19 @@ static void build_saves_menu(home_model_t *m) {
 static void build_storage_menu(home_model_t *m) {
     home_menu_t *menu = &m->menus[HOME_SCREEN_SETTINGS_STORAGE];
     menu_reset(menu, "STORAGE");
-    menu_add(menu, "CONSOLE STORAGE (SSD)", "412 GB / 825 GB USED", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "CONSOLE STORAGE (SSD)", "412 GB / 825 GB USED", HOME_ACTION_NONE, 0,
+             1);
     menu_add(menu, "M.2 SSD STORAGE", "550 GB / 2000 GB USED", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "USB EXTENDED STORAGE", "190 GB / 500 GB USED", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "EMULATOR HOST SHARE", "DIRECT FILESYSTEM MOUNT", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "USB EXTENDED STORAGE", "190 GB / 500 GB USED", HOME_ACTION_NONE, 0,
+             1);
+    menu_add(menu, "EMULATOR HOST SHARE", "DIRECT FILESYSTEM MOUNT", HOME_ACTION_NONE,
+             0, 1);
     menu_add(menu, "AUTO CLEANUP UNUSED CACHES", 0, HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 }
 
 static const char *const s_filter_names[HOME_FILTER_COUNT] = {
-    "ALL TITLES",
-    "NATIVE APPS",
-    "HOMEBREW & ELFS",
-    "FAVORITES (PINNED)"
-};
+    "ALL TITLES", "NATIVE APPS", "HOMEBREW & ELFS", "FAVORITES (PINNED)"};
 
 static void build_library_menu(home_model_t *m) {
     home_menu_t *menu = &m->menus[HOME_SCREEN_LIBRARY];
@@ -268,39 +296,40 @@ static void build_library_menu(home_model_t *m) {
         filter_idx = 0;
         m->library_filter = HOME_FILTER_ALL;
     }
-    menu_add(menu, "FILTER CATEGORY", s_filter_names[filter_idx], HOME_ACTION_SET_LIBRARY_FILTER, 0, 1);
+    menu_add(menu, "FILTER CATEGORY", s_filter_names[filter_idx],
+             HOME_ACTION_SET_LIBRARY_FILTER, 0, 1);
 
     int count = 0;
     for (int i = 0; i < m->title_count; i++) {
         const home_title_t *t = &m->titles[i];
         int include = 0;
         switch (m->library_filter) {
-            case HOME_FILTER_ALL:
+        case HOME_FILTER_ALL:
+            include = 1;
+            break;
+        case HOME_FILTER_NATIVE:
+            if (str_contains_ci(t->category, "BIG APP") ||
+                str_contains_ci(t->category, "MINI APP") ||
+                str_contains_ci(t->category, "NATIVE") ||
+                str_contains_ci(t->category, "APP")) {
                 include = 1;
-                break;
-            case HOME_FILTER_NATIVE:
-                if (str_contains_ci(t->category, "BIG APP") ||
-                    str_contains_ci(t->category, "MINI APP") ||
-                    str_contains_ci(t->category, "NATIVE") ||
-                    str_contains_ci(t->category, "APP")) {
-                    include = 1;
-                }
-                break;
-            case HOME_FILTER_HOMEBREW:
-                if (str_contains_ci(t->category, "HOMEBREW") ||
-                    str_contains_ci(t->category, "ELF") ||
-                    str_contains_ci(t->category, "PAYLOAD")) {
-                    include = 1;
-                }
-                break;
-            case HOME_FILTER_FAVORITES:
-                if (t->favorite != 0) {
-                    include = 1;
-                }
-                break;
-            default:
+            }
+            break;
+        case HOME_FILTER_HOMEBREW:
+            if (str_contains_ci(t->category, "HOMEBREW") ||
+                str_contains_ci(t->category, "ELF") ||
+                str_contains_ci(t->category, "PAYLOAD")) {
                 include = 1;
-                break;
+            }
+            break;
+        case HOME_FILTER_FAVORITES:
+            if (t->favorite != 0) {
+                include = 1;
+            }
+            break;
+        default:
+            include = 1;
+            break;
         }
 
         if (include) {
@@ -320,30 +349,49 @@ static void build_library_menu(home_model_t *m) {
 static void build_system_menu(home_model_t *m) {
     home_menu_t *menu = &m->menus[HOME_SCREEN_SETTINGS_SYSTEM];
     menu_reset(menu, "SYSTEM");
-    menu_add(menu, "CONSOLE INFORMATION", m->dev.console_info_str[0] ? m->dev.console_info_str : "PROSPERO (FW 12.40)", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "CONSOLE INFORMATION",
+             m->dev.console_info_str[0] ? m->dev.console_info_str
+                                        : "PROSPERO (FW 12.40)",
+             HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "SEASHELL VERSION", OOPS_APP_VERSION, HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "HARDWARE TELEMETRY", m->dev.hw_telemetry_str[0] ? m->dev.hw_telemetry_str : "CPU -- C | FAN --%", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "SYSTEM SOFTWARE UPDATE", "CHECK AUTOMATICALLY", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "HARDWARE TELEMETRY",
+             m->dev.hw_telemetry_str[0] ? m->dev.hw_telemetry_str
+                                        : "CPU -- C | FAN --%",
+             HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "SYSTEM SOFTWARE UPDATE", "CHECK AUTOMATICALLY", HOME_ACTION_NONE, 0,
+             1);
     menu_add(menu, "POWER SAVING", "REST MODE IN 1 HOUR", HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "HDMI", "HDMI DEVICE LINK ENABLED", HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "REMOTE PLAY", "ENABLED", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "RESET OPTIONS", "REBUILD DATABASE / CLEAR CACHE", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "RESET OPTIONS", "REBUILD DATABASE / CLEAR CACHE", HOME_ACTION_NONE,
+             0, 1);
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 }
 
 static void build_developer_menu(home_model_t *m) {
     home_menu_t *menu = &m->menus[HOME_SCREEN_SETTINGS_DEVELOPER];
     menu_reset(menu, "DEVELOPER & DEBUG");
-    menu_add(menu, "INSTALL PACKAGE (PKG)", "SCAN USB & /DATA/PKG", HOME_ACTION_INSTALL_PACKAGE, 0, 1);
-    menu_add(menu, "RUN PAYLOAD (ELF)", "SCAN USB & /DATA/PAYLOADS", HOME_ACTION_RUN_PAYLOAD, 0, 1);
-    menu_add(menu, "APP CATEGORY OVERRIDE", "BIG APP 0 (PROSPERO)", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "PLTAUTH STATUS", m->dev.pltauth_str[0] ? m->dev.pltauth_str : "ACTIVE", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "RESCAN INSTALLED TITLES", "SCAN STORAGE & USB", HOME_ACTION_RESCAN_TITLES, 0, 1);
-    menu_add(menu, "LIVE KERNEL LOG (KLOG)", "VIEW SYSTEM LOG STREAM", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "FILESYSTEM BROWSER", "EXPLORE /APP0 /DATA /USER", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "DEV TEST: CONFIRM DIALOG", 0, HOME_ACTION_TRIGGER_DIALOG, (int)HOME_DIALOG_CONFIRM, 1);
-    menu_add(menu, "DEV TEST: PROGRESS DIALOG", 0, HOME_ACTION_TRIGGER_DIALOG, (int)HOME_DIALOG_PROGRESS, 1);
-    menu_add(menu, "DEV TEST: ERROR CE-108255-1", 0, HOME_ACTION_TRIGGER_DIALOG, (int)HOME_DIALOG_ERROR, 1);
+    menu_add(menu, "INSTALL PACKAGE (PKG)", "SCAN USB & /DATA/PKG",
+             HOME_ACTION_INSTALL_PACKAGE, 0, 1);
+    menu_add(menu, "RUN PAYLOAD (ELF)", "SCAN USB & /DATA/PAYLOADS",
+             HOME_ACTION_RUN_PAYLOAD, 0, 1);
+    menu_add(menu, "APP CATEGORY OVERRIDE", "BIG APP 0 (PROSPERO)", HOME_ACTION_NONE, 0,
+             1);
+    menu_add(menu, "PLTAUTH STATUS",
+             m->dev.pltauth_str[0] ? m->dev.pltauth_str : "ACTIVE", HOME_ACTION_NONE, 0,
+             1);
+    menu_add(menu, "RESCAN INSTALLED TITLES", "SCAN STORAGE & USB",
+             HOME_ACTION_RESCAN_TITLES, 0, 1);
+    menu_add(menu, "LIVE KERNEL LOG (KLOG)", "VIEW SYSTEM LOG STREAM", HOME_ACTION_NONE,
+             0, 1);
+    menu_add(menu, "FILESYSTEM BROWSER", "EXPLORE /APP0 /DATA /USER", HOME_ACTION_NONE,
+             0, 1);
+    menu_add(menu, "DEV TEST: CONFIRM DIALOG", 0, HOME_ACTION_TRIGGER_DIALOG,
+             (int)HOME_DIALOG_CONFIRM, 1);
+    menu_add(menu, "DEV TEST: PROGRESS DIALOG", 0, HOME_ACTION_TRIGGER_DIALOG,
+             (int)HOME_DIALOG_PROGRESS, 1);
+    menu_add(menu, "DEV TEST: ERROR CE-108255-1", 0, HOME_ACTION_TRIGGER_DIALOG,
+             (int)HOME_DIALOG_ERROR, 1);
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 }
 
@@ -360,14 +408,16 @@ static void build_theme_menu(home_model_t *m) {
 }
 
 void home_refresh_telemetry(home_model_t *m) {
-    if (m == 0) return;
+    if (m == 0)
+        return;
 
     oops_system_info_t sys_info;
     if (oops_system_get_info(&sys_info) == 0) {
         m->dev.total_ram_mb = (int)sys_info.total_ram_mb;
         m->dev.direct_mem_mb = (int)sys_info.direct_mem_mb;
         size_t i = 0;
-        for (i = 0; i < sizeof(m->dev.fw_version) - 1 && sys_info.firmware_str[i]; i++) {
+        for (i = 0; i < sizeof(m->dev.fw_version) - 1 && sys_info.firmware_str[i];
+             i++) {
             m->dev.fw_version[i] = sys_info.firmware_str[i];
         }
         m->dev.fw_version[i] = '\0';
@@ -386,11 +436,21 @@ void home_refresh_telemetry(home_model_t *m) {
             m->status.user = m->dev.username;
         }
     } else {
-        m->dev.fw_version[0] = '1'; m->dev.fw_version[1] = '2'; m->dev.fw_version[2] = '.';
-        m->dev.fw_version[3] = '4'; m->dev.fw_version[4] = '0'; m->dev.fw_version[5] = '\0';
-        m->dev.model_name[0] = 'C'; m->dev.model_name[1] = 'F'; m->dev.model_name[2] = 'I';
-        m->dev.model_name[3] = '-'; m->dev.model_name[4] = '1'; m->dev.model_name[5] = '1';
-        m->dev.model_name[6] = '1'; m->dev.model_name[7] = '6'; m->dev.model_name[8] = 'A';
+        m->dev.fw_version[0] = '1';
+        m->dev.fw_version[1] = '2';
+        m->dev.fw_version[2] = '.';
+        m->dev.fw_version[3] = '4';
+        m->dev.fw_version[4] = '0';
+        m->dev.fw_version[5] = '\0';
+        m->dev.model_name[0] = 'C';
+        m->dev.model_name[1] = 'F';
+        m->dev.model_name[2] = 'I';
+        m->dev.model_name[3] = '-';
+        m->dev.model_name[4] = '1';
+        m->dev.model_name[5] = '1';
+        m->dev.model_name[6] = '1';
+        m->dev.model_name[7] = '6';
+        m->dev.model_name[8] = 'A';
         m->dev.model_name[9] = '\0';
     }
 
@@ -430,7 +490,8 @@ void home_refresh_telemetry(home_model_t *m) {
     build_developer_menu(m);
 }
 
-/* ---- model initialization --------------------------------------------------------------- */
+/* ---- model initialization
+ * --------------------------------------------------------------- */
 
 void home_model_init(home_model_t *m) {
     if (m == 0) {
@@ -486,25 +547,33 @@ void home_model_init(home_model_t *m) {
 #ifdef OOPS_HOST_BUILD
     /* Baseline test titles for host selftest */
     static const home_title_t default_titles[] = {
-        { "PPSA01325", "ASTRO'S PLAYROOM", "NATIVE", "1.004.000", 11400, 1, 0, 0, 0, 0, NULL, 0, 0, 0 },
-        { "PPSA01342", "DEMON'S SOULS",    "NATIVE", "1.002.000", 66200, 1, 0, 0, 0, 0, NULL, 0, 0, 0 },
-        { "PPSA01284", "RETURNAL",         "NATIVE", "1.003.000", 56100, 1, 0, 0, 0, 0, NULL, 0, 0, 0 },
-        { "PPSA01521", "HORIZON",          "NATIVE", "1.018.000", 98400, 1, 0, 0, 0, 0, NULL, 0, 0, 0 },
-        { "OOPS00001", "OBSCENE PROBE",    "ELF",    "1.000.000",     4, 1, 0, 0, 0, 0, NULL, 0, 0, 0 },
-        { "OOPS00002", "PORTHOLE",         "ELF",    "1.000.000",     2, 1, 0, 0, 0, 0, NULL, 0, 0, 0 },
-        { "CUSA00123", "BLOODBORNE",       "LEGACY", "1.009.000", 32000, 1, 0, 0, 0, 0, NULL, 0, 0, 0 }
-    };
-    home_set_titles(m, default_titles, (int)(sizeof(default_titles) / sizeof(default_titles[0])));
+        {"PPSA01325", "ASTRO'S PLAYROOM", "NATIVE", "1.004.000", 11400, 1, 0, 0, 0, 0,
+         NULL, 0, 0, 0},
+        {"PPSA01342", "DEMON'S SOULS", "NATIVE", "1.002.000", 66200, 1, 0, 0, 0, 0,
+         NULL, 0, 0, 0},
+        {"PPSA01284", "RETURNAL", "NATIVE", "1.003.000", 56100, 1, 0, 0, 0, 0, NULL, 0,
+         0, 0},
+        {"PPSA01521", "HORIZON", "NATIVE", "1.018.000", 98400, 1, 0, 0, 0, 0, NULL, 0,
+         0, 0},
+        {"OOPS00001", "OBSCENE PROBE", "ELF", "1.000.000", 4, 1, 0, 0, 0, 0, NULL, 0, 0,
+         0},
+        {"OOPS00002", "PORTHOLE", "ELF", "1.000.000", 2, 1, 0, 0, 0, 0, NULL, 0, 0, 0},
+        {"CUSA00123", "BLOODBORNE", "LEGACY", "1.009.000", 32000, 1, 0, 0, 0, 0, NULL,
+         0, 0, 0}};
+    home_set_titles(m, default_titles,
+                    (int)(sizeof(default_titles) / sizeof(default_titles[0])));
 #else
     m->title_count = 0;
 #endif
 
     /* Realistic Media apps */
     static const home_title_t default_media[] = {
-        { "MEDIA001", "MEDIA PLAYER (USB & LOCAL)", "SYSTEM", "1.00.00", 120, 1, 60, 0, 0, 0, NULL, 0, 0, 0 },
-        { "MEDIA002", "MEDIA GALLERY (CAPTURES)",   "SYSTEM", "1.00.00",  85, 1, 30, 0, 0, 0, NULL, 0, 0, 0 },
-        { "MEDIA003", "WEB BROWSER (WEBKIT)",       "SYSTEM", "1.00.00",  42, 1, 90, 0, 0, 0, NULL, 0, 0, 0 }
-    };
+        {"MEDIA001", "MEDIA PLAYER (USB & LOCAL)", "SYSTEM", "1.00.00", 120, 1, 60, 0,
+         0, 0, NULL, 0, 0, 0},
+        {"MEDIA002", "MEDIA GALLERY (CAPTURES)", "SYSTEM", "1.00.00", 85, 1, 30, 0, 0,
+         0, NULL, 0, 0, 0},
+        {"MEDIA003", "WEB BROWSER (WEBKIT)", "SYSTEM", "1.00.00", 42, 1, 90, 0, 0, 0,
+         NULL, 0, 0, 0}};
     m->media_count = (int)(sizeof(default_media) / sizeof(default_media[0]));
     for (int i = 0; i < m->media_count && i < HOME_MAX_MEDIA; i++) {
         m->media[i] = default_media[i];
@@ -515,20 +584,21 @@ void home_model_init(home_model_t *m) {
 
     /* Control Centre 13-dock icons */
     static const home_card_t default_cards[] = {
-        { "HOME",          "RETURN TO SHELL",      HOME_ACTION_OPEN,         (int)HOME_SCREEN_GAMES },
-        { "SWITCHER",      "NOW PLAYING",          HOME_ACTION_OPEN,         (int)HOME_SCREEN_SWITCHER },
-        { "NOTIFICATIONS", "0 UNREAD",             HOME_ACTION_OPEN,         (int)HOME_SCREEN_NOTIFICATIONS },
-        { "GAME BASE",     "NO FRIENDS ONLINE",    HOME_ACTION_OPEN,         (int)HOME_SCREEN_GAME_BASE },
-        { "MUSIC",         "NO AUDIO",             HOME_ACTION_OPEN,         (int)HOME_SCREEN_MUSIC },
-        { "CAPTURES",      "MEDIA GALLERY",        HOME_ACTION_OPEN,         (int)HOME_SCREEN_CAPTURES },
-        { "ACCESSIBILITY", "QUICK TOGGLES",        HOME_ACTION_NONE,         0 },
-        { "NETWORK",       "CONNECTED (WI-FI)",    HOME_ACTION_NONE,         0 },
-        { "SOUND",         "HEADPHONES (80%)",     HOME_ACTION_TOGGLE_SOUND, 0 },
-        { "MIC",           "MUTED (ORANGE LED)",   HOME_ACTION_TOGGLE_MIC,   0 },
-        { "ACCESSORIES",   "CONTROLLER 1 (85%)",   HOME_ACTION_OPEN,         (int)HOME_SCREEN_SETTINGS_ACCESSORIES },
-        { "PROFILE",       "PLAYER (ONLINE)",      HOME_ACTION_OPEN,         (int)HOME_SCREEN_PROFILE },
-        { "POWER",         "REST / RESTART / OFF", HOME_ACTION_OPEN,         (int)HOME_SCREEN_POWER }
-    };
+        {"HOME", "RETURN TO SHELL", HOME_ACTION_OPEN, (int)HOME_SCREEN_GAMES},
+        {"SWITCHER", "NOW PLAYING", HOME_ACTION_OPEN, (int)HOME_SCREEN_SWITCHER},
+        {"NOTIFICATIONS", "0 UNREAD", HOME_ACTION_OPEN, (int)HOME_SCREEN_NOTIFICATIONS},
+        {"GAME BASE", "NO FRIENDS ONLINE", HOME_ACTION_OPEN,
+         (int)HOME_SCREEN_GAME_BASE},
+        {"MUSIC", "NO AUDIO", HOME_ACTION_OPEN, (int)HOME_SCREEN_MUSIC},
+        {"CAPTURES", "MEDIA GALLERY", HOME_ACTION_OPEN, (int)HOME_SCREEN_CAPTURES},
+        {"ACCESSIBILITY", "QUICK TOGGLES", HOME_ACTION_NONE, 0},
+        {"NETWORK", "CONNECTED (WI-FI)", HOME_ACTION_NONE, 0},
+        {"SOUND", "HEADPHONES (80%)", HOME_ACTION_TOGGLE_SOUND, 0},
+        {"MIC", "MUTED (ORANGE LED)", HOME_ACTION_TOGGLE_MIC, 0},
+        {"ACCESSORIES", "CONTROLLER 1 (85%)", HOME_ACTION_OPEN,
+         (int)HOME_SCREEN_SETTINGS_ACCESSORIES},
+        {"PROFILE", "PLAYER (ONLINE)", HOME_ACTION_OPEN, (int)HOME_SCREEN_PROFILE},
+        {"POWER", "REST / RESTART / OFF", HOME_ACTION_OPEN, (int)HOME_SCREEN_POWER}};
     m->card_count = (int)(sizeof(default_cards) / sizeof(default_cards[0]));
     for (int i = 0; i < m->card_count && i < HOME_MAX_CARDS; i++) {
         m->cards[i] = default_cards[i];
@@ -606,16 +676,24 @@ void home_model_init(home_model_t *m) {
     /* Build static menus */
     home_menu_t *menu = &m->menus[HOME_SCREEN_SETTINGS];
     menu_reset(menu, "SETTINGS");
-    menu_add(menu, "USERS AND ACCOUNTS", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_PROFILE, 1);
+    menu_add(menu, "USERS AND ACCOUNTS", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_PROFILE,
+             1);
     menu_add(menu, "SYSTEM", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_SETTINGS_SYSTEM, 1);
-    menu_add(menu, "STORAGE", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_SETTINGS_STORAGE, 1);
+    menu_add(menu, "STORAGE", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_SETTINGS_STORAGE,
+             1);
     menu_add(menu, "SOUND", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_SETTINGS_SOUND, 1);
-    menu_add(menu, "SCREEN AND VIDEO", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_SETTINGS_VIDEO, 1);
-    menu_add(menu, "ACCESSORIES", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_SETTINGS_ACCESSORIES, 1);
-    menu_add(menu, "SAVED DATA AND GAME/APP SETTINGS", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_SETTINGS_SAVES, 1);
-    menu_add(menu, "DEVELOPER & DEBUG SETTINGS", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_SETTINGS_DEVELOPER, 1);
-    menu_add(menu, "EMULATOR SETTINGS (ORBISTOUN)", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_SETTINGS_EMULATOR, 1);
-    menu_add(menu, "THEMES & SKINS", "SELECT ACTIVE SKIN", HOME_ACTION_OPEN, (int)HOME_SCREEN_SETTINGS_THEME, 1);
+    menu_add(menu, "SCREEN AND VIDEO", 0, HOME_ACTION_OPEN,
+             (int)HOME_SCREEN_SETTINGS_VIDEO, 1);
+    menu_add(menu, "ACCESSORIES", 0, HOME_ACTION_OPEN,
+             (int)HOME_SCREEN_SETTINGS_ACCESSORIES, 1);
+    menu_add(menu, "SAVED DATA AND GAME/APP SETTINGS", 0, HOME_ACTION_OPEN,
+             (int)HOME_SCREEN_SETTINGS_SAVES, 1);
+    menu_add(menu, "DEVELOPER & DEBUG SETTINGS", 0, HOME_ACTION_OPEN,
+             (int)HOME_SCREEN_SETTINGS_DEVELOPER, 1);
+    menu_add(menu, "EMULATOR SETTINGS (ORBISTOUN)", 0, HOME_ACTION_OPEN,
+             (int)HOME_SCREEN_SETTINGS_EMULATOR, 1);
+    menu_add(menu, "THEMES & SKINS", "SELECT ACTIVE SKIN", HOME_ACTION_OPEN,
+             (int)HOME_SCREEN_SETTINGS_THEME, 1);
     menu_add(menu, "POWER", 0, HOME_ACTION_OPEN, (int)HOME_SCREEN_POWER, 1);
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 
@@ -623,7 +701,8 @@ void home_model_init(home_model_t *m) {
 
     menu = &m->menus[HOME_SCREEN_SETTINGS_SOUND];
     menu_reset(menu, "SOUND");
-    menu_add(menu, "AUDIO OUTPUT", "HEADPHONES / STEREO", HOME_ACTION_TOGGLE_SOUND, 0, 1);
+    menu_add(menu, "AUDIO OUTPUT", "HEADPHONES / STEREO", HOME_ACTION_TOGGLE_SOUND, 0,
+             1);
     menu_add(menu, "3D AUDIO FOR HEADPHONES", "ENABLED", HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "VOLUME", "80%", HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "MICROPHONE", "MUTED BY DEFAULT", HOME_ACTION_TOGGLE_MIC, 0, 1);
@@ -641,9 +720,11 @@ void home_model_init(home_model_t *m) {
     menu = &m->menus[HOME_SCREEN_SETTINGS_ACCESSORIES];
     menu_reset(menu, "ACCESSORIES");
     menu_add(menu, "CONTROLLER 1", "WIRELESS CONTROLLER (85%)", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "COMMUNICATION METHOD", "USB / BLUETOOTH DUAL", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "COMMUNICATION METHOD", "USB / BLUETOOTH DUAL", HOME_ACTION_NONE, 0,
+             1);
     menu_add(menu, "VIBRATION INTENSITY", "STRONG (STANDARD)", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "TRIGGER EFFECT INTENSITY", "STRONG (STANDARD)", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "TRIGGER EFFECT INTENSITY", "STRONG (STANDARD)", HOME_ACTION_NONE, 0,
+             1);
     menu_add(menu, "INDICATOR BRIGHTNESS", "MEDIUM", HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 
@@ -656,9 +737,11 @@ void home_model_init(home_model_t *m) {
     menu_add(menu, "QUICK SAVE STATE", "SLOT 1", HOME_ACTION_SAVE_STATE, 0, 1);
     menu_add(menu, "QUICK LOAD STATE", "SLOT 1", HOME_ACTION_LOAD_STATE, 0, 1);
     menu_add(menu, "FRAME LIMITER", "60 FPS (VSYNC ON)", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "RESOLUTION SCALING", "100% NATIVE (1280X720 / 4K)", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "RESOLUTION SCALING", "100% NATIVE (1280X720 / 4K)",
+             HOME_ACTION_NONE, 0, 1);
     menu_add(menu, "SHADER CACHE", "1,420 SHADERS COMPILED", HOME_ACTION_NONE, 0, 1);
-    menu_add(menu, "PERFORMANCE HUD", "FPS & FRAME TIME OVERLAY", HOME_ACTION_NONE, 0, 1);
+    menu_add(menu, "PERFORMANCE HUD", "FPS & FRAME TIME OVERLAY", HOME_ACTION_NONE, 0,
+             1);
     menu_add(menu, "BACK", 0, HOME_ACTION_BACK, 0, 1);
 
     menu = &m->menus[HOME_SCREEN_POWER];
@@ -753,7 +836,8 @@ int home_unread_count(const home_model_t *m) {
     return unread;
 }
 
-/* ---- screen navigation ------------------------------------------------------------------ */
+/* ---- screen navigation
+ * ------------------------------------------------------------------ */
 
 home_screen_t home_screen(const home_model_t *m) {
     if (m == 0 || m->depth <= 0) {
@@ -862,12 +946,14 @@ const home_title_t *home_selected_title(const home_model_t *m) {
         return 0;
     }
     if (m->mode == HOME_MODE_MEDIA) {
-        if (m->media_count <= 0 || m->media_cursor < 0 || m->media_cursor >= m->media_count) {
+        if (m->media_count <= 0 || m->media_cursor < 0 ||
+            m->media_cursor >= m->media_count) {
             return 0;
         }
         return &m->media[m->media_cursor];
     }
-    if (m->title_count <= 0 || m->title_cursor < 0 || m->title_cursor >= m->title_count) {
+    if (m->title_count <= 0 || m->title_cursor < 0 ||
+        m->title_cursor >= m->title_count) {
         return 0;
     }
     return &m->titles[m->title_cursor];
@@ -884,10 +970,11 @@ const home_item_t *home_selected_item(const home_model_t *m) {
     return &menu->items[menu->cursor];
 }
 
+/* ---- dialogs and notifications
+ * ---------------------------------------------------------- */
 
-/* ---- dialogs and notifications ---------------------------------------------------------- */
-
-void home_show_dialog(home_model_t *m, home_dialog_type_t type, const char *title, const char *msg) {
+void home_show_dialog(home_model_t *m, home_dialog_type_t type, const char *title,
+                      const char *msg) {
     if (m == 0) {
         return;
     }
@@ -987,7 +1074,8 @@ uint64_t home_model_digest(const home_model_t *m) {
     return h;
 }
 
-/* ---- navigation movement ---------------------------------------------------------------- */
+/* ---- navigation movement
+ * ---------------------------------------------------------------- */
 
 static void move_ime(home_dialog_t *dlg, home_direction_t dir) {
     if (dir == HOME_UP && dlg->ime_row > 0) {
@@ -1001,185 +1089,230 @@ static void move_ime(home_dialog_t *dlg, home_direction_t dir) {
     }
 }
 
-/* ---- generic category data providers --------------------------------------------------- */
+/* ---- generic category data providers
+ * --------------------------------------------------- */
 
-int home_get_category_item_count(const home_model_t *m, const home_skin_t *skin, int cat_idx) {
-    if (m == 0 || skin == 0) return 0;
+int home_get_category_item_count(const home_model_t *m, const home_skin_t *skin,
+                                 int cat_idx) {
+    if (m == 0 || skin == 0)
+        return 0;
     if (skin->item_count) {
         int custom = skin->item_count(m, skin, cat_idx);
-        if (custom >= 0) return custom;
+        if (custom >= 0)
+            return custom;
     }
-    if (cat_idx < 0 || cat_idx >= skin->category_count) return 0;
+    if (cat_idx < 0 || cat_idx >= skin->category_count)
+        return 0;
 
     home_category_type_t type = skin->categories[cat_idx].type;
     switch (type) {
-        case HOME_CAT_GAMES:
-            return (m->title_count > 0) ? m->title_count : 1;
-        case HOME_CAT_MEDIA:
-            return (m->media_count > 0) ? m->media_count : 1;
-        case HOME_CAT_SETTINGS:
-            return 11;
-        case HOME_CAT_USERS:
-            return 3;
-        case HOME_CAT_PHOTO:
-            return (m->capture_count > 0) ? m->capture_count : 1;
-        case HOME_CAT_MUSIC:
-            return 3;
-        case HOME_CAT_NETWORK:
-            return 3;
-        case HOME_CAT_CUSTOM:
-        default:
-            return 4;
+    case HOME_CAT_GAMES:
+        return (m->title_count > 0) ? m->title_count : 1;
+    case HOME_CAT_MEDIA:
+        return (m->media_count > 0) ? m->media_count : 1;
+    case HOME_CAT_SETTINGS:
+        return 11;
+    case HOME_CAT_USERS:
+        return 3;
+    case HOME_CAT_PHOTO:
+        return (m->capture_count > 0) ? m->capture_count : 1;
+    case HOME_CAT_MUSIC:
+        return 3;
+    case HOME_CAT_NETWORK:
+        return 3;
+    case HOME_CAT_CUSTOM:
+    default:
+        return 4;
     }
 }
 
 void home_get_category_item_info(const home_model_t *m, const home_skin_t *skin,
-                                 int cat_idx, int item_idx,
-                                 const char **out_name, const char **out_sub,
-                                 const home_title_t **out_title, char *out_badge) {
-    if (out_name) *out_name = "";
-    if (out_sub) *out_sub = "";
-    if (out_title) *out_title = 0;
-    if (out_badge) *out_badge = 'G';
+                                 int cat_idx, int item_idx, const char **out_name,
+                                 const char **out_sub, const home_title_t **out_title,
+                                 char *out_badge) {
+    if (out_name)
+        *out_name = "";
+    if (out_sub)
+        *out_sub = "";
+    if (out_title)
+        *out_title = 0;
+    if (out_badge)
+        *out_badge = 'G';
 
-    if (m == 0 || skin == 0 || cat_idx < 0 || cat_idx >= skin->category_count) return;
+    if (m == 0 || skin == 0 || cat_idx < 0 || cat_idx >= skin->category_count)
+        return;
 
     home_category_type_t type = skin->categories[cat_idx].type;
     switch (type) {
-        case HOME_CAT_GAMES:
-            if (m->title_count > 0 && item_idx >= 0 && item_idx < m->title_count) {
-                if (out_title) *out_title = &m->titles[item_idx];
-                if (out_name) *out_name = m->titles[item_idx].name ? m->titles[item_idx].name : m->titles[item_idx].id;
-                if (out_sub) *out_sub = (m->titles[item_idx].category && m->titles[item_idx].category[0] == 'P')
-                                        ? "First-Party" : "Community Homebrew";
-                if (out_badge) {
-                    if (m->titles[item_idx].category && m->titles[item_idx].category[0] == 'O') {
-                        *out_badge = 'M';
-                    } else if (m->titles[item_idx].category && m->titles[item_idx].category[0] == 'E') {
-                        *out_badge = 'H';
-                    } else {
-                        *out_badge = 'G';
-                    }
+    case HOME_CAT_GAMES:
+        if (m->title_count > 0 && item_idx >= 0 && item_idx < m->title_count) {
+            if (out_title)
+                *out_title = &m->titles[item_idx];
+            if (out_name)
+                *out_name = m->titles[item_idx].name ? m->titles[item_idx].name
+                                                     : m->titles[item_idx].id;
+            if (out_sub)
+                *out_sub = (m->titles[item_idx].category &&
+                            m->titles[item_idx].category[0] == 'P')
+                               ? "First-Party"
+                               : "Community Homebrew";
+            if (out_badge) {
+                if (m->titles[item_idx].category &&
+                    m->titles[item_idx].category[0] == 'O') {
+                    *out_badge = 'M';
+                } else if (m->titles[item_idx].category &&
+                           m->titles[item_idx].category[0] == 'E') {
+                    *out_badge = 'H';
+                } else {
+                    *out_badge = 'G';
                 }
-            } else {
-                if (out_name) *out_name = "NO TITLES INSTALLED";
-                if (out_sub) *out_sub = "Install games via Developer Settings";
-                if (out_badge) *out_badge = 'E';
             }
-            break;
-        case HOME_CAT_MEDIA:
-            if (m->media_count > 0 && item_idx >= 0 && item_idx < m->media_count) {
-                if (out_title) *out_title = &m->media[item_idx];
-                if (out_name) *out_name = m->media[item_idx].name ? m->media[item_idx].name : m->media[item_idx].id;
-                if (out_sub) *out_sub = "Media Application";
-                if (out_badge) *out_badge = 'G';
-            } else {
-                if (out_name) *out_name = "MEDIA PLAYER";
-                if (out_sub) *out_sub = "USB & Local Media Playback";
-                if (out_badge) *out_badge = 'G';
-            }
-            break;
-        case HOME_CAT_SETTINGS: {
-            static const char *s_st_names[] = {
-                "System Settings", "Storage Manager", "Audio & Sound", "Video & Display",
-                "Controllers & Input", "Save Data Management", "Developer & Debug", "Emulator Options",
-                "Themes & Skins", "Power Options", "User Profiles"
-            };
-            static const char *s_st_subs[] = {
-                "Console information, firmware & HDMI",
-                "Visual storage breakdown & content manager",
-                "Audio output device, 3D audio & volume",
-                "Resolution, refresh rate & HDR",
-                "Controllers, input devices & haptics",
-                "Save data management, backup & delete",
-                "Package installer, payload runner & klog",
-                "Save states, FPS overlay & host sync",
-                "Select active dashboard skin and visual theme",
-                "Enter rest mode, restart, or power off",
-                "Trophies, profile status & avatar"
-            };
-            if (item_idx >= 0 && item_idx < 11) {
-                if (out_name) *out_name = s_st_names[item_idx];
-                if (out_sub) *out_sub = s_st_subs[item_idx];
-            }
-            if (out_badge) *out_badge = 'E';
-            break;
+        } else {
+            if (out_name)
+                *out_name = "NO TITLES INSTALLED";
+            if (out_sub)
+                *out_sub = "Install games via Developer Settings";
+            if (out_badge)
+                *out_badge = 'E';
         }
-        case HOME_CAT_USERS: {
-            static const char *s_u_names[] = { "User Profile", "Switch User", "Power Options" };
-            static const char *s_u_subs[] = {
-                "Trophies, profile status & avatar",
-                "Log into another user profile",
-                "Enter rest mode, restart, or power off"
-            };
-            if (item_idx >= 0 && item_idx < 3) {
-                if (out_name) *out_name = s_u_names[item_idx];
-                if (out_sub) *out_sub = s_u_subs[item_idx];
-            }
-            if (out_badge) *out_badge = 'G';
-            break;
+        break;
+    case HOME_CAT_MEDIA:
+        if (m->media_count > 0 && item_idx >= 0 && item_idx < m->media_count) {
+            if (out_title)
+                *out_title = &m->media[item_idx];
+            if (out_name)
+                *out_name = m->media[item_idx].name ? m->media[item_idx].name
+                                                    : m->media[item_idx].id;
+            if (out_sub)
+                *out_sub = "Media Application";
+            if (out_badge)
+                *out_badge = 'G';
+        } else {
+            if (out_name)
+                *out_name = "MEDIA PLAYER";
+            if (out_sub)
+                *out_sub = "USB & Local Media Playback";
+            if (out_badge)
+                *out_badge = 'G';
         }
-        case HOME_CAT_PHOTO:
-            if (m->capture_count > 0 && item_idx >= 0 && item_idx < m->capture_count) {
-                if (out_name) *out_name = m->captures[item_idx].title ? m->captures[item_idx].title : "Screenshot";
-                if (out_sub) *out_sub = m->captures[item_idx].timestamp ? m->captures[item_idx].timestamp : "Photo Gallery";
-            } else {
-                if (out_name) *out_name = "Photo Gallery";
-                if (out_sub) *out_sub = "Screenshots and captured images";
-            }
-            if (out_badge) *out_badge = 'G';
-            break;
-        case HOME_CAT_MUSIC: {
-            static const char *s_m_names[] = { "Background Audio", "USB Music Player", "Audio Mixer" };
-            static const char *s_m_subs[] = {
-                "Now playing & playback controls",
-                "Play audio files from USB storage",
-                "3D audio profile & volume mixer"
-            };
-            if (item_idx >= 0 && item_idx < 3) {
-                if (out_name) *out_name = s_m_names[item_idx];
-                if (out_sub) *out_sub = s_m_subs[item_idx];
-            }
-            if (out_badge) *out_badge = 'G';
-            break;
+        break;
+    case HOME_CAT_SETTINGS: {
+        static const char *s_st_names[] = {
+            "System Settings",   "Storage Manager",     "Audio & Sound",
+            "Video & Display",   "Controllers & Input", "Save Data Management",
+            "Developer & Debug", "Emulator Options",    "Themes & Skins",
+            "Power Options",     "User Profiles"};
+        static const char *s_st_subs[] = {
+            "Console information, firmware & HDMI",
+            "Visual storage breakdown & content manager",
+            "Audio output device, 3D audio & volume",
+            "Resolution, refresh rate & HDR",
+            "Controllers, input devices & haptics",
+            "Save data management, backup & delete",
+            "Package installer, payload runner & klog",
+            "Save states, FPS overlay & host sync",
+            "Select active dashboard skin and visual theme",
+            "Enter rest mode, restart, or power off",
+            "Trophies, profile status & avatar"};
+        if (item_idx >= 0 && item_idx < 11) {
+            if (out_name)
+                *out_name = s_st_names[item_idx];
+            if (out_sub)
+                *out_sub = s_st_subs[item_idx];
         }
-        case HOME_CAT_NETWORK: {
-            static const char *s_n_names[] = { "Universal Search", "Game Library", "Notifications" };
-            static const char *s_n_subs[] = {
-                "Search installed games and homebrew",
-                "Browse entire collection & storage",
-                "System alerts, downloads & notices"
-            };
-            if (item_idx >= 0 && item_idx < 3) {
-                if (out_name) *out_name = s_n_names[item_idx];
-                if (out_sub) *out_sub = s_n_subs[item_idx];
-            }
-            if (out_badge) *out_badge = 'G';
-            break;
+        if (out_badge)
+            *out_badge = 'E';
+        break;
+    }
+    case HOME_CAT_USERS: {
+        static const char *s_u_names[] = {"User Profile", "Switch User",
+                                          "Power Options"};
+        static const char *s_u_subs[] = {"Trophies, profile status & avatar",
+                                         "Log into another user profile",
+                                         "Enter rest mode, restart, or power off"};
+        if (item_idx >= 0 && item_idx < 3) {
+            if (out_name)
+                *out_name = s_u_names[item_idx];
+            if (out_sub)
+                *out_sub = s_u_subs[item_idx];
         }
-        case HOME_CAT_CUSTOM:
-        default: {
-            static const char *s_l_names[] = {
-                "Game Library", "Friends & Parties", "Universal Search", "Active Downloads"
-            };
-            static const char *s_l_subs[] = {
-                "Browse full installed collection",
-                "Online players & voice parties",
-                "Search marketplace & apps",
-                "Background package installs"
-            };
-            if (item_idx >= 0 && item_idx < 4) {
-                if (out_name) *out_name = s_l_names[item_idx];
-                if (out_sub) *out_sub = s_l_subs[item_idx];
-            }
-            if (out_badge) *out_badge = 'G';
-            break;
+        if (out_badge)
+            *out_badge = 'G';
+        break;
+    }
+    case HOME_CAT_PHOTO:
+        if (m->capture_count > 0 && item_idx >= 0 && item_idx < m->capture_count) {
+            if (out_name)
+                *out_name = m->captures[item_idx].title ? m->captures[item_idx].title
+                                                        : "Screenshot";
+            if (out_sub)
+                *out_sub = m->captures[item_idx].timestamp
+                               ? m->captures[item_idx].timestamp
+                               : "Photo Gallery";
+        } else {
+            if (out_name)
+                *out_name = "Photo Gallery";
+            if (out_sub)
+                *out_sub = "Screenshots and captured images";
         }
+        if (out_badge)
+            *out_badge = 'G';
+        break;
+    case HOME_CAT_MUSIC: {
+        static const char *s_m_names[] = {"Background Audio", "USB Music Player",
+                                          "Audio Mixer"};
+        static const char *s_m_subs[] = {"Now playing & playback controls",
+                                         "Play audio files from USB storage",
+                                         "3D audio profile & volume mixer"};
+        if (item_idx >= 0 && item_idx < 3) {
+            if (out_name)
+                *out_name = s_m_names[item_idx];
+            if (out_sub)
+                *out_sub = s_m_subs[item_idx];
+        }
+        if (out_badge)
+            *out_badge = 'G';
+        break;
+    }
+    case HOME_CAT_NETWORK: {
+        static const char *s_n_names[] = {"Universal Search", "Game Library",
+                                          "Notifications"};
+        static const char *s_n_subs[] = {"Search installed games and homebrew",
+                                         "Browse entire collection & storage",
+                                         "System alerts, downloads & notices"};
+        if (item_idx >= 0 && item_idx < 3) {
+            if (out_name)
+                *out_name = s_n_names[item_idx];
+            if (out_sub)
+                *out_sub = s_n_subs[item_idx];
+        }
+        if (out_badge)
+            *out_badge = 'G';
+        break;
+    }
+    case HOME_CAT_CUSTOM:
+    default: {
+        static const char *s_l_names[] = {"Game Library", "Friends & Parties",
+                                          "Universal Search", "Active Downloads"};
+        static const char *s_l_subs[] = {
+            "Browse full installed collection", "Online players & voice parties",
+            "Search marketplace & apps", "Background package installs"};
+        if (item_idx >= 0 && item_idx < 4) {
+            if (out_name)
+                *out_name = s_l_names[item_idx];
+            if (out_sub)
+                *out_sub = s_l_subs[item_idx];
+        }
+        if (out_badge)
+            *out_badge = 'G';
+        break;
+    }
     }
 }
 
 int home_generic_move(home_model_t *m, const home_skin_t *skin, int dir) {
-    if (m == 0 || skin == 0) return 0;
+    if (m == 0 || skin == 0)
+        return 0;
     if (skin->move) {
         if (skin->move(m, skin, dir)) {
             return 1;
@@ -1191,30 +1324,36 @@ int home_generic_move(home_model_t *m, const home_skin_t *skin, int dir) {
     int count = home_get_category_item_count(m, skin, cat);
 
     /* Primary Axis Navigation (category switching) */
-    if ((skin->primary_axis == HOME_AXIS_HORIZONTAL && (dir == HOME_LEFT || dir == HOME_RIGHT)) ||
-        (skin->primary_axis == HOME_AXIS_VERTICAL && (dir == HOME_UP || dir == HOME_DOWN))) {
+    if ((skin->primary_axis == HOME_AXIS_HORIZONTAL &&
+         (dir == HOME_LEFT || dir == HOME_RIGHT)) ||
+        (skin->primary_axis == HOME_AXIS_VERTICAL &&
+         (dir == HOME_UP || dir == HOME_DOWN))) {
         int delta = (dir == HOME_RIGHT || dir == HOME_DOWN) ? 1 : -1;
         if (skin->wrap_categories) {
-            m->category_idx = (m->category_idx + skin->category_count + delta) % skin->category_count;
+            m->category_idx =
+                (m->category_idx + skin->category_count + delta) % skin->category_count;
         } else {
             int n = m->category_idx + delta;
-            if (n >= 0 && n < skin->category_count) m->category_idx = n;
+            if (n >= 0 && n < skin->category_count)
+                m->category_idx = n;
         }
     }
     /* Item Axis Navigation (item scrolling within category) */
-    else if ((skin->item_axis == HOME_AXIS_VERTICAL && (dir == HOME_UP || dir == HOME_DOWN)) ||
-             (skin->item_axis == HOME_AXIS_HORIZONTAL && (dir == HOME_LEFT || dir == HOME_RIGHT))) {
+    else if ((skin->item_axis == HOME_AXIS_VERTICAL &&
+              (dir == HOME_UP || dir == HOME_DOWN)) ||
+             (skin->item_axis == HOME_AXIS_HORIZONTAL &&
+              (dir == HOME_LEFT || dir == HOME_RIGHT))) {
         int delta = (dir == HOME_DOWN || dir == HOME_RIGHT) ? 1 : -1;
         if (count > 0) {
             if (skin->wrap_items) {
                 m->category_cursor[cat] = (cur + count + delta) % count;
             } else {
                 int n = cur + delta;
-                if (n >= 0 && n < count) m->category_cursor[cat] = n;
+                if (n >= 0 && n < count)
+                    m->category_cursor[cat] = n;
             }
         }
-    }
-    else if (dir == HOME_UP) {
+    } else if (dir == HOME_UP) {
         m->top_nav = HOME_TOP_NAV_TABS;
         return 1;
     }
@@ -1296,7 +1435,8 @@ void home_move(home_model_t *m, home_direction_t dir) {
     }
 }
 
-/* ---- action execution ------------------------------------------------------------------- */
+/* ---- action execution
+ * ------------------------------------------------------------------- */
 
 static int perform(home_model_t *m, home_action_t action, int arg) {
     m->last_action = action;
@@ -1304,74 +1444,76 @@ static int perform(home_model_t *m, home_action_t action, int arg) {
     m->last_refused = 0;
 
     switch (action) {
-        case HOME_ACTION_NONE:
-            return 0;
-        case HOME_ACTION_OPEN:
-            home_open(m, (home_screen_t)arg);
+    case HOME_ACTION_NONE:
+        return 0;
+    case HOME_ACTION_OPEN:
+        home_open(m, (home_screen_t)arg);
+        return 1;
+    case HOME_ACTION_BACK:
+        return home_back(m);
+    case HOME_ACTION_NEXT_THEME:
+        home_next_theme(m);
+        build_theme_menu(m);
+        if (m->host.perform) {
+            (void)m->host.perform(m->host.ctx, action, m->skin_idx);
+        }
+        return 1;
+    case HOME_ACTION_SET_THEME:
+        home_set_skin(m, arg);
+        build_theme_menu(m);
+        if (m->host.perform) {
+            (void)m->host.perform(m->host.ctx, action, arg);
+        }
+        return 1;
+    case HOME_ACTION_TOGGLE_MODE:
+        home_switch_mode(m, (m->mode == HOME_MODE_GAMES) ? HOME_MODE_MEDIA
+                                                         : HOME_MODE_GAMES);
+        if (m->host.perform) {
+            (void)m->host.perform(m->host.ctx, action, (int)m->mode);
+        }
+        return 1;
+    case HOME_ACTION_DISMISS_NOTICE:
+        if (arg >= 0 && arg < m->notice_count) {
+            m->notices[arg].unread = 0;
+            m->status.notifications = home_unread_count(m);
             return 1;
-        case HOME_ACTION_BACK:
-            return home_back(m);
-        case HOME_ACTION_NEXT_THEME:
-            home_next_theme(m);
-            build_theme_menu(m);
-            if (m->host.perform) {
-                (void)m->host.perform(m->host.ctx, action, m->skin_idx);
+        }
+        return 0;
+    case HOME_ACTION_TRIGGER_DIALOG:
+        home_show_dialog(m, (home_dialog_type_t)arg, "SYSTEM DIALOG",
+                         "ACTION REQUIRED");
+        return 1;
+    case HOME_ACTION_CLOSE_DIALOG:
+        home_close_dialog(m);
+        return 1;
+    case HOME_ACTION_CONFIRM_DIALOG:
+        home_close_dialog(m);
+        home_show_toast(m, "SUCCESS", "OPERATION COMPLETED");
+        return 1;
+    case HOME_ACTION_TOGGLE_FAVORITE:
+        if (arg >= 0 && arg < m->title_count) {
+            m->titles[arg].favorite = !m->titles[arg].favorite;
+            if (m->titles[arg].favorite) {
+                home_show_toast(m, "FAVORITES", "PINNED TO FAVORITES");
+            } else {
+                home_show_toast(m, "FAVORITES", "UNPINNED FROM FAVORITES");
             }
-            return 1;
-        case HOME_ACTION_SET_THEME:
-            home_set_skin(m, arg);
-            build_theme_menu(m);
+            build_title_options_menu(m);
+            build_library_menu(m);
             if (m->host.perform) {
                 (void)m->host.perform(m->host.ctx, action, arg);
             }
             return 1;
-        case HOME_ACTION_TOGGLE_MODE:
-            home_switch_mode(m, (m->mode == HOME_MODE_GAMES) ? HOME_MODE_MEDIA : HOME_MODE_GAMES);
-            if (m->host.perform) {
-                (void)m->host.perform(m->host.ctx, action, (int)m->mode);
-            }
-            return 1;
-        case HOME_ACTION_DISMISS_NOTICE:
-            if (arg >= 0 && arg < m->notice_count) {
-                m->notices[arg].unread = 0;
-                m->status.notifications = home_unread_count(m);
-                return 1;
-            }
-            return 0;
-        case HOME_ACTION_TRIGGER_DIALOG:
-            home_show_dialog(m, (home_dialog_type_t)arg, "SYSTEM DIALOG", "ACTION REQUIRED");
-            return 1;
-        case HOME_ACTION_CLOSE_DIALOG:
-            home_close_dialog(m);
-            return 1;
-        case HOME_ACTION_CONFIRM_DIALOG:
-            home_close_dialog(m);
-            home_show_toast(m, "SUCCESS", "OPERATION COMPLETED");
-            return 1;
-        case HOME_ACTION_TOGGLE_FAVORITE:
-            if (arg >= 0 && arg < m->title_count) {
-                m->titles[arg].favorite = !m->titles[arg].favorite;
-                if (m->titles[arg].favorite) {
-                    home_show_toast(m, "FAVORITES", "PINNED TO FAVORITES");
-                } else {
-                    home_show_toast(m, "FAVORITES", "UNPINNED FROM FAVORITES");
-                }
-                build_title_options_menu(m);
-                build_library_menu(m);
-                if (m->host.perform) {
-                    (void)m->host.perform(m->host.ctx, action, arg);
-                }
-                return 1;
-            }
-            return 0;
-        case HOME_ACTION_SET_LIBRARY_FILTER: {
-            int next_filter = ((int)m->library_filter + 1) % HOME_FILTER_COUNT;
-            m->library_filter = (home_filter_t)next_filter;
-            build_library_menu(m);
-            return 1;
         }
-        default:
-            break;
+        return 0;
+    case HOME_ACTION_SET_LIBRARY_FILTER: {
+        int next_filter = ((int)m->library_filter + 1) % HOME_FILTER_COUNT;
+        m->library_filter = (home_filter_t)next_filter;
+        build_library_menu(m);
+        return 1;
+    }
+    default:
+        break;
     }
 
     if (action == HOME_ACTION_LAUNCH_TITLE && arg >= 0 && arg < m->title_count) {
@@ -1383,7 +1525,8 @@ static int perform(home_model_t *m, home_action_t action, int arg) {
                 m->switcher.recent_indices[r] = m->switcher.recent_indices[r - 1];
             }
             m->switcher.recent_indices[0] = arg;
-            if (m->switcher.recent_count < 3) m->switcher.recent_count++;
+            if (m->switcher.recent_count < 3)
+                m->switcher.recent_count++;
         }
         build_switcher_menu(m);
     } else if (action == HOME_ACTION_SUSPEND_TITLE) {
@@ -1409,12 +1552,8 @@ static int perform(home_model_t *m, home_action_t action, int arg) {
     return handled;
 }
 
-static const char s_ime_grid[4][12] = {
-    "1234567890-",
-    "QWERTYUIOP.",
-    "ASDFGHJKL_/",
-    "ZXCVBNM@:!?"
-};
+static const char s_ime_grid[4][12] = {"1234567890-", "QWERTYUIOP.", "ASDFGHJKL_/",
+                                       "ZXCVBNM@:!?"};
 
 static int activate_ime(home_model_t *m) {
     home_dialog_t *dlg = &m->dialog;
@@ -1449,7 +1588,8 @@ static int activate_ime(home_model_t *m) {
                 m->last_search[l] = dlg->ime_buffer[l];
             }
             m->last_search[l] = '\0';
-            home_show_toast(m, "SEARCH", (dlg->ime_len > 0) ? dlg->ime_buffer : "ALL TITLES");
+            home_show_toast(m, "SEARCH",
+                            (dlg->ime_len > 0) ? dlg->ime_buffer : "ALL TITLES");
             home_close_dialog(m);
             build_search_menu(m);
             home_open(m, HOME_SCREEN_SEARCH);
@@ -1459,79 +1599,85 @@ static int activate_ime(home_model_t *m) {
     return 0;
 }
 
-int home_category_item_activate(home_model_t *m, const home_skin_t *skin,
-                                int cat_idx, int item_idx) {
-    if (m == 0 || skin == 0 || cat_idx < 0 || cat_idx >= skin->category_count) return 0;
+int home_category_item_activate(home_model_t *m, const home_skin_t *skin, int cat_idx,
+                                int item_idx) {
+    if (m == 0 || skin == 0 || cat_idx < 0 || cat_idx >= skin->category_count)
+        return 0;
     home_category_type_t type = skin->categories[cat_idx].type;
 
     switch (type) {
-        case HOME_CAT_GAMES: {
-            const home_title_t *title = home_selected_title(m);
-            if (title == 0) return 0;
-            m->selected_title = m->title_cursor;
-            home_open(m, HOME_SCREEN_TITLE_OPTIONS);
-            return 1;
-        }
-        case HOME_CAT_MEDIA: {
-            if (m->media_cursor >= 0 && m->media_cursor < m->media_count) {
-                home_show_toast(m, "MEDIA APP", m->media[m->media_cursor].name);
-                return 1;
-            }
+    case HOME_CAT_GAMES: {
+        const home_title_t *title = home_selected_title(m);
+        if (title == 0)
             return 0;
-        }
-        case HOME_CAT_SETTINGS: {
-            static const home_screen_t s_st_screens[] = {
-                HOME_SCREEN_SETTINGS_SYSTEM, HOME_SCREEN_SETTINGS_STORAGE,
-                HOME_SCREEN_SETTINGS_SOUND, HOME_SCREEN_SETTINGS_VIDEO,
-                HOME_SCREEN_SETTINGS_ACCESSORIES, HOME_SCREEN_SETTINGS_SAVES,
-                HOME_SCREEN_SETTINGS_DEVELOPER, HOME_SCREEN_SETTINGS_EMULATOR,
-                HOME_SCREEN_SETTINGS_THEME, HOME_SCREEN_POWER, HOME_SCREEN_PROFILE
-            };
-            if (item_idx >= 0 && item_idx < 11) {
-                home_open(m, s_st_screens[item_idx]);
-                return 1;
-            }
-            return 0;
-        }
-        case HOME_CAT_USERS: {
-            if (item_idx == 0) {
-                home_open(m, HOME_SCREEN_PROFILE);
-            } else if (item_idx == 1) {
-                return perform(m, HOME_ACTION_SWITCH_USER, 0);
-            } else {
-                home_open(m, HOME_SCREEN_POWER);
-            }
+        m->selected_title = m->title_cursor;
+        home_open(m, HOME_SCREEN_TITLE_OPTIONS);
+        return 1;
+    }
+    case HOME_CAT_MEDIA: {
+        if (m->media_cursor >= 0 && m->media_cursor < m->media_count) {
+            home_show_toast(m, "MEDIA APP", m->media[m->media_cursor].name);
             return 1;
         }
-        case HOME_CAT_PHOTO:
-            home_open(m, HOME_SCREEN_CAPTURES);
-            return 1;
-        case HOME_CAT_MUSIC:
-            home_open(m, HOME_SCREEN_MUSIC);
-            return 1;
-        case HOME_CAT_NETWORK: {
-            if (item_idx == 0) {
-                home_open(m, HOME_SCREEN_SEARCH);
-            } else if (item_idx == 1) {
-                home_open(m, HOME_SCREEN_LIBRARY);
-            } else {
-                home_open(m, HOME_SCREEN_NOTIFICATIONS);
-            }
-            return 1;
-        }
-        case HOME_CAT_CUSTOM:
-        default: {
-            if (item_idx == 0) {
-                home_open(m, HOME_SCREEN_LIBRARY);
-            } else if (item_idx == 1) {
-                home_open(m, HOME_SCREEN_GAME_BASE);
-            } else if (item_idx == 2) {
-                home_open(m, HOME_SCREEN_SEARCH);
-            } else {
-                home_open(m, HOME_SCREEN_NOTIFICATIONS);
-            }
+        return 0;
+    }
+    case HOME_CAT_SETTINGS: {
+        static const home_screen_t s_st_screens[] = {HOME_SCREEN_SETTINGS_SYSTEM,
+                                                     HOME_SCREEN_SETTINGS_STORAGE,
+                                                     HOME_SCREEN_SETTINGS_SOUND,
+                                                     HOME_SCREEN_SETTINGS_VIDEO,
+                                                     HOME_SCREEN_SETTINGS_ACCESSORIES,
+                                                     HOME_SCREEN_SETTINGS_SAVES,
+                                                     HOME_SCREEN_SETTINGS_DEVELOPER,
+                                                     HOME_SCREEN_SETTINGS_EMULATOR,
+                                                     HOME_SCREEN_SETTINGS_THEME,
+                                                     HOME_SCREEN_POWER,
+                                                     HOME_SCREEN_PROFILE};
+        if (item_idx >= 0 && item_idx < 11) {
+            home_open(m, s_st_screens[item_idx]);
             return 1;
         }
+        return 0;
+    }
+    case HOME_CAT_USERS: {
+        if (item_idx == 0) {
+            home_open(m, HOME_SCREEN_PROFILE);
+        } else if (item_idx == 1) {
+            return perform(m, HOME_ACTION_SWITCH_USER, 0);
+        } else {
+            home_open(m, HOME_SCREEN_POWER);
+        }
+        return 1;
+    }
+    case HOME_CAT_PHOTO:
+        home_open(m, HOME_SCREEN_CAPTURES);
+        return 1;
+    case HOME_CAT_MUSIC:
+        home_open(m, HOME_SCREEN_MUSIC);
+        return 1;
+    case HOME_CAT_NETWORK: {
+        if (item_idx == 0) {
+            home_open(m, HOME_SCREEN_SEARCH);
+        } else if (item_idx == 1) {
+            home_open(m, HOME_SCREEN_LIBRARY);
+        } else {
+            home_open(m, HOME_SCREEN_NOTIFICATIONS);
+        }
+        return 1;
+    }
+    case HOME_CAT_CUSTOM:
+    default: {
+        if (item_idx == 0) {
+            home_open(m, HOME_SCREEN_LIBRARY);
+        } else if (item_idx == 1) {
+            home_open(m, HOME_SCREEN_GAME_BASE);
+        } else if (item_idx == 2) {
+            home_open(m, HOME_SCREEN_SEARCH);
+        } else {
+            home_open(m, HOME_SCREEN_NOTIFICATIONS);
+        }
+        return 1;
+    }
     }
 }
 
@@ -1549,7 +1695,8 @@ int home_activate(home_model_t *m) {
             }
             home_close_dialog(m);
             return 1;
-        } else if (m->dialog.type == HOME_DIALOG_PROGRESS || m->dialog.type == HOME_DIALOG_ERROR) {
+        } else if (m->dialog.type == HOME_DIALOG_PROGRESS ||
+                   m->dialog.type == HOME_DIALOG_ERROR) {
             home_close_dialog(m);
             return 1;
         } else if (m->dialog.type == HOME_DIALOG_IME) {
@@ -1561,7 +1708,8 @@ int home_activate(home_model_t *m) {
     /* Top bar interaction */
     if (m->top_nav != HOME_TOP_NAV_NONE) {
         if (m->top_nav == HOME_TOP_NAV_TABS) {
-            home_switch_mode(m, (m->mode == HOME_MODE_GAMES) ? HOME_MODE_MEDIA : HOME_MODE_GAMES);
+            home_switch_mode(m, (m->mode == HOME_MODE_GAMES) ? HOME_MODE_MEDIA
+                                                             : HOME_MODE_GAMES);
             return 1;
         } else if (m->top_nav == HOME_TOP_NAV_SEARCH) {
             home_open(m, HOME_SCREEN_SEARCH);
@@ -1587,7 +1735,8 @@ int home_activate(home_model_t *m) {
                 return 1;
             }
         }
-        return home_category_item_activate(m, skin, m->category_idx, m->category_cursor[m->category_idx]);
+        return home_category_item_activate(m, skin, m->category_idx,
+                                           m->category_cursor[m->category_idx]);
     }
 
     /* Control centre dock activation */
@@ -1607,14 +1756,15 @@ int home_activate(home_model_t *m) {
     return perform(m, item->action, item->arg);
 }
 
-/* ---- cursor calculation ----------------------------------------------------------------- */
+/* ---- cursor calculation
+ * ----------------------------------------------------------------- */
 
 static int content_top(const home_theme_t *theme) {
     return theme->margin_y + (theme->row_height * 2);
 }
 
-int home_cursor_rect(const home_model_t *m, const home_theme_t *theme,
-                     int *x, int *y, int *w, int *h) {
+int home_cursor_rect(const home_model_t *m, const home_theme_t *theme, int *x, int *y,
+                     int *w, int *h) {
     if (m == 0 || theme == 0 || x == 0 || y == 0 || w == 0 || h == 0) {
         return 0;
     }
@@ -1635,10 +1785,14 @@ int home_cursor_rect(const home_model_t *m, const home_theme_t *theme,
         }
 
         /* Clamp bounds safely within 1280x720 surface */
-        if (*x < 0) *x = 0;
-        if (*y < 0) *y = 0;
-        if (*x + *w > 1280) *w = 1280 - *x;
-        if (*y + *h > 720) *h = 720 - *y;
+        if (*x < 0)
+            *x = 0;
+        if (*y < 0)
+            *y = 0;
+        if (*x + *w > 1280)
+            *w = 1280 - *x;
+        if (*y + *h > 720)
+            *h = 720 - *y;
         return 1;
     }
 
@@ -1650,27 +1804,34 @@ int home_cursor_rect(const home_model_t *m, const home_theme_t *theme,
     *y = content_top(theme) + (menu->cursor * theme->row_height);
     *w = 1280 - (theme->margin_x * 2);
     *h = theme->row_height;
-    if (*x < 0) *x = 0;
-    if (*y < 0) *y = 0;
-    if (*x + *w > 1280) *w = 1280 - *x;
-    if (*y + *h > 720) *h = 720 - *y;
+    if (*x < 0)
+        *x = 0;
+    if (*y < 0)
+        *y = 0;
+    if (*x + *w > 1280)
+        *w = 1280 - *x;
+    if (*y + *h > 720)
+        *h = 720 - *y;
     return 1;
 }
 
-/* ---- renderer --------------------------------------------------------------------------- */
+/* ---- renderer
+ * --------------------------------------------------------------------------- */
 
-void home_draw_title_icon(oops_surface_t *surf, const home_title_t *title,
-                          int ix, int iy, int iw, int ih, const home_theme_t *theme) {
-    if (surf == 0 || theme == 0 || iw <= 0 || ih <= 0) return;
-    if (title != 0 && title->icon_pixels != 0 && title->icon_width > 0 && title->icon_height > 0) {
+void home_draw_title_icon(oops_surface_t *surf, const home_title_t *title, int ix,
+                          int iy, int iw, int ih, const home_theme_t *theme) {
+    if (surf == 0 || theme == 0 || iw <= 0 || ih <= 0)
+        return;
+    if (title != 0 && title->icon_pixels != 0 && title->icon_width > 0 &&
+        title->icon_height > 0) {
         oops_surface_t isurf;
         isurf.pixels = (uint32_t *)title->icon_pixels;
         isurf.width = (uint32_t)title->icon_width;
         isurf.height = (uint32_t)title->icon_height;
         isurf.pitch = (uint32_t)title->icon_width;
         isurf.layout = OOPS_SURFACE_LINEAR;
-        oops_draw_blit_scaled_blend(surf, ix, iy, iw, ih,
-                                    &isurf, 0, 0, title->icon_width, title->icon_height);
+        oops_draw_blit_scaled_blend(surf, ix, iy, iw, ih, &isurf, 0, 0,
+                                    title->icon_width, title->icon_height);
     } else {
         char letter[2];
         letter[0] = '?';
@@ -1693,14 +1854,15 @@ void home_draw_title_icon(oops_surface_t *surf, const home_title_t *title,
             letter[0] = title->id[0];
         }
         int scale = (iw >= 64) ? 3 : ((iw >= 36) ? 2 : 1);
-        (void)oops_draw_text(surf, ix + (iw / 2) - (4 * scale), iy + (ih / 2) - (4 * scale),
-                             letter, theme->text, scale);
+        (void)oops_draw_text(surf, ix + (iw / 2) - (4 * scale),
+                             iy + (ih / 2) - (4 * scale), letter, theme->text, scale);
     }
 }
 
 void home_draw_cursor(oops_surface_t *surf, int x, int y, int w, int h,
                       const home_theme_t *theme) {
-    if (surf == 0 || theme == 0) return;
+    if (surf == 0 || theme == 0)
+        return;
     if (theme->cursor_style == HOME_CURSOR_BOX) {
         oops_draw_rect(surf, x - 3, y - 3, w + 6, 3, theme->cursor);
         oops_draw_rect(surf, x - 3, y + h, w + 6, 3, theme->cursor);
@@ -1709,12 +1871,14 @@ void home_draw_cursor(oops_surface_t *surf, int x, int y, int w, int h,
     } else if (theme->cursor_style == HOME_CURSOR_UNDERLINE) {
         oops_draw_rect(surf, x, y + h + 2, w, 4, theme->cursor);
     } else {
-        oops_draw_rect_blend(surf, x, y, w, h, (theme->cursor & 0x00FFFFFFu) | 0x44000000u);
+        oops_draw_rect_blend(surf, x, y, w, h,
+                             (theme->cursor & 0x00FFFFFFu) | 0x44000000u);
         oops_draw_rect(surf, x, y, 4, h, theme->accent);
     }
 }
 
-static int render_control_centre(oops_surface_t *surf, const home_model_t *m, const home_theme_t *theme) {
+static int render_control_centre(oops_surface_t *surf, const home_model_t *m,
+                                 const home_theme_t *theme) {
     int drawn = 0;
     int sw = (int)surf->width;
     int sh = (int)surf->height;
@@ -1725,13 +1889,20 @@ static int render_control_centre(oops_surface_t *surf, const home_model_t *m, co
     /* Upper Activity Cards */
     int uy = sh - 250;
     oops_draw_rect(surf, theme->margin_x, uy, 400, 90, theme->panel);
-    (void)oops_draw_text(surf, theme->margin_x + 16, uy + 16, "NOW PLAYING", theme->accent, 1);
-    if (m->switcher.has_running_title && m->switcher.running_title_index >= 0 && m->switcher.running_title_index < m->title_count) {
-        (void)oops_draw_text(surf, theme->margin_x + 16, uy + 36, m->titles[m->switcher.running_title_index].name, theme->text, 2);
-        (void)oops_draw_text(surf, theme->margin_x + 16, uy + 64, "PRESS OPTIONS TO CLOSE", theme->text_dim, 1);
+    (void)oops_draw_text(surf, theme->margin_x + 16, uy + 16, "NOW PLAYING",
+                         theme->accent, 1);
+    if (m->switcher.has_running_title && m->switcher.running_title_index >= 0 &&
+        m->switcher.running_title_index < m->title_count) {
+        (void)oops_draw_text(surf, theme->margin_x + 16, uy + 36,
+                             m->titles[m->switcher.running_title_index].name,
+                             theme->text, 2);
+        (void)oops_draw_text(surf, theme->margin_x + 16, uy + 64,
+                             "PRESS OPTIONS TO CLOSE", theme->text_dim, 1);
     } else {
-        (void)oops_draw_text(surf, theme->margin_x + 16, uy + 36, "NO TITLE ACTIVE", theme->text, 2);
-        (void)oops_draw_text(surf, theme->margin_x + 16, uy + 64, "SELECT A GAME TO PLAY", theme->text_dim, 1);
+        (void)oops_draw_text(surf, theme->margin_x + 16, uy + 36, "NO TITLE ACTIVE",
+                             theme->text, 2);
+        (void)oops_draw_text(surf, theme->margin_x + 16, uy + 64,
+                             "SELECT A GAME TO PLAY", theme->text_dim, 1);
     }
     drawn += 4;
 
@@ -1765,7 +1936,8 @@ static int render_control_centre(oops_surface_t *surf, const home_model_t *m, co
     return drawn;
 }
 
-static int render_storage(oops_surface_t *surf, const home_model_t *m, const home_theme_t *theme) {
+static int render_storage(oops_surface_t *surf, const home_model_t *m,
+                          const home_theme_t *theme) {
     int drawn = 0;
     int y = content_top(theme);
 
@@ -1799,11 +1971,15 @@ static int render_storage(oops_surface_t *surf, const home_model_t *m, const hom
     y += 50;
 
     /* Legend */
-    (void)oops_draw_text(surf, theme->margin_x, y, "GAMES & APPS: 412 GB", 0xFF3D8BFDu, 1);
-    (void)oops_draw_text(surf, theme->margin_x + 220, y, "MEDIA: 24 GB", 0xFF4CAF50u, 1);
+    (void)oops_draw_text(surf, theme->margin_x, y, "GAMES & APPS: 412 GB", 0xFF3D8BFDu,
+                         1);
+    (void)oops_draw_text(surf, theme->margin_x + 220, y, "MEDIA: 24 GB", 0xFF4CAF50u,
+                         1);
     (void)oops_draw_text(surf, theme->margin_x + 380, y, "SAVES: 8 GB", 0xFFFFC107u, 1);
-    (void)oops_draw_text(surf, theme->margin_x + 520, y, "OTHER: 56 GB", 0xFF9E9E9Eu, 1);
-    (void)oops_draw_text(surf, theme->margin_x + 680, y, "FREE: 325 GB", theme->text_dim, 1);
+    (void)oops_draw_text(surf, theme->margin_x + 520, y, "OTHER: 56 GB", 0xFF9E9E9Eu,
+                         1);
+    (void)oops_draw_text(surf, theme->margin_x + 680, y, "FREE: 325 GB",
+                         theme->text_dim, 1);
     y += 50;
 
     /* Drives list */
@@ -1812,9 +1988,11 @@ static int render_storage(oops_surface_t *surf, const home_model_t *m, const hom
         int selected = (i == menu->cursor);
         oops_color_t col = selected ? theme->accent : theme->text;
         if (selected) {
-            oops_draw_rect(surf, theme->margin_x, y - 4, bar_w, theme->row_height, theme->panel);
+            oops_draw_rect(surf, theme->margin_x, y - 4, bar_w, theme->row_height,
+                           theme->panel);
         }
-        (void)oops_draw_text(surf, theme->margin_x + 12, y, menu->items[i].label, col, 1);
+        (void)oops_draw_text(surf, theme->margin_x + 12, y, menu->items[i].label, col,
+                             1);
         if (menu->items[i].detail != 0) {
             (void)oops_draw_text(surf, theme->margin_x + 400, y, menu->items[i].detail,
                                  theme->text_dim, 1);
@@ -1825,7 +2003,8 @@ static int render_storage(oops_surface_t *surf, const home_model_t *m, const hom
     return drawn + 8;
 }
 
-static int render_menu(oops_surface_t *surf, const home_model_t *m, const home_theme_t *theme) {
+static int render_menu(oops_surface_t *surf, const home_model_t *m,
+                       const home_theme_t *theme) {
     int drawn = 0;
     const home_menu_t *menu = home_current_menu_const(m);
     if (menu == 0) {
@@ -1842,22 +2021,32 @@ static int render_menu(oops_surface_t *surf, const home_model_t *m, const home_t
 
     for (int i = 0; i < menu->count; i++) {
         int selected = (i == menu->cursor);
-        oops_color_t col = selected ? theme->accent : (menu->items[i].enabled ? theme->text : theme->text_dim);
+        oops_color_t col =
+            selected ? theme->accent
+                     : (menu->items[i].enabled ? theme->text : theme->text_dim);
         if (selected) {
             if (theme->cursor_style == HOME_CURSOR_BOX) {
-                oops_draw_rect(surf, theme->margin_x, y - 4, bar_w, theme->row_height, theme->panel);
+                oops_draw_rect(surf, theme->margin_x, y - 4, bar_w, theme->row_height,
+                               theme->panel);
                 oops_draw_rect(surf, theme->margin_x, y - 4, bar_w, 2, theme->cursor);
-                oops_draw_rect(surf, theme->margin_x, y - 4 + theme->row_height - 2, bar_w, 2, theme->cursor);
-                oops_draw_rect(surf, theme->margin_x, y - 4, 2, theme->row_height, theme->cursor);
-                oops_draw_rect(surf, theme->margin_x + bar_w - 2, y - 4, 2, theme->row_height, theme->cursor);
+                oops_draw_rect(surf, theme->margin_x, y - 4 + theme->row_height - 2,
+                               bar_w, 2, theme->cursor);
+                oops_draw_rect(surf, theme->margin_x, y - 4, 2, theme->row_height,
+                               theme->cursor);
+                oops_draw_rect(surf, theme->margin_x + bar_w - 2, y - 4, 2,
+                               theme->row_height, theme->cursor);
             } else if (theme->cursor_style == HOME_CURSOR_UNDERLINE) {
-                oops_draw_rect(surf, theme->margin_x, y - 4 + theme->row_height - 2, bar_w, 2, theme->cursor);
+                oops_draw_rect(surf, theme->margin_x, y - 4 + theme->row_height - 2,
+                               bar_w, 2, theme->cursor);
             } else {
-                oops_draw_rect(surf, theme->margin_x, y - 4, bar_w, theme->row_height, theme->panel);
-                oops_draw_rect(surf, theme->margin_x, y - 4, 4, theme->row_height, theme->accent);
+                oops_draw_rect(surf, theme->margin_x, y - 4, bar_w, theme->row_height,
+                               theme->panel);
+                oops_draw_rect(surf, theme->margin_x, y - 4, 4, theme->row_height,
+                               theme->accent);
             }
         }
-        (void)oops_draw_text(surf, theme->margin_x + 16, y, menu->items[i].label, col, 1);
+        (void)oops_draw_text(surf, theme->margin_x + 16, y, menu->items[i].label, col,
+                             1);
         if (menu->items[i].detail != 0) {
             (void)oops_draw_text(surf, theme->margin_x + 420, y, menu->items[i].detail,
                                  theme->text_dim, 1);
@@ -1868,7 +2057,8 @@ static int render_menu(oops_surface_t *surf, const home_model_t *m, const home_t
     return drawn;
 }
 
-static void render_dialog(oops_surface_t *surf, const home_model_t *m, const home_theme_t *theme) {
+static void render_dialog(oops_surface_t *surf, const home_model_t *m,
+                          const home_theme_t *theme) {
     int sw = (int)surf->width;
     int sh = (int)surf->height;
 
@@ -1893,22 +2083,26 @@ static void render_dialog(oops_surface_t *surf, const home_model_t *m, const hom
 
     if (m->dialog.type == HOME_DIALOG_CONFIRM) {
         if (m->dialog.message != 0) {
-            (void)oops_draw_text(surf, dx + 30, cy, m->dialog.message, theme->text_dim, 1);
+            (void)oops_draw_text(surf, dx + 30, cy, m->dialog.message, theme->text_dim,
+                                 1);
         }
         int by = dy + dh - 60;
         int cancel_sel = (m->dialog.confirm_choice == 0);
-        oops_draw_rect(surf, dx + 60, by, 180, 40, cancel_sel ? theme->accent : theme->background);
+        oops_draw_rect(surf, dx + 60, by, 180, 40,
+                       cancel_sel ? theme->accent : theme->background);
         (void)oops_draw_text(surf, dx + 110, by + 12, "CANCEL",
                              cancel_sel ? theme->background : theme->text, 1);
 
         int ok_sel = (m->dialog.confirm_choice == 1);
-        oops_draw_rect(surf, dx + 360, by, 180, 40, ok_sel ? theme->accent : theme->background);
+        oops_draw_rect(surf, dx + 360, by, 180, 40,
+                       ok_sel ? theme->accent : theme->background);
         (void)oops_draw_text(surf, dx + 420, by + 12, "OK",
                              ok_sel ? theme->background : theme->text, 1);
 
     } else if (m->dialog.type == HOME_DIALOG_PROGRESS) {
         if (m->dialog.message != 0) {
-            (void)oops_draw_text(surf, dx + 30, cy, m->dialog.message, theme->text_dim, 1);
+            (void)oops_draw_text(surf, dx + 30, cy, m->dialog.message, theme->text_dim,
+                                 1);
         }
         cy += 40;
         int pw = dw - 60;
@@ -1925,11 +2119,13 @@ static void render_dialog(oops_surface_t *surf, const home_model_t *m, const hom
 
     } else if (m->dialog.type == HOME_DIALOG_ERROR) {
         if (m->dialog.error_code != 0) {
-            (void)oops_draw_text(surf, dx + 30, cy, m->dialog.error_code, 0xFFE53935u, 2);
+            (void)oops_draw_text(surf, dx + 30, cy, m->dialog.error_code, 0xFFE53935u,
+                                 2);
             cy += 36;
         }
         if (m->dialog.error_desc != 0) {
-            (void)oops_draw_text(surf, dx + 30, cy, m->dialog.error_desc, theme->text_dim, 1);
+            (void)oops_draw_text(surf, dx + 30, cy, m->dialog.error_desc,
+                                 theme->text_dim, 1);
         }
         int by = dy + dh - 60;
         oops_draw_rect(surf, dx + 210, by, 180, 40, theme->accent);
@@ -1938,9 +2134,10 @@ static void render_dialog(oops_surface_t *surf, const home_model_t *m, const hom
     } else if (m->dialog.type == HOME_DIALOG_IME) {
         /* Input text display box */
         oops_draw_rect(surf, dx + 30, cy, dw - 60, 36, theme->background);
-        (void)oops_draw_text(surf, dx + 40, cy + 10,
-                             (m->dialog.ime_len > 0) ? m->dialog.ime_buffer : "TYPE HERE...",
-                             (m->dialog.ime_len > 0) ? theme->text : theme->text_dim, 1);
+        (void)oops_draw_text(
+            surf, dx + 40, cy + 10,
+            (m->dialog.ime_len > 0) ? m->dialog.ime_buffer : "TYPE HERE...",
+            (m->dialog.ime_len > 0) ? theme->text : theme->text_dim, 1);
         cy += 50;
 
         /* 4-row keyboard grid */
@@ -1962,18 +2159,29 @@ static void render_dialog(oops_surface_t *surf, const home_model_t *m, const hom
         /* Bottom action keys */
         int by = cy + 135;
         int sel_act = (m->dialog.ime_row == 4);
-        (void)oops_draw_text(surf, dx + 40, by, "[SPACE]",
-                             (sel_act && m->dialog.ime_col < 3) ? theme->accent : theme->text_dim, 1);
-        (void)oops_draw_text(surf, dx + 150, by, "[BACKSPACE]",
-                             (sel_act && m->dialog.ime_col >= 3 && m->dialog.ime_col < 5) ? theme->accent : theme->text_dim, 1);
-        (void)oops_draw_text(surf, dx + 300, by, "[CLEAR]",
-                             (sel_act && m->dialog.ime_col >= 5 && m->dialog.ime_col < 7) ? theme->accent : theme->text_dim, 1);
-        (void)oops_draw_text(surf, dx + 420, by, "[DONE]",
-                             (sel_act && m->dialog.ime_col >= 7) ? theme->accent : theme->text_dim, 1);
+        (void)oops_draw_text(
+            surf, dx + 40, by, "[SPACE]",
+            (sel_act && m->dialog.ime_col < 3) ? theme->accent : theme->text_dim, 1);
+        (void)oops_draw_text(
+            surf, dx + 150, by, "[BACKSPACE]",
+            (sel_act && m->dialog.ime_col >= 3 && m->dialog.ime_col < 5)
+                ? theme->accent
+                : theme->text_dim,
+            1);
+        (void)oops_draw_text(
+            surf, dx + 300, by, "[CLEAR]",
+            (sel_act && m->dialog.ime_col >= 5 && m->dialog.ime_col < 7)
+                ? theme->accent
+                : theme->text_dim,
+            1);
+        (void)oops_draw_text(
+            surf, dx + 420, by, "[DONE]",
+            (sel_act && m->dialog.ime_col >= 7) ? theme->accent : theme->text_dim, 1);
     }
 }
 
-static void render_toast(oops_surface_t *surf, const home_model_t *m, const home_theme_t *theme) {
+static void render_toast(oops_surface_t *surf, const home_model_t *m,
+                         const home_theme_t *theme) {
     if (m->toast.active == 0) {
         return;
     }
@@ -1992,7 +2200,8 @@ static void render_toast(oops_surface_t *surf, const home_model_t *m, const home
     }
 }
 
-int home_render(oops_surface_t *surf, const home_model_t *m, const home_theme_t *theme) {
+int home_render(oops_surface_t *surf, const home_model_t *m,
+                const home_theme_t *theme) {
     if (surf == 0 || surf->pixels == 0 || m == 0 || theme == 0) {
         return 0;
     }
@@ -2037,7 +2246,8 @@ int home_render(oops_surface_t *surf, const home_model_t *m, const home_theme_t 
     return drawn;
 }
 
-/* ---- pad input -------------------------------------------------------------------------- */
+/* ---- pad input
+ * -------------------------------------------------------------------------- */
 
 void home_input_reset(home_input_t *in) {
     if (in == 0) {
@@ -2054,18 +2264,31 @@ static int pressed(uint32_t previous, uint32_t now, uint32_t mask) {
 }
 
 static uint32_t direction_down(uint32_t buttons) {
-    if ((buttons & OOPS_BUTTON_UP) != 0u) { return OOPS_BUTTON_UP; }
-    if ((buttons & OOPS_BUTTON_DOWN) != 0u) { return OOPS_BUTTON_DOWN; }
-    if ((buttons & OOPS_BUTTON_LEFT) != 0u) { return OOPS_BUTTON_LEFT; }
-    if ((buttons & OOPS_BUTTON_RIGHT) != 0u) { return OOPS_BUTTON_RIGHT; }
+    if ((buttons & OOPS_BUTTON_UP) != 0u) {
+        return OOPS_BUTTON_UP;
+    }
+    if ((buttons & OOPS_BUTTON_DOWN) != 0u) {
+        return OOPS_BUTTON_DOWN;
+    }
+    if ((buttons & OOPS_BUTTON_LEFT) != 0u) {
+        return OOPS_BUTTON_LEFT;
+    }
+    if ((buttons & OOPS_BUTTON_RIGHT) != 0u) {
+        return OOPS_BUTTON_RIGHT;
+    }
     return 0u;
 }
 
 static void move_for(home_model_t *m, uint32_t bit) {
-    if (bit == OOPS_BUTTON_UP) { home_move(m, HOME_UP); }
-    else if (bit == OOPS_BUTTON_DOWN) { home_move(m, HOME_DOWN); }
-    else if (bit == OOPS_BUTTON_LEFT) { home_move(m, HOME_LEFT); }
-    else if (bit == OOPS_BUTTON_RIGHT) { home_move(m, HOME_RIGHT); }
+    if (bit == OOPS_BUTTON_UP) {
+        home_move(m, HOME_UP);
+    } else if (bit == OOPS_BUTTON_DOWN) {
+        home_move(m, HOME_DOWN);
+    } else if (bit == OOPS_BUTTON_LEFT) {
+        home_move(m, HOME_LEFT);
+    } else if (bit == OOPS_BUTTON_RIGHT) {
+        home_move(m, HOME_RIGHT);
+    }
 }
 
 int home_input_apply(home_input_t *in, home_model_t *m, uint32_t buttons) {
@@ -2109,7 +2332,8 @@ int home_input_apply(home_input_t *in, home_model_t *m, uint32_t buttons) {
         changed = 1;
     }
 
-    /* Directional navigation: prioritize newly pressed directions over sustained hold */
+    /* Directional navigation: prioritize newly pressed directions over sustained hold
+     */
     uint32_t new_dir = direction_down(buttons & ~previous);
     uint32_t dir = (new_dir != 0u) ? new_dir : direction_down(buttons);
     if (dir == 0u) {
@@ -2126,7 +2350,8 @@ int home_input_apply(home_input_t *in, home_model_t *m, uint32_t buttons) {
         in->held_frames++;
         if (in->held_frames >= HOME_REPEAT_DELAY_FRAMES) {
             int since = in->held_frames - HOME_REPEAT_DELAY_FRAMES;
-            int stride = (in->held_frames >= 45) ? HOME_REPEAT_FAST_FRAMES : HOME_REPEAT_EVERY_FRAMES;
+            int stride = (in->held_frames >= 45) ? HOME_REPEAT_FAST_FRAMES
+                                                 : HOME_REPEAT_EVERY_FRAMES;
             if ((since % stride) == 0) {
                 move_for(m, dir);
                 changed = 1;

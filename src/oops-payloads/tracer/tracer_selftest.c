@@ -5,7 +5,8 @@
  * 1. Fixed-rate sampling & linear probing NID sampler.
  * 2. Inlined and hashed out-buffer diff telemetry.
  * 3. Freestanding x86_64 inline detour and trampoline hooking engine.
- * 4. AGC shader interception, container parsing, FNV-1a deduplication, and bytecode dumping.
+ * 4. AGC shader interception, container parsing, FNV-1a deduplication, and bytecode
+ * dumping.
  * 5. AGC command buffer (DCB) telemetry interception.
  * 6. Wire format decoding and verification.
  */
@@ -23,10 +24,10 @@
 #include "shader_dump.h"
 #include "tracer.h"
 
-#define NID_HOT   0x1111111111111111ULL
-#define NID_COLD  0x2222222222222222ULL
-#define NID_OUT   0x3333333333333333ULL
-#define NID_BIG   0x4444444444444444ULL
+#define NID_HOT 0x1111111111111111ULL
+#define NID_COLD 0x2222222222222222ULL
+#define NID_OUT 0x3333333333333333ULL
+#define NID_BIG 0x4444444444444444ULL
 
 #define HOT_CALLS 1000u
 #define COLD_CALLS 4u
@@ -36,7 +37,8 @@ static int s_mock_hook_called = 0;
 static tracer_hook_t s_test_hook = {0};
 
 static int __attribute__((noinline)) mock_add(int a, int b) {
-    __asm__ volatile("nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop;");
+    __asm__ volatile("nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; "
+                     "nop; nop; nop;");
     return a + b;
 }
 
@@ -49,11 +51,14 @@ static int mock_add_hook(int a, int b) {
 /* --- Test Target 2: Mock AGC Shader Creation --- */
 static int s_real_agc_create_shader_called = 0;
 
-int mock_sceAgcCreateShader(void *shader_obj, const void *header,
-                            void *gpu_payload, uint32_t flags);
-int __attribute__((noinline)) mock_sceAgcCreateShader(void *shader_obj, const void *header,
-                                                      void *gpu_payload, uint32_t flags) {
-    __asm__ volatile("nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop;");
+int mock_sceAgcCreateShader(void *shader_obj, const void *header, void *gpu_payload,
+                            uint32_t flags);
+int __attribute__((noinline)) mock_sceAgcCreateShader(void *shader_obj,
+                                                      const void *header,
+                                                      void *gpu_payload,
+                                                      uint32_t flags) {
+    __asm__ volatile("nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; "
+                     "nop; nop; nop;");
     s_real_agc_create_shader_called++;
     if (shader_obj != NULL) {
         *(uint32_t *)shader_obj = 0xcafebabeu;
@@ -79,7 +84,8 @@ typedef struct {
 
 int mock_sceAgcDriverSubmitDcb(const test_dcb_desc_t *desc);
 int __attribute__((noinline)) mock_sceAgcDriverSubmitDcb(const test_dcb_desc_t *desc) {
-    __asm__ volatile("nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop;");
+    __asm__ volatile("nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; "
+                     "nop; nop; nop;");
     s_real_agc_submit_dcb_called++;
     volatile const void *vd = desc;
     (void)vd;
@@ -123,7 +129,8 @@ int main(void) {
     /* Inlined outbuf */
     (void)obs_trace_hit(&samp, NID_OUT);
     uint8_t small[8] = {0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80};
-    obs_trace_outbuf(&buf, NID_OUT, 0x40000000ULL, small, sizeof(small), OBS_TRACE_OUTBUF_INLINE);
+    obs_trace_outbuf(&buf, NID_OUT, 0x40000000ULL, small, sizeof(small),
+                     OBS_TRACE_OUTBUF_INLINE);
 
     /* Hashed outbuf */
     (void)obs_trace_hit(&samp, NID_BIG);
@@ -132,7 +139,8 @@ int main(void) {
         big[i] = (uint8_t)(i * 3u + 1u);
     }
     uint64_t expected_hash = obs_trace_fnv1a(big, sizeof(big));
-    obs_trace_outbuf(&buf, NID_BIG, 0x50000000ULL, big, sizeof(big), OBS_TRACE_OUTBUF_INLINE);
+    obs_trace_outbuf(&buf, NID_BIG, 0x50000000ULL, big, sizeof(big),
+                     OBS_TRACE_OUTBUF_INLINE);
     assert(expected_hash != 0);
     assert(buf.recs[buf.head - 1u].arg[2] == expected_hash);
 
@@ -142,12 +150,14 @@ int main(void) {
     assert(mock_add(10, 20) == 30);
     assert(s_mock_hook_called == 0);
 
-    int hook_rc = tracer_hook_install(&s_test_hook, (void *)mock_add, (void *)mock_add_hook, 16);
+    int hook_rc =
+        tracer_hook_install(&s_test_hook, (void *)mock_add, (void *)mock_add_hook, 16);
     assert(hook_rc == 0);
     assert(s_test_hook.installed == 1);
 
-    /* Calling mock_add should now route through mock_add_hook -> trampoline -> 30 + 100 = 130 */
-    int (* volatile p_add)(int, int) = mock_add;
+    /* Calling mock_add should now route through mock_add_hook -> trampoline -> 30 + 100
+     * = 130 */
+    int (*volatile p_add)(int, int) = mock_add;
     int hooked_res = p_add(10, 20);
     assert(hooked_res == 130);
     assert(s_mock_hook_called == 1);
@@ -166,9 +176,9 @@ int main(void) {
     shader_dump_set_directory("build/test_shaders");
     shader_dump_reset_cache();
 
-    int agc_hook_rc = tracer_hook_install(&g_hook_agc_create_shader,
-                                          (void *)mock_sceAgcCreateShader,
-                                          (void *)hook_sceAgcCreateShader, 16);
+    int agc_hook_rc =
+        tracer_hook_install(&g_hook_agc_create_shader, (void *)mock_sceAgcCreateShader,
+                            (void *)hook_sceAgcCreateShader, 16);
     assert(agc_hook_rc == 0);
 
     /* Construct synthetic compute shader */
@@ -182,7 +192,8 @@ int main(void) {
     cs_bytecode[0] = 0xbf800000u; /* s_nop */
     cs_bytecode[1] = 0xbf810000u; /* s_endpgm */
 
-    int (* volatile p_create_shader)(void *, const void *, void *, uint32_t) = mock_sceAgcCreateShader;
+    int (*volatile p_create_shader)(void *, const void *, void *, uint32_t) =
+        mock_sceAgcCreateShader;
     uint32_t obj_out = 0;
     int create_rc = p_create_shader(&obj_out, container_hdr, cs_bytecode, 0);
     assert(create_rc == 0);
@@ -218,7 +229,8 @@ int main(void) {
     assert(memcmp(read_hdr, container_hdr, sizeof(container_hdr)) == 0);
     fclose(f_hdr);
 
-    /* Test deduplication: calling again with same payload must NOT increment dump count */
+    /* Test deduplication: calling again with same payload must NOT increment dump count
+     */
     create_rc = p_create_shader(&obj_out, container_hdr, cs_bytecode, 0);
     assert(create_rc == 0);
     assert(shader_dump_get_count() == 1);
@@ -241,9 +253,9 @@ int main(void) {
     /* =====================================================================
      * Section 4: AGC DCB Submission Interception
      * ===================================================================== */
-    int dcb_hook_rc = tracer_hook_install(&g_hook_agc_submit_dcb,
-                                          (void *)mock_sceAgcDriverSubmitDcb,
-                                          (void *)g_hook_agc_submit_dcb.hook_fn, 16);
+    int dcb_hook_rc =
+        tracer_hook_install(&g_hook_agc_submit_dcb, (void *)mock_sceAgcDriverSubmitDcb,
+                            (void *)g_hook_agc_submit_dcb.hook_fn, 16);
     /* Alternatively, hook through tracer_install_hooks */
     tracer_uninstall_hooks();
     int install_rc = tracer_install_hooks((void *)mock_sceAgcCreateShader,
@@ -256,7 +268,7 @@ int main(void) {
     desc.flags = 0u;
     desc.pad = 0u;
 
-    int (* volatile p_submit_dcb)(const test_dcb_desc_t *) = mock_sceAgcDriverSubmitDcb;
+    int (*volatile p_submit_dcb)(const test_dcb_desc_t *) = mock_sceAgcDriverSubmitDcb;
     int submit_rc = p_submit_dcb(&desc);
     assert(submit_rc == 0);
     assert(s_real_agc_submit_dcb_called == 1);
@@ -275,7 +287,8 @@ int main(void) {
     assert(fin != NULL);
 
     FILE *devnull = fopen("/dev/null", "w");
-    if (!devnull) devnull = fopen("NUL", "w");
+    if (!devnull)
+        devnull = fopen("NUL", "w");
     assert(devnull != NULL);
 
     int decode_rc = obs_trace_decode_stream(fin, devnull);
@@ -286,6 +299,7 @@ int main(void) {
     assert(decode_rc == 0);
     (void)dcb_hook_rc;
 
-    printf("tracer_selftest: ok (API calls, rate limiter, inline hooks, shader capture, and DCB telemetry verified)\n");
+    printf("tracer_selftest: ok (API calls, rate limiter, inline hooks, shader "
+           "capture, and DCB telemetry verified)\n");
     return 0;
 }

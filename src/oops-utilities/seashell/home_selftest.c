@@ -5,7 +5,8 @@
  * - Shell model state transitions, mode switching (Games <-> Media), top-bar navigation
  * - Control Centre 13-dock quick menu & Switcher lifecycle (running app resume / close)
  * - Deep settings trees (System, Storage visual meter, Developer & Debug, Emulator)
- * - Common Dialogs subsystem (Confirm prompt, Progress bar modal, Virtual IME keyboard, Error modal)
+ * - Common Dialogs subsystem (Confirm prompt, Progress bar modal, Virtual IME keyboard,
+ * Error modal)
  * - Toast notification pop-up timer & auto-dismissal
  * - Renderer verification across all themes/layouts into an in-memory 1280x720 surface
  *
@@ -20,9 +21,18 @@
 #include "home.h"
 
 /* Link stubs for SDK display queries */
-uint32_t *oops_display_get_framebuffer(oops_display_t *disp) { (void)disp; return NULL; }
-unsigned int oops_display_get_width(const oops_display_t *disp) { (void)disp; return 0; }
-unsigned int oops_display_get_height(const oops_display_t *disp) { (void)disp; return 0; }
+uint32_t *oops_display_get_framebuffer(oops_display_t *disp) {
+    (void)disp;
+    return NULL;
+}
+unsigned int oops_display_get_width(const oops_display_t *disp) {
+    (void)disp;
+    return 0;
+}
+unsigned int oops_display_get_height(const oops_display_t *disp) {
+    (void)disp;
+    return 0;
+}
 
 #define HOME_TEST_W 1280
 #define HOME_TEST_H 720
@@ -78,10 +88,14 @@ static int select_label(home_model_t *m, const char *label) {
 
 static const home_theme_t *theme_with_layout(home_layout_t layout) {
     const char *id = "modern";
-    if (layout == HOME_LAYOUT_XMB) id = "xmb";
-    else if (layout == HOME_LAYOUT_LIST) id = "list";
-    else if (layout == HOME_LAYOUT_BLADES) id = "blades";
-    else if (layout == HOME_LAYOUT_TILES) id = "modern";
+    if (layout == HOME_LAYOUT_XMB)
+        id = "xmb";
+    else if (layout == HOME_LAYOUT_LIST)
+        id = "list";
+    else if (layout == HOME_LAYOUT_BLADES)
+        id = "blades";
+    else if (layout == HOME_LAYOUT_TILES)
+        id = "modern";
     const home_skin_t *skin = home_skin_find(id);
     return skin ? &skin->theme : 0;
 }
@@ -90,7 +104,8 @@ int main(void) {
     unsigned int failures = 0;
     home_model_t m;
 
-    /* ---- 1. Shell model & realistic defaults ------------------------------------------ */
+    /* ---- 1. Shell model & realistic defaults
+     * ------------------------------------------ */
 
     home_model_init(&m);
     if (home_screen(&m) != HOME_SCREEN_GAMES) {
@@ -110,7 +125,8 @@ int main(void) {
         failures++;
     }
     if (m.card_count != 13) {
-        printf("FAIL: control centre must have all 13 Prospero dock items, found %d\n", m.card_count);
+        printf("FAIL: control centre must have all 13 Prospero dock items, found %d\n",
+               m.card_count);
         failures++;
     }
     if (m.activity_count != 0) {
@@ -118,7 +134,8 @@ int main(void) {
         failures++;
     }
 
-    /* ---- 2. Carousel navigation -------------------------------------------------------- */
+    /* ---- 2. Carousel navigation
+     * -------------------------------------------------------- */
 
     home_model_init(&m);
     home_move(&m, HOME_LEFT);
@@ -165,7 +182,8 @@ int main(void) {
         failures++;
     }
 
-    /* ---- 3. Screen stack & deep menus -------------------------------------------------- */
+    /* ---- 3. Screen stack & deep menus
+     * -------------------------------------------------- */
 
     home_model_init(&m);
     home_open(&m, HOME_SCREEN_SETTINGS);
@@ -184,7 +202,8 @@ int main(void) {
         failures++;
     }
 
-    /* ---- 4. Title Options & Information ------------------------------------------------ */
+    /* ---- 4. Title Options & Information
+     * ------------------------------------------------ */
 
     home_model_init(&m);
     (void)home_activate(&m); /* Activating tile opens Title Options */
@@ -203,7 +222,8 @@ int main(void) {
         }
     }
 
-    /* ---- 5. Control Centre & Switcher -------------------------------------------------- */
+    /* ---- 5. Control Centre & Switcher
+     * -------------------------------------------------- */
 
     home_model_init(&m);
     home_toggle_control_centre(&m);
@@ -230,11 +250,13 @@ int main(void) {
     home_open(&m, HOME_SCREEN_SWITCHER);
     sw_menu = home_current_menu_const(&m);
     if (sw_menu == 0 || sw_menu->count < 3) {
-        printf("FAIL: Switcher menu with active game must contain running title and actions\n");
+        printf("FAIL: Switcher menu with active game must contain running title and "
+               "actions\n");
         failures++;
     }
 
-    /* ---- 6. Common Dialogs & IME Keyboard ---------------------------------------------- */
+    /* ---- 6. Common Dialogs & IME Keyboard
+     * ---------------------------------------------- */
 
     /* Confirm Dialog */
     home_model_init(&m);
@@ -276,7 +298,8 @@ int main(void) {
 
     /* Error Dialog */
     home_show_error(&m, "CE-108255-1", "THE APPLICATION CRASHED");
-    if (m.dialog.type != HOME_DIALOG_ERROR || strcmp(m.dialog.error_code, "CE-108255-1") != 0) {
+    if (m.dialog.type != HOME_DIALOG_ERROR ||
+        strcmp(m.dialog.error_code, "CE-108255-1") != 0) {
         printf("FAIL: error dialog formatting failed\n");
         failures++;
     }
@@ -286,7 +309,8 @@ int main(void) {
         failures++;
     }
 
-    /* ---- 7. Toast Notification Timer --------------------------------------------------- */
+    /* ---- 7. Toast Notification Timer
+     * --------------------------------------------------- */
 
     home_model_init(&m);
     home_show_toast(&m, "DOWNLOAD READY", "PATCH 1.003");
@@ -302,7 +326,8 @@ int main(void) {
         failures++;
     }
 
-    /* ---- 8. Host Seam & Actions --------------------------------------------------------- */
+    /* ---- 8. Host Seam & Actions
+     * --------------------------------------------------------- */
 
     home_model_init(&m);
     {
@@ -336,13 +361,16 @@ int main(void) {
         } else {
             (void)home_activate(&m);
             if (rec.last != HOME_ACTION_SET_THEME) {
-                printf("FAIL: SET_THEME did not reach the host for persistence (got %d)\n", rec.last);
+                printf(
+                    "FAIL: SET_THEME did not reach the host for persistence (got %d)\n",
+                    rec.last);
                 failures++;
             }
         }
     }
 
-    /* ---- 9. Pad Input Mapping (Real Prospero Controls) ---------------------------------- */
+    /* ---- 9. Pad Input Mapping (Real Prospero Controls)
+     * ---------------------------------- */
 
     home_model_init(&m);
     {
@@ -401,7 +429,8 @@ int main(void) {
             failures++;
         }
 
-        /* Progressive repeat acceleration: initial press moves immediately, hold triggers repeat */
+        /* Progressive repeat acceleration: initial press moves immediately, hold
+         * triggers repeat */
         home_model_init(&m);
         home_input_reset(&in);
         (void)home_input_apply(&in, &m, 0u); /* prime input */
@@ -425,13 +454,15 @@ int main(void) {
         /* Frame 18: first repeat triggered */
         (void)home_input_apply(&in, &m, OOPS_BUTTON_RIGHT);
         if (m.title_cursor != start_cur + 2) {
-            printf("FAIL: holding RIGHT at delay frame should repeat cursor to %d (got %d)\n",
+            printf("FAIL: holding RIGHT at delay frame should repeat cursor to %d (got "
+                   "%d)\n",
                    start_cur + 2, m.title_cursor);
             failures++;
         }
     }
 
-    /* ---- 10. Renderer across all screens and themes ------------------------------------- */
+    /* ---- 10. Renderer across all screens and themes
+     * ------------------------------------- */
 
     home_model_init(&m);
     if (home_render(0, &m, home_theme_at(0)) != 0) {
@@ -452,7 +483,8 @@ int main(void) {
             }
             int cx = 0, cy = 0, cw = 0, ch = 0;
             if (home_cursor_rect(&m, theme, &cx, &cy, &cw, &ch) != 0) {
-                if (cx < 0 || cy < 0 || cx + cw > HOME_TEST_W || cy + ch > HOME_TEST_H) {
+                if (cx < 0 || cy < 0 || cx + cw > HOME_TEST_W ||
+                    cy + ch > HOME_TEST_H) {
                     printf("FAIL: skin %s puts cursor out of bounds on screen %d\n",
                            theme->name, s);
                     failures++;
@@ -465,7 +497,8 @@ int main(void) {
     {
         oops_surface_t surf = test_surface();
         home_model_init(&m);
-        home_show_dialog(&m, HOME_DIALOG_CONFIRM, "CONFIRMATION", "PROCEED WITH LAUNCH?");
+        home_show_dialog(&m, HOME_DIALOG_CONFIRM, "CONFIRMATION",
+                         "PROCEED WITH LAUNCH?");
         home_show_toast(&m, "STATUS", "READY");
         if (home_render(&surf, &m, home_theme_at(0)) <= 0) {
             printf("FAIL: dialog and toast overlay render failed\n");
@@ -491,7 +524,8 @@ int main(void) {
             failures++;
         }
 
-        /* Test all 4 layout rendering branches and scrolling cursor bounds across 32 titles */
+        /* Test all 4 layout rendering branches and scrolling cursor bounds across 32
+         * titles */
         home_title_t titles[32];
         for (int i = 0; i < 32; i++) {
             titles[i].id = "TEST00001";
@@ -511,23 +545,27 @@ int main(void) {
 
         home_set_titles(&m, titles, 32);
         if (m.title_count != 32) {
-            printf("FAIL: expanded title capacity failed to store 32 titles (got %d)\n", m.title_count);
+            printf("FAIL: expanded title capacity failed to store 32 titles (got %d)\n",
+                   m.title_count);
             failures++;
         }
 
-        home_layout_t layouts[4] = {
-            HOME_LAYOUT_TILES, HOME_LAYOUT_XMB, HOME_LAYOUT_LIST, HOME_LAYOUT_BLADES
-        };
+        home_layout_t layouts[4] = {HOME_LAYOUT_TILES, HOME_LAYOUT_XMB,
+                                    HOME_LAYOUT_LIST, HOME_LAYOUT_BLADES};
 
         for (int l = 0; l < 4; l++) {
             const home_theme_t *theme = theme_with_layout(layouts[l]);
-            if (theme == 0) continue;
+            if (theme == 0)
+                continue;
 
             /* Switch model to corresponding skin */
             const char *skin_id = "modern";
-            if (layouts[l] == HOME_LAYOUT_XMB) skin_id = "xmb";
-            else if (layouts[l] == HOME_LAYOUT_LIST) skin_id = "list";
-            else if (layouts[l] == HOME_LAYOUT_BLADES) skin_id = "blades";
+            if (layouts[l] == HOME_LAYOUT_XMB)
+                skin_id = "xmb";
+            else if (layouts[l] == HOME_LAYOUT_LIST)
+                skin_id = "list";
+            else if (layouts[l] == HOME_LAYOUT_BLADES)
+                skin_id = "blades";
             for (int s = 0; s < home_skin_count(); s++) {
                 if (strcmp(home_skin_at(s)->id, skin_id) == 0) {
                     home_set_skin(&m, s);
@@ -539,20 +577,25 @@ int main(void) {
             surf = test_surface();
             int drawn = home_render(&surf, &m, theme);
             if (drawn <= 0) {
-                printf("FAIL: layout %d (%s) drew nothing on 32-title model\n", layouts[l], theme->name);
+                printf("FAIL: layout %d (%s) drew nothing on 32-title model\n",
+                       layouts[l], theme->name);
                 failures++;
             }
 
-            /* Verify cursor rect bounds stay within 1280x720 across all 32 cursor positions */
+            /* Verify cursor rect bounds stay within 1280x720 across all 32 cursor
+             * positions */
             for (int c = 0; c < 32; c++) {
                 m.category_cursor[m.category_idx] = c;
                 m.title_cursor = c;
                 int cx = 0, cy = 0, cw = 0, ch = 0;
                 if (home_cursor_rect(&m, theme, &cx, &cy, &cw, &ch) == 0) {
-                    printf("FAIL: cursor rect returned 0 for layout %d at cursor %d\n", layouts[l], c);
+                    printf("FAIL: cursor rect returned 0 for layout %d at cursor %d\n",
+                           layouts[l], c);
                     failures++;
-                } else if (cx < 0 || cy < 0 || cx + cw > HOME_TEST_W || cy + ch > HOME_TEST_H) {
-                    printf("FAIL: layout %d (%s) cursor rect out of bounds [%d,%d,%d,%d] at cursor %d\n",
+                } else if (cx < 0 || cy < 0 || cx + cw > HOME_TEST_W ||
+                           cy + ch > HOME_TEST_H) {
+                    printf("FAIL: layout %d (%s) cursor rect out of bounds "
+                           "[%d,%d,%d,%d] at cursor %d\n",
                            layouts[l], theme->name, cx, cy, cw, ch, c);
                     failures++;
                 }
@@ -560,7 +603,8 @@ int main(void) {
         }
     }
 
-    /* ---- XMB Rotated Navigation & Activation -------------------------------------------- */
+    /* ---- XMB Rotated Navigation & Activation
+     * -------------------------------------------- */
     {
         home_model_init(&m);
         /* Switch skin to XMB */
@@ -570,19 +614,22 @@ int main(void) {
 
         /* Default category is 5 (GAME) */
         if (m.category_idx != 5) {
-            printf("FAIL: XMB should default to GAME category (5), got %d\n", m.category_idx);
+            printf("FAIL: XMB should default to GAME category (5), got %d\n",
+                   m.category_idx);
             failures++;
         }
 
         /* Test Left/Right rotates categories */
         home_move(&m, HOME_LEFT);
         if (m.category_idx != 4) {
-            printf("FAIL: XMB left from GAME should move to VIDEO (4), got %d\n", m.category_idx);
+            printf("FAIL: XMB left from GAME should move to VIDEO (4), got %d\n",
+                   m.category_idx);
             failures++;
         }
         home_move(&m, HOME_RIGHT);
         if (m.category_idx != 5) {
-            printf("FAIL: XMB right from VIDEO should move back to GAME (5), got %d\n", m.category_idx);
+            printf("FAIL: XMB right from VIDEO should move back to GAME (5), got %d\n",
+                   m.category_idx);
             failures++;
         }
 
@@ -594,7 +641,8 @@ int main(void) {
             failures++;
         }
         if (m.title_cursor != m.category_cursor[5]) {
-            printf("FAIL: XMB title_cursor must stay in sync with category_cursor[GAME]\n");
+            printf("FAIL: XMB title_cursor must stay in sync with "
+                   "category_cursor[GAME]\n");
             failures++;
         }
 
@@ -606,16 +654,18 @@ int main(void) {
         (void)home_back(&m);
 
         /* Test switching to SETTINGS category and activating an item */
-        m.category_idx = 1; /* SETTINGS */
+        m.category_idx = 1;       /* SETTINGS */
         m.category_cursor[1] = 1; /* Storage */
         if (home_activate(&m) == 0 || home_screen(&m) != HOME_SCREEN_SETTINGS_STORAGE) {
-            printf("FAIL: XMB activation under SETTINGS(Storage) should open storage screen\n");
+            printf("FAIL: XMB activation under SETTINGS(Storage) should open storage "
+                   "screen\n");
             failures++;
         }
         (void)home_back(&m);
     }
 
-    /* ---- Blades Navigation & Activation ------------------------------------------------- */
+    /* ---- Blades Navigation & Activation
+     * ------------------------------------------------- */
     {
         home_model_init(&m);
         /* Switch skin to BLADES */
@@ -625,19 +675,23 @@ int main(void) {
 
         /* Default category is 1 (games) */
         if (m.category_idx != 1) {
-            printf("FAIL: Blades should default to GAMES blade (1), got %d\n", m.category_idx);
+            printf("FAIL: Blades should default to GAMES blade (1), got %d\n",
+                   m.category_idx);
             failures++;
         }
 
         /* Test Left/Right switches blades */
         home_move(&m, HOME_LEFT);
         if (m.category_idx != 0) {
-            printf("FAIL: Blades left from GAMES should move to LIVE (0), got %d\n", m.category_idx);
+            printf("FAIL: Blades left from GAMES should move to LIVE (0), got %d\n",
+                   m.category_idx);
             failures++;
         }
         home_move(&m, HOME_RIGHT);
         if (m.category_idx != 1) {
-            printf("FAIL: Blades right from LIVE should move back to GAMES (1), got %d\n", m.category_idx);
+            printf(
+                "FAIL: Blades right from LIVE should move back to GAMES (1), got %d\n",
+                m.category_idx);
             failures++;
         }
 
@@ -649,7 +703,8 @@ int main(void) {
             failures++;
         }
         if (m.title_cursor != m.category_cursor[1]) {
-            printf("FAIL: Blades title_cursor must stay in sync with category_cursor[GAMES]\n");
+            printf("FAIL: Blades title_cursor must stay in sync with "
+                   "category_cursor[GAMES]\n");
             failures++;
         }
 
@@ -666,18 +721,23 @@ int main(void) {
         (void)home_input_apply(&input, &m, 0); /* Prime */
         (void)home_input_apply(&input, &m, OOPS_BUTTON_R1);
         if (m.category_idx != 2) {
-            printf("FAIL: R1 in Blades layout should shift to MEDIA blade (2), got %d\n", m.category_idx);
+            printf(
+                "FAIL: R1 in Blades layout should shift to MEDIA blade (2), got %d\n",
+                m.category_idx);
             failures++;
         }
         (void)home_input_apply(&input, &m, 0);
         (void)home_input_apply(&input, &m, OOPS_BUTTON_L1);
         if (m.category_idx != 1) {
-            printf("FAIL: L1 in Blades layout should shift back to GAMES blade (1), got %d\n", m.category_idx);
+            printf("FAIL: L1 in Blades layout should shift back to GAMES blade (1), "
+                   "got %d\n",
+                   m.category_idx);
             failures++;
         }
     }
 
-    /* ---- Revolution Navigation & Activation --------------------------------------------- */
+    /* ---- Revolution Navigation & Activation
+     * --------------------------------------------- */
     {
         home_model_init(&m);
         /* Switch skin to REVOLUTION */
@@ -687,7 +747,8 @@ int main(void) {
 
         /* Default category is 0 */
         if (m.category_idx != 0) {
-            printf("FAIL: Revolution should default to category 0, got %d\n", m.category_idx);
+            printf("FAIL: Revolution should default to category 0, got %d\n",
+                   m.category_idx);
             failures++;
         }
 
@@ -695,22 +756,26 @@ int main(void) {
         m.category_cursor[0] = 0;
         home_move(&m, HOME_RIGHT);
         if (m.category_cursor[0] != 1) {
-            printf("FAIL: Revolution RIGHT from 0 should be 1, got %d\n", m.category_cursor[0]);
+            printf("FAIL: Revolution RIGHT from 0 should be 1, got %d\n",
+                   m.category_cursor[0]);
             failures++;
         }
         home_move(&m, HOME_DOWN);
         if (m.category_cursor[0] != 5) {
-            printf("FAIL: Revolution DOWN from 1 should be 5, got %d\n", m.category_cursor[0]);
+            printf("FAIL: Revolution DOWN from 1 should be 5, got %d\n",
+                   m.category_cursor[0]);
             failures++;
         }
         home_move(&m, HOME_LEFT);
         if (m.category_cursor[0] != 4) {
-            printf("FAIL: Revolution LEFT from 5 should be 4, got %d\n", m.category_cursor[0]);
+            printf("FAIL: Revolution LEFT from 5 should be 4, got %d\n",
+                   m.category_cursor[0]);
             failures++;
         }
         home_move(&m, HOME_UP);
         if (m.category_cursor[0] != 0) {
-            printf("FAIL: Revolution UP from 4 should be 0, got %d\n", m.category_cursor[0]);
+            printf("FAIL: Revolution UP from 4 should be 0, got %d\n",
+                   m.category_cursor[0]);
             failures++;
         }
 
@@ -720,29 +785,36 @@ int main(void) {
         m.category_cursor[0] = 8;
         home_move(&m, HOME_DOWN);
         if (m.category_cursor[0] != 12) { /* REV_BTN_SYSTEM */
-            printf("FAIL: Revolution DOWN from slot 8 should move to System button (12), got %d\n", m.category_cursor[0]);
+            printf("FAIL: Revolution DOWN from slot 8 should move to System button "
+                   "(12), got %d\n",
+                   m.category_cursor[0]);
             failures++;
         }
         /* Dock horizontal navigation */
         home_move(&m, HOME_RIGHT);
         if (m.category_cursor[0] != 13) { /* REV_BTN_SD */
-            printf("FAIL: Revolution RIGHT from System button should move to SD (13), got %d\n", m.category_cursor[0]);
+            printf("FAIL: Revolution RIGHT from System button should move to SD (13), "
+                   "got %d\n",
+                   m.category_cursor[0]);
             failures++;
         }
         home_move(&m, HOME_RIGHT);
         if (m.category_cursor[0] != 14) { /* REV_BTN_MAIL */
-            printf("FAIL: Revolution RIGHT from SD should move to Mail (14), got %d\n", m.category_cursor[0]);
+            printf("FAIL: Revolution RIGHT from SD should move to Mail (14), got %d\n",
+                   m.category_cursor[0]);
             failures++;
         }
         home_move(&m, HOME_LEFT);
         if (m.category_cursor[0] != 13) { /* Back to SD */
-            printf("FAIL: Revolution LEFT from Mail should move to SD (13), got %d\n", m.category_cursor[0]);
+            printf("FAIL: Revolution LEFT from Mail should move to SD (13), got %d\n",
+                   m.category_cursor[0]);
             failures++;
         }
         /* Return from dock up to grid */
         home_move(&m, HOME_UP);
         if (m.category_cursor[0] != 9) { /* Returns to slot 9 */
-            printf("FAIL: Revolution UP from SD should return to slot 9, got %d\n", m.category_cursor[0]);
+            printf("FAIL: Revolution UP from SD should return to slot 9, got %d\n",
+                   m.category_cursor[0]);
             failures++;
         }
 
@@ -774,8 +846,10 @@ int main(void) {
         /* Channel 0 (real title) opens Title Options */
         m.category_cursor[0] = 0;
         if (m.title_count > 0) {
-            if (home_activate(&m) == 0 || home_screen(&m) != HOME_SCREEN_TITLE_OPTIONS) {
-                printf("FAIL: Revolution activate title channel should open Title Options\n");
+            if (home_activate(&m) == 0 ||
+                home_screen(&m) != HOME_SCREEN_TITLE_OPTIONS) {
+                printf("FAIL: Revolution activate title channel should open Title "
+                       "Options\n");
                 failures++;
             }
             (void)home_back(&m);
@@ -789,22 +863,27 @@ int main(void) {
             failures++;
         }
 
-        /* Verify cursor rect bounds stay within 1280x720 across all channels and dock buttons */
+        /* Verify cursor rect bounds stay within 1280x720 across all channels and dock
+         * buttons */
         for (int c = 0; c <= 14; c++) {
             m.category_cursor[0] = c;
             int cx = 0, cy = 0, cw = 0, ch = 0;
-            if (home_cursor_rect(&m, &home_current_skin(&m)->theme, &cx, &cy, &cw, &ch) == 0) {
+            if (home_cursor_rect(&m, &home_current_skin(&m)->theme, &cx, &cy, &cw,
+                                 &ch) == 0) {
                 printf("FAIL: Revolution cursor rect returned 0 at slot %d\n", c);
                 failures++;
-            } else if (cx < 0 || cy < 0 || cx + cw > HOME_TEST_W || cy + ch > HOME_TEST_H) {
-                printf("FAIL: Revolution cursor rect out of bounds [%d,%d,%d,%d] at slot %d\n",
+            } else if (cx < 0 || cy < 0 || cx + cw > HOME_TEST_W ||
+                       cy + ch > HOME_TEST_H) {
+                printf("FAIL: Revolution cursor rect out of bounds [%d,%d,%d,%d] at "
+                       "slot %d\n",
                        cx, cy, cw, ch, c);
                 failures++;
             }
         }
     }
 
-    /* ---- MEMCARD PS2 Seven Orbs & Browser Navigation ------------------------------------ */
+    /* ---- MEMCARD PS2 Seven Orbs & Browser Navigation
+     * ------------------------------------ */
     {
         home_model_init(&m);
         /* Switch skin to MEMCARD ("list") */
@@ -814,7 +893,8 @@ int main(void) {
 
         /* 1. Verify initial state: Seven Orbs Main Menu */
         int cx = 0, cy = 0, cw = 0, ch = 0;
-        if (home_cursor_rect(&m, &home_current_skin(&m)->theme, &cx, &cy, &cw, &ch) == 0) {
+        if (home_cursor_rect(&m, &home_current_skin(&m)->theme, &cx, &cy, &cw, &ch) ==
+            0) {
             printf("FAIL: MEMCARD cursor rect failed in Main Menu\n");
             failures++;
         }
@@ -826,12 +906,14 @@ int main(void) {
         /* 2. Activating System Configuration */
         home_move(&m, HOME_DOWN);
         if (home_activate(&m) == 0 || home_screen(&m) != HOME_SCREEN_SETTINGS) {
-            printf("FAIL: MEMCARD activate System Configuration should open Settings\n");
+            printf(
+                "FAIL: MEMCARD activate System Configuration should open Settings\n");
             failures++;
         }
         (void)home_back(&m);
         if (home_screen(&m) != HOME_SCREEN_GAMES) {
-            printf("FAIL: home_back from Settings should return to root games screen\n");
+            printf(
+                "FAIL: home_back from Settings should return to root games screen\n");
             failures++;
         }
 
@@ -846,29 +928,37 @@ int main(void) {
         m.title_cursor = 0;
         home_move(&m, HOME_RIGHT);
         if (m.title_cursor != 1) {
-            printf("FAIL: MEMCARD Browser RIGHT should move cursor to 1, got %d\n", m.title_cursor);
+            printf("FAIL: MEMCARD Browser RIGHT should move cursor to 1, got %d\n",
+                   m.title_cursor);
             failures++;
         }
         home_move(&m, HOME_DOWN);
         if (m.title_cursor != 6) {
-            printf("FAIL: MEMCARD Browser DOWN should move cursor to 6 (+5 cols), got %d\n", m.title_cursor);
+            printf("FAIL: MEMCARD Browser DOWN should move cursor to 6 (+5 cols), got "
+                   "%d\n",
+                   m.title_cursor);
             failures++;
         }
         home_move(&m, HOME_UP);
         if (m.title_cursor != 1) {
-            printf("FAIL: MEMCARD Browser UP should move cursor back to 1 (-5 cols), got %d\n", m.title_cursor);
+            printf("FAIL: MEMCARD Browser UP should move cursor back to 1 (-5 cols), "
+                   "got %d\n",
+                   m.title_cursor);
             failures++;
         }
         home_move(&m, HOME_LEFT);
         if (m.title_cursor != 0) {
-            printf("FAIL: MEMCARD Browser LEFT should move cursor back to 0, got %d\n", m.title_cursor);
+            printf("FAIL: MEMCARD Browser LEFT should move cursor back to 0, got %d\n",
+                   m.title_cursor);
             failures++;
         }
 
         /* 5. Activating a title in Browser view opens Title Options */
         if (m.title_count > 0) {
-            if (home_activate(&m) == 0 || home_screen(&m) != HOME_SCREEN_TITLE_OPTIONS) {
-                printf("FAIL: MEMCARD Browser activate title should open Title Options\n");
+            if (home_activate(&m) == 0 ||
+                home_screen(&m) != HOME_SCREEN_TITLE_OPTIONS) {
+                printf(
+                    "FAIL: MEMCARD Browser activate title should open Title Options\n");
                 failures++;
             }
             (void)home_back(&m);
@@ -880,7 +970,8 @@ int main(void) {
 
         /* 6. Pressing Back in Browser view returns to Seven Orbs Main Menu */
         if (home_back(&m) == 0) {
-            printf("FAIL: home_back in Browser should succeed and return to Main Menu\n");
+            printf(
+                "FAIL: home_back in Browser should succeed and return to Main Menu\n");
             failures++;
         }
 
@@ -1028,17 +1119,20 @@ int main(void) {
     {
         home_model_init(&m);
         home_refresh_telemetry(&m);
-        if (m.dev.console_info_str[0] == '\0' || m.dev.pltauth_str[0] == '\0' || m.dev.hw_telemetry_str[0] == '\0') {
+        if (m.dev.console_info_str[0] == '\0' || m.dev.pltauth_str[0] == '\0' ||
+            m.dev.hw_telemetry_str[0] == '\0') {
             printf("FAIL: home_refresh_telemetry did not generate formatted strings\n");
             failures++;
         }
         home_menu_t *sys_menu = &m.menus[HOME_SCREEN_SETTINGS_SYSTEM];
-        if (sys_menu->count < 3 || strcmp(sys_menu->items[0].label, "CONSOLE INFORMATION") != 0) {
+        if (sys_menu->count < 3 ||
+            strcmp(sys_menu->items[0].label, "CONSOLE INFORMATION") != 0) {
             printf("FAIL: system settings menu did not populate properly\n");
             failures++;
         }
         home_menu_t *dev_menu = &m.menus[HOME_SCREEN_SETTINGS_DEVELOPER];
-        if (dev_menu->count < 4 || strcmp(dev_menu->items[3].label, "PLTAUTH STATUS") != 0) {
+        if (dev_menu->count < 4 ||
+            strcmp(dev_menu->items[3].label, "PLTAUTH STATUS") != 0) {
             printf("FAIL: developer settings menu did not populate pltauth status\n");
             failures++;
         }
@@ -1047,21 +1141,25 @@ int main(void) {
         home_open(&m, HOME_SCREEN_SETTINGS_THEME);
         home_menu_t *thm_menu = &m.menus[HOME_SCREEN_SETTINGS_THEME];
         if (thm_menu->count < 6) {
-            printf("FAIL: theme menu should contain at least 6 skins, got %d\n", thm_menu->count);
+            printf("FAIL: theme menu should contain at least 6 skins, got %d\n",
+                   thm_menu->count);
             failures++;
         }
         /* Test switching to skin 1 (XMB) */
         thm_menu->cursor = 1;
         (void)home_activate(&m);
         if (m.skin_idx != 1) {
-            printf("FAIL: activating skin 1 in theme menu should switch skin_idx to 1, got %d\n", m.skin_idx);
+            printf("FAIL: activating skin 1 in theme menu should switch skin_idx to 1, "
+                   "got %d\n",
+                   m.skin_idx);
             failures++;
         }
         (void)home_back(&m);
 
         /* Test unified HOME_CAT_SETTINGS has 11 items and opens themes/power/profile */
         const home_skin_t *xmb_skin = home_skin_find("xmb");
-        int st_count = home_get_category_item_count(&m, xmb_skin, 1 /* SETTINGS in XMB */);
+        int st_count =
+            home_get_category_item_count(&m, xmb_skin, 1 /* SETTINGS in XMB */);
         if (st_count != 11) {
             printf("FAIL: HOME_CAT_SETTINGS count should be 11, got %d\n", st_count);
             failures++;
@@ -1069,11 +1167,15 @@ int main(void) {
         const char *st_name = 0;
         home_get_category_item_info(&m, xmb_skin, 1, 8, &st_name, 0, 0, 0);
         if (!st_name || strcmp(st_name, "Themes & Skins") != 0) {
-            printf("FAIL: HOME_CAT_SETTINGS item 8 should be 'Themes & Skins', got '%s'\n", st_name ? st_name : "null");
+            printf(
+                "FAIL: HOME_CAT_SETTINGS item 8 should be 'Themes & Skins', got '%s'\n",
+                st_name ? st_name : "null");
             failures++;
         }
-        if (home_category_item_activate(&m, xmb_skin, 1, 8) == 0 || home_screen(&m) != HOME_SCREEN_SETTINGS_THEME) {
-            printf("FAIL: activating item 8 in HOME_CAT_SETTINGS should open Themes & Skins\n");
+        if (home_category_item_activate(&m, xmb_skin, 1, 8) == 0 ||
+            home_screen(&m) != HOME_SCREEN_SETTINGS_THEME) {
+            printf("FAIL: activating item 8 in HOME_CAT_SETTINGS should open Themes & "
+                   "Skins\n");
             failures++;
         }
         (void)home_back(&m);
@@ -1084,7 +1186,8 @@ int main(void) {
         oops_surface_t surf = test_surface();
         home_model_init(&m);
 
-        /* Case 1: Default titles have icon_pixels == NULL, should render initial letter */
+        /* Case 1: Default titles have icon_pixels == NULL, should render initial letter
+         */
         (void)home_render(&surf, &m, home_theme_at(0));
         const home_theme_t *theme = home_theme_at(0);
         int tx = theme->margin_x;
@@ -1102,7 +1205,8 @@ int main(void) {
             }
         }
         if (text_pixels_found == 0) {
-            printf("FAIL: fallback initial-letter was not rendered for title without icon\n");
+            printf("FAIL: fallback initial-letter was not rendered for title without "
+                   "icon\n");
             failures++;
         }
 
@@ -1135,7 +1239,8 @@ int main(void) {
         }
     }
 
-    /* ---- 13. Search, Favorites, Library Filtering, and Switcher lifecycle ----------- */
+    /* ---- 13. Search, Favorites, Library Filtering, and Switcher lifecycle -----------
+     */
     {
         home_model_t tm;
         home_model_init(&tm);
@@ -1212,7 +1317,9 @@ int main(void) {
             }
         }
         if (lib_titles != 1) {
-            printf("FAIL: FAVORITES filter should only list pinned titles (found %d, expected 1)\n", lib_titles);
+            printf("FAIL: FAVORITES filter should only list pinned titles (found %d, "
+                   "expected 1)\n",
+                   lib_titles);
             failures++;
         }
 
@@ -1227,12 +1334,14 @@ int main(void) {
         opt_menu = home_current_menu(&tm);
         opt_menu->cursor = 0; /* PLAY */
         (void)home_activate(&tm);
-        if (tm.switcher.has_running_title != 1 || tm.switcher.running_title_index != 2 || tm.switcher.is_suspended != 0) {
+        if (tm.switcher.has_running_title != 1 ||
+            tm.switcher.running_title_index != 2 || tm.switcher.is_suspended != 0) {
             printf("FAIL: launching title should set switcher to running index 2\n");
             failures++;
         }
         if (tm.switcher.recent_count == 0 || tm.switcher.recent_indices[0] != 2) {
-            printf("FAIL: launching title should place index 2 into recent_indices[0]\n");
+            printf(
+                "FAIL: launching title should place index 2 into recent_indices[0]\n");
             failures++;
         }
         /* Suspend title */
@@ -1328,13 +1437,15 @@ int main(void) {
             }
         }
         if (search_matches != 1) {
-            printf("FAIL: search for 'RETURN' should find 1 match (found %d)\n", search_matches);
+            printf("FAIL: search for 'RETURN' should find 1 match (found %d)\n",
+                   search_matches);
             failures++;
         }
     }
 
     if (failures == 0) {
-        printf("home selftest: ok (full Prospero shell model, seam, dialogs, IME, and renderer)\n");
+        printf("home selftest: ok (full Prospero shell model, seam, dialogs, IME, and "
+               "renderer)\n");
 
         return 0;
     }

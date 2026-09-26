@@ -41,7 +41,7 @@ static inline int obs_trace_buf_push(struct obs_trace_buf *b,
 
 /* Open-addressed hash table sampler for per-NID rate limiting */
 struct obs_trace_sampler {
-    uint64_t *nids;   /* Power-of-two size */
+    uint64_t *nids; /* Power-of-two size */
     uint32_t *counts;
     uint32_t cap;
     uint32_t cap_n;
@@ -71,7 +71,8 @@ static inline uint64_t obs_trace_mix(uint64_t x) {
     return x;
 }
 
-static inline uint32_t obs_trace_count(const struct obs_trace_sampler *s, uint64_t nid) {
+static inline uint32_t obs_trace_count(const struct obs_trace_sampler *s,
+                                       uint64_t nid) {
     uint32_t mask = s->cap - 1u;
     uint32_t i = (uint32_t)obs_trace_mix(nid) & mask;
     for (uint32_t probe = 0; probe < s->cap; probe++) {
@@ -246,4 +247,3 @@ static inline void obs_trace_dcb_rec(struct obs_trace_buf *b, uint64_t addr,
 }
 
 #endif /* OOPS_TRACE_ENCODE_H */
-

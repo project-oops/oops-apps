@@ -1,20 +1,24 @@
 /*
- * `config.h` - ours, standing in for the one CMake generates from `upstream/config.h.in`.
+ * `config.h` - ours, standing in for the one CMake generates from
+ * `upstream/config.h.in`.
  *
- * CMake answers each of these by compiling a probe against the host's libc. There is no host here
- * to probe: the answers are properties of `oops-sdk`'s freestanding C library and
- * `oops-apps/common/posix`, both of which are in this repository and can simply be read. Every
- * line below is either "we have this, here is where" or "we do not, here is what it costs".
+ * CMake answers each of these by compiling a probe against the host's libc. There is no
+ * host here to probe: the answers are properties of `oops-sdk`'s freestanding C library
+ * and `oops-apps/common/posix`, both of which are in this repository and can simply be
+ * read. Every line below is either "we have this, here is where" or "we do not, here is
+ * what it costs".
  *
  * Upstream's template order is kept, so a bump can be diffed against it.
  *
  * # The two that change what libzip can do
  *
- * **No crypto backend**, so `zip_file_set_encryption` fails with `ZIP_ER_ENCRNOTSUPP` and an
- * AES-encrypted entry cannot be read. There is no TLS library on this target to point it at.
+ * **No crypto backend**, so `zip_file_set_encryption` fails with `ZIP_ER_ENCRNOTSUPP`
+ * and an AES-encrypted entry cannot be read. There is no TLS library on this target to
+ * point it at.
  * `.o2r` archives are not encrypted, so nothing here notices.
  *
- * **No bzip2, LZMA or zstd**, so only stored and deflated entries decompress. zlib is vendored at
+ * **No bzip2, LZMA or zstd**, so only stored and deflated entries decompress. zlib is
+ * vendored at
  * `../zlib` and is the compression every zip writer defaults to.
  */
 #ifndef HAD_CONFIG_H
@@ -24,8 +28,9 @@
 #endif
 /* BEGIN DEFINES */
 
-/* `ENABLE_FDOPEN` wants `zip_fdopen`, which needs `fdopen` to wrap a descriptor in a `FILE`.
- * `oops-sdk`'s `FILE` is not built around a descriptor, so there is nothing to wrap. */
+/* `ENABLE_FDOPEN` wants `zip_fdopen`, which needs `fdopen` to wrap a descriptor in a
+ * `FILE`. `oops-sdk`'s `FILE` is not built around a descriptor, so there is nothing to
+ * wrap. */
 /* #undef ENABLE_FDOPEN */
 
 /* The `_`-prefixed family below is MSVC's. This is clang on a FreeBSD target. */
@@ -67,8 +72,8 @@
 /* No file permissions to change on this platform. */
 /* #undef HAVE_FCHMOD */
 
-/* `oops-sdk/src/system/libc.c`, both of them - `off_t` is 64-bit here, so they are the plain
- * `fseek`/`ftell` widened rather than a large-file variant. */
+/* `oops-sdk/src/system/libc.c`, both of them - `off_t` is 64-bit here, so they are the
+ * plain `fseek`/`ftell` widened rather than a large-file variant. */
 #define HAVE_FSEEKO
 #define HAVE_FTELLO
 
@@ -80,21 +85,23 @@
 /* #undef HAVE_LIBLZMA */
 /* #undef HAVE_LIBZSTD */
 
-/* `oops-sdk/include/libc/time.h`. It answers UTC, as everything on this target does - that
- * divergence is documented at the top of the SDK header and affects a zip entry's stored
- * modification time by the local offset, nothing more. */
+/* `oops-sdk/include/libc/time.h`. It answers UTC, as everything on this target does -
+ * that divergence is documented at the top of the SDK header and affects a zip entry's
+ * stored modification time by the local offset, nothing more. */
 #define HAVE_LOCALTIME_R
 /* #undef HAVE_LOCALTIME_S */
 
-/* The `_s` bounded family is Annex K, which neither clang's headers nor this libc provide. */
+/* The `_s` bounded family is Annex K, which neither clang's headers nor this libc
+ * provide. */
 /* #undef HAVE_MEMCPY_S */
 /* #undef HAVE_SNPRINTF_S */
 /* #undef HAVE_STRERROR_S */
 /* #undef HAVE_STRERRORLEN_S */
 /* #undef HAVE_STRNCPY_S */
 
-/* `mkstemp` needs a directory libzip may create and rename within. It is used only when *writing*
- * an archive, to build the replacement beside the original. Reading does not reach it. */
+/* `mkstemp` needs a directory libzip may create and rename within. It is used only when
+ * *writing* an archive, to build the replacement beside the original. Reading does not
+ * reach it. */
 /* #undef HAVE_MKSTEMP */
 
 /* Text/binary mode on a descriptor, which is a Windows distinction. */
@@ -108,8 +115,8 @@
 #define HAVE_STRTOLL
 #define HAVE_STRTOULL
 
-/* `struct tm` here is C's, field for field. `tm_zone` is the BSD extension and is absent, because
- * there is no timezone database on this console to name one. */
+/* `struct tm` here is C's, field for field. `tm_zone` is the BSD extension and is
+ * absent, because there is no timezone database on this console to name one. */
 /* #undef HAVE_STRUCT_TM_TM_ZONE */
 
 /* clang provides `<stdbool.h>` itself; the other two are `common/posix/include`. */

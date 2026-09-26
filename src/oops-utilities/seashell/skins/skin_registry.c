@@ -8,14 +8,9 @@ extern const home_skin_t g_skin_list;
 extern const home_skin_t g_skin_amber;
 extern const home_skin_t g_skin_revolution;
 
-static const home_skin_t *s_skins[] = {
-    &g_skin_modern,
-    &g_skin_xmb,
-    &g_skin_blades,
-    &g_skin_list,
-    &g_skin_amber,
-    &g_skin_revolution
-};
+static const home_skin_t *s_skins[] = {&g_skin_modern, &g_skin_xmb,
+                                       &g_skin_blades, &g_skin_list,
+                                       &g_skin_amber,  &g_skin_revolution};
 
 int home_skin_count(void) {
     return (int)(sizeof(s_skins) / sizeof(s_skins[0]));
@@ -29,11 +24,13 @@ const home_skin_t *home_skin_at(int index) {
 }
 
 const home_skin_t *home_skin_find(const char *id) {
-    if (id == 0) return s_skins[0];
+    if (id == 0)
+        return s_skins[0];
     int count = home_skin_count();
     for (int i = 0; i < count; i++) {
         const home_skin_t *s = s_skins[i];
-        if (s->id == 0) continue;
+        if (s->id == 0)
+            continue;
         const char *a = s->id;
         const char *b = id;
         while (*a != '\0' && *b != '\0' && *a == *b) {

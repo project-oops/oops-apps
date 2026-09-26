@@ -1,17 +1,20 @@
-/* <inttypes.h> for a freestanding target, because oops-sdk's libc does not carry one and
- * libunwind includes it.
+/* <inttypes.h> for a freestanding target, because oops-sdk's libc does not carry one
+ * and libunwind includes it.
  *
  * libunwind uses this header for the `PRI*` macros only, in its logging and trace paths
- * (`_LIBUNWIND_LOG`, `_LIBUNWIND_TRACE_UNWINDING`). It needs no conversion functions, so this
- * declares none: `strtoimax` and friends are absent rather than stubbed, which is the honest
- * shape and fails at the link rather than at run time if anything ever reaches for them.
+ * (`_LIBUNWIND_LOG`, `_LIBUNWIND_TRACE_UNWINDING`). It needs no conversion functions,
+ * so this declares none: `strtoimax` and friends are absent rather than stubbed, which
+ * is the honest shape and fails at the link rather than at run time if anything ever
+ * reaches for them.
  *
- * This lives here rather than in oops-sdk for the same reason `__config_site` does - it is a
- * header this dependency needs to build, not a gap in the SDK's own libc. Adding it there is a
- * different repository's call and would put a header in the SDK that nothing in the SDK uses.
+ * This lives here rather than in oops-sdk for the same reason `__config_site` does - it
+ * is a header this dependency needs to build, not a gap in the SDK's own libc. Adding
+ * it there is a different repository's call and would put a header in the SDK that
+ * nothing in the SDK uses.
  *
- * The widths are LP64, which is what `-target x86_64-unknown-freebsd` is: `long` is 64-bit, so
- * the 64-bit and pointer-sized macros take the `l` modifier and the rest take none.
+ * The widths are LP64, which is what `-target x86_64-unknown-freebsd` is: `long` is
+ * 64-bit, so the 64-bit and pointer-sized macros take the `l` modifier and the rest
+ * take none.
  */
 #ifndef OOPS_LIBCXX_INTTYPES_H
 #define OOPS_LIBCXX_INTTYPES_H

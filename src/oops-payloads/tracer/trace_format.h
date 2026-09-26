@@ -24,13 +24,15 @@
 #define OBS_TRACE_OUTBUF_INLINE 32u
 
 enum obs_trace_kind {
-    OBS_TRACE_ENTRY   = 1u, /* function call: nid, seq, argc values in arg[] */
-    OBS_TRACE_EXIT    = 2u, /* function return: arg[0] is return value */
-    OBS_TRACE_OUTBUF  = 3u, /* outbuf: arg[0]=addr, arg[1]=len, inline bytes or hash */
-    OBS_TRACE_NAME    = 4u, /* resolved name hint: 48 bytes of symbol name in arg[] */
-    OBS_TRACE_COUNT   = 5u, /* total call count for capped nid: arg[0]=count */
-    OBS_TRACE_SHADER  = 6u, /* shader capture: arg[0]=addr, arg[1]=size, arg[2]=hash, arg[3]=stage */
-    OBS_TRACE_DCB     = 7u, /* PM4 DCB submission: arg[0]=addr, arg[1]=dwords, arg[2]=queue */
+    OBS_TRACE_ENTRY = 1u,  /* function call: nid, seq, argc values in arg[] */
+    OBS_TRACE_EXIT = 2u,   /* function return: arg[0] is return value */
+    OBS_TRACE_OUTBUF = 3u, /* outbuf: arg[0]=addr, arg[1]=len, inline bytes or hash */
+    OBS_TRACE_NAME = 4u,   /* resolved name hint: 48 bytes of symbol name in arg[] */
+    OBS_TRACE_COUNT = 5u,  /* total call count for capped nid: arg[0]=count */
+    OBS_TRACE_SHADER =
+        6u, /* shader capture: arg[0]=addr, arg[1]=size, arg[2]=hash, arg[3]=stage */
+    OBS_TRACE_DCB =
+        7u, /* PM4 DCB submission: arg[0]=addr, arg[1]=dwords, arg[2]=queue */
 };
 
 /* Exactly 64 bytes, cache-line sized, no padding. */
@@ -62,4 +64,3 @@ _Static_assert(sizeof(struct obs_trace_hdr) == 32u,
 #endif
 
 #endif /* OOPS_TRACE_FORMAT_H */
-

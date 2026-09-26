@@ -16,4 +16,3 @@ void obs_trace_decode_record(const struct obs_trace_rec *r, FILE *out);
 #endif
 
 #endif /* OOPS_TRACE_DECODE_H */
-

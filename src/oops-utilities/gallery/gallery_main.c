@@ -1,11 +1,13 @@
 /*
  * Gallery payload entry.
  *
- * Executed by a homebrew ELF loader (elfldr) with payload_args in rdi. Opens the display and
- * the pad, then loops: read the pad, page on L1/R1, exit on circle, draw the page, flip.
+ * Executed by a homebrew ELF loader (elfldr) with payload_args in rdi. Opens the
+ * display and the pad, then loops: read the pad, page on L1/R1, exit on circle, draw
+ * the page, flip.
  *
- * The drawing is gallery.c, shared with the host self-test. This file is the part that only
- * runs on the console: the display, the input, and the loop that ties them together.
+ * The drawing is gallery.c, shared with the host self-test. This file is the part that
+ * only runs on the console: the display, the input, and the loop that ties them
+ * together.
  */
 
 #include "oops/display.h"
@@ -30,7 +32,8 @@ static void klog(const char *msg) {
     oops_klog("GALLERY", msg);
 }
 
-/* A button seen this frame but not last: an edge, so a page turn is one press not a slide. */
+/* A button seen this frame but not last: an edge, so a page turn is one press not a
+ * slide. */
 static int pressed(uint32_t now, uint32_t was, uint32_t mask) {
     return (now & mask) && !(was & mask);
 }
@@ -49,7 +52,8 @@ int gallery_start(const payload_args_t *args) {
         return -1;
     }
     oops_input_init();
-    oops_system_install_close_handler(); /* cooperate with the dashboard Close (oops/system.h) */
+    oops_system_install_close_handler(); /* cooperate with the dashboard Close
+                                            (oops/system.h) */
 
     gallery_state_t state;
     for (size_t i = 0; i < sizeof(state); i++) {
@@ -95,8 +99,10 @@ int gallery_start(const payload_args_t *args) {
     oops_heap_stats_t heap_stats;
     if (oops_heap_get_stats(&heap_stats) == 0) {
         state.runtime.heap_allocated = heap_stats.current_allocated_bytes;
-        state.runtime.heap_active = (heap_stats.total_alloc_count >= heap_stats.total_free_count) ?
-                                    (heap_stats.total_alloc_count - heap_stats.total_free_count) : 0;
+        state.runtime.heap_active =
+            (heap_stats.total_alloc_count >= heap_stats.total_free_count)
+                ? (heap_stats.total_alloc_count - heap_stats.total_free_count)
+                : 0;
     } else {
         state.runtime.heap_allocated = 65536;
         state.runtime.heap_active = 4;
@@ -124,7 +130,8 @@ int gallery_start(const payload_args_t *args) {
             if (pressed(pad.buttons, last_buttons, OOPS_BUTTON_CIRCLE)) {
                 running = 0;
             }
-            if (state.page == GALLERY_PAGE_AUDIO && audio && (pad.buttons & OOPS_BUTTON_CROSS)) {
+            if (state.page == GALLERY_PAGE_AUDIO && audio &&
+                (pad.buttons & OOPS_BUTTON_CROSS)) {
                 oops_audio_write(audio, tone_chunk, 512);
             }
             last_buttons = pad.buttons;

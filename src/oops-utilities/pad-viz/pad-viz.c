@@ -2,12 +2,12 @@
 
 #include "oops/draw.h"
 
-#define BG     0xFF0D1116u
-#define DIM    OOPS_COLOR_GRAY
-#define HOT    OOPS_COLOR_CYAN
-#define VALUE  OOPS_COLOR_WHITE
+#define BG 0xFF0D1116u
+#define DIM OOPS_COLOR_GRAY
+#define HOT OOPS_COLOR_CYAN
+#define VALUE OOPS_COLOR_WHITE
 #define ACCENT OOPS_COLOR_CYAN
-#define LABEL  OOPS_COLOR_GRAY
+#define LABEL OOPS_COLOR_GRAY
 
 /* Freestanding decimal, so this file compiles for the target as well as the host. */
 static const char *u32_dec(uint32_t value, char *out) {
@@ -26,7 +26,8 @@ static const char *u32_dec(uint32_t value, char *out) {
 }
 
 /* A one-pixel-thick rectangle border, since draw offers only filled rects. */
-static void rect_outline(oops_surface_t *s, int x, int y, int w, int h, oops_color_t c) {
+static void rect_outline(oops_surface_t *s, int x, int y, int w, int h,
+                         oops_color_t c) {
     oops_draw_rect(s, x, y, w, 2, c);
     oops_draw_rect(s, x, y + h - 2, w, 2, c);
     oops_draw_rect(s, x, y, 2, h, c);
@@ -47,7 +48,8 @@ static void btn_rect(oops_surface_t *s, int x, int y, int w, int h, int pressed)
 }
 
 /* A round face button with a centred one-letter label. */
-static void face_btn(oops_surface_t *s, int cx, int cy, int pressed, const char *label) {
+static void face_btn(oops_surface_t *s, int cx, int cy, int pressed,
+                     const char *label) {
     if (pressed) {
         oops_draw_circle(s, cx, cy, 22, HOT, 1);
     } else {
@@ -56,9 +58,10 @@ static void face_btn(oops_surface_t *s, int cx, int cy, int pressed, const char 
     oops_draw_text(s, cx - 6, cy - 8, label, pressed ? BG : VALUE, 2);
 }
 
-/* An analog stick: a ring with a thumb that moves with the axes; the thumb lights when the
- * stick is clicked (L3/R3). */
-static void stick(oops_surface_t *s, int cx, int cy, int r, int sx, int sy, int clicked) {
+/* An analog stick: a ring with a thumb that moves with the axes; the thumb lights when
+ * the stick is clicked (L3/R3). */
+static void stick(oops_surface_t *s, int cx, int cy, int r, int sx, int sy,
+                  int clicked) {
     oops_draw_circle(s, cx, cy, r, DIM, 0);
     oops_draw_circle(s, cx, cy, 10, DIM, 0);
     int dx = sx * (r - 14) / 128;
@@ -75,8 +78,8 @@ static void trigger_bar(oops_surface_t *s, int x, int y, int w, int h, uint8_t v
     }
 }
 
-/* The touch-pad: an outline that lights when clicked, with up to two live contacts mapped from
- * the reported resolution into the drawn rectangle. */
+/* The touch-pad: an outline that lights when clicked, with up to two live contacts
+ * mapped from the reported resolution into the drawn rectangle. */
 static void touchpad(oops_surface_t *s, int x, int y, int w, int h,
                      const oops_pad_state_t *pad) {
     int clicked = is_down(pad->buttons, OOPS_BUTTON_TOUCHPAD);
@@ -93,12 +96,19 @@ static void touchpad(oops_surface_t *s, int x, int y, int w, int h,
 }
 
 /* A tilt box: a dot driven by the accelerometer's x/y, clamped to +/-1 g. */
-static void tilt_box(oops_surface_t *s, int x, int y, int w, int h, const float accel[3]) {
+static void tilt_box(oops_surface_t *s, int x, int y, int w, int h,
+                     const float accel[3]) {
     rect_outline(s, x, y, w, h, DIM);
     float ax = accel[0];
     float ay = accel[1];
-    if (ax < -1.0f) ax = -1.0f; else if (ax > 1.0f) ax = 1.0f;
-    if (ay < -1.0f) ay = -1.0f; else if (ay > 1.0f) ay = 1.0f;
+    if (ax < -1.0f)
+        ax = -1.0f;
+    else if (ax > 1.0f)
+        ax = 1.0f;
+    if (ay < -1.0f)
+        ay = -1.0f;
+    else if (ay > 1.0f)
+        ay = 1.0f;
     int dotx = x + w / 2 + (int)(ax * (float)(w / 2 - 12));
     int doty = y + h / 2 + (int)(ay * (float)(h / 2 - 12));
     oops_draw_circle(s, dotx, doty, 10, VALUE, 1);
@@ -161,22 +171,28 @@ int padviz_render(oops_surface_t *surf, const padviz_state_t *state) {
     face_btn(surf, 936, 410, is_down(b, OOPS_BUTTON_SQUARE), "S");
 
     /* Sticks (thumb lights on L3/R3), and the tilt box between them. */
-    stick(surf, 470, 470, 64, pad->left_stick_x, pad->left_stick_y, is_down(b, OOPS_BUTTON_L3));
-    stick(surf, 810, 470, 64, pad->right_stick_x, pad->right_stick_y, is_down(b, OOPS_BUTTON_R3));
+    stick(surf, 470, 470, 64, pad->left_stick_x, pad->left_stick_y,
+          is_down(b, OOPS_BUTTON_L3));
+    stick(surf, 810, 470, 64, pad->right_stick_x, pad->right_stick_y,
+          is_down(b, OOPS_BUTTON_R3));
     oops_draw_text(surf, 560, 320, "tilt", LABEL, 2);
     tilt_box(surf, 560, 344, 160, 150, pad->acceleration);
 
-    /* Footer: the batched-read sample count (proof the low-latency path delivers), and how to
-     * leave. */
+    /* Footer: the batched-read sample count (proof the low-latency path delivers), and
+     * how to leave. */
     char num[11];
     char footer[48];
     int k = 0;
     const char *pfx = "samples: ";
-    while (*pfx) footer[k++] = *pfx++;
-    const char *p = u32_dec((uint32_t)(state->sample_count < 0 ? 0 : state->sample_count), num);
-    while (*p) footer[k++] = *p++;
+    while (*pfx)
+        footer[k++] = *pfx++;
+    const char *p =
+        u32_dec((uint32_t)(state->sample_count < 0 ? 0 : state->sample_count), num);
+    while (*p)
+        footer[k++] = *p++;
     footer[k] = '\0';
     oops_draw_text(surf, 48, (int)surf->height - 52, footer, VALUE, 2);
-    oops_draw_text(surf, 260, (int)surf->height - 52, "Triangle: rumble | L1+R1+Options to exit", LABEL, 2);
+    oops_draw_text(surf, 260, (int)surf->height - 52,
+                   "Triangle: rumble | L1+R1+Options to exit", LABEL, 2);
     return 0;
 }

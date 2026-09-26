@@ -54,7 +54,8 @@ tracer_hook_t g_hook_video_out_flip = {0};
 
 /* Weak reference to runtime dynamic linker on Prospero */
 #if !defined(OOPS_HOST_BUILD)
-__attribute__((weak)) int sceKernelDlsym(int handle, const char *symbol, void **address_out);
+__attribute__((weak)) int sceKernelDlsym(int handle, const char *symbol,
+                                         void **address_out);
 #endif
 
 void tracer_init(struct obs_trace_rec *storage, uint32_t cap) {
@@ -68,8 +69,8 @@ void tracer_init(struct obs_trace_rec *storage, uint32_t cap) {
     s_initialized = 1;
 }
 
-void tracer_record_entry(uint16_t tid, uint32_t seq, uint64_t nid,
-                         const uint64_t *args, uint8_t argc) {
+void tracer_record_entry(uint16_t tid, uint32_t seq, uint64_t nid, const uint64_t *args,
+                         uint8_t argc) {
     if (!s_initialized) {
         tracer_init(NULL, 0);
     }
@@ -134,7 +135,8 @@ int tracer_flush_to_file(const char *path) {
 
 #if defined(OOPS_HOST_BUILD)
     FILE *f = fopen(path, "wb");
-    if (!f) return -1;
+    if (!f)
+        return -1;
     (void)fwrite(&hdr, 1, sizeof(hdr), f);
     (void)fwrite(s_buf.recs, 1, data_bytes, f);
     fclose(f);
@@ -165,7 +167,8 @@ static int hook_sceAgcDriverSubmitDcb(const tracer_dcb_desc_t *desc) {
 }
 
 /* Interceptor for sceVideoOutSubmitFlip (per-frame telemetry & auto-drain) */
-static int hook_sceVideoOutSubmitFlip(int handle, int buffer_index, int flip_mode, int64_t flip_arg) {
+static int hook_sceVideoOutSubmitFlip(int handle, int buffer_index, int flip_mode,
+                                      int64_t flip_arg) {
     s_flip_counter++;
     if ((s_flip_counter % TRACER_FLUSH_INTERVAL == 0) || (s_buf.head >= 256u)) {
         (void)tracer_flush_to_file("/data/trace.bin");
@@ -178,7 +181,8 @@ static int hook_sceVideoOutSubmitFlip(int handle, int buffer_index, int flip_mod
     return 0;
 }
 
-int tracer_install_hooks(void *p_create_shader, void *p_submit_dcb, void *p_submit_flip) {
+int tracer_install_hooks(void *p_create_shader, void *p_submit_dcb,
+                         void *p_submit_flip) {
     (void)tracer_hook_subsystem_init();
 
     if (p_create_shader != NULL) {
@@ -215,10 +219,12 @@ static void *resolve_symbol(const char *nid_str, const char *name_str) {
     }
     void *addr = NULL;
     /* Try default handle 0x2001 (all loaded objects) */
-    if (nid_str != NULL && sceKernelDlsym(0x2001, nid_str, &addr) == 0 && addr != NULL) {
+    if (nid_str != NULL && sceKernelDlsym(0x2001, nid_str, &addr) == 0 &&
+        addr != NULL) {
         return addr;
     }
-    if (name_str != NULL && sceKernelDlsym(0x2001, name_str, &addr) == 0 && addr != NULL) {
+    if (name_str != NULL && sceKernelDlsym(0x2001, name_str, &addr) == 0 &&
+        addr != NULL) {
         return addr;
     }
     /* Fallback: handle 2 */
@@ -249,12 +255,14 @@ int tracer_start(payload_args_t *args) {
 #define OOPS_APP_VERSION "dev"
 #endif
 
-    TRACER_LOG("tracer: starting telemetry & shader capture session (v " OOPS_APP_VERSION ")");
+    TRACER_LOG(
+        "tracer: starting telemetry & shader capture session (v " OOPS_APP_VERSION ")");
     tracer_init(NULL, 0);
 
     /* Record startup marker */
     uint64_t startup_args[1] = {OBS_TRACE_VERSION};
-    tracer_record_entry(0, 0, 0x5452414345520000ULL /* "TRACER\0\0" */, startup_args, 1);
+    tracer_record_entry(0, 0, 0x5452414345520000ULL /* "TRACER\0\0" */, startup_args,
+                        1);
 
 #if !defined(OOPS_HOST_BUILD)
     /* Auto-resolve and hook AGC and presentation entry points */

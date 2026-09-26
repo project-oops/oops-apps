@@ -8,9 +8,9 @@
 /*
  * The subsystem gallery: one page per SDK subsystem, driven by hand.
  *
- * Render is a pure function of a page number and the state to show, so every page can be drawn
- * into a plain buffer and checked on a host - the seam that makes a drawing app testable off
- * the console, exactly as the SDK itself is built.
+ * Render is a pure function of a page number and the state to show, so every page can
+ * be drawn into a plain buffer and checked on a host - the seam that makes a drawing
+ * app testable off the console, exactly as the SDK itself is built.
  */
 
 enum {
@@ -25,11 +25,12 @@ enum {
 };
 
 /*
- * What this console offers the SDK, gathered so the render stays pure. Each field is a plain
- * yes/no the payload fills from the matching oops_*_available() call - the consumer-side
- * readout of the media-decode and input-device subsystems. The paths whose data layouts are
- * still capture-gated report their capability honestly here (available means the library and
- * entry points resolved), not whether a full decode/read yet works.
+ * What this console offers the SDK, gathered so the render stays pure. Each field is a
+ * plain yes/no the payload fills from the matching oops_*_available() call - the
+ * consumer-side readout of the media-decode and input-device subsystems. The paths
+ * whose data layouts are still capture-gated report their capability honestly here
+ * (available means the library and entry points resolved), not whether a full
+ * decode/read yet works.
  */
 typedef struct gallery_caps {
     int videodec;          /* oops_videodec_available */
@@ -51,14 +52,14 @@ typedef struct gallery_runtime {
 
 /* What the gallery draws for a page, gathered so render stays a pure function of it. */
 typedef struct gallery_state {
-    int page;                    /* which page, wrapped into [0, GALLERY_PAGE_COUNT) */
-    oops_pad_state_t pad;        /* for the input page */
-    oops_system_info_t system;   /* for the system page */
-    int audio_open;              /* for the audio page: is a port up */
-    int net_linked;             /* for the net page: is the link up */
-    const char *net_ip;          /* for the net page: address, or NULL */
-    gallery_caps_t caps;         /* for the capabilities page */
-    gallery_runtime_t runtime;   /* for the runtime page */
+    int page;                  /* which page, wrapped into [0, GALLERY_PAGE_COUNT) */
+    oops_pad_state_t pad;      /* for the input page */
+    oops_system_info_t system; /* for the system page */
+    int audio_open;            /* for the audio page: is a port up */
+    int net_linked;            /* for the net page: is the link up */
+    const char *net_ip;        /* for the net page: address, or NULL */
+    gallery_caps_t caps;       /* for the capabilities page */
+    gallery_runtime_t runtime; /* for the runtime page */
 } gallery_state_t;
 
 /* The number of pages. */

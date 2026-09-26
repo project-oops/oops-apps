@@ -16,8 +16,8 @@ extern "C" {
 void tracer_init(struct obs_trace_rec *storage, uint32_t cap);
 
 /* Record an API function call entry */
-void tracer_record_entry(uint16_t tid, uint32_t seq, uint64_t nid,
-                         const uint64_t *args, uint8_t argc);
+void tracer_record_entry(uint16_t tid, uint32_t seq, uint64_t nid, const uint64_t *args,
+                         uint8_t argc);
 
 /* Record an API function return */
 void tracer_record_exit(uint16_t tid, uint32_t seq, uint64_t nid, uint64_t ret);
@@ -41,7 +41,8 @@ extern tracer_hook_t g_hook_agc_submit_dcb;
 extern tracer_hook_t g_hook_video_out_flip;
 
 /* Install hooks on AGC and video presentation */
-int tracer_install_hooks(void *p_create_shader, void *p_submit_dcb, void *p_submit_flip);
+int tracer_install_hooks(void *p_create_shader, void *p_submit_dcb,
+                         void *p_submit_flip);
 
 /* Uninstall all installed tracer hooks */
 void tracer_uninstall_hooks(void);

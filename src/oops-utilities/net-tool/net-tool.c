@@ -14,7 +14,8 @@ static int row(oops_surface_t *surf, int y, const char *label, const char *value
 }
 
 static void format_latency(int ms, char *out, size_t out_sz) {
-    if (out_sz < 16) return;
+    if (out_sz < 16)
+        return;
     if (ms < 0) {
         out[0] = '-';
         out[1] = '\0';
