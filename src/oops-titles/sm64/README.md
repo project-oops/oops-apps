@@ -25,12 +25,17 @@ The build is C and a Makefile: no CMake, no C++20, no third-party library stack.
 
 ## The ROM
 
-`sm64-port` extracts its assets at build time. `extract_assets.py` reads
-`baserom.<version>.z64` and writes `.png` textures, `.aiff` samples, `.m64` sequences and `.bin`
-files into the tree, which are then compiled in. The build needs a ROM on the build machine and
-the payload carries the assets, so this title is built locally by someone who owns the game and
-not by CI or as a download.
+The ROM is a run-time input for every title here: a build carries no game assets, and a title that
+finds no ROM says so on screen.
 
-[`../ship-of-harkinian`](../ship-of-harkinian/README.md) builds with no ROM and converts the
-player's copy on the hardware at first run; reading the ROM at run time here would need an
-on-device extractor of the same kind.
+`sm64-port` decides the other way. `extract_assets.py` reads `baserom.<version>.z64` and writes
+`.png` textures, `.aiff` samples, `.m64` sequences and `.bin` files into the tree, which the build
+compiles into `sound_data.o`, `leveldata.o` and the skybox objects. A payload built from it embeds
+the game's assets, so it cannot be published, and this pin therefore has no payload target.
+
+[`../ship-of-harkinian`](../ship-of-harkinian/README.md) is the shape a port of this game needs:
+the build ships only the port's own archive, and the title converts the player's copy on the
+hardware at first run. Reaching that here means an upstream that reads the ROM at run time.
+
+What remains useful is the platform layer, which `make census` measures against oops-sdk, and the
+entry point in `shim/`, which is upstream-independent.

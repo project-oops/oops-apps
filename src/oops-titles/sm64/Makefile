@@ -1,16 +1,18 @@
 # Super Mario 64, through oops-sdk.
 #
-#   make               the payload
-#   make title         the payload, packaged
 #   make census        compile every source this title needs, for the target, and report
 #   make census-one F=<path>          every error in one source
-#   make assets        run upstream's asset extraction (needs your own ROM - see below)
 #
-# This title needs a ROM on the build machine, which is upstream's design: extract_assets.py reads
-# baserom.<version>.z64 and writes the textures, samples, sequences and level data into the tree, and
-# the build compiles them in, so the payload carries the game's assets.
+# There is no payload target, and this pin cannot have one. The ROM is a runtime input for every title
+# in this collection: a build carries no game assets, and a title with no ROM says so on screen. This
+# upstream decides the other way - extract_assets.py reads baserom.<version>.z64 and writes textures,
+# samples, sequences and level data into the tree, which the build compiles into sound_data.o,
+# leveldata.o and the skybox objects - so a payload built from it embeds the assets and cannot be
+# published. A port of this game needs an upstream that reads the ROM at run time, as the
+# libultraship titles do.
 #
-# Put baserom.us.z64 in upstream/ and run `make assets` once. `make census` works without it.
+# The source list and census stay, because the platform layer is worth measuring against oops-sdk
+# whichever upstream ends up supplying the game.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
@@ -28,7 +30,6 @@ include $(OOPS_APPS_ROOT)/common/upstream.mk
 
 SM64_UP := $(CURDIR)/upstream
 SM64_VERSION ?= us
-SM64_ROM := $(SM64_UP)/baserom.$(SM64_VERSION).z64
 
 # --- the source list -------------------------------------------------------
 #
@@ -71,45 +72,14 @@ SM64_WARNINGS := -Wno-strict-prototypes -Wno-missing-prototypes -Wno-conversion 
 
 EXTRA_TARGET_CFLAGS += $(SM64_CFLAGS) $(SM64_WARNINGS)
 
-# --- the link --------------------------------------------------------------
+# No payload, and so neither OOPS_RENDERER nor OOPS_FEATURES: app.mk appends the renderer's and each
+# feature's sources to PAYLOAD_SRCS, which is enough on its own to link an eboot containing the SDK
+# and no game. That packages and lists like a working title, which is worse than no eboot. The GL
+# headers the census needs come from oops-sdk/include either way.
 #
-# PAYLOAD_SRCS is behind SM64_ARMED because every level, texture and sound is a generated file:
-# without the assets the compile produces hundreds of missing-file errors, where the warning below
-# names the one thing that is wrong. Set SM64_ARMED=1 once `make assets` has run.
-ifeq ($(SM64_ARMED),1)
-PAYLOAD_SRCS := shim/sm64_start.c $(SM64_C_SRCS) $(OOPS_POSIX_SRCS)
-EXTRA_TARGET_LDFLAGS += $(OOPS_SDL_LDFLAGS)
-PAYLOAD_EXTRA_DEPS   += $(OOPS_SDL_LIB)
-endif
-
-# No net: the game has no networking.
-OOPS_FEATURES := display input keyboard mouse audio suspend thread draw
-
-ifeq ($(wildcard $(SM64_ROM)),)
-$(warning sm64: no $(notdir $(SM64_ROM)) in upstream/ - `make` cannot produce an eboot.)
-$(warning sm64: upstream generates every asset from the cartridge image. Put your own copy at)
-$(warning sm64:   $(SM64_ROM))
-$(warning sm64: then `make assets`, then `make SM64_ARMED=1 title`. `make census` works now.)
-endif
-
+# The entry point in shim/ is kept because it is upstream-independent: it probes for the data
+# directory and calls main, which any replacement upstream will also need.
 include $(OOPS_APPS_ROOT)/common/app.mk
-
-# ---------------------------------------------------------------------------
-# `make assets`: upstream's extraction, which needs the ROM
-#
-# Run on the host, not in the build container: it is a host Python script and the container carries
-# no ROM. It writes into `upstream/`, which the fetch stamp does not cover, so it survives a rebuild
-# but not an `upstream-clean`.
-# ---------------------------------------------------------------------------
-.PHONY: assets
-assets:
-	@test -f $(SM64_ROM) || { \
-	    echo "sm64: $(SM64_ROM) is missing." >&2; \
-	    echo "  This title's assets are generated from the cartridge image, so the build" >&2; \
-	    echo "  machine needs a copy of the game you own. Nothing here can supply it." >&2; \
-	    exit 1; }
-	@cd $(SM64_UP) && python3 extract_assets.py $(SM64_VERSION)
-	@echo "sm64: assets extracted - now 'make SM64_ARMED=1 title'"
 
 # ---------------------------------------------------------------------------
 # `make census`: which of this title's sources compile for the target
@@ -146,3 +116,7 @@ census:
 census-one:
 	@$(TARGET_CC) $(TARGET_CFLAGS) $(EXTRA_TARGET_CFLAGS) -fsyntax-only $(SM64_UP)/$(F) 2>&1 \
 	 | grep 'error:' | sed 's|.*error: ||' | sort | uniq -c | sort -rn
+
+# `make title` fails on undefined SDK symbols while there is no payload, which is the honest answer
+# and not a useful default. The census is.
+.DEFAULT_GOAL := census
