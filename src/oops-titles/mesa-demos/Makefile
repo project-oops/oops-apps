@@ -29,8 +29,6 @@ MESA_DEMOS_CFLAGS += -DOOPS_DEMOS_NAME=\"$(DEMO)\"
 # `DEMO=` changes a `-D`, not a file, so a stamp holding the demo name is rewritten when it
 # differs and the object carrying `OOPS_DEMOS_NAME` depends on it.
 DEMO_STAMP := build/.demo-name
-$(shell mkdir -p build 2>/dev/null; \
-        [ "$$(cat $(DEMO_STAMP) 2>/dev/null)" = "$(DEMO)" ] || printf '%s' "$(DEMO)" > $(DEMO_STAMP))
 
 # Where the demos look for textures and models. The demos concatenate it directly
 # (`DEMOS_DATA_DIR "reflect.rgb"`, `upstream/meson.build:30`), so it ends in a slash.
@@ -73,6 +71,12 @@ OOPS_MESA ?= $(abspath $(OOPS_APPS_ROOT)/../oops-mesa)
 SYMBOLS_FILE := $(abspath build/imports.txt)
 
 include $(OOPS_APPS_ROOT)/common/app.mk
+
+# Written after the include, not with the assignment above: `app.mk` clears `$(BUILD)` at parse
+# time when the build roots differ, which deletes a stamp written before it and leaves no rule to
+# make one.
+$(shell mkdir -p $(BUILD) 2>/dev/null; \
+        [ "$$(cat $(DEMO_STAMP) 2>/dev/null)" = "$(DEMO)" ] || printf '%s' "$(DEMO)" > $(DEMO_STAMP))
 
 # The one object with `OOPS_DEMOS_NAME` compiled into it; after the include for `$(BUILD)`.
 $(BUILD)/obj/app/shim/mesa_demos_entry.o: $(DEMO_STAMP)

@@ -19,7 +19,10 @@ OOPS_RENDERER = mesa
 # compatibility context runs beside this title's 3.3 shaders.
 OOPS_FEATURES := display thread input hud
 
+# `math.c` is part of `OOPS_GL_SRCS`, which comes with `OOPS_RENDERER = gl1`; no feature
+# provides it and this title renders through Mesa, so the matrices are named here.
 PAYLOAD_SRCS = mesa_cube_main.c \
+               $(OOPS_SDK_DIR)/src/math/math.c \
                $(OOPS_APPS_ROOT)/common/cube_hud.c
 
 ENTRY_POINT := mesa_cube_start
