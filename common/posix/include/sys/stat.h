@@ -43,6 +43,22 @@
 struct stat {
     mode_t st_mode;
     off_t  st_size;
+    /* **Identity, and all three are zero.** `st_dev` and `st_ino` together are what "the same
+     * file" means on a POSIX system, and `st_nlink` is how many names it has. The SDK's
+     * filesystem answers none of them: there is no inode number to report and no way to ask
+     * whether two paths reach one file.
+     *
+     * Zero is a value, not an absence, and that has a consequence worth naming: a program that
+     * compares `st_dev`/`st_ino` pairs will find **every** file identical. `ghc::filesystem`'s
+     * `equivalent()` is the one in this tree that would - Pomme does not call it. A caller that
+     * needs file identity should compare paths here, and if one ever genuinely needs the real
+     * answer, that is a `SYS_stat` in the SDK rather than a bigger number in this struct.
+     *
+     * `st_nlink` at zero rather than 1 is deliberate for the same reason: 1 would be a claim
+     * that the file has exactly one name, which nothing here checked. */
+    dev_t  st_dev;
+    ino_t  st_ino;
+    nlink_t st_nlink;
     /* **The timestamps, and they are always zero.** The SDK's filesystem answers existence and
      * size and has no call for a modification time, so there is nothing truthful to put here.
      * They are present because programs name them - StormLib reads `st_mtime` at

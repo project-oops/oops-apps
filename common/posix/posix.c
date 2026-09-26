@@ -52,6 +52,7 @@
 #include <signal.h>     /* sighandler_t and the SIG* numbers, for the signal() below */
 #include <stdarg.h>     /* va_list, for the variadic ioctl below */
 #include <sys/ioctl.h>  /* FIONBIO and the ioctl declaration this file answers */
+#include <sys/param.h>  /* PATH_MAX, which pathconf below reports */
 #include <sys/select.h> /* fd_set and the select this file implements by polling */
 #include <sys/wait.h>   /* waitpid/wait, likewise */
 #include <pthread_np.h> /* the declaration this file's pthread_getthreadid_np answers */
@@ -552,6 +553,40 @@ int ftruncate(int fd, off_t length) {
     }
     errno = ENOSYS;
     return -1;
+}
+
+/* No links on this filesystem - `unistd.h` says why a copy would be worse than a refusal. */
+int link(const char *oldpath, const char *newpath) {
+    (void)oldpath;
+    (void)newpath;
+    errno = ENOSYS;
+    return -1;
+}
+
+int symlink(const char *target, const char *linkpath) {
+    (void)target;
+    (void)linkpath;
+    errno = ENOSYS;
+    return -1;
+}
+
+/*
+ * `pathconf`: `_PC_PATH_MAX` is answered from `sys/param.h`'s `MAXPATHLEN`, everything else is
+ * indeterminate. **-1 without touching `errno`** is how POSIX distinguishes "no limit to report"
+ * from "the call failed", so `errno` is explicitly left alone here rather than set to something
+ * tidy - see `unistd.h`.
+ */
+long pathconf(const char *path, int name) {
+    (void)path;
+    return (name == _PC_PATH_MAX) ? (long)PATH_MAX : -1;
+}
+
+long fpathconf(int fd, int name) {
+    if (fd < 0) {
+        errno = EBADF;
+        return -1;
+    }
+    return (name == _PC_PATH_MAX) ? (long)PATH_MAX : -1;
 }
 
 /*

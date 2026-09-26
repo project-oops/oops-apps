@@ -95,6 +95,37 @@ int fsync(int fd);
 ssize_t readlink(const char *path, char *buf, size_t size);
 
 /*
+ * **Hard links and symbolic links, both always failing with `ENOSYS`.**
+ *
+ * There are neither on this filesystem, which is the same finding `readlink` above and
+ * `sys/stat.h`'s `S_ISLNK` record from the other side. A caller is told so rather than being given
+ * a copy of the file under the second name, which is what a "helpful" implementation would do and
+ * which diverges the moment either name is written to.
+ */
+int link(const char *oldpath, const char *newpath);
+int symlink(const char *target, const char *linkpath);
+
+/*
+ * **Configurable limits, and only `_PC_PATH_MAX` has an answer.**
+ *
+ * `pathconf` asks a *path* what its filesystem permits. This one permits what `sys/param.h` says -
+ * 1024, FreeBSD's `MAXPATHLEN` - and has nothing to say about the rest: no name-length limit it
+ * publishes, no link maximum worth reporting when there are no links.
+ *
+ * -1 **without setting `errno`** is POSIX's way of saying "this limit is indeterminate", which is
+ * different from -1 with `errno` set, meaning the call failed. `ghc::filesystem` asks
+ * `_PC_PATH_MAX` and falls back to a built-in when told nothing, so either answer works for it -
+ * but the distinction is the interface's and is kept.
+ */
+#define _PC_LINK_MAX          1
+#define _PC_NAME_MAX          4
+#define _PC_PATH_MAX          5
+#define _PC_PIPE_BUF          6
+#define _PC_NO_TRUNC          8
+long pathconf(const char *path, int name);
+long fpathconf(int fd, int name);
+
+/*
  * **Both always fail, and that is the useful answer.** A payload is one process: there is no second
  * one for `fork` to produce and no program image for `execvp` to replace it with. Failing is not a
  * shortfall here, it is the truth, and the callers are written for it - ioquake3's `Sys_Exec` reads
