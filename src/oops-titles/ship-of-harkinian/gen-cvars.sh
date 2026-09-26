@@ -36,7 +36,7 @@ done
 tmp="$OUT.tmp"
 mkdir -p "$(dirname "$OUT")"
 
-awk -v defaults="$LUS_DEFAULTS" '
+awk -v deflists="$LUS_DEFAULTS:$SOH_CVARS" '
     # set(NAME "value" ...) - the value may contain ${OTHER}, resolved against what is already set.
     # CMake keeps the FIRST value a name is given, so a later set() never overwrites.
     /^[ \t]*set\(CVAR_/ {
@@ -64,22 +64,31 @@ awk -v defaults="$LUS_DEFAULTS" '
     }
     END {
         if (bad) exit 1
-        # The names to emit are exactly the ones libultraship turns into definitions.
+        # The names to emit are the ones upstream turns into definitions, from both files that do
+        # so: the libultraship list, and the soh prefixes, which the soh sources use directly
+        # through cvar_prefixes.h. A name in both is emitted once.
         n = 0
-        while ((getline dline < defaults) > 0) {
-            if (dline ~ /^[ \t]*add_compile_definitions\(/) { inblock = 1; continue }
-            if (!inblock) continue
-            if (dline ~ /^[ \t]*\)/) { inblock = 0; continue }
-            dname = dline
-            sub(/^[ \t]*/, "", dname)
-            sub(/=.*$/, "", dname)
-            if (dname == "") continue
-            if (!(dname in val)) {
-                printf("gen-cvars: %s is in add_compile_definitions but nothing set it\n", dname) > "/dev/stderr"
-                exit 1
+        nfiles = split(deflists, deffile, ":")
+        for (fi = 1; fi <= nfiles; fi++) {
+            inblock = 0
+            while ((getline dline < deffile[fi]) > 0) {
+                if (dline ~ /^[ \t]*add_compile_definitions\(/) { inblock = 1; continue }
+                if (!inblock) continue
+                if (dline ~ /^[ \t]*\)/) { inblock = 0; continue }
+                dname = dline
+                sub(/^[ \t]*/, "", dname)
+                sub(/=.*$/, "", dname)
+                if (dname == "") continue
+                if (dname in emitted) continue
+                if (!(dname in val)) {
+                    printf("gen-cvars: %s is in add_compile_definitions but nothing set it\n", dname) > "/dev/stderr"
+                    exit 1
+                }
+                printf("#define %s \"%s\"\n", dname, val[dname])
+                emitted[dname] = 1
+                n++
             }
-            printf("#define %s \"%s\"\n", dname, val[dname])
-            n++
+            close(deffile[fi])
         }
         if (n == 0) {
             print "gen-cvars: add_compile_definitions block produced no names" > "/dev/stderr"
