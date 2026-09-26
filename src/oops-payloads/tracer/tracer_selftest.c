@@ -85,6 +85,73 @@ int __attribute__((noinline)) mock_sceAgcDriverSubmitDcb(const test_dcb_desc_t *
     return 0;
 }
 
+static int s_real_apr_resolve_called = 0;
+int mock_sceKernelAprResolveFilepathsToIdsAndFileSizes(
+    const char **paths, uint32_t count, uint32_t *ids, uint64_t *sizes,
+    uint32_t *statuses, void *arg5);
+int __attribute__((noinline)) mock_sceKernelAprResolveFilepathsToIdsAndFileSizes(
+    const char **paths, uint32_t count, uint32_t *ids, uint64_t *sizes,
+    uint32_t *statuses, void *arg5) {
+    __asm__ volatile("nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; "
+                     "nop; nop; nop;");
+    s_real_apr_resolve_called++;
+    (void)paths;
+    (void)arg5;
+    for (uint32_t i = 0; i < count; i++) {
+        ids[i] = 26u;
+        sizes[i] = 224748u;
+        if (statuses != NULL) {
+            statuses[i] = 0u;
+        }
+    }
+    return 0;
+}
+
+static int s_real_mapper_called = 0;
+int mock_sceKernelMapperGetParam(void *param_buf);
+int __attribute__((noinline)) mock_sceKernelMapperGetParam(void *param_buf) {
+    __asm__ volatile("nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; "
+                     "nop; nop; nop;");
+    s_real_mapper_called++;
+    if (param_buf != NULL) {
+        uint64_t *q = (uint64_t *)param_buf;
+        q[0] = 0x38u;
+        q[1] = 0x80000000000ULL;
+        q[2] = 0x88000000000ULL;
+        q[3] = 0x88000000000ULL;
+        q[4] = 0x88000000000ULL;
+        q[5] = 0x40u;
+        q[6] = 0x2663u;
+    }
+    return 0;
+}
+
+static int s_real_open_called = 0;
+int mock_sceKernelOpen(const char *path, int flags, int mode);
+int __attribute__((noinline)) mock_sceKernelOpen(const char *path, int flags, int mode) {
+    __asm__ volatile("nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; "
+                     "nop; nop; nop;");
+    s_real_open_called++;
+    (void)path;
+    (void)flags;
+    (void)mode;
+    return 3;
+}
+
+static int s_real_fstat_called = 0;
+int mock_sceKernelFstat(int fd, void *sb);
+int __attribute__((noinline)) mock_sceKernelFstat(int fd, void *sb) {
+    __asm__ volatile("nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; "
+                     "nop; nop; nop;");
+    s_real_fstat_called++;
+    (void)fd;
+    if (sb != NULL) {
+        memset(sb, 0, 128);
+        *(uint64_t *)((uint8_t *)sb + 8) = 1001ULL; /* st_ino */
+    }
+    return 0;
+}
+
 int main(void) {
     printf("tracer_selftest: starting...\n");
 
@@ -258,25 +325,101 @@ int main(void) {
 
     tracer_uninstall_hooks();
 
-    /* The flushed trace file decodes without error. */
+    /* Test bulk hook installation for APR resolve, Mapper, Open, and Fstat */
+    tracer_symbols_t syms;
+    memset(&syms, 0, sizeof(syms));
+    syms.p_apr_resolve = (void *)mock_sceKernelAprResolveFilepathsToIdsAndFileSizes;
+    syms.p_mapper_param = (void *)mock_sceKernelMapperGetParam;
+    syms.p_sce_open = (void *)mock_sceKernelOpen;
+    syms.p_sce_fstat = (void *)mock_sceKernelFstat;
+    int bulk_rc = tracer_install_symbols(&syms);
+    assert(bulk_rc == 0);
+
+    /* Test APR resolve hook: resolves globalgamemanagers */
+    const char *test_paths[1] = {"/app0/Media/globalgamemanagers"};
+    uint32_t test_ids[1] = {0};
+    uint64_t test_sizes[1] = {0};
+    uint32_t test_statuses[1] = {99};
+    int (*volatile p_apr)(const char **, uint32_t, uint32_t *, uint64_t *, uint32_t *, void *) =
+        mock_sceKernelAprResolveFilepathsToIdsAndFileSizes;
+    int apr_rc = p_apr(test_paths, 1u, test_ids, test_sizes, test_statuses, NULL);
+    assert(apr_rc == 0);
+    assert(s_real_apr_resolve_called == 1);
+    assert(test_ids[0] == 26u);
+    assert(test_sizes[0] == 224748u);
+
+    /* Test Mapper param hook: populates 56-byte buffer */
+    uint8_t mapper_buf[56];
+    memset(mapper_buf, 0, sizeof(mapper_buf));
+    int (*volatile p_mapper)(void *) = mock_sceKernelMapperGetParam;
+    int mapper_rc = p_mapper(mapper_buf);
+    assert(mapper_rc == 0);
+    assert(s_real_mapper_called == 1);
+    assert(*(uint64_t *)(void *)(mapper_buf + 8) == 0x80000000000ULL);
+
+    /* Test Open hook */
+    int (*volatile p_open)(const char *, int, int) = mock_sceKernelOpen;
+    int open_fd = p_open("/app0/Media/globalgamemanagers", 0, 0);
+    assert(open_fd == 3);
+    assert(s_real_open_called == 1);
+
+    /* Test Fstat hook */
+    uint8_t stat_buf[128];
+    int (*volatile p_fstat)(int, void *) = mock_sceKernelFstat;
+    int fstat_rc = p_fstat(3, stat_buf);
+    assert(fstat_rc == 0);
+    assert(s_real_fstat_called == 1);
+
+    tracer_uninstall_hooks();
+
+    /* The flushed trace file decodes without error and contains the expected records. */
     const char *trace_path = "build/tracer_selftest.bin";
+    const char *text_path = "build/tracer_selftest.txt";
     int flush_rc = tracer_flush_to_file(trace_path);
     assert(flush_rc == 0);
 
     FILE *fin = fopen(trace_path, "rb");
     assert(fin != NULL);
 
-    FILE *devnull = fopen("/dev/null", "w");
-    if (!devnull)
-        devnull = fopen("NUL", "w");
-    assert(devnull != NULL);
+    FILE *fout = fopen(text_path, "w");
+    assert(fout != NULL);
 
-    int decode_rc = obs_trace_decode_stream(fin, devnull);
+    int decode_rc = obs_trace_decode_stream(fin, fout);
     fclose(fin);
-    fclose(devnull);
+    fclose(fout);
     remove(trace_path);
 
     assert(decode_rc == 0);
+
+    /* Verify decoded content */
+    FILE *ftxt = fopen(text_path, "r");
+    assert(ftxt != NULL);
+    char line[512];
+    int found_apr = 0;
+    int found_open = 0;
+    int found_stat = 0;
+    int found_mapper = 0;
+    while (fgets(line, (int)sizeof(line), ftxt) != NULL) {
+        if (strstr(line, "OBS|apr_resolve|idx=0|id=26|size=224748|status=0|path=/app0/Media/globalgamemanagers") != NULL) {
+            found_apr = 1;
+        }
+        if (strstr(line, "OBS|open|fd=3|flags=0x0|path=/app0/Media/globalgamemanagers") != NULL) {
+            found_open = 1;
+        }
+        if (strstr(line, "OBS|stat|fd=3|ino=1001|") != NULL) {
+            found_stat = 1;
+        }
+        if (strstr(line, "OBS|outbuf|4d41505045520000|") != NULL) {
+            found_mapper = 1;
+        }
+    }
+    fclose(ftxt);
+    remove(text_path);
+
+    assert(found_apr == 1);
+    assert(found_open == 1);
+    assert(found_stat == 1);
+    assert(found_mapper == 1);
     (void)dcb_hook_rc;
 
     printf("tracer_selftest: ok (API calls, rate limiter, inline hooks, shader "

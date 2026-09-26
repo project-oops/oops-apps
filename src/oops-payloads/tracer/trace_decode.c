@@ -88,6 +88,37 @@ void obs_trace_decode_record(const struct obs_trace_rec *r, FILE *out) {
                 (unsigned long long)addr);
         break;
     }
+    case OBS_TRACE_APR_RESOLVE: {
+        uint32_t idx = r->seq;
+        uint64_t id = r->nid;
+        uint64_t size = r->arg[0];
+        uint32_t status = (uint32_t)r->arg[1];
+        char path[33];
+        memcpy(path, &r->arg[2], 32);
+        path[32] = '\0';
+        fprintf(out, "OBS|apr_resolve|idx=%u|id=%llu|size=%llu|status=%u|path=%s\n",
+                idx, (unsigned long long)id, (unsigned long long)size, status, path);
+        break;
+    }
+    case OBS_TRACE_OPEN: {
+        int fd = (int)(int64_t)r->arg[0];
+        uint64_t flags = r->arg[1];
+        char path[33];
+        memcpy(path, &r->arg[2], 32);
+        path[32] = '\0';
+        fprintf(out, "OBS|open|fd=%d|flags=0x%llx|path=%s\n", fd,
+                (unsigned long long)flags, path);
+        break;
+    }
+    case OBS_TRACE_STAT: {
+        int fd = (int)(int64_t)r->arg[0];
+        uint64_t size = r->arg[1];
+        uint32_t mode = (uint32_t)r->arg[2];
+        uint64_t ino = r->nid;
+        fprintf(out, "OBS|stat|fd=%d|ino=%llu|size=%llu|mode=0%o\n", fd,
+                (unsigned long long)ino, (unsigned long long)size, (unsigned)mode);
+        break;
+    }
     default:
         fprintf(stderr, "trace_decode: unknown record kind %u, skipped\n",
                 (unsigned)r->kind);
@@ -108,7 +139,7 @@ int obs_trace_decode_stream(FILE *in, FILE *out) {
         fprintf(stderr, "trace_decode: bad magic '%.8s'\n", hdr.magic);
         return 2;
     }
-    if (hdr.version != OBS_TRACE_VERSION && hdr.version != 1u) {
+    if (hdr.version > OBS_TRACE_VERSION || hdr.version < 1u) {
         fprintf(stderr, "trace_decode: unsupported version %u\n",
                 (unsigned)hdr.version);
         return 3;

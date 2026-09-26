@@ -246,4 +246,73 @@ static inline void obs_trace_dcb_rec(struct obs_trace_buf *b, uint64_t addr,
     (void)obs_trace_buf_push(b, &r);
 }
 
+/* APR File Resolve Record: path is stored inline up to 32 bytes */
+static inline void obs_trace_apr_resolve(struct obs_trace_buf *b, uint32_t idx,
+                                         uint64_t id, uint64_t size, uint32_t status,
+                                         const char *path) {
+    struct obs_trace_rec r;
+    r.kind = (uint8_t)OBS_TRACE_APR_RESOLVE;
+    r.argc = 0;
+    r.tid = 0;
+    r.seq = idx;
+    r.nid = id;
+    r.arg[0] = size;
+    r.arg[1] = (uint64_t)status;
+    uint8_t *dst = (uint8_t *)&r.arg[2];
+    uint32_t i = 0;
+    if (path != NULL) {
+        for (; i < 31u && path[i] != '\0'; i++) {
+            dst[i] = (uint8_t)path[i];
+        }
+    }
+    for (; i < 32u; i++) {
+        dst[i] = 0;
+    }
+    (void)obs_trace_buf_push(b, &r);
+}
+
+/* File Open Record: path is stored inline up to 32 bytes */
+static inline void obs_trace_open_rec(struct obs_trace_buf *b, uint32_t seq,
+                                      uint64_t nid, int fd, uint64_t flags,
+                                      const char *path) {
+    struct obs_trace_rec r;
+    r.kind = (uint8_t)OBS_TRACE_OPEN;
+    r.argc = 0;
+    r.tid = 0;
+    r.seq = seq;
+    r.nid = nid;
+    r.arg[0] = (uint64_t)(int64_t)fd;
+    r.arg[1] = flags;
+    uint8_t *dst = (uint8_t *)&r.arg[2];
+    uint32_t i = 0;
+    if (path != NULL) {
+        for (; i < 31u && path[i] != '\0'; i++) {
+            dst[i] = (uint8_t)path[i];
+        }
+    }
+    for (; i < 32u; i++) {
+        dst[i] = 0;
+    }
+    (void)obs_trace_buf_push(b, &r);
+}
+
+/* File Stat Record */
+static inline void obs_trace_stat_rec(struct obs_trace_buf *b, uint32_t seq,
+                                      uint64_t ino, int64_t size, uint32_t mode,
+                                      int fd) {
+    struct obs_trace_rec r;
+    r.kind = (uint8_t)OBS_TRACE_STAT;
+    r.argc = 0;
+    r.tid = 0;
+    r.seq = seq;
+    r.nid = ino;
+    r.arg[0] = (uint64_t)(int64_t)fd;
+    r.arg[1] = (uint64_t)size;
+    r.arg[2] = (uint64_t)mode;
+    r.arg[3] = 0;
+    r.arg[4] = 0;
+    r.arg[5] = 0;
+    (void)obs_trace_buf_push(b, &r);
+}
+
 #endif /* OOPS_TRACE_ENCODE_H */

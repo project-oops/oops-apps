@@ -10,7 +10,7 @@
 #endif
 
 #define TRAMPOLINE_SLOT_SIZE 64u
-#define TRAMPOLINE_POOL_PAGES 1u
+#define TRAMPOLINE_POOL_PAGES 2u
 #define PAGE_SIZE 0x1000u
 
 static uint8_t *s_trampoline_pool = NULL;
