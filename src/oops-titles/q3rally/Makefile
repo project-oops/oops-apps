@@ -326,3 +326,116 @@ census:
 census-one:
 	@$(TARGET_CC) $(TARGET_CFLAGS) $(EXTRA_TARGET_CFLAGS) -fsyntax-only $(Q3_UP)/$(F) 2>&1 \
 	  | grep 'error:' | sed 's|.*error: ||' | sort | uniq -c | sort -rn
+
+# ---------------------------------------------------------------------------
+# `make qvm`: the game logic, which the payload does not contain and cannot build
+#
+# **ioquake3 is an engine, not a game.** The rules - weapons, vehicles, the HUD, the menus - live in
+# three separate modules that the engine loads at run time, and none of them is in `q3rally.elf`.
+# `upstream/baseq3r` ships 3,623 files of art, maps and configuration and **no compiled game logic
+# at all**: no `.qvm`, no `.pk3`, no shared library. Without this step the title starts, opens the
+# display, and dies in `VM_Create` - which reads like a missing file because it is one.
+#
+# # Why this is a host build, and why that is not a compromise
+#
+# A `.qvm` is bytecode for ioquake3's own virtual machine. It is **byte-identical whatever machine
+# builds it** - there is no target in it to get wrong - so this compiles with the build machine's
+# compiler through upstream's own toolchain (`code/tools/lcc`, a C compiler that emits Q3 bytecode,
+# and `code/tools/asm`, its assembler), both of which are built here as native binaries first.
+# Cross-compiling them for FreeBSD/x86-64 would produce tools that cannot run on the build machine
+# to no purpose whatsoever.
+#
+# The engine then interprets that bytecode: `vm_interpreted.c` is in the source list and
+# `NO_VM_COMPILED` is set, because the alternative - `vm_x86.c` - writes and executes machine code
+# at run time and this target has no memory that is both writable and executable.
+#
+# `BUILD_DIR` points outside `upstream/`, because the fetched tree is fetched output and nothing
+# should be written into it.
+#
+# Takes a few minutes: it builds four host tools and then compiles roughly 200 sources three times
+# over, once per module. Separate target because nothing here needs re-running when the payload
+# changes.
+# ---------------------------------------------------------------------------
+Q3_QVM_BUILD := $(CURDIR)/build/qvm
+# The build machine's compiler, not the target's. `cc` is absent from the clang container, which is
+# why this is named rather than left to upstream's default.
+Q3_HOST_CC ?= clang
+
+.PHONY: qvm
+qvm:
+	@$(MAKE) -C $(Q3_UP) release \
+	    BUILD_DIR=$(Q3_QVM_BUILD) \
+	    BUILD_CLIENT=0 BUILD_SERVER=0 BUILD_GAME_SO=0 BUILD_GAME_QVM=1 \
+	    BUILD_MISSIONPACK=0 BUILD_AUTOUPDATER=0 \
+	    CC=$(Q3_HOST_CC) TOOLS_CC=$(Q3_HOST_CC)
+	@n=$$(find $(Q3_QVM_BUILD) -name '*.qvm' | wc -l); \
+	 if [ "$$n" -ne 3 ]; then \
+	    echo "q3rally: expected 3 qvm modules, found $$n" >&2; exit 1; fi
+	@# **The magic number is checked, because a wrong one is the failure this step exists to
+	@# prevent.** `vm.c:394` accepts `VM_MAGIC_VER2` (0x12721445) and `vm.c:415` the older
+	@# `VM_MAGIC`; anything else is `Com_Error`. Reading it here means a bad q3asm is a build
+	@# failure rather than a console run.
+	@for f in $$(find $(Q3_QVM_BUILD) -name '*.qvm'); do \
+	    m=$$(od -An -tx4 -N4 "$$f" | tr -d ' \n'); \
+	    case "$$m" in 1272144[45]) ;; \
+	      *) echo "q3rally: $$f has vmMagic $$m, which the engine rejects" >&2; exit 1 ;; esac; \
+	  done
+	@echo "q3rally: 3 qvm modules, magic checked: $$(find $(Q3_QVM_BUILD) -name '*.qvm' -printf '%f ')"
+
+# ---------------------------------------------------------------------------
+# `make pak`: one archive instead of 3,623 files
+#
+# **This is a deployment cost, not a tidiness preference.** `pros restore` costs per *file* rather
+# than per byte - 1,775 files measured at 81 minutes - so the loose tree would be the better part of
+# an afternoon every time the data moves. As one `.pk3` it is one file.
+#
+# A `.pk3` is a zip, which is what ioquake3 reads natively: `qcommon/unzip.c` is minizip and is in
+# the payload's source list. **Paths inside it are relative to the game directory**, so this zips
+# from *inside* `baseq3r` - an archive holding `baseq3r/maps/...` rather than `maps/...` is one the
+# engine opens, finds nothing in, and reports as an empty pk3.
+#
+# The three `.qvm` modules go in under `vm/`, which is where `VM_Create` looks for them. Upstream's
+# `run.sh` symlinks them to the same place.
+#
+# `scripts/pak.sh` does the whole of it, for the same reason `neverball` keeps `scripts/mapc.sh`
+# outside its Makefile: this needs a zip that can be *appended to*, which is more shell than a make
+# recipe holds legibly.
+# ---------------------------------------------------------------------------
+Q3_PAK_DIR  := $(CURDIR)/build/pak
+Q3_PAK      := $(Q3_PAK_DIR)/baseq3r/pak0.pk3
+Q3_BASEGAME := $(CURDIR)/upstream/baseq3r
+
+.PHONY: pak
+pak: qvm
+	@bash scripts/pak.sh $(Q3_BASEGAME) $(Q3_QVM_BUILD) $(Q3_PAK)
+
+# ---------------------------------------------------------------------------
+# `make package`: **the one to run**, not `make title`
+#
+# `common/app.mk` builds a title directory out of the payload and `sce_sys/`, which is everything an
+# app written here needs. A *port* also ships the program's own content, and `app.mk` has no hook for
+# that - `neverball` does the same thing for the same reason.
+# ---------------------------------------------------------------------------
+.PHONY: package
+package: title
+	@test -f $(Q3_PAK) || { echo "q3rally: no $(Q3_PAK) - run 'make pak' first" >&2; exit 1; }
+	@rm -rf build/title/$(TITLE_ID)/baseq3r
+	@mkdir -p build/title/$(TITLE_ID)/baseq3r
+	@cp $(Q3_PAK) build/title/$(TITLE_ID)/baseq3r/
+	@echo "q3rally: package is build/title/$(TITLE_ID) ($$(du -sh build/title/$(TITLE_ID) | cut -f1), $$(find build/title/$(TITLE_ID) -type f | wc -l) files)"
+
+# ---------------------------------------------------------------------------
+# `make glsurface`: whether the renderer will find its GL entry points at run time
+#
+# **A link with nothing undefined does not answer this**, and that is the whole point of the target.
+# ioquake3 fills every `qgl*` pointer from a *string* through `SDL_GL_GetProcAddress` - core names
+# included - and one NULL makes `GLimp_GetProcAddresses` fail and the renderer refuse to start. The
+# functions are all linked in; what decides it is whether `oops-gl`'s by-name table has them.
+#
+# Measured before `gl_procs_core.h` existed: 66 asked for, **0 answered**. The title would have
+# booted, opened the display, printed 66 "Missing OpenGL function" lines and stopped - after a
+# 200 MB deploy.
+# ---------------------------------------------------------------------------
+.PHONY: glsurface
+glsurface:
+	@bash scripts/gl-surface.sh $(Q3_UP)/code/renderercommon/qgl.h $(OOPS_SDK_DIR)/src/gl
