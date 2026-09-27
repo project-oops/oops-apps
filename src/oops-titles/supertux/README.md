@@ -1,7 +1,7 @@
 # SuperTux
 
 <p align="center">
-  <img src="../../../common/assets/no-logo.svg" alt="No logo yet" width="200">
+  <img src="assets/icon0.png" alt="SuperTux" width="200">
 </p>
 
 A side-scrolling platformer about a penguin, ported to the hardware on oops-gl's GLSL path.

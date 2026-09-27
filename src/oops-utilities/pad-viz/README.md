@@ -1,7 +1,7 @@
 # pad-viz
 
 <p align="center">
-  <img src="../../../common/assets/no-logo.svg" alt="No logo yet" width="200">
+  <img src="assets/icon0.png" alt="Pad Visualizer" width="200">
 </p>
 
 A live controller diagram: press a button and it lights up.

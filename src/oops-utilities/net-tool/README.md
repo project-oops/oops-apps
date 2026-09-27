@@ -1,7 +1,7 @@
 # net-tool
 
 <p align="center">
-  <img src="../../../common/assets/no-logo.svg" alt="No logo yet" width="200">
+  <img src="assets/icon0.png" alt="Net Tool" width="200">
 </p>
 
 A network status panel and a socket to talk to, built on the SDK's inet helpers.

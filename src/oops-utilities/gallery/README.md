@@ -1,7 +1,7 @@
 # gallery
 
 <p align="center">
-  <img src="../../../common/assets/no-logo.svg" alt="No logo yet" width="200">
+  <img src="assets/icon0.png" alt="OOPS Gallery" width="200">
 </p>
 
 A hand-driven tour of the SDK's subsystems, one page each.
