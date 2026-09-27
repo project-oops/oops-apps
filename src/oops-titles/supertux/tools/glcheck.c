@@ -21,6 +21,12 @@
 #define STX_GL_HEADER "../../../../oops-sdk/include/GL/gl.h"
 #endif
 
+/* The shim header `video/gl.hpp` reaches `GL/gl.h` through, and so the one place that
+ * can keep oops-gl's declarations and upstream's inline stubs apart. */
+#ifndef STX_SHIM_HEADER
+#define STX_SHIM_HEADER "shim/include/SDL_opengles2.h"
+#endif
+
 /* The renderer's files, named rather than globbed so that each one's reach under the
  * ES 2.0 build is a recorded decision. */
 typedef enum {
@@ -403,17 +409,33 @@ int main(int argc, char **argv) {
 
     /* A stubbed name oops-gl declares is a compile error: `gl.hpp`'s C++ inline no-ops
      * cannot coexist with oops-gl's `extern "C"` declarations in one translation unit.
-     * The shim's `SDL_opengles2.h` must keep them apart. */
+     * The shim's `SDL_opengles2.h` must keep them apart.
+     *
+     * oops-gl grew real vertex-array objects, so this is the ordinary case now rather
+     * than a future one, and the guard asks the question that still matters: not
+     * whether oops-gl declares the name - it does - but whether the shim renames it
+     * across its include. A name it does not cover is still a build about to break. */
+    size_t shim_len = 0u;
+    char *shim = read_file(STX_SHIM_HEADER, &shim_len);
     int stubclash = 0;
     for (size_t i = 0; i < g_entry_count; i++) {
         const stx_entry_t *e = &g_entries[i];
         if (!e->es2 || !is_stubbed(e->name) || !e->have)
             continue;
+        char guard[128];
+        snprintf(guard, sizeof(guard), "#define %s ", e->name);
+        if (shim != NULL && strstr(shim, guard) != NULL) {
+            printf("    %-28s <- oops-gl declares it; the shim renames it across the "
+                   "include\n",
+                   e->name);
+            continue;
+        }
         printf("    %-28s <- oops-gl declares it now; upstream's inline stub will "
                "collide\n",
                e->name);
         stubclash++;
     }
+    free(shim);
 
     printf("\n  absent, but only in files the ES 2.0 build empties:\n");
     for (size_t i = 0; i < g_entry_count; i++) {
@@ -445,9 +467,9 @@ int main(int argc, char **argv) {
 
     /* Passing means the absent set matches KNOWN_GAPS, not that it is empty. */
     if (stubclash) {
-        printf("supertux glcheck: FAILED - %d vertex-array stub(s) now collide with "
+        printf("supertux glcheck: FAILED - %d vertex-array stub(s) collide with "
                "oops-gl;"
-               " keep them out of shim/include/SDL_opengles2.h\n",
+               " rename them across the include in shim/include/SDL_opengles2.h\n",
                stubclash);
         return 1;
     }
