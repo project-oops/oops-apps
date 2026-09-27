@@ -1164,7 +1164,7 @@ porthole_status porthole_run(void) {
         if (s_video < 0) s_video = porthole_listen_port(PORTHOLE_PORT_VIDEO);
         if (s_input < 0) s_input = porthole_listen_port(PORTHOLE_PORT_INPUT);
         if (s_video >= 0 && s_input >= 0) break;
-        oops_time_sleep_ms(200);
+        porthole_sleep_ms(200);
     }
 
     if (s_video < 0 || s_input < 0) {
