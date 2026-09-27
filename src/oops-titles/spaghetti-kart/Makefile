@@ -391,7 +391,15 @@ ifneq ($(SPGK_ARMED),1)
 # to run it over, so it repackages a payload built before whatever was just fixed and
 # reports success. That eboot then goes to the console and the fix looks like it did not
 # work. Refusing costs one line; the other way costs a hardware run to find out.
-ifneq ($(filter all title package dist,$(MAKECMDGOALS)),)
-$(error the payload is behind SPGK_ARMED: build it with `make SPGK_ARMED=1 $(firstword $(filter all title package dist,$(MAKECMDGOALS)))`)
+#
+# Only the two goals that package an ELF, and only when a person asked for one.
+# `dist` re-enters make with `title` as its goal, so without the `MAKELEVEL` test this
+# refuses the recursive call as well and CI cannot ask an unarmed app what it ships -
+# a question whose honest answer is "nothing", not a failure. `all` needs no test: it
+# already builds the host selftest and no payload when the payload is not armed.
+ifeq ($(MAKELEVEL),0)
+ifneq ($(filter title package,$(MAKECMDGOALS)),)
+$(error the payload is behind SPGK_ARMED: build it with `make SPGK_ARMED=1 $(firstword $(filter title package,$(MAKECMDGOALS)))`)
+endif
 endif
 endif
