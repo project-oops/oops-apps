@@ -268,6 +268,10 @@ inline _LIBCPP_HIDE_FROM_ABI bool __libcpp_thread_isnull(const __libcpp_thread_t
 // **Priority and stack size are the SDK's defaults, deliberately.** `std::thread` has no way to
 // ask for either, so choosing here would apply one port's needs to every thread the standard
 // library ever starts. A port that needs a bigger stack should call `oops_thread_create` itself.
+//
+// Measured, in case it is proposed again: giving these threads 4MB does not change Ship of
+// Harkinian's fault inside `Rando::StaticData::HintTable_Init`. Same address, same frame. That
+// fault is a null dereference, not an exhausted stack.
 inline _LIBCPP_HIDE_FROM_ABI int __libcpp_thread_create(__libcpp_thread_t* __t,
                                                         void* (*__func)(void*), void* __arg) {
   *__t = ::oops_thread_create("libcxx", __func, __arg, 0, 0);
