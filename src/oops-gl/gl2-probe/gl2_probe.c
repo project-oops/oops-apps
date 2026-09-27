@@ -230,12 +230,13 @@ static int check_version_gating(void) {
     (void)glGetError();
 
     /* Each answers the value it returns on failure, and each records
-     * GL_INVALID_OPERATION. */
-    int ok = (glCreateShader(GL_VERTEX_SHADER) == 0u);
-    ok = ok && glGetError() == GL_INVALID_OPERATION;
-    ok = ok && glCreateProgram() == 0u;
-    ok = ok && glGetError() == GL_INVALID_OPERATION;
-    ok = ok && glIsProgram(1u) == GL_FALSE;
+     * GL_INVALID_OPERATION.
+     *
+     * `glCreateShader` and `glCreateProgram` are the two exceptions and are checked at
+     * the end: asking for a shader object raises the context to 2.0 rather than being
+     * refused, so they have to come after everything that depends on the context still
+     * being 1.5. */
+    int ok = (glIsProgram(1u) == GL_FALSE);
     ok = ok && glGetError() == GL_INVALID_OPERATION;
     ok = ok && glGetUniformLocation(1u, "x") == -1;
     ok = ok && glGetError() == GL_INVALID_OPERATION;
@@ -260,6 +261,19 @@ static int check_version_gating(void) {
     glSecondaryColor3f(1.0f, 0.0f, 0.0f);
     ok = ok && glGetError() == GL_NO_ERROR;
     glDeleteBuffers(1, &buf);
+
+    /* Asking for a shader object on 1.5 is not refused: it raises the context to 2.0.
+     * That request is how a title declares the programmable pipeline, and several ask
+     * SDL for no version at all and then compile a shader, so refusing it cost sm64 a
+     * GL_INVALID_OPERATION where it expected a shader. What stays gated is everything
+     * that is not the declaration itself, which is what the calls above check. */
+    const GLuint adopted = glCreateShader(GL_VERTEX_SHADER);
+    ok = ok && adopted != 0u && glGetError() == GL_NO_ERROR;
+    GLuint maj = 0u, min = 9u;
+    glContextGetVersion(&maj, &min);
+    ok = ok && maj == 2u && min == 0u;
+    if (adopted)
+        glDeleteShader(adopted);
 
     /* Every later check needs 2.0. */
     ok = ok && glContextSetVersion(2, 0) == GL_TRUE;
