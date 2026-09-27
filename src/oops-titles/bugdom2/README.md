@@ -7,6 +7,10 @@
 Pangea's sequel, ported through oops-sdk.
 
 <p align="center">
+  <img src="assets/demo.gif" alt="Skip walking through the grass on the first level, running on the console" width="560">
+</p>
+
+<p align="center">
   <img src="assets/screenshot-title.png" alt="Bugdom 2's title screen on the console" width="760">
 </p>
 
