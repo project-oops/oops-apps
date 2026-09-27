@@ -198,17 +198,19 @@ static int hook_sceVideoOutSubmitFlip(int handle, int buffer_index, int flip_mod
 }
 
 /* Interceptor for sceKernelAprResolveFilepathsToIdsAndFileSizes */
-int hook_sceKernelAprResolveFilepathsToIdsAndFileSizes(
-    const char **paths, uint32_t count, uint32_t *ids, uint64_t *sizes,
-    uint32_t *statuses, void *arg5) {
+int hook_sceKernelAprResolveFilepathsToIdsAndFileSizes(const char **paths,
+                                                       uint32_t count, uint32_t *ids,
+                                                       uint64_t *sizes,
+                                                       uint32_t *statuses, void *arg5) {
     uint32_t seq = s_tracer_seq++;
     uint64_t entry_args[3] = {(uint64_t)(uintptr_t)paths, (uint64_t)count,
                               (uint64_t)(uintptr_t)ids};
     tracer_record_entry(0, seq, 0x4150525245530000ULL, entry_args, 3);
 
-    int (*real_apr)(const char **, uint32_t, uint32_t *, uint64_t *, uint32_t *, void *) =
-        (int (*)(const char **, uint32_t, uint32_t *, uint64_t *, uint32_t *, void *))
-            g_hook_apr_resolve.trampoline;
+    int (*real_apr)(const char **, uint32_t, uint32_t *, uint64_t *, uint32_t *,
+                    void *) =
+        (int (*)(const char **, uint32_t, uint32_t *, uint64_t *, uint32_t *,
+                 void *))g_hook_apr_resolve.trampoline;
     int rc = real_apr ? real_apr(paths, count, ids, sizes, statuses, arg5) : -1;
 
     tracer_record_exit(0, seq, 0x4150525245530000ULL, (uint64_t)(int64_t)rc);
@@ -232,8 +234,7 @@ int hook_sceKernelMapperGetParam(void *param_buf) {
     uint64_t entry_args[1] = {(uint64_t)(uintptr_t)param_buf};
     tracer_record_entry(0, seq, 0x4d41505045520000ULL, entry_args, 1);
 
-    int (*real_mapper)(void *) =
-        (int (*)(void *))g_hook_mapper_param.trampoline;
+    int (*real_mapper)(void *) = (int (*)(void *))g_hook_mapper_param.trampoline;
     int rc = real_mapper ? real_mapper(param_buf) : -1;
 
     tracer_record_exit(0, seq, 0x4d41505045520000ULL, (uint64_t)(int64_t)rc);
@@ -268,8 +269,7 @@ int hook_posix_open(const char *path, int flags, int mode) {
 
 /* Interceptors for file closing */
 int hook_sceKernelClose(int fd) {
-    int (*real_close)(int) =
-        (int (*)(int))g_hook_sce_close.trampoline;
+    int (*real_close)(int) = (int (*)(int))g_hook_sce_close.trampoline;
     int rc = real_close ? real_close(fd) : -1;
 
     uint32_t seq = s_tracer_seq++;
@@ -280,8 +280,7 @@ int hook_sceKernelClose(int fd) {
 }
 
 int hook_posix_close(int fd) {
-    int (*real_close)(int) =
-        (int (*)(int))g_hook_posix_close.trampoline;
+    int (*real_close)(int) = (int (*)(int))g_hook_posix_close.trampoline;
     int rc = real_close ? real_close(fd) : -1;
 
     uint32_t seq = s_tracer_seq++;
@@ -293,8 +292,7 @@ int hook_posix_close(int fd) {
 
 /* Interceptors for file stat */
 int hook_sceKernelFstat(int fd, void *sb) {
-    int (*real_fstat)(int, void *) =
-        (int (*)(int, void *))g_hook_sce_fstat.trampoline;
+    int (*real_fstat)(int, void *) = (int (*)(int, void *))g_hook_sce_fstat.trampoline;
     int rc = real_fstat ? real_fstat(fd, sb) : -1;
 
     if (rc == 0 && sb != NULL) {
@@ -328,8 +326,7 @@ int hook_sceSysmoduleLoadModule(uint16_t id) {
     uint64_t args[1] = {(uint64_t)id};
     tracer_record_entry(0, seq, 0x5359534d4f440000ULL, args, 1);
 
-    int (*real_fn)(uint16_t) =
-        (int (*)(uint16_t))g_hook_sysmodule_load.trampoline;
+    int (*real_fn)(uint16_t) = (int (*)(uint16_t))g_hook_sysmodule_load.trampoline;
     int rc = real_fn ? real_fn(id) : -1;
 
     tracer_record_exit(0, seq, 0x5359534d4f440000ULL, (uint64_t)(int64_t)rc);
@@ -338,16 +335,18 @@ int hook_sceSysmoduleLoadModule(uint16_t id) {
 
 /* Interceptors for direct memory */
 int hook_sceKernelAllocateDirectMemory(int64_t search_low, int64_t search_high,
-                                      size_t len, size_t alignment,
-                                      int mem_type, int64_t *phys_out) {
+                                       size_t len, size_t alignment, int mem_type,
+                                       int64_t *phys_out) {
     uint32_t seq = s_tracer_seq++;
     uint64_t args[3] = {(uint64_t)len, (uint64_t)alignment, (uint64_t)mem_type};
     tracer_record_entry(0, seq, 0x444952414c4c4f43ULL, args, 3);
 
     int (*real_fn)(int64_t, int64_t, size_t, size_t, int, int64_t *) =
-        (int (*)(int64_t, int64_t, size_t, size_t, int, int64_t *))
-            g_hook_alloc_direct_mem.trampoline;
-    int rc = real_fn ? real_fn(search_low, search_high, len, alignment, mem_type, phys_out) : -1;
+        (int (*)(int64_t, int64_t, size_t, size_t, int,
+                 int64_t *))g_hook_alloc_direct_mem.trampoline;
+    int rc = real_fn
+                 ? real_fn(search_low, search_high, len, alignment, mem_type, phys_out)
+                 : -1;
 
     tracer_record_exit(0, seq, 0x444952414c4c4f43ULL, (uint64_t)(int64_t)rc);
     if (rc == 0 && phys_out != NULL) {
@@ -357,16 +356,15 @@ int hook_sceKernelAllocateDirectMemory(int64_t search_low, int64_t search_high,
     return rc;
 }
 
-int hook_sceKernelMapDirectMemory(void **addr_out, size_t len, int prot,
-                                 int flags, int64_t direct_mem,
-                                 size_t alignment) {
+int hook_sceKernelMapDirectMemory(void **addr_out, size_t len, int prot, int flags,
+                                  int64_t direct_mem, size_t alignment) {
     uint32_t seq = s_tracer_seq++;
-    uint64_t args[4] = {(uint64_t)len, (uint64_t)prot, (uint64_t)flags, (uint64_t)direct_mem};
+    uint64_t args[4] = {(uint64_t)len, (uint64_t)prot, (uint64_t)flags,
+                        (uint64_t)direct_mem};
     tracer_record_entry(0, seq, 0x4449524d41500000ULL, args, 4);
 
-    int (*real_fn)(void **, size_t, int, int, int64_t, size_t) =
-        (int (*)(void **, size_t, int, int, int64_t, size_t))
-            g_hook_map_direct_mem.trampoline;
+    int (*real_fn)(void **, size_t, int, int, int64_t, size_t) = (int (*)(
+        void **, size_t, int, int, int64_t, size_t))g_hook_map_direct_mem.trampoline;
     int rc = real_fn ? real_fn(addr_out, len, prot, flags, direct_mem, alignment) : -1;
 
     tracer_record_exit(0, seq, 0x4449524d41500000ULL, (uint64_t)(int64_t)rc);
@@ -396,8 +394,9 @@ int tracer_install_symbols(const tracer_symbols_t *syms) {
                                   (void *)hook_sceVideoOutSubmitFlip, 16);
     }
     if (syms->p_apr_resolve != NULL) {
-        (void)tracer_hook_install(&g_hook_apr_resolve, syms->p_apr_resolve,
-                                  (void *)hook_sceKernelAprResolveFilepathsToIdsAndFileSizes, 16);
+        (void)tracer_hook_install(
+            &g_hook_apr_resolve, syms->p_apr_resolve,
+            (void *)hook_sceKernelAprResolveFilepathsToIdsAndFileSizes, 16);
     }
     if (syms->p_mapper_param != NULL) {
         (void)tracer_hook_install(&g_hook_mapper_param, syms->p_mapper_param,
@@ -454,20 +453,11 @@ int tracer_install_hooks(void *p_create_shader, void *p_submit_dcb,
 
 void tracer_uninstall_hooks(void) {
     tracer_hook_t *all_hooks[] = {
-        &g_hook_agc_create_shader,
-        &g_hook_agc_submit_dcb,
-        &g_hook_video_out_flip,
-        &g_hook_apr_resolve,
-        &g_hook_mapper_param,
-        &g_hook_sce_open,
-        &g_hook_posix_open,
-        &g_hook_sce_close,
-        &g_hook_posix_close,
-        &g_hook_sce_fstat,
-        &g_hook_posix_fstat,
-        &g_hook_sysmodule_load,
-        &g_hook_alloc_direct_mem,
-        &g_hook_map_direct_mem,
+        &g_hook_agc_create_shader, &g_hook_agc_submit_dcb, &g_hook_video_out_flip,
+        &g_hook_apr_resolve,       &g_hook_mapper_param,   &g_hook_sce_open,
+        &g_hook_posix_open,        &g_hook_sce_close,      &g_hook_posix_close,
+        &g_hook_sce_fstat,         &g_hook_posix_fstat,    &g_hook_sysmodule_load,
+        &g_hook_alloc_direct_mem,  &g_hook_map_direct_mem,
     };
     for (size_t i = 0; i < sizeof(all_hooks) / sizeof(all_hooks[0]); i++) {
         if (all_hooks[i]->installed) {
@@ -508,8 +498,8 @@ static void *resolve_symbol(const char *nid_str, const char *name_str) {
             addr != NULL) {
             return addr;
         }
-        if (computed_nid[1] != '\0' &&
-            sceKernelDlsym(1, computed_nid, &addr) == 0 && addr != NULL) {
+        if (computed_nid[1] != '\0' && sceKernelDlsym(1, computed_nid, &addr) == 0 &&
+            addr != NULL) {
             return addr;
         }
         /* 3. Try handle 2 (main executable) */
@@ -557,7 +547,8 @@ int tracer_start(payload_args_t *args) {
     }
     pid_t my_pid = (pid_t)sys_call(SYS_getpid, 0, 0, 0, 0, 0, 0);
     char title_id[32] = {0};
-    if (target_get_title_id(my_pid, title_id, sizeof(title_id)) > 0 && title_id[0] != '\0') {
+    if (target_get_title_id(my_pid, title_id, sizeof(title_id)) > 0 &&
+        title_id[0] != '\0') {
         size_t tlen = 0;
         while (title_id[tlen] != '\0' && tlen < 20) {
             tlen++;
@@ -593,7 +584,8 @@ int tracer_start(payload_args_t *args) {
     syms.p_create_shader = resolve_symbol("$f3dg2CSgRKY", "sceAgcCreateShader");
     syms.p_submit_dcb = resolve_symbol("$UglJIZjGssM", "sceAgcDriverSubmitDcb");
     syms.p_submit_flip = resolve_symbol("$CdWp0oHWGr0", "sceVideoOutSubmitFlip");
-    syms.p_apr_resolve = resolve_symbol(NULL, "sceKernelAprResolveFilepathsToIdsAndFileSizes");
+    syms.p_apr_resolve =
+        resolve_symbol(NULL, "sceKernelAprResolveFilepathsToIdsAndFileSizes");
     if (syms.p_apr_resolve == NULL) {
         syms.p_apr_resolve = resolve_symbol(NULL, "sceKernelAprResolveFilepathsToIds");
     }
