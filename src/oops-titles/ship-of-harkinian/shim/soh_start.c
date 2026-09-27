@@ -11,6 +11,11 @@
 #include "oops/fs.h"
 #include "oops/syscall.h"
 #include "oops/system.h"
+
+/* `common/crashtrace.c`: the payload addresses on the stack when a fatal signal
+ * arrives, which is the only way to see past a fault raised inside a platform library.
+ */
+void oops_crashtrace_install(void);
 #include "oops/time.h"
 #include <stdlib.h>
 
@@ -73,6 +78,13 @@ ship_of_harkinian_start(const payload_args_t *args) {
     (void)args;
 
     oops_log_init(OOPS_APP_ID);
+
+    /* Before anything that can fault. This title and Spaghetti Kart both end in a page
+     * fault at address 0x8 on a thread named `libcxx`, which the system reports against
+     * libkernel rather than against the call that reached it; `common/crashtrace.c`
+     * prints the payload addresses left on the stack, which the `.map` turns into
+     * names. */
+    oops_crashtrace_install();
 
     /* The kernel log drops bursts and this start-up is one. The sink writes to a USB
        stick when one is mounted and reports nothing when none is: `/data` is outside

@@ -253,7 +253,14 @@ SOH_SURVEY_DIR ?= upstream/libultraship/src upstream/soh
 # never pulled in; here every object is on the link line and both definitions arrive. Five symbols
 # across two files, measured with `nm` over the objects, so the title's own stubs win as upstream
 # intends.
-SOH_EXCLUDE_RE := speechsynthesizer/(SAPI|Darwin|ESpeak)|soh/Extractor/|Enhancements/crowd-control/|src/dmadata/|src/elf_message/|src/libultra/io/|src/libultra/libc/|src/libultra/os/|src/libultra/rmon/|src/libultra/gu/(cosf|lookat|lookathil|perspective|position|sinf|sqrtf|us2dex)\.c|libultraship/libultra/os_(cache|pi)\.cpp
+# `src/boot/build.c` is excluded because this build generates its own from the same
+# `.in` (`SOH_BUILD_C`, above), and upstream's CMake writes a second copy into the
+# fetched tree the moment anyone configures it there - which producing `soh.o2r` does,
+# since ZAPD is built from that same project. Both then land on the link line and every
+# symbol in the file is duplicated. Excluding it by name means the archive can be
+# generated without breaking the payload afterwards; deleting the stray copy each time
+# works exactly until the next generation.
+SOH_EXCLUDE_RE := speechsynthesizer/(SAPI|Darwin|ESpeak)|soh/Extractor/|Enhancements/crowd-control/|src/boot/build\.c|src/dmadata/|src/elf_message/|src/libultra/io/|src/libultra/libc/|src/libultra/os/|src/libultra/rmon/|src/libultra/gu/(cosf|lookat|lookathil|perspective|position|sinf|sqrtf|us2dex)\.c|libultraship/libultra/os_(cache|pi)\.cpp
 
 .PHONY: compile-survey
 compile-survey:
@@ -355,7 +362,8 @@ OOPS_CXX_INCLUDE += $(OOPS_LIBCXX_INCLUDE) $(OOPS_POSIX_INCLUDE) \
 # initialiser list is an error rather than a warning, and two sources call `std::toupper` without
 # including `<cctype>`, which libstdc++ reaches transitively and libc++ does not.
 OOPS_CXX_FLAGS += -Wno-c++11-narrowing -include cctype
-PAYLOAD_SRCS = shim/soh_start.c $(SOH_BUILD_C) $(SOH_C_ALL) $(OOPS_POSIX_SRCS)
+PAYLOAD_SRCS = shim/soh_start.c $(SOH_BUILD_C) $(SOH_C_ALL) $(OOPS_POSIX_SRCS) \
+               $(OOPS_APPS_ROOT)/common/crashtrace.c
 
 # Each archive after everything that calls it. libultraship sits on top of all of them, so the
 # order runs outward: the title's own C++, then the libraries it names, then the standard library.
@@ -424,6 +432,35 @@ include $(OOPS_APPS_ROOT)/common/app.mk
 # its `-include .../libc/math.h` there arrives ahead of libc++'s own `<math.h>`, which then finds
 # the C declarations already in place and leaves `std::__math` empty.
 TARGET_CFLAGS += $(SOH_WARNINGS)
+
+# ---------------------------------------------------------------------------
+# `make package`: the title with the port's own archive beside it
+#
+# `soh.o2r` is the port's assets - its fonts, its UI textures, libultraship's shaders -
+# and libultraship refuses to start without it. It is NOT game data and needs NO ROM:
+# upstream's `GenerateSohOtr` runs `extract_assets.py --norom`. Only `oot.o2r`, which the
+# player converts from their own cartridge, needs one, and that stays a runtime question
+# this build never asks at compile time.
+#
+# Producing it needs a HOST build of ZAPD, which pulls OTRExporter and libultraship and
+# their desktop dependencies; `docs/PORTING.md` records what that costs and how. The
+# archive lands in `build/` and this target only stages it, so a tree without the host
+# toolchain still builds a payload and says plainly what is missing.
+# ---------------------------------------------------------------------------
+SOH_O2R := $(CURDIR)/build/soh.o2r
+
+.PHONY: package
+package: title
+	@test -f $(SOH_O2R) || { \
+	    echo "ship-of-harkinian: no $(SOH_O2R)" >&2; \
+	    echo "  it is the port's own assets and needs no ROM - see docs/PORTING.md" >&2; \
+	    exit 1; }
+	@cp $(SOH_O2R) build/title/$(TITLE_ID)/soh.o2r
+	@# The archive is a zip; a truncated copy fails here rather than on the console,
+	@# where it arrives as libultraship reporting the file missing.
+	@head -c2 build/title/$(TITLE_ID)/soh.o2r | grep -q PK || { \
+	    echo "ship-of-harkinian: the staged soh.o2r is not an archive" >&2; exit 1; }
+	@echo "ship-of-harkinian: package is build/title/$(TITLE_ID) ($$(du -sh build/title/$(TITLE_ID) | cut -f1), $$(find build/title/$(TITLE_ID) -type f | wc -l) files)"
 
 # The survey is the default when there is no payload to build.
 ifneq ($(SOH_ARMED),1)

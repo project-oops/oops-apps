@@ -95,11 +95,88 @@
 #define OOPS_POSIX_HOME "/app0"
 #endif
 
+/*
+ * A path as the kernel needs to see it: absolute, with no `.` or `..` left in it.
+ *
+ * A payload has no working directory the kernel resolves against. A relative path
+ * reaches it unchanged and fails, whatever `getcwd` reports, and ports hand out relative
+ * paths constantly: libultraship looks for `./soh.o2r` through
+ * `std::filesystem::is_regular_file`, which is a `stat`, and reported the archive
+ * missing while a direct check of `/app0/soh.o2r` found it sitting there. The same
+ * applies to `.` components inside an absolute path, which is what
+ * `std::filesystem::absolute` leaves behind when it joins a relative path to the
+ * working directory - `/app0/./soh.o2r`.
+ *
+ * The base is `/app0`, for the reason `getcwd` gives it: a payload does not have a
+ * working directory it can move, it has the place its package is mounted. Keep the two
+ * in step.
+ *
+ * A path too long for the buffer is returned unchanged rather than truncated, so it
+ * fails as the caller wrote it instead of resolving to something else that exists.
+ */
+static const char *posix_resolve(const char *path, char *buf, size_t max) {
+    size_t n = 0;
+    const char *p;
+
+    if (!path || !buf || max < 2u) {
+        return path;
+    }
+    if (path[0] != '/') {
+        const char *base = "/app0";
+        while (*base && n + 1u < max) {
+            buf[n++] = *base++;
+        }
+    }
+    for (p = path; *p;) {
+        const char *seg;
+        size_t len, i;
+
+        while (*p == '/') {
+            p++;
+        }
+        if (!*p) {
+            break;
+        }
+        seg = p;
+        while (*p && *p != '/') {
+            p++;
+        }
+        len = (size_t)(p - seg);
+
+        if (len == 1u && seg[0] == '.') {
+            continue;
+        }
+        if (len == 2u && seg[0] == '.' && seg[1] == '.') {
+            while (n > 0u && buf[n - 1u] != '/') {
+                n--;
+            }
+            if (n > 1u) {
+                n--; /* the separator too, but never the leading '/' */
+            }
+            continue;
+        }
+        if (n + len + 2u >= max) {
+            return path;
+        }
+        buf[n++] = '/';
+        for (i = 0; i < len; i++) {
+            buf[n++] = seg[i];
+        }
+    }
+    if (n == 0u) {
+        buf[n++] = '/';
+    }
+    buf[n] = '\0';
+    return buf;
+}
+
 /* `<path>/.` resolves only through a directory; for a file the kernel answers ENOTDIR. */
 static int is_directory(const char *path) {
+    char resolved[1024];
     char dot[1024];
     int fd;
 
+    path = posix_resolve(path, resolved, sizeof(resolved));
     if (oops_snprintf(dot, sizeof(dot), "%s/.", path) >= (int)sizeof(dot)) {
         return 0;
     }
@@ -113,12 +190,14 @@ static int is_directory(const char *path) {
 }
 
 int stat(const char *path, struct stat *out) {
+    char resolved[1024];
     int64_t size;
 
     if (!path || !out) {
         errno = EINVAL;
         return -1;
     }
+    path = posix_resolve(path, resolved, sizeof(resolved));
     if (!oops_fs_exists(path)) {
         errno = ENOENT;
         return -1;
@@ -158,12 +237,14 @@ int stat(const char *path, struct stat *out) {
 }
 
 int mkdir(const char *path, mode_t mode) {
+    char resolved[1024];
     (void)mode; /* no permission bits here; the directory is the payload's either way */
 
     if (!path) {
         errno = EINVAL;
         return -1;
     }
+    path = posix_resolve(path, resolved, sizeof(resolved));
     if (oops_fs_mkdir(path, 0777) != 0) {
         /* An existing directory is success, which is what every caller of mkdir-then-write
            wants. */
@@ -178,9 +259,12 @@ int access(const char *path, int mode) {
      * Existence only. This SDK has no permission model to consult, and a payload that can see a
      * file can read it - so answering anything else would be inventing a result.
      */
-    if (!path || !oops_fs_exists(path)) {
-        errno = ENOENT;
-        return -1;
+    {
+        char resolved[1024];
+        if (!path || !oops_fs_exists(posix_resolve(path, resolved, sizeof(resolved)))) {
+            errno = ENOENT;
+            return -1;
+        }
     }
     return 0;
 }
@@ -211,9 +295,12 @@ int chdir(const char *path) {
      * This is the function in this file that is furthest from what POSIX promises, and the
      * reason the file is at the port layer rather than in the SDK's libc.
      */
-    if (!path || !oops_fs_exists(path)) {
-        errno = ENOENT;
-        return -1;
+    {
+        char resolved[1024];
+        if (!path || !oops_fs_exists(posix_resolve(path, resolved, sizeof(resolved)))) {
+            errno = ENOENT;
+            return -1;
+        }
     }
     return 0;
 }
