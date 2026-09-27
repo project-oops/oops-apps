@@ -48,7 +48,7 @@
  * re-entry guard below means running off the end even so costs the trace, not the
  * report.
  */
-#define OOPS_CRASHTRACE_WORDS 128
+#define OOPS_CRASHTRACE_WORDS 512
 #define OOPS_CRASHTRACE_MAX 48
 
 static void crashtrace_hex(char *out, uint64_t v) {
@@ -115,6 +115,21 @@ static void crashtrace_handler(int signum, void *arg1, void *arg2) {
         oops_klog("crash", "  no payload addresses on this stack - the fault is on a "
                            "thread our code did not enter");
     }
+
+    /*
+     * Hand the signal back to the platform.
+     *
+     * A handler that logs and returns does not report a fault, it absorbs one: the
+     * thread carries on, the process stops dying, and a title that was crashing looks
+     * fixed. That happened here - Spaghetti Kart went from a coredump to parking, with
+     * and without an unrelated patch, and the only thing that had changed was this
+     * handler existing. An instrument that alters the outcome it measures is worthless.
+     *
+     * Removing the handler restores the default, and the faulting instruction runs
+     * again on return: the same fault, now fatal, with the log above it. The trace is
+     * free; the behaviour is the program's own.
+     */
+    (void)oops_thread_remove_exception_handler(signum);
 }
 
 void oops_crashtrace_install(void);
