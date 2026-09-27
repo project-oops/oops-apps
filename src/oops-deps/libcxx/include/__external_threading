@@ -133,6 +133,8 @@ inline _LIBCPP_HIDE_FROM_ABI bool __libcpp_recursive_mutex_trylock(__libcpp_recu
 }
 
 inline _LIBCPP_HIDE_FROM_ABI int __libcpp_recursive_mutex_unlock(__libcpp_recursive_mutex_t* __m) {
+  if (__atomic_load_n(&__m->__state, __ATOMIC_ACQUIRE) != __oops_thr_ready)
+    return -1;
   return ::oops_mutex_unlock(&__m->__m);
 }
 
@@ -151,7 +153,14 @@ inline _LIBCPP_HIDE_FROM_ABI bool __libcpp_mutex_trylock(__libcpp_mutex_t* __m) 
   return __oops_mutex_ready(__m) && ::oops_mutex_trylock(&__m->__m) == 0;
 }
 
+// Unlock does not make the mutex ready the way lock does: a mutex nobody has locked has
+// nothing to release, and initialising one here would invent a lock that was never
+// taken. It refuses instead, on the state, exactly as destroy does - the two unlocks
+// were the only entries in this family reaching `oops_*` without checking, and an
+// uninitialised handle is a page fault inside libkernel rather than an error it returns.
 inline _LIBCPP_HIDE_FROM_ABI int __libcpp_mutex_unlock(__libcpp_mutex_t* __m) {
+  if (__atomic_load_n(&__m->__state, __ATOMIC_ACQUIRE) != __oops_thr_ready)
+    return -1;
   return ::oops_mutex_unlock(&__m->__m);
 }
 

@@ -16,6 +16,11 @@
 #include "oops/system.h"
 #include "oops/time.h"
 
+/* `common/crashtrace.c`: prints the payload addresses on the stack when a fatal signal
+ * arrives, which is the only way to see past a fault raised inside a platform library.
+ */
+extern "C" void oops_crashtrace_install(void);
+
 #include <cstdlib>
 
 int main(int argc, char **argv);
@@ -74,6 +79,11 @@ spaghetti_kart_start(const payload_args_t *args) {
     (void)oops_log_enable_disk_sink(OOPS_APP_ID, 0);
 
     oops_log_info("SPGK", "entry");
+
+    /* Before anything that can fault. This title ends in a fatal signal inside
+     * libkernel, where the system's report names libkernel and not the call that got
+     * there; the handler prints the payload addresses left on the stack instead. */
+    oops_crashtrace_install();
 
     /* libultraship resolves its config and save paths through HOME, and the environment
        starts empty on this platform. */

@@ -267,7 +267,8 @@ OOPS_CXX_INCLUDE += $(OOPS_LIBCXX_INCLUDE)
 # initialiser list is an error rather than a warning, and libc++ does not reach `<cctype>`
 # transitively where libstdc++ does.
 OOPS_CXX_FLAGS += -Wno-c++11-narrowing -include cctype
-PAYLOAD_SRCS := $(SPGK_C_SRCS) $(SPGK_LUS_C_SRCS) $(OOPS_POSIX_SRCS)
+PAYLOAD_SRCS := $(SPGK_C_SRCS) $(SPGK_LUS_C_SRCS) $(OOPS_POSIX_SRCS) \
+                $(OOPS_APPS_ROOT)/common/crashtrace.c
 # Each archive after everything that calls it. libultraship sits on top of all of them, so the order
 # runs outward: the title's own C++, then the libraries it names, then the standard library.
 EXTRA_TARGET_LDFLAGS += $(OOPS_CXX_LDFLAGS) $(OOPS_IMGUI_LDFLAGS) \
