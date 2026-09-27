@@ -23,7 +23,8 @@
 
 #include "oops/dialog.h"
 #include "oops/display.h"
-#include "oops/draw.h" /* the software pointer in PROSPERO_DrawCursor */
+#include "oops/draw.h"  /* the software pointer in PROSPERO_DrawCursor */
+#include "oops/input.h" /* a button closes the drawn message box */
 #include "oops/keyboard.h"
 #include "oops/mouse.h"
 #include "oops/system.h"
@@ -468,6 +469,188 @@ static SDL_VideoDevice *PROSPERO_CreateDevice(void) {
 #pragma weak oops_dialog_message_poll
 #pragma weak oops_dialog_message_close
 
+/* The pieces the drawn fallback below needs, weak for the same reason. */
+#pragma weak oops_display_any_open
+#pragma weak oops_display_open
+#pragma weak oops_display_close
+#pragma weak oops_display_flip
+#pragma weak oops_draw_clear
+#pragma weak oops_draw_text
+#pragma weak oops_draw_text_width
+#pragma weak oops_input_init
+#pragma weak oops_input_poll
+
+/*
+ * Break `text` into lines of at most `columns` characters at word boundaries, writing
+ * the result into `out` with newlines between them. `oops_draw_text` already honours
+ * newlines; what it will not do is decide where they go, and a message box's text is one
+ * long line that would otherwise run off the side of the screen.
+ */
+static void PROSPERO_WrapText(const char *text, int columns, char *out,
+                              size_t out_size) {
+    size_t w = 0;
+    int column = 0;
+
+    if (!out || out_size == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (!text || columns < 8) {
+        return;
+    }
+
+    while (*text && w + 2 < out_size) {
+        size_t word;
+
+        if (*text == '\n') {
+            out[w++] = '\n';
+            column = 0;
+            text++;
+            continue;
+        }
+        if (*text == ' ' || *text == '\t') {
+            /* A run of spaces at a line break is the break itself; keep one otherwise. */
+            if (column > 0 && column < columns) {
+                out[w++] = ' ';
+                column++;
+            }
+            text++;
+            continue;
+        }
+
+        for (word = 0; text[word] && text[word] != ' ' && text[word] != '\t' &&
+                       text[word] != '\n';
+             word++) {
+        }
+
+        /* A word that will not fit on what is left of this line starts a new one; a word
+         * longer than the whole line is broken rather than dropped. */
+        if (column > 0 && column + (int)word > columns) {
+            out[w++] = '\n';
+            column = 0;
+        }
+        while (word > 0 && *text && w + 2 < out_size) {
+            if (column >= columns) {
+                out[w++] = '\n';
+                column = 0;
+            }
+            out[w++] = *text++;
+            column++;
+            word--;
+        }
+    }
+    out[w] = '\0';
+}
+
+/*
+ * The message on the screen, without the system dialog.
+ *
+ * A port asks for a message box at the point where something is already wrong, and the
+ * two cases that matter most - a missing asset archive, a ROM the player has to supply -
+ * are found *before* the first frame. There is no video-out session then, so the system
+ * dialog cannot be used at all: it composites against one, and asked without it the
+ * platform's own library faults. That left the player with a black screen and a crash
+ * where the whole point was to tell them something.
+ *
+ * So this opens a display of its own, writes the text, and waits for a button. It runs
+ * only when nothing else has a display open - if a port has one, the system dialog works
+ * and is the better answer - and it closes the display again, because the port may go on
+ * to open its own.
+ *
+ * Returns 0 if the message reached the screen, negative if it could not.
+ */
+static int PROSPERO_DrawMessageBox(const SDL_MessageBoxData *data) {
+    static const unsigned int width = 1920, height = 1080;
+    static const int scale = 2, glyph = 8;
+    const int line_height = glyph * scale + 6;
+    char wrapped[2048];
+    oops_display_t *disp;
+    oops_surface_t surf;
+    int y, polls;
+
+    if (!&oops_display_open || !&oops_display_close || !&oops_display_get_surface ||
+        !&oops_display_flip || !&oops_draw_clear || !&oops_draw_text ||
+        !&oops_draw_text_width) {
+        return -1;
+    }
+    /* Only when there is no video-out at all: see the note above. */
+    if (&oops_display_any_open && oops_display_any_open()) {
+        return -1;
+    }
+
+    disp = oops_display_open(OOPS_DISPLAY_BACKEND_AUTO, width, height);
+    if (!disp) {
+        oops_log_warn("SDL", "  no display could be opened to show the message on");
+        return -1;
+    }
+
+    surf = oops_display_get_surface(disp);
+    if (!surf.pixels) {
+        oops_log_warn("SDL", "  the display gave no surface to draw the message on");
+        oops_display_close(disp);
+        return -1;
+    }
+
+    oops_draw_clear(&surf, OOPS_RGBA(16, 18, 24, 255));
+
+    y = 180;
+    if (data->title) {
+        const int w = oops_draw_text_width(data->title, scale + 1);
+        oops_draw_text(&surf, ((int)width - w) / 2, y, data->title,
+                       OOPS_RGBA(255, 214, 92, 255), scale + 1);
+        y += (glyph * (scale + 1)) + 40;
+    }
+
+    PROSPERO_WrapText(data->message, ((int)width - 240) / (glyph * scale), wrapped,
+                      sizeof(wrapped));
+    for (const char *line = wrapped; *line;) {
+        char one[256];
+        size_t n = 0;
+        while (line[n] && line[n] != '\n' && n + 1 < sizeof(one)) {
+            one[n] = line[n];
+            n++;
+        }
+        one[n] = '\0';
+        oops_draw_text(&surf, 120, y, one, OOPS_RGBA(232, 232, 238, 255), scale);
+        y += line_height;
+        line += n;
+        if (*line == '\n') {
+            line++;
+        }
+    }
+
+    {
+        static const char *const hint = "Press any button to close";
+        const int w = oops_draw_text_width(hint, scale);
+        oops_draw_text(&surf, ((int)width - w) / 2, (int)height - 160, hint,
+                       OOPS_RGBA(140, 146, 160, 255), scale);
+    }
+
+    oops_display_flip(disp);
+    oops_log_warn("SDL", "  the message is on screen; waiting for a button");
+
+    /*
+     * Bounded for the same reason the dialog wait is: a title that waits for ever on a
+     * screen nobody is watching is killed by the system with nothing explained. A minute
+     * is long enough to read a sentence and short enough not to look like a hang.
+     */
+    if (&oops_input_init && &oops_input_poll) {
+        (void)oops_input_init();
+        for (polls = 0; polls < 60 * 1000 / 16; polls++) {
+            oops_pad_state_t pad;
+            if (oops_input_poll(0, &pad) == 0 && pad.buttons != 0 && polls > 30) {
+                break;
+            }
+            oops_time_sleep_ms(16);
+        }
+    } else {
+        oops_time_sleep_ms(10000);
+    }
+
+    oops_display_close(disp);
+    return 0;
+}
+
 /* The button the port itself marked as the return-key default, or its first, or -1 for
  * no buttons. */
 static int PROSPERO_DefaultButton(const SDL_MessageBoxData *data) {
@@ -554,6 +737,10 @@ static int PROSPERO_ShowMessageBox(const SDL_MessageBoxData *data, int *buttonid
         oops_log_warn("SDL",
                       "  the system dialog would not open; answering with the default");
     }
+
+    /* No system dialog, for want of a video-out session or of the capability. The
+     * message still has to reach the player, so draw it. */
+    (void)PROSPERO_DrawMessageBox(data);
 
     if (data->numbuttons > 0) {
         oops_log_warn("SDL", "  answered with button id %d, the port's own default",

@@ -428,4 +428,12 @@ TARGET_CFLAGS += $(SOH_WARNINGS)
 # The survey is the default when there is no payload to build.
 ifneq ($(SOH_ARMED),1)
 .DEFAULT_GOAL := survey
+
+# Unarmed, `make title` still has a packaging rule and an old `build/ship-of-harkinian.elf`
+# to run it over, so it repackages a payload built before whatever was just fixed and reports
+# success. That eboot then goes to the console and the fix looks like it did not work.
+# Refusing costs one line; the other way costs a hardware run to find out.
+ifneq ($(filter all title package dist,$(MAKECMDGOALS)),)
+$(error the payload is behind SOH_ARMED: build it with `make SOH_ARMED=1 $(firstword $(filter all title package dist,$(MAKECMDGOALS)))`)
+endif
 endif
