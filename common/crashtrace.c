@@ -37,8 +37,18 @@
 #define OOPS_CRASHTRACE_TEXT_HI 0x0000000001000000ull
 #endif
 
-/* How far up the stack to look, and how many addresses to print before stopping. */
-#define OOPS_CRASHTRACE_WORDS 4096
+/*
+ * How far up the stack to look, and how many addresses to print before stopping.
+ *
+ * 4096 words was too far: the walk ran off the top of a thread's stack into the guard
+ * page and faulted, and that second fault is what the system then reported - address
+ * 0x7eedf8000, one page above the frame it started from - burying the first. The
+ * addresses printed before it were still the real ones, which is the only reason the
+ * answer survived. A kilobyte of stack is far more than a return chain needs, and the
+ * re-entry guard below means running off the end even so costs the trace, not the
+ * report.
+ */
+#define OOPS_CRASHTRACE_WORDS 128
 #define OOPS_CRASHTRACE_MAX 48
 
 static void crashtrace_hex(char *out, uint64_t v) {
@@ -56,6 +66,18 @@ static void crashtrace_handler(int signum, void *arg1, void *arg2) {
 
     char msg[64];
     char hex[17];
+
+    /*
+     * Once only. A handler that faults re-enters itself, and then the report describes
+     * the handler rather than the program: this walk ran off a stack and the second
+     * fault replaced the first in the system's report. Letting the second one through
+     * without a trace is the right trade - the first has already been printed.
+     */
+    static volatile int in_handler = 0;
+    if (in_handler) {
+        return;
+    }
+    in_handler = 1;
 
     crashtrace_hex(hex, (uint64_t)(unsigned int)signum);
     oops_klog("crash", "fatal signal - the payload addresses on the stack follow,");
