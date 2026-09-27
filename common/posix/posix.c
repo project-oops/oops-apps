@@ -131,11 +131,24 @@ int stat(const char *path, struct stat *out) {
         out->st_size = 0;
         return 0;
     }
-    /* Exists, does not list, will not open: reported as a directory, which every caller
-     * here treats as "not a file to read". */
+    /*
+     * Exists, `is_directory` says it is not one, and its size will not read. It is reported as an
+     * empty regular file.
+     *
+     * It used to be reported as a directory, on the reasoning that every caller here treats that as
+     * "not a file to read". libc++'s `<filesystem>` is a caller that reads it the other way:
+     * `directory_iterator` takes S_IFDIR as permission to `opendir`, that fails, and the throwing
+     * overload raises `filesystem_error`. Bugdom died of it - Pomme resolves a path
+     * case-insensitively by listing the parent, and `fs::exists` had just said the parent was
+     * there, because this function said so.
+     *
+     * Empty-regular-file is the answer that stays true for both readings: a caller that reads it
+     * gets nothing, and a caller that lists it does not try. Saying "directory" to something that
+     * will not open is the part that was never safe.
+     */
     size = oops_fs_file_size(path);
     if (size < 0) {
-        out->st_mode = S_IFDIR;
+        out->st_mode = S_IFREG;
         out->st_size = 0;
     } else {
         out->st_mode = S_IFREG;

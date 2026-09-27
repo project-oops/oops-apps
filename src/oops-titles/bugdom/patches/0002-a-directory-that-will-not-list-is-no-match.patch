@@ -1,0 +1,52 @@
+A directory that will not list is no match, not a fatal error
+
+`CaseInsensitiveAppendToPath` in `extern/Pomme/src/Files/HostVolume.cpp` answers one
+question: is there a file here whose name matches apart from case? It answers it by
+listing the parent directory, and it uses the throwing `fs::directory_iterator`, so a
+listing that fails for any reason raises `filesystem_error` instead of answering.
+
+On this console that is fatal. Bugdom reaches `$HOME/.config` during start-up, `getdents`
+on it fails, libc++'s `directory_iterator` constructor throws, and nothing between there
+and `main` catches it:
+
+    [BUGD00001:cxx] std::terminate reached - an exception found no handler, or a handler threw
+    [BUGD00001:cxx]   it was a std::exception:
+    [BUGD00001:cxx] filesystem error: in directory_iterator::directory_iterator(...): unknown error ["/app0/.config"]
+
+`main` does have `catch (std::exception&)` and `catch (...)`, so the throw is caught
+eventually - but only after `Boot()` is abandoned, which ends the game before its first
+frame.
+
+The non-throwing overload is the right API for the question. "The listing failed" and
+"nothing matched" are the same answer to this function's caller, which goes on to use the
+naive concatenation either way. Nothing else changes: a directory that lists is walked
+exactly as before.
+
+Why the listing fails at all is a separate matter - `/app0` is the package mount and
+`getdents` on it is not something this side can change - and it is the reason the question
+is asked with the overload that can say no.
+
+diff --git a/extern/Pomme/src/Files/HostVolume.cpp b/extern/Pomme/src/Files/HostVolume.cpp
+--- a/extern/Pomme/src/Files/HostVolume.cpp
++++ b/extern/Pomme/src/Files/HostVolume.cpp
+@@ -198,7 +198,19 @@ static bool CaseInsensitiveAppendToPath(fs::path& path, const u8string& element,
+ 	// Convert path element to uppercase for case-insensitive comparisons
+ 	const auto uppercaseElement = UppercaseCopy(element);
+ 
+-	for (const auto& candidate : fs::directory_iterator(path))
++	// A directory that will not list is no match, not a fatal error. The throwing overload raises
++	// filesystem_error when the listing fails for any reason, and this function's whole question is
++	// "is there a file here whose name matches apart from case" - to which "the listing failed" and
++	// "nothing matched" are the same answer to its caller.
++	std::error_code listing;
++	fs::directory_iterator entries(path, listing);
++	if (listing)
++	{
++		path = naiveConcat;
++		return false;
++	}
++
++	for (const auto& candidate : entries)
+ 	{
+ 		if (skipFiles && !candidate.is_directory())
+ 		{

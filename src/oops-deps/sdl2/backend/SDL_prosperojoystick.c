@@ -20,6 +20,10 @@
 
 #define PROSPERO_PAD_PORT 0
 
+/* The pad's name, which is also what its GUID is derived from - `GetDeviceName` returns this and
+ * `JoystickInit` builds the game-controller mapping against it, so the two cannot drift. */
+#define PROSPERO_JOYSTICK_NAME "OOPS Controller"
+
 /* Button indices, in SDL_GameControllerButton order. */
 enum {
     PROSPERO_BTN_A = 0,      /* cross */
@@ -82,6 +86,46 @@ static int PROSPERO_JoystickInit(void) {
      */
     oops_input_set_keyboard_as_pad(0);
 
+    /*
+     * The game-controller mapping for this pad, declared by the driver that defines the layout.
+     *
+     * The buttons and axes above are already in `SDL_GameControllerButton` and
+     * `SDL_GameControllerAxis` order, but SDL has no way to know that: it decides whether a
+     * joystick is a game controller by looking its GUID up in a mapping table, and a pad it cannot
+     * find is a joystick only. A title that reads `SDL_CONTROLLER_AXIS_LEFTX` then gets nothing,
+     * however well the raw axes report - which is how Bugdom's menu came to ignore a stick that the
+     * log showed reaching 127.
+     *
+     * Left to the table, the answer depends on whichever `gamecontrollerdb.txt` the title happens
+     * to ship: a miss leaves it unmapped, and a loose match maps the wrong elements. Declaring it
+     * here makes the pad's layout and its description the same statement.
+     *
+     * The GUID is `SDL_CreateJoystickGUIDForName` over the same name `GetDeviceName` returns, which
+     * is what SDL will compute for it - see `PROSPERO_JoystickGetDeviceGUID`.
+     */
+    {
+        SDL_JoystickGUID guid = SDL_CreateJoystickGUIDForName(PROSPERO_JOYSTICK_NAME);
+        char guid_text[33];
+        char mapping[512];
+
+        SDL_JoystickGetGUIDString(guid, guid_text, sizeof(guid_text));
+        SDL_snprintf(mapping, sizeof(mapping),
+                     "%s,%s,"
+                     "a:b0,b:b1,x:b2,y:b3,back:b4,guide:b5,start:b6,"
+                     "leftstick:b7,rightstick:b8,leftshoulder:b9,rightshoulder:b10,"
+                     "dpup:b11,dpdown:b12,dpleft:b13,dpright:b14,misc1:b15,"
+                     "leftx:a0,lefty:a1,rightx:a2,righty:a3,"
+                     "lefttrigger:a4,righttrigger:a5,",
+                     guid_text, PROSPERO_JOYSTICK_NAME);
+
+        if (SDL_GameControllerAddMapping(mapping) < 0) {
+            oops_log_warn("INPUT", "the pad's own game-controller mapping was refused: %s",
+                          SDL_GetError());
+        } else {
+            oops_log_info("INPUT", "registered the pad's game-controller mapping (%s)", guid_text);
+        }
+    }
+
     /* `oops_input_init` returns silently when already initialised, so this driver logs
        its own start. */
     oops_log_info("INPUT", "SDL joystick driver initialised");
@@ -107,11 +151,43 @@ static int PROSPERO_JoystickGetCount(void) {
     return count;
 }
 
-static void PROSPERO_JoystickDetect(void) {}
+/*
+ * Hotplug, which this stood in for by doing nothing.
+ *
+ * SDL asks the driver for a count once, early, and after that it learns about a pad only from this
+ * callback - it is where a driver says "one appeared" or "one went". Empty, the answer SDL got at
+ * start-up was the answer for the rest of the run.
+ *
+ * On this console that answer is almost always zero. The pad reports `connected` a little after the
+ * process starts, and a title that asks SDL for its controllers during start-up - which is when a
+ * title asks - gets none and takes its no-controller path for good. Bugdom drew its menu and then
+ * ignored the pad for exactly this reason, while `oops_input_poll` was reporting `conn=1` with
+ * buttons and sticks moving the whole time.
+ *
+ * Called from `SDL_PumpEvents`, so the pad is picked up within a frame of appearing, and dropped
+ * again if it goes - `SDL_PrivateJoystickAdded` and its opposite are what raise the events a port
+ * watches for.
+ */
+static SDL_JoystickID PROSPERO_JoystickGetDeviceInstanceID(int device_index);
+
+static void PROSPERO_JoystickDetect(void) {
+    static int announced = 0;
+    const int count = PROSPERO_JoystickGetCount();
+
+    if (count > 0 && !announced) {
+        announced = 1;
+        oops_log_info("INPUT", "a pad appeared after start-up: telling SDL about it");
+        SDL_PrivateJoystickAdded(PROSPERO_JoystickGetDeviceInstanceID(0));
+    } else if (count == 0 && announced) {
+        announced = 0;
+        oops_log_info("INPUT", "the pad went away");
+        SDL_PrivateJoystickRemoved(PROSPERO_JoystickGetDeviceInstanceID(0));
+    }
+}
 
 static const char *PROSPERO_JoystickGetDeviceName(int device_index) {
     (void)device_index;
-    return "OOPS Controller";
+    return PROSPERO_JOYSTICK_NAME;
 }
 
 static const char *PROSPERO_JoystickGetDevicePath(int device_index) {

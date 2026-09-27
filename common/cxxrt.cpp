@@ -9,6 +9,10 @@
  */
 #include <stddef.h>
 #include <stdint.h>
+#ifdef OOPS_CXX_EXCEPTIONS
+/* For the terminate handler below, which names the exception by rethrowing it. */
+#include <exception>
+#endif
 
 extern "C" {
 #include "oops/heap.h"
@@ -182,10 +186,31 @@ extern "C" void abort(void) __attribute__((noreturn));
  */
 namespace {
 
+/*
+ * Rethrowing inside the handler is how the exception is named: an uncaught exception is still the
+ * current one when terminate runs, so a bare `throw;` re-raises it here where it can be caught and
+ * asked what it is. A handler that reports only "something was thrown" sends the reader back to the
+ * source to guess, which is a day per crash.
+ *
+ * `<exception>` is included here where the rest of this file declares what it needs: catching by
+ * reference wants the complete type, and the ordering that made the declaration-only style
+ * necessary is now guaranteed - `common/cxx.mk` puts libc++'s include directory ahead of the C
+ * library's for every source it compiles.
+ */
 void oops_cxx_terminate_handler() {
     oops_klog(
         "cxx",
         "std::terminate reached - an exception found no handler, or a handler threw");
+
+    try {
+        throw;
+    } catch (const std::exception &e) {
+        oops_klog("cxx", "  it was a std::exception:");
+        oops_klog("cxx", e.what());
+    } catch (...) {
+        oops_klog("cxx", "  it was not a std::exception, so it carries no message");
+    }
+
     /* The standard requires terminate to end the program; `abort` logs and parks. */
     abort();
 }

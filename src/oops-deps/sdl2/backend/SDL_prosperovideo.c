@@ -16,12 +16,14 @@
 #include "video/SDL_pixels_c.h"
 #include "events/SDL_events_c.h"
 #include "events/SDL_keyboard_c.h"
+#include "events/SDL_mouse_c.h" /* SDL_GetMouse, for the warp hook below */
 
 #include "SDL_prosperovideo.h"
 #include "SDL_prosperoevents_c.h"
 
 #include "oops/dialog.h"
 #include "oops/display.h"
+#include "oops/draw.h" /* the software pointer in PROSPERO_DrawCursor */
 #include "oops/keyboard.h"
 #include "oops/mouse.h"
 #include "oops/system.h"
@@ -33,6 +35,22 @@
 static int prospero_the_context;
 
 /* ---------------------------------------------------------------- lifecycle */
+
+/*
+ * `SDL_WarpMouseInWindow`, which does nothing at all when a driver leaves this hook null.
+ *
+ * The pump reports the mouse as *relative* motion and SDL keeps the absolute position itself, so a
+ * warp is that position being set: an absolute motion event says where the pointer now is, and
+ * `SDL_GetMouseState` agrees from the next call on.
+ *
+ * A port that steers an on-screen cursor with a thumbstick needs this and looks like a controller
+ * fault without it. Bugdom's menu moves its cursor by the stick and then warps the mouse to follow;
+ * with the warp doing nothing, the next frame reads the mouse still at the old place, decides the
+ * mouse has moved instead, and snaps the cursor back - every frame, however well the stick reads.
+ */
+static void PROSPERO_WarpMouse(SDL_Window *window, int x, int y) {
+    SDL_SendMouseMotion(window, 0, 0 /* absolute */, x, y);
+}
 
 static int PROSPERO_VideoInit(_THIS) {
     PROSPERO_VideoData *data = (PROSPERO_VideoData *)_this->driverdata;
@@ -70,6 +88,10 @@ static int PROSPERO_VideoInit(_THIS) {
        logged. */
     oops_log_info("INPUT", "SDL video init: keyboard_ready=%d mouse_ready=%d",
                   data->keyboard_ready, data->mouse_ready);
+
+    /* Installed whether or not a mouse is present: a title that warps the pointer is steering its
+     * own cursor, and that has to work on a console where nobody has plugged a mouse in. */
+    SDL_GetMouse()->WarpMouse = PROSPERO_WarpMouse;
 
     SDL_zero(mode);
     mode.format = SDL_PIXELFORMAT_ARGB8888;
@@ -299,12 +321,84 @@ static int PROSPERO_GL_GetSwapInterval(_THIS) {
     return data->swap_interval;
 }
 
+/*
+ * The pointer, drawn by us because nothing else will.
+ *
+ * `SDL_ShowCursor(1)` asks the operating system to show a pointer, and on a desktop that is the end
+ * of it. This console has no such pointer and no cursor plane, so a port that steers one - Bugdom's
+ * menu picks its icons by cursor position, and never draws one itself - shows the player nothing at
+ * all, whatever the pad is doing. Moving and not moving look identical.
+ *
+ * Drawn straight onto the buffer the next flip shows, after the frame's own rendering and before the
+ * present, so it lands on top without touching the GL state the title left behind.
+ *
+ * Weakly referenced: the drawing calls belong to the SDK's `draw` capability, and linking SDL should
+ * not put that on the capability list of every title. Without it there is no pointer, exactly as
+ * before.
+ */
+#pragma weak oops_display_get_surface
+#pragma weak oops_draw_rect
+#pragma weak oops_draw_line
+
+/* The arrow, as a 1-bit mask: 1 is the white body, 2 the black outline, 0 transparent. Twelve by
+ * nineteen, the proportions of the pointer everything else uses. */
+static const unsigned char prospero_cursor_mask[19][12] = {
+    {2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    {2, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {2, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0},
+    {2, 1, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0}, {2, 1, 1, 1, 1, 2, 0, 0, 0, 0, 0, 0},
+    {2, 1, 1, 1, 1, 1, 2, 0, 0, 0, 0, 0}, {2, 1, 1, 1, 1, 1, 1, 2, 0, 0, 0, 0},
+    {2, 1, 1, 1, 1, 1, 1, 1, 2, 0, 0, 0}, {2, 1, 1, 1, 1, 1, 1, 1, 1, 2, 0, 0},
+    {2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 0}, {2, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2},
+    {2, 1, 1, 1, 2, 1, 1, 2, 0, 0, 0, 0}, {2, 1, 1, 2, 2, 1, 1, 2, 0, 0, 0, 0},
+    {2, 1, 2, 0, 2, 1, 1, 2, 0, 0, 0, 0}, {2, 2, 0, 0, 0, 2, 1, 1, 2, 0, 0, 0},
+    {2, 0, 0, 0, 0, 2, 1, 1, 2, 0, 0, 0}, {0, 0, 0, 0, 0, 0, 2, 1, 2, 0, 0, 0},
+    {0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 0, 0},
+};
+
+static void PROSPERO_DrawCursor(PROSPERO_VideoData *data) {
+    if (!&oops_display_get_surface || !&oops_draw_rect) {
+        return; /* The title did not name the `draw` capability. */
+    }
+    if (SDL_ShowCursor(-1) != 1) {
+        return; /* SDL_QUERY: the title has the pointer hidden. */
+    }
+
+    {
+        SDL_Mouse *mouse = SDL_GetMouse();
+        oops_surface_t surf = oops_display_get_surface(data->display);
+        const int mx = mouse->x;
+        const int my = mouse->y;
+        int row, col;
+
+        if (!surf.pixels) {
+            return;
+        }
+        /* A pixel at a time rather than a blit: the shape is 228 pixels, and a sprite blit onto a
+         * scanout buffer in the GPU's swizzle would read the destination back to blend, out of
+         * memory that is write-combined and slow to read. Opaque writes do not read at all. */
+        for (row = 0; row < 19; row++) {
+            for (col = 0; col < 12; col++) {
+                const unsigned char m = prospero_cursor_mask[row][col];
+                if (m == 0) {
+                    continue;
+                }
+                oops_draw_rect(&surf, mx + col, my + row, 1, 1,
+                               m == 1 ? OOPS_RGBA(255, 255, 255, 255)
+                                      : OOPS_RGBA(0, 0, 0, 255));
+            }
+        }
+    }
+}
+
 static int PROSPERO_GL_SwapWindow(_THIS, SDL_Window *window) {
     PROSPERO_VideoData *data = (PROSPERO_VideoData *)_this->driverdata;
 
     if (window != data->window) {
         return SDL_SetError("prospero: that window is not this display's");
     }
+
+    PROSPERO_DrawCursor(data);
+
     /* Present through the renderer, not a bare display flip: the flip belongs to
      * whichever backend drew the frame. oops_gfx_present returns true on
      * success; false means the frame is not on screen. */

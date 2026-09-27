@@ -6,6 +6,14 @@
 
 Pangea's garden adventure, ported through oops-sdk.
 
+<p align="center">
+  <img src="assets/screenshot-menu.png" alt="Bugdom's web menu on the console, the pointer on START" width="760">
+</p>
+
+<p align="center">
+  <img src="assets/screenshot-ingame.png" alt="Rollie McFly on the first level, health and clover HUD along the top" width="760">
+</p>
+
 ## About
 
 Bugdom is a 1999 Macintosh game, released as freeware and ported to modern systems by jorio. It
