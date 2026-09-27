@@ -55,10 +55,18 @@ EXTRA_TARGET_CFLAGS += $(MESA_DEMOS_CFLAGS) $(MESA_DEMOS_WARNINGS)
 # Mesa. `make imports` names any symbol a demo needs that is missing.
 OOPS_FEATURES := glu glut display thread suspend input keyboard mouse
 
+# `src/math/math.c` by name, which is not how a title asks for oops-sdk code - a
+# capability is. There is no capability for it: `oops_sinf` and `oops_cosf` are reached
+# from `gl_glu.c` and `glut.c`, and every other title gets their definitions because it
+# links the oops-gl core, which this one deliberately does not. Until `glu` and `glut`
+# carry that dependency themselves (oops-sdk.mk), naming the file is the only way to
+# resolve them, and `make imports` refuses the manifest without it. The file defines no
+# GL entry point, so unlike `gl_matrix.c` it does not collide with Mesa's.
 PAYLOAD_SRCS = shim/mesa_demos_entry.c shim/glad_from_driver.c \
                $(DEMO_SRC) \
                upstream/src/util/readtex.c \
-               upstream/src/util/showbuffer.c
+               upstream/src/util/showbuffer.c \
+               $(OOPS_SDK_DIR)/src/math/math.c
 
 # SELFish's `native_eboot.ld` plus a PT_TLS segment, which Mesa's thread-local GL dispatch
 # needs, and `.init_array` bounds for `oops_mesa_run_init_array()`.
