@@ -6,6 +6,14 @@
 
 Pangea's sequel, ported through oops-sdk.
 
+<p align="center">
+  <img src="assets/screenshot-title.png" alt="Bugdom 2's title screen on the console" width="760">
+</p>
+
+<p align="center">
+  <img src="assets/screenshot-menu.png" alt="The main menu: a flower whose petals are Play, Settings, Saved Games, High Scores and Exit" width="760">
+</p>
+
 ## About
 
 Bugdom 2 is a 2002 Macintosh game, released as freeware and ported to modern systems by jorio. It
