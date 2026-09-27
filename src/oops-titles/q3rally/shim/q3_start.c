@@ -93,10 +93,11 @@ __attribute__((visibility("default"))) int q3rally_start(const payload_args_t *a
     oops_log_init(OOPS_APP_ID);
 
     /*
-     * The disk sink, because the kernel log drops bursts and ioquake3's startup is one. It writes
-     * to a USB stick when one is mounted and reports nothing when none is: `/data` is outside the
-     * sandbox, and creating it there was never going to work - `oops_fs_get_storage_dir` refuses,
-     * because escaping unmounts /app0 and every asset in it.
+     * The disk sink, because the kernel log drops bursts and ioquake3's startup is one.
+     * It writes to a USB stick when one is mounted and reports nothing when none is:
+     * `/data` is outside the sandbox, and creating it there was never going to work -
+     * `oops_fs_get_storage_dir` refuses, because escaping unmounts /app0 and every
+     * asset in it.
      */
     (void)oops_log_enable_disk_sink(OOPS_APP_ID, 0);
 

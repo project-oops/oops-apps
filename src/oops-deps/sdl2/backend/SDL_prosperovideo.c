@@ -38,16 +38,18 @@ static int prospero_the_context;
 /* ---------------------------------------------------------------- lifecycle */
 
 /*
- * `SDL_WarpMouseInWindow`, which does nothing at all when a driver leaves this hook null.
+ * `SDL_WarpMouseInWindow`, which does nothing at all when a driver leaves this hook
+ * null.
  *
- * The pump reports the mouse as *relative* motion and SDL keeps the absolute position itself, so a
- * warp is that position being set: an absolute motion event says where the pointer now is, and
- * `SDL_GetMouseState` agrees from the next call on.
+ * The pump reports the mouse as *relative* motion and SDL keeps the absolute position
+ * itself, so a warp is that position being set: an absolute motion event says where the
+ * pointer now is, and `SDL_GetMouseState` agrees from the next call on.
  *
- * A port that steers an on-screen cursor with a thumbstick needs this and looks like a controller
- * fault without it. Bugdom's menu moves its cursor by the stick and then warps the mouse to follow;
- * with the warp doing nothing, the next frame reads the mouse still at the old place, decides the
- * mouse has moved instead, and snaps the cursor back - every frame, however well the stick reads.
+ * A port that steers an on-screen cursor with a thumbstick needs this and looks like a
+ * controller fault without it. Bugdom's menu moves its cursor by the stick and then
+ * warps the mouse to follow; with the warp doing nothing, the next frame reads the
+ * mouse still at the old place, decides the mouse has moved instead, and snaps the
+ * cursor back - every frame, however well the stick reads.
  */
 static void PROSPERO_WarpMouse(SDL_Window *window, int x, int y) {
     SDL_SendMouseMotion(window, 0, 0 /* absolute */, x, y);
@@ -90,8 +92,9 @@ static int PROSPERO_VideoInit(_THIS) {
     oops_log_info("INPUT", "SDL video init: keyboard_ready=%d mouse_ready=%d",
                   data->keyboard_ready, data->mouse_ready);
 
-    /* Installed whether or not a mouse is present: a title that warps the pointer is steering its
-     * own cursor, and that has to work on a console where nobody has plugged a mouse in. */
+    /* Installed whether or not a mouse is present: a title that warps the pointer is
+     * steering its own cursor, and that has to work on a console where nobody has
+     * plugged a mouse in. */
     SDL_GetMouse()->WarpMouse = PROSPERO_WarpMouse;
 
     SDL_zero(mode);
@@ -325,24 +328,26 @@ static int PROSPERO_GL_GetSwapInterval(_THIS) {
 /*
  * The pointer, drawn by us because nothing else will.
  *
- * `SDL_ShowCursor(1)` asks the operating system to show a pointer, and on a desktop that is the end
- * of it. This console has no such pointer and no cursor plane, so a port that steers one - Bugdom's
- * menu picks its icons by cursor position, and never draws one itself - shows the player nothing at
- * all, whatever the pad is doing. Moving and not moving look identical.
+ * `SDL_ShowCursor(1)` asks the operating system to show a pointer, and on a desktop
+ * that is the end of it. This console has no such pointer and no cursor plane, so a
+ * port that steers one - Bugdom's menu picks its icons by cursor position, and never
+ * draws one itself - shows the player nothing at all, whatever the pad is doing. Moving
+ * and not moving look identical.
  *
- * Drawn straight onto the buffer the next flip shows, after the frame's own rendering and before the
- * present, so it lands on top without touching the GL state the title left behind.
+ * Drawn straight onto the buffer the next flip shows, after the frame's own rendering
+ * and before the present, so it lands on top without touching the GL state the title
+ * left behind.
  *
- * Weakly referenced: the drawing calls belong to the SDK's `draw` capability, and linking SDL should
- * not put that on the capability list of every title. Without it there is no pointer, exactly as
- * before.
+ * Weakly referenced: the drawing calls belong to the SDK's `draw` capability, and
+ * linking SDL should not put that on the capability list of every title. Without it
+ * there is no pointer, exactly as before.
  */
 #pragma weak oops_display_get_surface
 #pragma weak oops_draw_rect
 #pragma weak oops_draw_line
 
-/* The arrow, as a 1-bit mask: 1 is the white body, 2 the black outline, 0 transparent. Twelve by
- * nineteen, the proportions of the pointer everything else uses. */
+/* The arrow, as a 1-bit mask: 1 is the white body, 2 the black outline, 0 transparent.
+ * Twelve by nineteen, the proportions of the pointer everything else uses. */
 static const unsigned char prospero_cursor_mask[19][12] = {
     {2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
     {2, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0}, {2, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -374,9 +379,10 @@ static void PROSPERO_DrawCursor(PROSPERO_VideoData *data) {
         if (!surf.pixels) {
             return;
         }
-        /* A pixel at a time rather than a blit: the shape is 228 pixels, and a sprite blit onto a
-         * scanout buffer in the GPU's swizzle would read the destination back to blend, out of
-         * memory that is write-combined and slow to read. Opaque writes do not read at all. */
+        /* A pixel at a time rather than a blit: the shape is 228 pixels, and a sprite
+         * blit onto a scanout buffer in the GPU's swizzle would read the destination
+         * back to blend, out of memory that is write-combined and slow to read. Opaque
+         * writes do not read at all. */
         for (row = 0; row < 19; row++) {
             for (col = 0; col < 12; col++) {
                 const unsigned char m = prospero_cursor_mask[row][col];
@@ -483,8 +489,8 @@ static SDL_VideoDevice *PROSPERO_CreateDevice(void) {
 /*
  * Break `text` into lines of at most `columns` characters at word boundaries, writing
  * the result into `out` with newlines between them. `oops_draw_text` already honours
- * newlines; what it will not do is decide where they go, and a message box's text is one
- * long line that would otherwise run off the side of the screen.
+ * newlines; what it will not do is decide where they go, and a message box's text is
+ * one long line that would otherwise run off the side of the screen.
  */
 static void PROSPERO_WrapText(const char *text, int columns, char *out,
                               size_t out_size) {
@@ -509,7 +515,8 @@ static void PROSPERO_WrapText(const char *text, int columns, char *out,
             continue;
         }
         if (*text == ' ' || *text == '\t') {
-            /* A run of spaces at a line break is the break itself; keep one otherwise. */
+            /* A run of spaces at a line break is the break itself; keep one otherwise.
+             */
             if (column > 0 && column < columns) {
                 out[w++] = ' ';
                 column++;
@@ -523,8 +530,8 @@ static void PROSPERO_WrapText(const char *text, int columns, char *out,
              word++) {
         }
 
-        /* A word that will not fit on what is left of this line starts a new one; a word
-         * longer than the whole line is broken rather than dropped. */
+        /* A word that will not fit on what is left of this line starts a new one; a
+         * word longer than the whole line is broken rather than dropped. */
         if (column > 0 && column + (int)word > columns) {
             out[w++] = '\n';
             column = 0;
@@ -546,16 +553,16 @@ static void PROSPERO_WrapText(const char *text, int columns, char *out,
  * The message on the screen, without the system dialog.
  *
  * A port asks for a message box at the point where something is already wrong, and the
- * two cases that matter most - a missing asset archive, a ROM the player has to supply -
- * are found *before* the first frame. There is no video-out session then, so the system
- * dialog cannot be used at all: it composites against one, and asked without it the
- * platform's own library faults. That left the player with a black screen and a crash
- * where the whole point was to tell them something.
+ * two cases that matter most - a missing asset archive, a ROM the player has to supply
+ * - are found *before* the first frame. There is no video-out session then, so the
+ * system dialog cannot be used at all: it composites against one, and asked without it
+ * the platform's own library faults. That left the player with a black screen and a
+ * crash where the whole point was to tell them something.
  *
  * So this opens a display of its own, writes the text, and waits for a button. It runs
- * only when nothing else has a display open - if a port has one, the system dialog works
- * and is the better answer - and it closes the display again, because the port may go on
- * to open its own.
+ * only when nothing else has a display open - if a port has one, the system dialog
+ * works and is the better answer - and it closes the display again, because the port
+ * may go on to open its own.
  *
  * Returns 0 if the message reached the screen, negative if it could not.
  */
@@ -631,8 +638,9 @@ static int PROSPERO_DrawMessageBox(const SDL_MessageBoxData *data) {
 
     /*
      * Bounded for the same reason the dialog wait is: a title that waits for ever on a
-     * screen nobody is watching is killed by the system with nothing explained. A minute
-     * is long enough to read a sentence and short enough not to look like a hang.
+     * screen nobody is watching is killed by the system with nothing explained. A
+     * minute is long enough to read a sentence and short enough not to look like a
+     * hang.
      */
     if (&oops_input_init && &oops_input_poll) {
         (void)oops_input_init();

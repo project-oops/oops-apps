@@ -74,9 +74,10 @@ ship_of_harkinian_start(const payload_args_t *args) {
 
     oops_log_init(OOPS_APP_ID);
 
-    /* The kernel log drops bursts and this start-up is one. The sink writes to a USB stick when
-       one is mounted and reports nothing when none is: `/data` is outside the sandbox and
-       `oops_fs_get_storage_dir` refuses it, because escaping unmounts /app0 and its assets. */
+    /* The kernel log drops bursts and this start-up is one. The sink writes to a USB
+       stick when one is mounted and reports nothing when none is: `/data` is outside
+       the sandbox and `oops_fs_get_storage_dir` refuses it, because escaping unmounts
+       /app0 and its assets. */
     (void)oops_log_enable_disk_sink(OOPS_APP_ID, 0);
 
     oops_log_info("SOH", "entry");
