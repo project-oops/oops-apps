@@ -20,21 +20,23 @@ compiles the ROM's assets into the program and so can never be published.
 
 ## Your ROM
 
-The build carries no game assets. Copy a Super Mario 64 ROM (US or JP, `.z64`) beside
-`eboot.bin`:
+The build carries no game assets. Copy a Super Mario 64 ROM (US or JP, big-endian `.z64`, any
+file name) beside `eboot.bin`:
 
 ```
-/data/homebrew/GHST00001/sm64.z64
+/data/homebrew/GHST00001/
 ```
 
 The first start converts it to `sm64.o2r` on the console, with Torch - the converter upstream
-links for its own first-run extraction. Without the ROM the title says exactly this on screen
-and stops.
+links for its own first-run extraction. Without a ROM or a converted archive the title says
+exactly this on screen and stops.
 
 ## Building
 
-`make` prints the survey: the pin, the dependencies still to vendor, and what the player
-supplies. `make GHST_ARMED=1 title` builds the payload.
+`make title` builds the payload. `make package` adds what upstream installs beside it: the
+port's own `ghostship.o2r`, `config.yml`, and Torch's extraction descriptions as one tar the
+title unpacks on first start. `make survey` prints the pins and what the player supplies;
+`make census` compiles every source and names any that fail.
 
 ## Docs
 

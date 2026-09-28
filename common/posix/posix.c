@@ -1242,7 +1242,10 @@ static void oops_copy_bounded(char *dst, size_t cap, const char *src, size_t n) 
     dst[n] = '\0';
 }
 
-char *basename(const char *path) {
+/* Weak, both: a program may bring its own, as Torch's `libmio0/utils.c` does, and on a desktop
+ * that copy never meets the C library's because the library is shared. Here both are in one
+ * link, and the program's is the one it was written against. */
+__attribute__((weak)) char *basename(const char *path) {
     const char *last;
 
     if (path == NULL || path[0] == '\0') {
@@ -1273,7 +1276,7 @@ char *basename(const char *path) {
     return s_basename_buf;
 }
 
-char *dirname(const char *path) {
+__attribute__((weak)) char *dirname(const char *path) {
     size_t end;
     size_t cut;
 

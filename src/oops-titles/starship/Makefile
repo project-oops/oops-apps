@@ -84,11 +84,14 @@ STRF_EXCL := %.inc.c %/src/engine/fox_colheaders.c %/src/engine/fox_edata_info.c
              %/src/engine/fox_rcp_setup.c %/src/engine/fox_load_inits.c \
              %/src/overlays/ovl_ending/fox_end2_data.c %/src/sys/sys_timer.c \
              %/src/sys/sys_fault.c %/src/mods/object_ram.c
-STRF_C_SRCS := $(filter-out $(STRF_EXCL), $(addprefix $(STRF_UP)/, \
-    $(call STRF_FIND,src/audio src/engine src/overlays src/port src/sys,*.c) \
-    src/libultra/io/aisetfreq.c src/libultra/gu/sqrtf.c src/libultra/gu/mtxutil.c \
-    src/libultra/gu/ortho.c src/1FA60.c src/buffers.c src/dmatable.c src/libc_math64.c \
-    src/libc_sprintf.c))
+# The single files are entries in the same `file(GLOB)` list as the directories, so one that is
+# not in the tree (`src/1FA60.c` at this pin) matches nothing rather than failing: `wildcard`.
+STRF_C_SRCS := $(filter-out $(STRF_EXCL), \
+    $(addprefix $(STRF_UP)/,$(call STRF_FIND,src/audio src/engine src/overlays src/port src/sys,*.c)) \
+    $(wildcard $(addprefix $(STRF_UP)/, \
+        src/libultra/io/aisetfreq.c src/libultra/gu/sqrtf.c src/libultra/gu/mtxutil.c \
+        src/libultra/gu/ortho.c src/1FA60.c src/buffers.c src/dmatable.c src/libc_math64.c \
+        src/libc_sprintf.c)))
 STRF_CXX_SRCS := $(filter-out %/android/%, \
     $(addprefix $(STRF_UP)/,$(call STRF_FIND,src/port,*.cpp)))
 

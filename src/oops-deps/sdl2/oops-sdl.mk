@@ -98,12 +98,15 @@ OOPS_SDL_PREFIX_STAMP := $(OOPS_SDL_PREFIX_DIR)/.stamp
 
 # `include/SDL_config_prospero.h` is copied in too: SDL's headers reach their config through a
 # quoted include, resolved beside the including file first.
+#
+# Built beside the view and moved into place, because two titles building at once share it:
+# rebuilding it in place let one build delete it while another compiled against it, which read
+# as 157 missing `SDL2/SDL.h` in a Ghostship census.
 $(OOPS_SDL_PREFIX_STAMP): $(wildcard $(OOPS_SDL_UPSTREAM)/include/*.h) \
                           $(wildcard $(OOPS_SDL_DIR)/include/*.h)
-	@rm -rf $(OOPS_SDL_PREFIX_DIR)/SDL2
-	@mkdir -p $(OOPS_SDL_PREFIX_DIR)/SDL2
-	@cp $(OOPS_SDL_UPSTREAM)/include/*.h $(OOPS_SDL_PREFIX_DIR)/SDL2/
-	@cp $(OOPS_SDL_DIR)/include/*.h $(OOPS_SDL_PREFIX_DIR)/SDL2/
+	@tmp=$(OOPS_SDL_PREFIX_DIR)/.SDL2.$$$$; rm -rf "$$tmp" && mkdir -p "$$tmp" && \
+	 cp $(OOPS_SDL_UPSTREAM)/include/*.h "$$tmp"/ && cp $(OOPS_SDL_DIR)/include/*.h "$$tmp"/ && \
+	 rm -rf $(OOPS_SDL_PREFIX_DIR)/SDL2 && mv "$$tmp" $(OOPS_SDL_PREFIX_DIR)/SDL2
 	@echo "SDL: $$(ls $(OOPS_SDL_PREFIX_DIR)/SDL2 | wc -l) headers under SDL2/"
 	@touch $@
 

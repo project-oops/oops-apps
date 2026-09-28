@@ -3,7 +3,8 @@
 #   make           the survey - what stands between this title and a link
 #   make census    compile every component's sources for the target, set by set
 #   make census-one S=<set> F=<path>   every error in one source
-#   make title     the payload, packaged - once GHST_ARMED=1 links
+#   make title     the payload
+#   make package   the payload with the port's archive and Torch's descriptions, which runs
 #
 # Harbour Masters' Super Mario 64 on libultraship. The runtime, its shader dialect and its
 # dependency stack are the ones `../spaghetti-kart` and `../ship-of-harkinian` already carry.
@@ -26,6 +27,8 @@ GHST_TORCH := $(GHST_UP)/Torch
 # reaches ImGui through. Upstream turns networking on by default (`USE_SATELLA`, its mod-signing
 # and relay service, CMakeLists.txt:173, pulls `USE_NETWORKING` on at :193); this build sets
 # `USE_SATELLA` off, so neither IXWebSocket nor mbedTLS is needed. yaml-cpp is Torch's.
+# Armed by default: the payload links with nothing unresolved.
+GHST_ARMED ?= 1
 SCAFFOLD_ARM    := GHST_ARMED
 SCAFFOLD_DEPS   := sdl2 zlib libzip stb nlohmann-json thread-pool tinyxml2 spdlog imgui cimgui \
                    prism-processor libgfxd tomlplusplus semver libogg libvorbis dr-libs yaml-cpp \
@@ -113,16 +116,26 @@ GHST_LUS_CXX_SRCS := $(filter-out $(GHST_LUS)/src/ship/scripting/% $(GHST_LUS)/s
 # Torch as Ghostship configures it (CMakeLists.txt:744-751): a library, not the standalone tool,
 # with Super Mario 64's factories and the N64 audio ones its sound banks are written in
 # (`assets/ymls/*/sound`) - the others read other games' ROMs. Its `ui/` viewer is `BUILD_UI`,
-# off; `main.cpp` is the standalone tool's.
+# off. `main.cpp` stays, as upstream's library build keeps it: its `main` is behind `STANDALONE`,
+# and it defines `Companion::Instance`.
 GHST_TORCH_FACTORIES_OFF := mk64 sf64 pm64 fzerox bk64 mario_artist oot
-GHST_TORCH_CXX_SRCS := $(filter-out $(GHST_TORCH)/src/main.cpp $(GHST_TORCH)/src/ui/% \
+# Less Torch's copies of `StringHelper` and `StrHash64`, which libultraship carries too: Torch's
+# own CMakeLists.txt:150-155 drops them whenever libultraship is linked whole beside it, as it is
+# here, since libultraship's are a superset. Plus the `BinaryTools` library (CMakeLists.txt:307).
+GHST_TORCH_CXX_SRCS := $(filter-out $(GHST_TORCH)/src/ui/% \
+        $(GHST_TORCH)/src/utils/StringHelper.cpp $(GHST_TORCH)/lib/strhash64/StrHash64.cpp \
         $(foreach f,$(GHST_TORCH_FACTORIES_OFF),$(GHST_TORCH)/src/factories/$(f)/%), \
     $(sort $(shell find $(GHST_TORCH)/src -name '*.cpp' 2>/dev/null)) \
-    $(wildcard $(GHST_TORCH)/lib/strhash64/*.cpp $(GHST_TORCH)/lib/bk_zip/*.cpp))
+    $(wildcard $(GHST_TORCH)/lib/strhash64/*.cpp $(GHST_TORCH)/lib/bk_zip/*.cpp \
+               $(GHST_TORCH)/lib/binarytools/*.cpp))
+# And the `N64Graphics` library (CMakeLists.txt:312), less its `stb_image.c`: `../../oops-deps/stb`
+# already defines stb_image, and linked whole the two would collide. Its `stb_image_write.c` stays,
+# because Torch's copy adds the palette PNG writer it calls.
 GHST_TORCH_C_SRCS := $(filter-out $(GHST_TORCH)/src/ui/%, \
     $(sort $(shell find $(GHST_TORCH)/src -name '*.c' 2>/dev/null)) \
     $(wildcard $(GHST_TORCH)/lib/libmio0/*.c $(GHST_TORCH)/lib/libyay0/*.c \
-               $(GHST_TORCH)/lib/libyaz0/*.c))
+               $(GHST_TORCH)/lib/libyaz0/*.c $(GHST_TORCH)/lib/n64graphics/n64graphics.c \
+               $(GHST_TORCH)/lib/n64graphics/stb_image_write.c))
 
 # --- definitions and includes ---------------------------------------------------------------
 #
@@ -154,6 +167,26 @@ $(shell mkdir -p $(GHST_GEN_DIR)/ship && \
       printf ')JSON";\n} // namespace Ship\n'; } > $(GHST_CTX_JSON_H).tmp && \
     { cmp -s $(GHST_CTX_JSON_H).tmp $(GHST_CTX_JSON_H) && rm -f $(GHST_CTX_JSON_H).tmp || \
       mv $(GHST_CTX_JSON_H).tmp $(GHST_CTX_JSON_H); })
+
+# `src/port/build.c`, which CMakeLists.txt:130 configures from `build.c.in`: the version the
+# settings menu and the log print. The values are the ones CMake computes - "Nautilus" and the
+# NATO word for the patch number (:10-23), the project version, the team (:24) - with the branch,
+# commit and tag taken from the pin rather than from a git checkout.
+GHST_BUILD_C := $(GHST_GEN_DIR)/build.c
+$(shell mkdir -p $(GHST_GEN_DIR) && \
+    { printf '#include <libultraship/libultra.h>\n'; \
+      printf 'const char gBuildVersion[] = "Nautilus Alfa (3.0.0)";\n'; \
+      printf 'const u16 gBuildVersionMajor = 3;\nconst u16 gBuildVersionMinor = 0;\n'; \
+      printf 'const u16 gBuildVersionPatch = 0;\n'; \
+      printf 'const char gGitBranch[] = "%s";\n' "$(UPSTREAM_REF)"; \
+      printf 'const char gGitCommitHash[] = "%.7s";\n' "$(UPSTREAM_REV)"; \
+      printf 'const char gGitCommitTag[] = "%s";\n' "$(UPSTREAM_REF)"; \
+      printf 'const char gBuildTeam[] = "Lywx";\n'; \
+      printf 'const char gBuildDate[] = __DATE__ " " __TIME__;\n'; \
+      printf 'const char gBuildMakeOption[] = "";\n'; } > $(GHST_BUILD_C).tmp && \
+    { cmp -s $(GHST_BUILD_C).tmp $(GHST_BUILD_C) && rm -f $(GHST_BUILD_C).tmp || \
+      mv $(GHST_BUILD_C).tmp $(GHST_BUILD_C); })
+GHST_C_SRCS += $(GHST_BUILD_C)
 
 GHST_INCLUDE = $(OOPS_POSIX_INCLUDE) \
     $(OOPS_TOMLPP_INCLUDE) $(OOPS_SEMVER_INCLUDE) $(OOPS_JSON_INCLUDE) $(OOPS_LIBZIP_INCLUDE) \
@@ -199,9 +232,63 @@ CENSUS_torch_cxx_FLAGS = $(GHST_CXX)
 
 OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog
 
+include $(OOPS_APPS_ROOT)/common/deps.mk
+
 ifeq ($(GHST_ARMED),1)
-$(error ghostship: the payload link is not written yet - `make census` says how close it is)
+# --- the payload ------------------------------------------------------------------------
+#
+# The game, libultraship and Torch in one archive, linked whole: libultraship registers its
+# resource factories and console variables from static constructors, which a plain archive link
+# would drop with the object. Each object is named for its source path, so the same file name
+# in two trees (`Utils.cpp`, `Light.cpp`) is two objects.
+GHST_BUILD := build/ghst
+
+define ghst_objs
+GHST_$(1)_OBJS := $$(call oops_objs,$$(GHST_BUILD)/$(1),$$(CENSUS_$(1)_SRCS))
+$$(call oops_obj_rules,$$(GHST_BUILD)/$(1),TARGET_CC,CENSUS_$(1)_FLAGS,$$(CENSUS_$(1)_SRCS))
+-include $$(GHST_$(1)_OBJS:.o=.d)
+endef
+$(foreach s,$(CENSUS_SETS),$(eval $(call ghst_objs,$(s))))
+
+GHST_LIB := $(GHST_BUILD)/libghostship.a
+GHST_OBJS := $(foreach s,$(CENSUS_SETS),$(GHST_$(s)_OBJS))
+$(GHST_LIB): $(GHST_OBJS)
+	@rm -f $@
+	@a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $(GHST_OBJS)
+	@echo "ghostship: $@ ($(words $(GHST_OBJS)) objects)"
+# The generated headers, before anything includes them.
+$(GHST_OBJS): $(OOPS_SDL_PREFIX_STAMP)
+
+# The entry shim is C++ (upstream's `main` is), and brings the C++ runtime with it.
+OOPS_CXX_SRCS := $(CURDIR)/shim/ghst_start.cpp
+include $(OOPS_APPS_ROOT)/common/cxx.mk
+OOPS_CXX_INCLUDE += $(OOPS_LIBCXX_INCLUDE)
+OOPS_CXX_FLAGS += -I$(OOPS_APPS_ROOT)/common $(OOPS_POSIX_INCLUDE) -DOOPS_POSIX_HOME=\"/app0\"
+
+# libc++ owns new/delete for a title linking the full archive (see bugdom/docs/PORTING.md).
+EXTRA_TARGET_CFLAGS += -DOOPS_CXX_EXTERNAL_NEW_DELETE $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE) \
+                       -I$(OOPS_APPS_ROOT)/common -DOOPS_POSIX_HOME=\"/app0\"
+PAYLOAD_SRCS := $(OOPS_APPS_ROOT)/common/crashtrace.c $(OOPS_APPS_ROOT)/common/player_data.c \
+                $(OOPS_APPS_ROOT)/common/tar_unpack.c $(OOPS_POSIX_SRCS)
+# Each archive after everything that calls it, as `../spaghetti-kart` orders them.
+EXTRA_TARGET_LDFLAGS += -Wl,--whole-archive $(GHST_LIB) -Wl,--no-whole-archive \
+                        $(OOPS_CXX_LDFLAGS) $(OOPS_CIMGUI_LDFLAGS) $(OOPS_IMGUI_LDFLAGS) \
+                        $(OOPS_YAML_LDFLAGS) $(OOPS_LIBZIP_LDFLAGS) $(OOPS_TINYXML2_LDFLAGS) \
+                        $(OOPS_PRISM_LDFLAGS) $(OOPS_GFXD_LDFLAGS) $(OOPS_STB_LDFLAGS) \
+                        $(OOPS_MONOCYPHER_LDFLAGS) $(OOPS_VORBIS_LDFLAGS) $(OOPS_ZLIB_LDFLAGS) \
+                        $(OOPS_SDL_LDFLAGS) \
+                        $(OOPS_LIBCXX_LDFLAGS) $(OOPS_LIBCXXABI_LDFLAGS) $(OOPS_LIBUNWIND_LDFLAGS)
+PAYLOAD_EXTRA_DEPS   += $(GHST_LIB) $(OOPS_CXX_LIB) $(OOPS_CIMGUI_LIB) $(OOPS_IMGUI_LIB) \
+                        $(OOPS_YAML_LIB) $(OOPS_LIBZIP_LIB) $(OOPS_TINYXML2_LIB) \
+                        $(OOPS_PRISM_LIB) $(OOPS_GFXD_LIB) $(OOPS_STB_LIB) \
+                        $(OOPS_MONOCYPHER_LIB) $(OOPS_VORBIS_LIB) $(OOPS_OGG_LIB) \
+                        $(OOPS_ZLIB_LIB) $(OOPS_SDL_LIB) \
+                        $(OOPS_LIBCXX_LIB) $(OOPS_LIBCXXABI_LIB) $(OOPS_LIBUNWIND_LIB)
 endif
+
+# `__tls_get_addr` is libkernel's, which `common/symbols.txt` records, so the loader resolves it;
+# `BS::thread_pool`'s `this_thread` reaches it, as in `../spaghetti-kart`.
+EXTRA_UNDEF_ALLOW := ^__tls_get_addr$$
 
 include $(OOPS_APPS_ROOT)/common/app.mk
 include $(OOPS_APPS_ROOT)/common/scaffold.mk
@@ -209,3 +296,22 @@ include $(OOPS_APPS_ROOT)/common/census.mk
 
 # The `SDL2/` header view the sources include through, which a census compiles against too.
 census: $(OOPS_SDL_PREFIX_STAMP)
+
+# --- the data ---------------------------------------------------------------------------
+#
+# What upstream's install puts beside the executable (CMakeLists.txt:1002-1004): the port's own
+# archive, `ghostship.o2r`; `config.yml`, which names the ROMs Torch accepts; and `assets/`, the
+# extraction descriptions Torch reads to convert the player's ROM. `ghostship.o2r` is `port/`
+# with libultraship's shaders copied over it, packed as `GeneratePortO2R` packs it
+# (`shim/pack_o2r.py`). `assets/` is 842 files, so it ships as one tar the entry shim unpacks on
+# first start - `pros restore` costs per file.
+GHST_PKG = build/title/$(TITLE_ID)
+.PHONY: package
+package: title
+	@rm -rf build/o2r-port && mkdir -p build/o2r-port
+	@cp -r $(GHST_UP)/port/. build/o2r-port/
+	@cp -r $(GHST_LUS)/src/fast/shaders/. build/o2r-port/shaders/
+	@python3 $(CURDIR)/shim/pack_o2r.py build/o2r-port $(GHST_PKG)/ghostship.o2r 3.0.0
+	@cp $(GHST_UP)/config.yml $(GHST_PKG)/config.yml
+	@tar --format=gnu -cf $(GHST_PKG)/ghostship-assets.tar -C $(GHST_UP) assets
+	@echo "ghostship: package is $(GHST_PKG) ($$(du -sh $(GHST_PKG) | cut -f1))"
