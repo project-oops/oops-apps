@@ -39,12 +39,18 @@ OOPS_LUAJIT_TARGET = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin 
                      $(OOPS_SDK_LIBC_INCLUDE)
 # The host compiler for `minilua` and `buildvm`: the build machine's own clang.
 OOPS_LUAJIT_HOST_CC ?= clang
+# Upstream's Makefile is run through this rather than `$(MAKE)` written in the recipe. make
+# executes a line naming `$(MAKE)` even under `-n`, while only printing the lines before it, and
+# `bin/oops-apps dist` probes with `make -n dist`: the build ran into a directory the probe had
+# not made, and the release failed with `build.log: Directory nonexistent`. Named through a
+# variable, the line is an ordinary one.
+OOPS_LUAJIT_MAKE := $(MAKE)
 
 $(OOPS_LUAJIT_LIB): $(OOPS_LUAJIT_UPSTREAM)/.oops-upstream-stamp $(lastword $(MAKEFILE_LIST))
 	@rm -rf $(OOPS_LUAJIT_BUILD)
 	@mkdir -p $(OOPS_LUAJIT_BUILD)
 	@cp -r $(OOPS_LUAJIT_UPSTREAM)/src $(OOPS_LUAJIT_UPSTREAM)/dynasm $(OOPS_LUAJIT_BUILD)/
-	@$(MAKE) --no-print-directory -C $(OOPS_LUAJIT_BUILD)/src libluajit.a \
+	@$(OOPS_LUAJIT_MAKE) --no-print-directory -C $(OOPS_LUAJIT_BUILD)/src libluajit.a \
 	    HOST_CC=$(OOPS_LUAJIT_HOST_CC) CC=clang TARGET_SYS=Other BUILDMODE=static \
 	    TARGET_CFLAGS="$(OOPS_LUAJIT_TARGET)" XCFLAGS="$(OOPS_LUAJIT_XCFLAGS)" Q= E=@: \
 	    > $(OOPS_LUAJIT_BUILD)/build.log 2>&1 \
