@@ -134,7 +134,7 @@ STRF_INCLUDE = $(OOPS_POSIX_INCLUDE) \
     -I$(CURDIR)/shim/include \
     -I$(STRF_UP) -I$(STRF_UP)/include -I$(STRF_UP)/src \
     -I$(STRF_LUS)/include -I$(STRF_LUS)/include/libultraship -I$(STRF_LUS)/src \
-    -I$(STRF_TORCH)/src -I$(STRF_TORCH)/lib -I$(STRF_TORCH)/lib/binarytools \
+    -I$(STRF_TORCH) -I$(STRF_TORCH)/src -I$(STRF_TORCH)/lib -I$(STRF_TORCH)/lib/binarytools \
     -I$(STRF_TORCH)/lib/strhash64 -I$(STRF_TORCH)/lib/n64graphics \
     -DOOPS_POSIX_HOME=\"/app0\"
 

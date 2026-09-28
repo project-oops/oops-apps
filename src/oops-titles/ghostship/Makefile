@@ -134,6 +134,18 @@ $(shell sh $(OOPS_APPS_ROOT)/common/gen-lus-cvars.sh $(GHST_CVARS_H) OOPS_GHST_C
             $(GHST_UP)/cmake/ghostship-cvars.cmake $(GHST_UP)/cmake/lus-cvars.cmake \
             $(GHST_LUS)/cmake/cvars.cmake >&2)
 
+# libultraship's default context, embedded as its `src/CMakeLists.txt:22-24` embeds it: the
+# JSON read whole into the raw string `ship/default_context_json.h.in` wraps it in. Rewritten
+# only when the content changes, so nothing that includes it rebuilds for nothing.
+GHST_CTX_JSON_H := $(GHST_GEN_DIR)/ship/default_context_json.h
+$(shell mkdir -p $(GHST_GEN_DIR)/ship && \
+    { printf '#pragma once\n// Generated from default_context.json by the Makefile.\n'; \
+      printf 'namespace Ship {\ninline constexpr const char* kDefaultContextJson = R"JSON('; \
+      cat $(GHST_LUS)/src/ship/default_context.json; \
+      printf ')JSON";\n} // namespace Ship\n'; } > $(GHST_CTX_JSON_H).tmp && \
+    { cmp -s $(GHST_CTX_JSON_H).tmp $(GHST_CTX_JSON_H) && rm -f $(GHST_CTX_JSON_H).tmp || \
+      mv $(GHST_CTX_JSON_H).tmp $(GHST_CTX_JSON_H); })
+
 GHST_INCLUDE = $(OOPS_POSIX_INCLUDE) \
     $(OOPS_TOMLPP_INCLUDE) $(OOPS_SEMVER_INCLUDE) $(OOPS_JSON_INCLUDE) $(OOPS_LIBZIP_INCLUDE) \
     $(OOPS_THREADPOOL_INCLUDE) $(OOPS_SDL_INCLUDE) $(OOPS_SDL_PREFIX_INCLUDE) \
@@ -144,7 +156,7 @@ GHST_INCLUDE = $(OOPS_POSIX_INCLUDE) \
     -I$(CURDIR)/shim/include \
     -I$(GHST_UP) -I$(GHST_UP)/include -I$(GHST_UP)/src \
     -I$(GHST_LUS)/include -I$(GHST_LUS)/include/libultraship -I$(GHST_LUS)/src \
-    -I$(GHST_TORCH)/src -I$(GHST_TORCH)/lib -I$(GHST_TORCH)/lib/binarytools \
+    -I$(GHST_TORCH) -I$(GHST_TORCH)/src -I$(GHST_TORCH)/lib -I$(GHST_TORCH)/lib/binarytools \
     -I$(GHST_TORCH)/lib/strhash64 -I$(GHST_TORCH)/lib/n64graphics \
     -DOOPS_POSIX_HOME=\"/app0\"
 

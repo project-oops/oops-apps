@@ -1,0 +1,49 @@
+This target has desktop GL linked in, at the GLSL version oops-gl implements
+
+The same three changes `../spaghetti-kart/patches/0001` makes, where the reasoning
+is written out, against this title's older `libultraship` (`src/graphic/Fast3D/`):
+
+- `gfx_sdl2.cpp` includes `SDL2/SDL_opengles2.h` on every Unix it does not name,
+  and this target has desktop GL and no GLES headers, so the include fails at
+  `GLES2/gl2platform.h`. A `__PROSPERO__` arm goes before the `#else`.
+- `glewInit()` has nothing to load: oops-gl is linked into the payload.
+- The non-core desktop fragment shader asks for `#version 130`, which oops-gl's
+  GLSL front end refuses; it uses nothing past 1.20.
+
+diff --git a/libultraship/src/graphic/Fast3D/backends/gfx_opengl.cpp b/libultraship/src/graphic/Fast3D/backends/gfx_opengl.cpp
+index 32c1bcb..70be883 100644
+--- a/libultraship/src/graphic/Fast3D/backends/gfx_opengl.cpp
++++ b/libultraship/src/graphic/Fast3D/backends/gfx_opengl.cpp
+@@ -283,7 +283,7 @@ std::string GfxRenderingAPIOGL::BuildFsShader(const CCFeatures& cc_features) {
+         { "texture", "texture" },
+         { "vOutColor", "vOutColor" },
+ #else
+-        { "GLSL_VERSION", "#version 130" },
++        { "GLSL_VERSION", "#version 120" },
+         { "attr", "varying" },
+         { "opengles", false },
+         { "core_opengl", false },
+@@ -652,7 +652,7 @@ void GfxRenderingAPIOGL::DrawTriangles(float buf_vbo[], size_t buf_vbo_len, size
+ }
+ 
+ void GfxRenderingAPIOGL::Init() {
+-#ifndef __linux__
++#if !defined(__linux__) && !defined(__PROSPERO__)
+     glewInit();
+ #endif
+ 
+diff --git a/libultraship/src/graphic/Fast3D/backends/gfx_sdl2.cpp b/libultraship/src/graphic/Fast3D/backends/gfx_sdl2.cpp
+index 7eed432..1275e8e 100644
+--- a/libultraship/src/graphic/Fast3D/backends/gfx_sdl2.cpp
++++ b/libultraship/src/graphic/Fast3D/backends/gfx_sdl2.cpp
+@@ -23,6 +23,10 @@
+ #include <SDL.h>
+ #include "gfx_metal.h"
+ #include "utils/macUtils.h"
++#elif defined(__PROSPERO__)
++#include <SDL2/SDL.h>
++#define GL_GLEXT_PROTOTYPES 1
++#include <GL/gl.h>
+ #else
+ #include <SDL2/SDL.h>
+ #define GL_GLEXT_PROTOTYPES 1
