@@ -23,9 +23,12 @@ OOPS_OPENAL_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
 
 include $(OOPS_OPENAL_DIR)/../../../common/deps.mk
+# Freestanding or hosted by the including title (`common/dep-sys.mk`); a hosted title also sets
+# `OOPS_LIBCXX_HOSTED`, which gives it the libc++ headers that match.
+include $(OOPS_OPENAL_DIR)/../../../common/dep-sys.mk
 
 OOPS_OPENAL_UPSTREAM ?= $(OOPS_OPENAL_DIR)/upstream
-OOPS_OPENAL_BUILD    ?= $(OOPS_OPENAL_DIR)/build
+OOPS_OPENAL_BUILD    ?= $(OOPS_OPENAL_DIR)/build$(OOPS_DEP_BUILD_SUFFIX)
 
 # `include/AL` serves `<al.h>` (as SuperTux writes it) and `include` serves `<AL/al.h>`.
 # `AL_LIBTYPE_STATIC` is upstream's define for a static link; without it every entry point is
@@ -74,16 +77,19 @@ OOPS_OPENAL_CORE_SRCS := $(addprefix $(OOPS_OPENAL_UPSTREAM)/core/, \
 # upstream's CMake passes for a static build. `ALSOFT_THREAD_LOCAL` is empty, so
 # `alcSetThreadContext` is process-wide (`patches/0001`). `-I include` comes first so upstream
 # never shadows this directory's `config.h` and `version.h`.
-OOPS_OPENAL_CXXFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
+# The freestanding order puts libc++'s headers between the SDK's and its C library's, which is
+# the order libc++'s wrappers need; hosted, they go ahead of the sysroot's for the same reason.
+OOPS_OPENAL_SYS = $(if $(filter 1,$(OOPS_DEPS_HOSTED)),$(OOPS_LIBCXX_INCLUDE) $(OOPS_DEP_SYS), \
+                      -ffreestanding -fno-builtin $(OOPS_SDK_INCLUDE) $(OOPS_LIBCXX_INCLUDE) \
+                      $(OOPS_SDK_LIBC_INCLUDE) $(OOPS_POSIX_INCLUDE))
+OOPS_OPENAL_CXXFLAGS = -target x86_64-unknown-freebsd -nostdlib \
                        -nostdinc++ -fexceptions -frtti -fPIC -fno-stack-protector \
                        -std=c++14 -O2 -w -msse4.1 \
                        -DRESTRICT=__restrict -DAL_BUILD_LIBRARY -DAL_ALEXT_PROTOTYPES \
                        -DALC_API= -DAL_API= -DALSOFT_THREAD_LOCAL= \
                        -I$(OOPS_OPENAL_DIR)/include \
                        -I$(OOPS_OPENAL_UPSTREAM) -I$(OOPS_OPENAL_UPSTREAM)/common \
-                       $(OOPS_OPENAL_INCLUDE) \
-                       $(OOPS_SDK_INCLUDE) $(OOPS_LIBCXX_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) \
-                       $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE)
+                       $(OOPS_OPENAL_INCLUDE) $(OOPS_OPENAL_SYS) $(OOPS_SDL_INCLUDE)
 
 # One archive per upstream directory group.
 define oops_openal_archive

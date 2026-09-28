@@ -1,0 +1,33 @@
+No file picker on a console: the mobile ROM path instead
+
+`SelectGameFromUI` opens a desktop file dialog through `portable-file-dialogs`,
+which runs zenity or kdialog over pipe/fork/dup2 - none of which this platform
+has, and the header does not compile for it. `../ghostship/patches/0002` and
+`../ship-of-harkinian/patches/0006` make the same call for the same header.
+
+The mobile arm is the one that fits: the ROM is `baserom.us.rev1.z64` beside
+the program. Whichever supported version it is, the checksum table below it
+decides; only the name is fixed.
+
+diff --git a/src/port/extractor/GameExtractor.cpp b/src/port/extractor/GameExtractor.cpp
+index f8392bc..023fd09 100644
+--- a/src/port/extractor/GameExtractor.cpp
++++ b/src/port/extractor/GameExtractor.cpp
+@@ -5,7 +5,7 @@
+ #include "Context.h"
+ #include "spdlog/spdlog.h"
+ #include <port/Engine.h>
+-#if !defined(__IOS__) && !defined(__ANDROID__) && !defined(__SWITCH__)
++#if !defined(__IOS__) && !defined(__ANDROID__) && !defined(__SWITCH__) && !defined(__PROSPERO__)
+ #include "portable-file-dialogs.h"
+ #endif
+ 
+@@ -23,7 +23,7 @@ std::unordered_map<std::string, std::string> mGameList = {
+ };
+ 
+ bool GameExtractor::SelectGameFromUI() {
+-#if !defined(__IOS__) && !defined(__ANDROID__) && !defined(__SWITCH__)
++#if !defined(__IOS__) && !defined(__ANDROID__) && !defined(__SWITCH__) && !defined(__PROSPERO__)
+     auto selection = pfd::open_file("Select a file", ".", { "N64 Roms", "*.z64" }).result();
+ 
+     if (selection.empty()) {

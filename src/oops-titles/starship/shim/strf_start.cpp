@@ -11,13 +11,14 @@
  * `starship.o2r` is the port's own assets and ships with the build. `sf64.o2r` is the
  * game's, converted from a Star Fox 64 ROM the player supplies, on the console, by the
  * Torch converter upstream links from `src/port/extractor` - the same converter
- * `../spaghetti-kart` carries. So the player's part is the ROM file alone.
+ * `../spaghetti-kart` carries. So the player's part is the ROM file alone, named as
+ * upstream's non-desktop path reads it (`patches/0002`): `baserom.us.rev1.z64`,
+ * whichever supported version it is.
  */
 #include "oops/freestd.h"
 #include "oops/fs.h"
 #include "oops/syscall.h"
 #include "oops/system.h"
-#include "oops/time.h"
 
 #include "player_data.h"
 
@@ -48,10 +49,10 @@ starship_start(const payload_args_t *args) {
      */
     if (oops_snprintf(path, sizeof(path), "%s/%s", OOPS_POSIX_HOME, "sf64.o2r") <= 0 ||
         !oops_fs_exists(path)) {
-        oops_require_player_data("sf64.z64", "sf64.z64",
-                                 "Starship plays from your own Star Fox 64 ROM (US 1.0 "
-                                 "or 1.1, .z64), converted on "
-                                 "the console the first time it starts.");
+        oops_require_player_data("baserom.us.rev1.z64", "baserom.us.rev1.z64",
+                                 "Starship plays from your own Star Fox 64 ROM (.z64, "
+                                 "under this name whichever version it is), converted "
+                                 "on the console the first time it starts.");
     }
 
     /* libultraship resolves its config and save paths through HOME, and the environment
@@ -64,8 +65,7 @@ starship_start(const payload_args_t *args) {
     /* Namespace-scope constructors: .init_array is not walked for this payload. */
     oops_run_init_array();
 
-    /* std::random_device needs an entropy source this platform does not have. */
-    srand((unsigned)oops_time_get_counter());
-
-    return main(1, argv);
+    /* `exit`, not `return`: the loader called this and has nowhere to return to. */
+    exit(main(1, argv));
+    return 0; /* not reached; oops-sdk's `exit` is not declared noreturn */
 }

@@ -17,6 +17,9 @@
 ifndef OOPS_SDL_DIR
 OOPS_SDL_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
+# The archive compiles with the title's own flags, which `common/app.mk` makes freestanding or
+# hosted; `common/dep-sys.mk` only keeps the two kinds in different directories.
+include $(OOPS_SDL_DIR)/../../../common/dep-sys.mk
 OOPS_SDL_UPSTREAM ?= $(OOPS_SDL_DIR)/upstream
 
 # `__PROSPERO__` selects `include/SDL_config_prospero.h` through the arm `patches/0001-*` adds
@@ -88,7 +91,7 @@ OOPS_SDL_C_SRCS := $(filter-out \
 
 # The archive is built with the consumer's code-generation flags and without its warning set.
 # `TARGET_CFLAGS` is defined later by `common/app.mk`, so the flags are recursive (`=`).
-OOPS_SDL_BUILD ?= $(OOPS_SDL_DIR)/build
+OOPS_SDL_BUILD ?= $(OOPS_SDL_DIR)/build$(OOPS_DEP_BUILD_SUFFIX)
 OOPS_SDL_LIB := $(OOPS_SDL_BUILD)/libSDL2.a
 
 # The `SDL2/`-prefixed header view, defined after `OOPS_SDL_BUILD`, which its rule names.
@@ -124,7 +127,7 @@ OOPS_SDL_LDFLAGS := -Wl,--whole-archive $(OOPS_SDL_LIB) -Wl,--no-whole-archive
 # and SDL2 has the same file name in several backends. `ar` is handed the list rather than
 # the directory, so objects left from a longer list never enter the archive (`common/deps.mk`).
 $(OOPS_SDL_LIB): $(OOPS_SDL_C_SRCS) $(OOPS_SDL_DIR)/include/SDL_config_prospero.h \
-                 $(lastword $(MAKEFILE_LIST))
+                 $(OOPS_SDL_DIR)/oops-sdl.mk
 	@mkdir -p $(OOPS_SDL_BUILD)
 	@rm -f $@
 	@n=0; objs=""; for src in $(OOPS_SDL_C_SRCS); do \

@@ -13,23 +13,28 @@
 # the default allocator and the one-shot functions built on it, which is more than was meant.
 # A consumer that still defines it (Neverball does, in its own flags) sees fewer declarations
 # over the same `z_stream`, which is harmless.
+#
+# Freestanding or hosted by the including title (`common/dep-sys.mk`).
+ifndef OOPS_ZLIB_MK
+OOPS_ZLIB_MK := 1
+
 ifndef OOPS_ZLIB_DIR
 OOPS_ZLIB_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
+include $(OOPS_ZLIB_DIR)/../../../common/dep-sys.mk
 OOPS_ZLIB_UPSTREAM ?= $(OOPS_ZLIB_DIR)/upstream
-OOPS_ZLIB_BUILD ?= $(OOPS_ZLIB_DIR)/build
+OOPS_ZLIB_BUILD ?= $(OOPS_ZLIB_DIR)/build$(OOPS_DEP_BUILD_SUFFIX)
 OOPS_ZLIB_INCLUDE := -I$(OOPS_ZLIB_UPSTREAM)
 OOPS_ZLIB_LIB := $(OOPS_ZLIB_BUILD)/libz.a
 OOPS_ZLIB_LDFLAGS := $(OOPS_ZLIB_LIB)
 OOPS_ZLIB_SRCS := $(addprefix $(OOPS_ZLIB_UPSTREAM)/,adler32.c crc32.c deflate.c inflate.c \
     inftrees.c inffast.c trees.c zutil.c compress.c uncompr.c infback.c)
 OOPS_ZLIB_GZ_SRCS := $(addprefix $(OOPS_ZLIB_UPSTREAM)/,gzclose.c gzlib.c gzread.c gzwrite.c)
-OOPS_ZLIB_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
-                   -nostdlibinc -fPIC -O2 -w $(OOPS_ZLIB_INCLUDE) $(OOPS_POSIX_INCLUDE) \
-                   $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
+OOPS_ZLIB_CFLAGS = -target x86_64-unknown-freebsd -nostdlib -fPIC -O2 -w $(OOPS_ZLIB_INCLUDE) \
+                   $(OOPS_DEP_SYS)
 # The objects are numbered by position and `ar` is handed the list, not a directory glob, so an
 # object from a removed source never reaches the archive. See `common/deps.mk`.
-$(OOPS_ZLIB_LIB): $(OOPS_ZLIB_SRCS) $(lastword $(MAKEFILE_LIST))
+$(OOPS_ZLIB_LIB): $(OOPS_ZLIB_SRCS) $(OOPS_ZLIB_DIR)/oops-zlib.mk
 	@mkdir -p $(OOPS_ZLIB_BUILD)
 	@rm -f $@
 	@n=0; objs=""; for s in $(OOPS_ZLIB_SRCS); do n=$$((n+1)); o=$(OOPS_ZLIB_BUILD)/z$$n.o; \
@@ -40,3 +45,5 @@ $(OOPS_ZLIB_LIB): $(OOPS_ZLIB_SRCS) $(lastword $(MAKEFILE_LIST))
 .PHONY: zlib-clean
 zlib-clean:
 	@rm -rf $(OOPS_ZLIB_BUILD)
+
+endif

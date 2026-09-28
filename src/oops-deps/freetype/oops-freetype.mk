@@ -10,12 +10,17 @@
 # The titles here render TrueType, so this compiles the core, the `sfnt`/`truetype` driver
 # pair, the two rasterisers and the autohinter - upstream's minimal TrueType build. A format
 # nothing opens is still a parser reading untrusted bytes, so the rest stay out.
+#
+# Freestanding or hosted by the including title (`common/dep-sys.mk`).
+ifndef OOPS_FT_MK
+OOPS_FT_MK := 1
 
 ifndef OOPS_FT_DIR
 OOPS_FT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
+include $(OOPS_FT_DIR)/../../../common/dep-sys.mk
 OOPS_FT_UPSTREAM ?= $(OOPS_FT_DIR)/upstream
-OOPS_FT_BUILD ?= $(OOPS_FT_DIR)/build
+OOPS_FT_BUILD ?= $(OOPS_FT_DIR)/build$(OOPS_DEP_BUILD_SUFFIX)
 
 OOPS_FT_INCLUDE := -I$(OOPS_FT_UPSTREAM)/include
 OOPS_FT_LIB := $(OOPS_FT_BUILD)/libfreetype.a
@@ -46,15 +51,15 @@ OOPS_FT_SRCS := \
 # `-nostdlibinc` keeps the build machine's `/usr/include` off the path (see `oops-libcxx.mk`).
 # `FT2_BUILD_LIBRARY` is FreeType's switch for building the library rather than a consumer.
 # `FT_CONFIG_MODULES_H` names the trimmed module list in `include/ftmodule-oops.h`.
-OOPS_FT_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
-                 -nostdlibinc -fPIC -O2 -w -DFT2_BUILD_LIBRARY \
+OOPS_FT_CFLAGS = -target x86_64-unknown-freebsd -nostdlib -fPIC -O2 -w -DFT2_BUILD_LIBRARY \
                  '-DFT_CONFIG_MODULES_H=<ftmodule-oops.h>' \
                  '-DFT_CONFIG_OPTIONS_H=<ftoption-oops.h>' \
-                 -I$(OOPS_FT_DIR)/include \
-                 $(OOPS_FT_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
+                 -I$(OOPS_FT_DIR)/include $(OOPS_FT_INCLUDE) \
+                 $(call oops_dep_sys,-ffreestanding -fno-builtin -nostdlibinc \
+                     $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE))
 
 # `ar` is handed the object list rather than a directory glob (see `common/deps.mk`).
-$(OOPS_FT_LIB): $(OOPS_FT_SRCS) $(lastword $(MAKEFILE_LIST))
+$(OOPS_FT_LIB): $(OOPS_FT_SRCS) $(OOPS_FT_DIR)/oops-freetype.mk
 	@mkdir -p $(OOPS_FT_BUILD)
 	@rm -f $@
 	@n=0; objs=""; for src in $(OOPS_FT_SRCS); do \
@@ -81,3 +86,5 @@ freetype-upstream:
 freetype-upstream-clean:
 	@rm -rf $(OOPS_FT_UPSTREAM)
 	@echo "freetype: removed upstream/"
+
+endif

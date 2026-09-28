@@ -303,7 +303,7 @@ census: $(OOPS_SDL_PREFIX_STAMP)
 # archive, `ghostship.o2r`; `config.yml`, which names the ROMs Torch accepts; and `assets/`, the
 # extraction descriptions Torch reads to convert the player's ROM. `ghostship.o2r` is `port/`
 # with libultraship's shaders copied over it, packed as `GeneratePortO2R` packs it
-# (`shim/pack_o2r.py`). `assets/` is 842 files, so it ships as one tar the entry shim unpacks on
+# (`common/pack_o2r.py`). `assets/` is 842 files, so it ships as one tar the entry shim unpacks on
 # first start - `pros restore` costs per file.
 GHST_PKG = build/title/$(TITLE_ID)
 .PHONY: package
@@ -311,7 +311,7 @@ package: title
 	@rm -rf build/o2r-port && mkdir -p build/o2r-port
 	@cp -r $(GHST_UP)/port/. build/o2r-port/
 	@cp -r $(GHST_LUS)/src/fast/shaders/. build/o2r-port/shaders/
-	@python3 $(CURDIR)/shim/pack_o2r.py build/o2r-port $(GHST_PKG)/ghostship.o2r 3.0.0
+	@python3 $(OOPS_APPS_ROOT)/common/pack_o2r.py build/o2r-port $(GHST_PKG)/ghostship.o2r 3.0.0
 	@cp $(GHST_UP)/config.yml $(GHST_PKG)/config.yml
 	@tar --format=gnu -cf $(GHST_PKG)/ghostship-assets.tar -C $(GHST_UP) assets
 	@echo "ghostship: package is $(GHST_PKG) ($$(du -sh $(GHST_PKG) | cut -f1))"

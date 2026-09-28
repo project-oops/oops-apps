@@ -10,11 +10,17 @@
 #
 # `include/jconfig.h` and `include/jconfigint.h` stand in for CMake's generated headers, and
 # `include/jversion.h` is upstream's template with its one substitution made.
+#
+# Freestanding or hosted by the including title (`common/dep-sys.mk`).
+ifndef OOPS_JPEG_MK
+OOPS_JPEG_MK := 1
+
 ifndef OOPS_JPEG_DIR
 OOPS_JPEG_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
+include $(OOPS_JPEG_DIR)/../../../common/dep-sys.mk
 OOPS_JPEG_UPSTREAM ?= $(OOPS_JPEG_DIR)/upstream
-OOPS_JPEG_BUILD ?= $(OOPS_JPEG_DIR)/build
+OOPS_JPEG_BUILD ?= $(OOPS_JPEG_DIR)/build$(OOPS_DEP_BUILD_SUFFIX)
 OOPS_JPEG_INCLUDE := -I$(OOPS_JPEG_DIR)/include -I$(OOPS_JPEG_UPSTREAM)/src
 OOPS_JPEG_LIB := $(OOPS_JPEG_BUILD)/libjpeg.a
 OOPS_JPEG_LDFLAGS := $(OOPS_JPEG_LIB)
@@ -39,12 +45,11 @@ OOPS_JPEG_WRAPDIR := $(OOPS_JPEG_BUILD)/wrapper
 OOPS_JPEG_WRAP_SRCS := \
     $(foreach f,$(OOPS_JPEG_WRAP_3),$(foreach b,8 12 16,$(OOPS_JPEG_WRAPDIR)/$(f)-$(b).c)) \
     $(foreach f,$(OOPS_JPEG_WRAP_2),$(foreach b,8 12,$(OOPS_JPEG_WRAPDIR)/$(f)-$(b).c))
-OOPS_JPEG_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
-                   -nostdlibinc -fPIC -O2 -w $(OOPS_JPEG_INCLUDE) $(OOPS_POSIX_INCLUDE) \
-                   $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
+OOPS_JPEG_CFLAGS = -target x86_64-unknown-freebsd -nostdlib -fPIC -O2 -w $(OOPS_JPEG_INCLUDE) \
+                   $(OOPS_DEP_SYS)
 # `ar` is handed the object list rather than a directory glob (see `common/deps.mk`), so objects
 # from a changed wrapper set are never collected.
-$(OOPS_JPEG_LIB): $(OOPS_JPEG_SRCS) $(lastword $(MAKEFILE_LIST))
+$(OOPS_JPEG_LIB): $(OOPS_JPEG_SRCS) $(OOPS_JPEG_DIR)/oops-libjpeg.mk
 	@mkdir -p $(OOPS_JPEG_WRAPDIR)
 	@rm -f $@
 	@for f in $(OOPS_JPEG_WRAP_3); do for b in 8 12 16; do \
@@ -63,3 +68,5 @@ $(OOPS_JPEG_LIB): $(OOPS_JPEG_SRCS) $(lastword $(MAKEFILE_LIST))
 .PHONY: libjpeg-clean
 libjpeg-clean:
 	@rm -rf $(OOPS_JPEG_BUILD)
+
+endif
