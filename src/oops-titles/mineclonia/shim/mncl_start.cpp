@@ -17,17 +17,9 @@
 #include "oops/syscall.h"
 #include "oops/system.h"
 
-#include "tar_unpack.h"
+#include "loading_screen.h"
 
 extern "C" void oops_crashtrace_install(void);
-
-/* The first start takes a while; the log says how far it has got. */
-static void mncl_unpack_progress(size_t files, void *user) {
-    (void)user;
-    if (files % 1000u == 0u) {
-        oops_log_info("MNCL", "unpacked %zu files", files);
-    }
-}
 
 #include <cstdlib>
 
@@ -49,9 +41,10 @@ mineclonia_start(const payload_args_t *args) {
     oops_log_info("MNCL", "entry");
     oops_crashtrace_install();
 
-    if (oops_tar_unpack_once(OOPS_POSIX_HOME "/luanti-data.tar", OOPS_POSIX_HOME,
-                             OOPS_POSIX_HOME "/.luanti-data-unpacked",
-                             mncl_unpack_progress, nullptr) != 0) {
+    /* Behind a loading screen: the first start takes a while. */
+    if (oops_loading_unpack_once("Mineclonia", OOPS_POSIX_HOME "/luanti-data.tar",
+                                 OOPS_POSIX_HOME,
+                                 OOPS_POSIX_HOME "/.luanti-data-unpacked") != 0) {
         oops_log_error("MNCL",
                        "the game data could not be unpacked; see the lines above");
         /* `exit`, not `return`: the loader called this and has nowhere to return to. */

@@ -14,7 +14,7 @@
 #include "oops/syscall.h"
 #include "oops/system.h"
 
-#include "tar_unpack.h"
+#include "loading_screen.h"
 
 #include <cstdlib>
 
@@ -31,14 +31,6 @@ int stkt_upstream_main(int argc, char *argv[]) __asm__("main");
 
 /* app.mk derives the entry symbol from the app name; lld only warns on a mismatch. */
 extern "C" int supertuxkart_start(const payload_args_t *args);
-
-/* The first start unpacks 5,586 files; the log says how far it has got. */
-static void stkt_unpack_progress(size_t files, void *user) {
-    (void)user;
-    if (files % 500u == 0u) {
-        oops_log_info("STKT", "unpacked %zu data files", files);
-    }
-}
 
 __attribute__((visibility("default"))) extern "C" int
 supertuxkart_start(const payload_args_t *args) {
@@ -57,9 +49,10 @@ supertuxkart_start(const payload_args_t *args) {
     oops_log_info("STKT", "entry");
     oops_crashtrace_install();
 
-    if (oops_tar_unpack_once(OOPS_POSIX_HOME "/stk-data.tar", OOPS_POSIX_HOME,
-                             OOPS_POSIX_HOME "/.stk-data-unpacked",
-                             stkt_unpack_progress, nullptr) != 0) {
+    /* 5,586 files behind a loading screen, on the first start only. */
+    if (oops_loading_unpack_once("SuperTuxKart", OOPS_POSIX_HOME "/stk-data.tar",
+                                 OOPS_POSIX_HOME,
+                                 OOPS_POSIX_HOME "/.stk-data-unpacked") != 0) {
         oops_log_error("STKT", "the game data could not be unpacked; see above");
         exit(1);
     }

@@ -105,6 +105,7 @@ int oops_tar_unpack_once(const char *archive, const char *dest, const char *mark
     char longname[TAR_PATH_MAX];
     char name[TAR_PATH_MAX];
     char full[TAR_PATH_MAX + 64u];
+    oops_tar_progress_t state = {0u, 0u, 0u, (const char *)0};
     size_t files = 0u;
     int have_long = 0;
     int fd;
@@ -119,10 +120,15 @@ int oops_tar_unpack_once(const char *archive, const char *dest, const char *mark
     }
     oops_log_info("TAR", "unpacking %s into %s", archive, dest);
     (void)oops_fs_mkdir(dest, 0755);
+    {
+        const int64_t total = oops_fs_file_size(archive);
+        state.bytes_total = total > 0 ? (uint64_t)total : 0u;
+    }
 
     for (;;) {
         size_t zero = 0u;
         uint64_t size;
+        const char *rel = name;
         char type;
 
         if (tar_read_full(fd, hdr, sizeof(hdr)) != 0) {
@@ -177,6 +183,7 @@ int oops_tar_unpack_once(const char *archive, const char *dest, const char *mark
                 return -1;
             }
             (void)oops_snprintf(full, sizeof(full), "%s/%s", dest, p);
+            rel = p;
         }
 
         if (type == '5') {
@@ -192,7 +199,11 @@ int oops_tar_unpack_once(const char *archive, const char *dest, const char *mark
             }
             files++;
             if (progress) {
-                progress(files, user);
+                const int64_t at = oops_fs_seek(fd, 0, 1 /* SEEK_CUR */);
+                state.files_done = files;
+                state.bytes_done = at > 0 ? (uint64_t)at : state.bytes_done;
+                state.name = rel;
+                progress(&state, user);
             }
         } else {
             oops_log_info("TAR",

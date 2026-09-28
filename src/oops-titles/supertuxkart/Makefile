@@ -29,7 +29,7 @@ SCAFFOLD_DEPS   := sdl2 libcxx openal-soft libogg libvorbis freetype harfbuzz li
                    libjpeg-turbo zlib curl mbedtls
 SCAFFOLD_SUPPLY := nothing - the game and its data are free and ship in the package
 
-OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog net
+OOPS_FEATURES := display input keyboard mouse audio suspend thread draw png dialog net
 
 # Every dependency builds hosted, against the Mesa sysroot, because the title is
 # (`common/dep-sys.mk`); libc++ too, which `OOPS_LIBCXX_HOSTED` selects.
@@ -190,6 +190,7 @@ OOPS_CXX_FLAGS += -I$(OOPS_APPS_ROOT)/common -DOOPS_POSIX_HOME=\"/app0\"
 EXTRA_TARGET_CFLAGS += -DOOPS_CXX_EXTERNAL_NEW_DELETE -I$(OOPS_APPS_ROOT)/common \
                        -DOOPS_POSIX_HOME=\"/app0\"
 PAYLOAD_SRCS := $(OOPS_APPS_ROOT)/common/crashtrace.c $(OOPS_APPS_ROOT)/common/tar_unpack.c \
+                $(OOPS_APPS_ROOT)/common/loading_screen.c \
                 $(OOPS_POSIX_HOSTED_SRCS)
 # Each archive after everything that calls it.
 EXTRA_TARGET_LDFLAGS += -Wl,--whole-archive $(STKT_LIB) -Wl,--no-whole-archive \

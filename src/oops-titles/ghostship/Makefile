@@ -230,7 +230,7 @@ CENSUS_torch_c_FLAGS = $(GHST_C)
 CENSUS_torch_cxx_SRCS := $(GHST_TORCH_CXX_SRCS)
 CENSUS_torch_cxx_FLAGS = $(GHST_CXX)
 
-OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog
+OOPS_FEATURES := display input keyboard mouse audio suspend thread draw png dialog
 
 include $(OOPS_APPS_ROOT)/common/deps.mk
 
@@ -269,7 +269,8 @@ OOPS_CXX_FLAGS += -I$(OOPS_APPS_ROOT)/common $(OOPS_POSIX_INCLUDE) -DOOPS_POSIX_
 EXTRA_TARGET_CFLAGS += -DOOPS_CXX_EXTERNAL_NEW_DELETE $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE) \
                        -I$(OOPS_APPS_ROOT)/common -DOOPS_POSIX_HOME=\"/app0\"
 PAYLOAD_SRCS := $(OOPS_APPS_ROOT)/common/crashtrace.c $(OOPS_APPS_ROOT)/common/player_data.c \
-                $(OOPS_APPS_ROOT)/common/tar_unpack.c $(OOPS_POSIX_SRCS)
+                $(OOPS_APPS_ROOT)/common/tar_unpack.c \
+                $(OOPS_APPS_ROOT)/common/loading_screen.c $(OOPS_POSIX_SRCS)
 # Each archive after everything that calls it, as `../spaghetti-kart` orders them.
 EXTRA_TARGET_LDFLAGS += -Wl,--whole-archive $(GHST_LIB) -Wl,--no-whole-archive \
                         $(OOPS_CXX_LDFLAGS) $(OOPS_CIMGUI_LDFLAGS) $(OOPS_IMGUI_LDFLAGS) \

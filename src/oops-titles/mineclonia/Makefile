@@ -119,7 +119,7 @@ CENSUS_libs_c_FLAGS = $(MNCL_BASE) -std=gnu11 -I$(CURDIR)/shim/include/sha256 $(
     $(MNCL_SYS)
 
 # `net` for the engine's loopback server, which a single-player world runs through.
-OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog net
+OOPS_FEATURES := display input keyboard mouse audio suspend thread draw png dialog net
 
 # `__tls_get_addr` is libkernel's, which `common/symbols.txt` records, so the loader resolves it;
 # the engine's `thread_local`s reach it, as `../balatro`'s do.
@@ -158,6 +158,7 @@ OOPS_CXX_FLAGS += -I$(OOPS_APPS_ROOT)/common $(OOPS_POSIX_INCLUDE) -DOOPS_POSIX_
 EXTRA_TARGET_CFLAGS += -DOOPS_CXX_EXTERNAL_NEW_DELETE $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE) \
                        -I$(OOPS_APPS_ROOT)/common -DOOPS_POSIX_HOME=\"/app0\"
 PAYLOAD_SRCS := $(OOPS_APPS_ROOT)/common/tar_unpack.c $(OOPS_APPS_ROOT)/common/crashtrace.c \
+                $(OOPS_APPS_ROOT)/common/loading_screen.c \
                 $(OOPS_POSIX_SRCS)
 EXTRA_TARGET_LDFLAGS += -Wl,--whole-archive $(MNCL_LIB) -Wl,--no-whole-archive \
                         $(OOPS_CXX_LDFLAGS) $(OOPS_SQLITE_LDFLAGS) $(OOPS_ZSTD_LDFLAGS) \

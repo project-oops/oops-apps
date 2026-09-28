@@ -18,21 +18,13 @@
 #include "oops/syscall.h"
 #include "oops/system.h"
 
+#include "loading_screen.h"
 #include "player_data.h"
-#include "tar_unpack.h"
 
 #include <cstdlib>
 #include <cstring>
 
 extern "C" void oops_crashtrace_install(void);
-
-/* The first start unpacks 842 files; the log says how far it has got. */
-static void ghst_unpack_progress(size_t files, void *user) {
-    (void)user;
-    if (files % 200u == 0u) {
-        oops_log_info("GHST", "unpacked %zu asset descriptions", files);
-    }
-}
 
 int main(int argc, char **argv);
 
@@ -73,10 +65,11 @@ ghostship_start(const payload_args_t *args) {
     oops_crashtrace_install();
 
     /* Torch's extraction descriptions (`assets/`), which the package carries as one tar
-       (see the Makefile's `package`). Upstream's first run checks for the directory. */
-    if (oops_tar_unpack_once(OOPS_POSIX_HOME "/ghostship-assets.tar", OOPS_POSIX_HOME,
-                             OOPS_POSIX_HOME "/.ghostship-assets-unpacked",
-                             ghst_unpack_progress, nullptr) != 0) {
+       (see the Makefile's `package`), unpacked behind a loading screen on the first
+       start. Upstream's first run checks for the directory. */
+    if (oops_loading_unpack_once("Ghostship", OOPS_POSIX_HOME "/ghostship-assets.tar",
+                                 OOPS_POSIX_HOME,
+                                 OOPS_POSIX_HOME "/.ghostship-assets-unpacked") != 0) {
         oops_log_error("GHST",
                        "the asset descriptions could not be unpacked; see above");
         exit(1);

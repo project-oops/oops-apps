@@ -22,13 +22,24 @@
 #define OOPS_APPS_TAR_UNPACK_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* Called after each file with the number unpacked so far, for a progress display. */
-typedef void (*oops_tar_progress_fn)(size_t files_done, void *user);
+/* Where an unpack has got to. Bytes are the archive's - headers and padding included -
+ * so `bytes_done` reaches `bytes_total` at the end and their ratio is how far along it
+ * is. `bytes_total` is 0 when the archive's size could not be read. */
+typedef struct oops_tar_progress {
+    size_t files_done;
+    uint64_t bytes_done;
+    uint64_t bytes_total;
+    const char *name; /* the entry just written, relative to `dest` */
+} oops_tar_progress_t;
+
+/* Called after each file, for a progress display (`loading_screen.h` is one). */
+typedef void (*oops_tar_progress_fn)(const oops_tar_progress_t *progress, void *user);
 
 /*
  * Unpacks `archive` into `dest` unless `marker` exists. 0 when the data is in place
