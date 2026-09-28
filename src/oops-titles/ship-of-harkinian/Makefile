@@ -162,6 +162,10 @@ OOPS_TINYXML2 ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/tinyxml2)
 include $(OOPS_TINYXML2)/oops-tinyxml2.mk
 OOPS_GFXD ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libgfxd)
 include $(OOPS_GFXD)/oops-libgfxd.mk
+# ZAPD writes textures out as PNG while it converts a ROM, and is the only reason this
+# title needs libpng; nothing in the game itself reads one.
+OOPS_PNG ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libpng)
+include $(OOPS_PNG)/oops-libpng.mk
 OOPS_STB ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/stb)
 include $(OOPS_STB)/oops-stb.mk
 OOPS_JSON ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/nlohmann-json)
@@ -337,6 +341,39 @@ SOH_CXX_ALL = $(shell find $(CURDIR)/upstream/soh/soh $(CURDIR)/upstream/libultr
                         -name '*.cpp' 2>/dev/null | grep -vE '$(SOH_EXCLUDE_RE)' | sort)
 # `sprintf.c` is added back by name: the exclusion above drops `src/libultra/libc` whole and upstream
 # re-adds this one file, which `osSyncPrintf` and the game's own formatting go through.
+# ---------------------------------------------------------------------------
+# ZAPD and OTRExporter: converting a ROM into `oot.o2r` on the device
+#
+# 113 of their 114 sources compile for this target unchanged. The one flag they need is
+# `-DGAME_OOT`: OTRExporter is shared with Majora's Mask and selects its resource headers
+# on `GAME_MM`/`GAME_OOT`, so with neither defined it includes no game headers at all and
+# every `SOH::` name is undeclared - which reads like a missing include path and is not.
+#
+# `CrashHandler.cpp` is the one exclusion. It wants `execinfo.h`, which is a desktop
+# backtrace header, and its handler would install itself over `common/crashtrace.c`'s.
+# `shim/zapd_stubs.cpp` answers the one symbol `Main.cpp` calls.
+# ---------------------------------------------------------------------------
+#
+# `Utils/StringHelper.cpp` is excluded too: ZAPD and libultraship each vendor a copy of
+# the same global `StringHelper`, and both on the link line is 18 duplicate symbols.
+# Checked before choosing which to drop - the two define the identical fifteen methods,
+# so libultraship's satisfies ZAPD's references and the difference in length is
+# formatting. Its header stays on the include path, which is what ZAPD compiles against.
+SOH_ZAPD_EXCLUDE_RE := ZAPD/CrashHandler\.cpp|ZAPD/Utils/StringHelper\.cpp
+
+SOH_ZAPD_ALL = $(shell find $(CURDIR)/upstream/ZAPDTR/ZAPD \
+                        $(CURDIR)/upstream/OTRExporter/OTRExporter \
+                        -name '*.cpp' 2>/dev/null | grep -vE '$(SOH_ZAPD_EXCLUDE_RE)' | sort)
+
+SOH_ZAPD_INCLUDE := -DGAME_OOT \
+                    -I$(CURDIR)/upstream/ZAPDTR/ZAPD \
+                    -I$(CURDIR)/upstream/ZAPDTR/lib/libgfxd \
+                    -I$(CURDIR)/upstream/ZAPDTR/lib/tinyxml2 \
+                    -I$(CURDIR)/upstream/OTRExporter/OTRExporter \
+                    -I$(CURDIR)/upstream/OTRExporter \
+                    -I$(CURDIR)/upstream/libultraship/extern \
+                    $(OOPS_PNG_INCLUDE)
+
 SOH_C_ALL   = $(shell find $(CURDIR)/upstream/soh/src $(CURDIR)/upstream/soh/soh \
                         $(CURDIR)/upstream/libultraship/src \
                         -name '*.c' 2>/dev/null | grep -vE '$(SOH_EXCLUDE_RE)' | sort) \
@@ -344,7 +381,8 @@ SOH_C_ALL   = $(shell find $(CURDIR)/upstream/soh/src $(CURDIR)/upstream/soh/soh
 
 ifeq ($(SOH_ARMED),1)
 OOPS_CXX_STD        = c++20
-OOPS_CXX_SRCS = $(SOH_CXX_ALL) $(CURDIR)/shim/Extract.cpp
+OOPS_CXX_SRCS = $(SOH_CXX_ALL) $(SOH_ZAPD_ALL) $(CURDIR)/shim/Extract.cpp \
+                $(CURDIR)/shim/zapd_stubs.cpp
 # Object names collide across the port's trees - ControlDeck, Controller, Menu and more appear in
 # both soh and libultraship - so the objects go on the link line rather than into an archive that
 # would keep one of each. Set before the include, which is where `oops_ar_check` runs.
@@ -361,7 +399,7 @@ OOPS_CXX_INCLUDE += $(OOPS_LIBCXX_INCLUDE) $(OOPS_POSIX_INCLUDE) \
 # The two relaxations the survey carries, which `-w` alone does not cover: narrowing in an
 # initialiser list is an error rather than a warning, and two sources call `std::toupper` without
 # including `<cctype>`, which libstdc++ reaches transitively and libc++ does not.
-OOPS_CXX_FLAGS += -Wno-c++11-narrowing -include cctype
+OOPS_CXX_FLAGS += -Wno-c++11-narrowing -include cctype $(SOH_ZAPD_INCLUDE)
 PAYLOAD_SRCS = shim/soh_start.c $(SOH_BUILD_C) $(SOH_C_ALL) $(OOPS_POSIX_SRCS) \
                $(OOPS_APPS_ROOT)/common/crashtrace.c
 
@@ -371,6 +409,7 @@ EXTRA_TARGET_LDFLAGS += $(OOPS_CXX_LDFLAGS) $(OOPS_IMGUI_LDFLAGS) $(OOPS_STORMLI
                         $(OOPS_LIBZIP_LDFLAGS) $(OOPS_TINYXML2_LDFLAGS) $(OOPS_SPDLOG_LDFLAGS) \
                         $(OOPS_PRISM_LDFLAGS) $(OOPS_GFXD_LDFLAGS) $(OOPS_STB_LDFLAGS) \
                         $(OOPS_VORBIS_LDFLAGS) $(OOPS_OPUSFILE_LDFLAGS) \
+                        $(OOPS_PNG_LDFLAGS) \
                         $(OOPS_ZLIB_LDFLAGS) $(OOPS_SDL_LDFLAGS) \
                         $(OOPS_LIBCXX_LDFLAGS) $(OOPS_LIBCXXABI_LDFLAGS) \
                         $(OOPS_LIBUNWIND_LDFLAGS)
@@ -378,7 +417,7 @@ PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_IMGUI_LIB) $(OOPS_STORMLIB_LIB) \
                         $(OOPS_LIBZIP_LIB) $(OOPS_TINYXML2_LIB) $(OOPS_SPDLOG_LIB) \
                         $(OOPS_PRISM_LIB) $(OOPS_GFXD_LIB) $(OOPS_STB_LIB) \
                         $(OOPS_VORBIS_LIB) $(OOPS_OPUSFILE_LIB) $(OOPS_OPUS_LIB) \
-                        $(OOPS_OGG_LIB) $(OOPS_ZLIB_LIB) $(OOPS_SDL_LIB) \
+                        $(OOPS_OGG_LIB) $(OOPS_PNG_LIB) $(OOPS_ZLIB_LIB) $(OOPS_SDL_LIB) \
                         $(OOPS_LIBCXX_LIB) $(OOPS_LIBCXXABI_LIB) $(OOPS_LIBUNWIND_LIB)
 endif
 

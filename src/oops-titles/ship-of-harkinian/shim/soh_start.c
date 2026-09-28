@@ -73,11 +73,10 @@ static int soh_report_game_data(void) {
                        path);
     }
 
-    oops_log_error(
-        "SOH",
-        "oot.o2r missing - convert an Ocarina of Time ROM to it on a desktop "
-        "and copy the archive to %s",
-        OOPS_POSIX_HOME);
+    oops_log_error("SOH",
+                   "oot.o2r missing - convert an Ocarina of Time ROM to it on a "
+                   "desktop and copy it to /data/homebrew/%s/oot.o2r, beside eboot.bin",
+                   OOPS_APP_ID);
     return 0;
 }
 
@@ -93,12 +92,22 @@ static int soh_report_game_data(void) {
 static void soh_say_no_rom(void) {
     char message[512];
 
+    /*
+     * The path the player can act on, not the one the process sees.
+     *
+     * `OOPS_POSIX_HOME` is `/app0`, which is where the package is mounted from inside
+     * the sandbox and means nothing to somebody copying a file onto the console. The
+     * same directory is `/data/homebrew/<title id>` from outside, and it is the one
+     * `eboot.bin` sits in - so say that, and name the file beside it that they can
+     * already see.
+     */
     if (oops_snprintf(message, sizeof(message),
                       "oot.o2r was not found.\n\n"
                       "Convert an Ocarina of Time ROM to oot.o2r on a desktop, then "
-                      "copy it to %s beside the game.\n\n"
+                      "copy it here, beside eboot.bin:\n\n"
+                      "    /data/homebrew/%s/oot.o2r\n\n"
                       "The ROM is yours to supply; nothing else is missing.",
-                      OOPS_POSIX_HOME) <= 0) {
+                      OOPS_APP_ID) <= 0) {
         return;
     }
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Game data not found", message,
