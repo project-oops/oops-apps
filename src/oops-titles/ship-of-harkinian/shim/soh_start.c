@@ -17,6 +17,7 @@
  */
 void oops_crashtrace_install(void);
 #include "oops/time.h"
+#include <SDL2/SDL.h>
 #include <stdlib.h>
 
 int main(int argc, char **argv);
@@ -34,12 +35,21 @@ int ship_of_harkinian_start(const payload_args_t *args);
  * OTR file not found"), and the same fact goes to the log, where it can be read without
  * a screen.
  *
- * It reports rather than refuses: whether the game can start is libultraship's answer
- * to give, and it gives it a few frames later with more of the picture than this has.
+ * It used to report and carry on, on the grounds that whether the game can start is
+ * libultraship's answer to give. It does not give one: `OTRGlobals.cpp:295` passes
+ * `allowEmptyPaths = true`, so the resource manager accepts having loaded nothing and
+ * says nothing, and the engine goes on building a window and a GUI over resources that
+ * are not there. What the player sees for that is not a message, it is a title that
+ * disappears.
+ *
+ * So it answers here instead, where the question is already settled: no ROM archive
+ * means no game, and the one useful thing left to do is say so on screen.
+ *
+ * Returns non-zero when there is game data to start with.
  */
-static void soh_report_game_data(void);
+static int soh_report_game_data(void);
 
-static void soh_report_game_data(void) {
+static int soh_report_game_data(void) {
     static const char *const archives[] = {"oot.o2r", "oot-mq.o2r"};
     char path[256];
     size_t i;
@@ -54,7 +64,7 @@ static void soh_report_game_data(void) {
         }
     }
     if (have_archive) {
-        return;
+        return 1;
     }
 
     if (oops_snprintf(path, sizeof(path), "%s/%s", OOPS_POSIX_HOME, "soh.o2r") > 0 &&
@@ -68,6 +78,31 @@ static void soh_report_game_data(void) {
         "oot.o2r missing - convert an Ocarina of Time ROM to it on a desktop "
         "and copy the archive to %s",
         OOPS_POSIX_HOME);
+    return 0;
+}
+
+/*
+ * The same sentence the log carries, on the screen.
+ *
+ * `SDL_ShowSimpleMessageBox` before `SDL_Init` is deliberate and is the path SDL
+ * provides for it: with no video device it asks each bootstrap in turn, which reaches
+ * this platform's driver, and that draws the message itself when the system dialog
+ * cannot be used - there is no video-out session this early for a common dialog to
+ * composite against.
+ */
+static void soh_say_no_rom(void) {
+    char message[512];
+
+    if (oops_snprintf(message, sizeof(message),
+                      "oot.o2r was not found.\n\n"
+                      "Convert an Ocarina of Time ROM to oot.o2r on a desktop, then "
+                      "copy it to %s beside the game.\n\n"
+                      "The ROM is yours to supply; nothing else is missing.",
+                      OOPS_POSIX_HOME) <= 0) {
+        return;
+    }
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Game data not found", message,
+                             NULL);
 }
 
 __attribute__((visibility("default"))) int
@@ -110,7 +145,22 @@ ship_of_harkinian_start(const payload_args_t *args) {
        stands in for the device. */
     srand((unsigned)oops_time_get_counter());
 
-    soh_report_game_data();
+    /*
+     * No ROM archive, no game. Say so and stop, rather than handing an engine that has
+     * loaded nothing to `main` and letting it fault a few frames later with the player
+     * looking at a title that vanished.
+     */
+    if (!soh_report_game_data()) {
+        soh_say_no_rom();
+        oops_log_info("SOH", "stopping: there is no game data to start with");
+        /*
+         * `exit`, not `return`. Returning from the entry point jumps to a null return
+         * address - the fault after the message was drawn, `rip` of 0 - because the
+         * loader calls this and has nowhere to go back to. `exit` parks the process
+         * instead, which is the conforming ending for a big app on this platform.
+         */
+        exit(0);
+    }
 
     return main(1, argv);
 }
