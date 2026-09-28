@@ -81,8 +81,9 @@ STKT_AS_SRCS := $(wildcard $(STKT_LIB)/angelscript/source/*.cpp)
 STKT_GE_SRCS := $(wildcard $(STKT_LIB)/graphics_engine/src/*.cpp)
 STKT_GE_C_SRCS := $(wildcard $(STKT_LIB)/graphics_engine/src/*.c)
 STKT_LIBS_CXX_SRCS := $(wildcard $(STKT_LIB)/libsquish/*.cpp $(STKT_LIB)/tinygettext/src/*.cpp)
-STKT_LIBS_C_SRCS := $(wildcard $(STKT_LIB)/enet/*.c $(STKT_LIB)/graphics_utils/mipmap/*.c) \
+STKT_LIBS_C_SRCS := $(wildcard $(STKT_LIB)/graphics_utils/mipmap/*.c) \
                     $(STKT_LIB)/sheenbidi/Source/SheenBidi.c
+STKT_ENET_SRCS := $(wildcard $(STKT_LIB)/enet/*.c)
 # mcpp's own list (`lib/mcpp/CMakeLists.txt`), with the two definitions it builds under.
 STKT_MCPP_SRCS := $(addprefix $(STKT_LIB)/mcpp/,directive.c eval.c expand.c main.c \
                     main_libmcpp.c mbchar.c support.c system.c)
@@ -95,7 +96,14 @@ STKT_MCPP_SRCS := $(addprefix $(STKT_LIB)/mcpp/,directive.c eval.c expand.c main
 # sysroot and Mesa's GL headers, which `common/app.mk` reads in.
 STKT_DEFS := '-DSUPERTUXKART_VERSION="1.5"' -D_IRR_STATIC_LIB_ -DNO_IRR_COMPILE_WITH_X11_ \
              -DNO_IRR_COMPILE_WITH_WAYLAND_DEVICE_ -DNO_IRR_COMPILE_WITH_DIRECT3D_9_ \
-             -DDISABLE_SHADERC -DENABLE_SOUND -DAL_LIBTYPE_STATIC -DENABLE_CRYPTO_MBEDTLS -DNDEBUG
+             -DDISABLE_SHADERC -DENABLE_SOUND -DAL_LIBTYPE_STATIC -DENABLE_CRYPTO_MBEDTLS -DNDEBUG \
+             -DENABLE_IPV6
+# `USE_IPV6` is on by default (CMakeLists.txt:29, :237), which is also what selects the bundled
+# ENet. ENet's own CMake probes the C library (lib/enet/CMakeLists.txt:7-65); against FreeBSD's
+# every probe succeeds, so every switch it would set is set.
+STKT_ENET_DEFS := -DHAS_FCNTL=1 -DHAS_POLL=1 -DHAS_GETNAMEINFO=1 -DHAS_GETADDRINFO=1 \
+                  -DHAS_GETHOSTBYNAME_R=1 -DHAS_GETHOSTBYADDR_R=1 -DHAS_INET_PTON=1 \
+                  -DHAS_INET_NTOP=1 -DHAS_MSGHDR_FLAGS=1 -DHAS_SOCKLEN_T=1
 STKT_INC := -I$(STKT)/src -I$(STKT_LIB)/irrlicht/include -I$(STKT_LIB)/bullet/src \
             -I$(STKT_LIB)/enet/include -I$(STKT_LIB)/angelscript/include \
             -I$(STKT_LIB)/graphics_engine/include -I$(STKT_LIB)/graphics_utils \
@@ -110,7 +118,9 @@ STKT_CXX = -x c++ -std=c++17 $(STKT_BASE) -nostdinc++ -fexceptions -frtti $(OOPS
 STKT_C = -x c -std=gnu11 $(STKT_BASE) $(STKT_DEFS) $(STKT_INC) $(STKT_DEP_INC) \
          $(OOPS_MESA_INCLUDE) $(OOPS_SDK_INCLUDE)
 
-CENSUS_SETS := game bullet irrlicht angelscript ge ge_c libs_cxx libs_c mcpp
+CENSUS_SETS := game bullet irrlicht angelscript ge ge_c libs_cxx libs_c mcpp enet
+CENSUS_enet_SRCS := $(STKT_ENET_SRCS)
+CENSUS_enet_FLAGS = $(STKT_C) $(STKT_ENET_DEFS)
 CENSUS_mcpp_SRCS := $(STKT_MCPP_SRCS)
 CENSUS_mcpp_FLAGS = $(STKT_C) -DMCPP_LIB -DHAVE_CONFIG_H
 CENSUS_game_SRCS := $(STKT_GAME_SRCS)
