@@ -74,4 +74,10 @@ typedef int64_t suseconds_t;
 #define _SUSECONDS_T_DECLARED
 #endif
 
+/* FreeBSD's `<sys/types.h>` brings `<sys/select.h>` with it, and ports rely on that for
+ * `fd_set` (cURL's `curl/multi.h`, LÖVE's luasocket). The SDK's copy does the same; this one
+ * matches it for the compiles that reach this copy first. Last, because `sys/select.h` reaches
+ * back here through `sys/time.h`. */
+#include <sys/select.h>
+
 #endif

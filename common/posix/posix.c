@@ -41,6 +41,7 @@
 
 #include <dirent.h>
 #include <dlfcn.h> /* Dl_info, for the dladdr below */
+#include <getopt.h> /* struct option, for the getopt_long below */
 #include <errno.h>
 #include <locale.h>
 #include <arpa/inet.h>  /* the inet_* conversions this file defines */
@@ -70,6 +71,8 @@
 #include <string.h>
 #include <strings.h> /* the declarations this file's strcasecmp pair answers */
 #include <sys/stat.h>
+#include <sys/utsname.h> /* struct utsname, for the uname below */
+#include <utime.h>       /* struct utimbuf, for the utime refusal below */
 #include <sys/statvfs.h> /* struct statvfs, for the always-failing statvfs below */
 #include <sys/sysctl.h> /* the declaration this file's sysctl answers */
 #include <sys/time.h>
@@ -488,6 +491,7 @@ struct dirent *readdir(DIR *dir) {
         }
         d->ent.d_name[i] = '\0';
     }
+    d->ent.d_type = e.is_directory ? DT_DIR : DT_REG;
     return &d->ent;
 }
 
@@ -691,6 +695,145 @@ off_t lseek(int fd, off_t offset, int whence) {
         return -1;
     }
     return (off_t)pos;
+}
+
+/* `unistd.h` says why these are not atomic. */
+static ssize_t posix_at_offset(int fd, void *rbuf, const void *wbuf, size_t count, off_t offset,
+                               int reading) {
+    const off_t here = lseek(fd, 0, SEEK_CUR);
+    ssize_t n;
+
+    if (here < 0 || lseek(fd, offset, SEEK_SET) < 0) {
+        return -1;
+    }
+    n = reading ? read(fd, rbuf, count) : write(fd, wbuf, count);
+    if (lseek(fd, here, SEEK_SET) < 0) {
+        return -1;
+    }
+    return n;
+}
+
+ssize_t pread(int fd, void *buf, size_t count, off_t offset) {
+    return posix_at_offset(fd, buf, NULL, count, offset, 1);
+}
+
+ssize_t pwrite(int fd, const void *buf, size_t count, off_t offset) {
+    return posix_at_offset(fd, NULL, buf, count, offset, 0);
+}
+
+/*
+ * `getopt` and `getopt_long` (`getopt.h`). `nextchar` walks a cluster of short options (`-ab`);
+ * everything else is the four globals POSIX names.
+ */
+char *optarg;
+int optind = 1;
+int opterr = 1;
+int optopt;
+static const char *s_getopt_next;
+
+static int posix_getopt_short(int argc, char *const argv[], const char *optstring) {
+    const char *spec;
+    const int c = (unsigned char)*s_getopt_next++;
+
+    spec = (c == ':') ? NULL : strchr(optstring, c);
+    if (spec == NULL) {
+        optopt = c;
+        if (*s_getopt_next == '\0') {
+            s_getopt_next = NULL;
+            optind++;
+        }
+        return '?';
+    }
+    if (spec[1] == ':') {
+        if (*s_getopt_next != '\0') {
+            optarg = (char *)s_getopt_next;
+            optind++;
+        } else if (spec[2] == ':') {
+            optarg = NULL; /* an optional argument must be attached */
+            optind++;
+        } else if (optind + 1 < argc) {
+            optarg = argv[optind + 1];
+            optind += 2;
+        } else {
+            optopt = c;
+            optind++;
+            s_getopt_next = NULL;
+            return optstring[0] == ':' ? ':' : '?';
+        }
+        s_getopt_next = NULL;
+        return c;
+    }
+    if (*s_getopt_next == '\0') {
+        s_getopt_next = NULL;
+        optind++;
+    }
+    return c;
+}
+
+int getopt(int argc, char *const argv[], const char *optstring) {
+    return getopt_long(argc, argv, optstring, NULL, NULL);
+}
+
+int getopt_long(int argc, char *const argv[], const char *optstring,
+                const struct option *longopts, int *longindex) {
+    const char *arg;
+
+    optarg = NULL;
+    if (s_getopt_next && *s_getopt_next) {
+        return posix_getopt_short(argc, argv, optstring);
+    }
+    if (optind >= argc || (arg = argv[optind]) == NULL || arg[0] != '-' || arg[1] == '\0') {
+        return -1;
+    }
+    if (arg[1] == '-' && arg[2] == '\0') {
+        optind++;
+        return -1;
+    }
+    if (arg[1] == '-' && longopts) {
+        const char *name = arg + 2;
+        const char *eq = strchr(name, '=');
+        const size_t len = eq ? (size_t)(eq - name) : strlen(name);
+        int found = -1;
+
+        for (int i = 0; longopts[i].name; i++) {
+            if (strncmp(longopts[i].name, name, len) != 0) {
+                continue;
+            }
+            if (strlen(longopts[i].name) == len) {
+                found = i; /* exact beats any prefix */
+                break;
+            }
+            found = (found == -1) ? i : -2; /* a second prefix match is ambiguous */
+        }
+        optind++;
+        if (found < 0) {
+            optopt = 0;
+            return '?';
+        }
+        if (longindex) {
+            *longindex = found;
+        }
+        if (longopts[found].has_arg == no_argument && eq) {
+            return '?';
+        }
+        if (longopts[found].has_arg != no_argument) {
+            if (eq) {
+                optarg = (char *)(eq + 1);
+            } else if (longopts[found].has_arg == required_argument) {
+                if (optind >= argc) {
+                    return optstring[0] == ':' ? ':' : '?';
+                }
+                optarg = argv[optind++];
+            }
+        }
+        if (longopts[found].flag) {
+            *longopts[found].flag = longopts[found].val;
+            return 0;
+        }
+        return longopts[found].val;
+    }
+    s_getopt_next = arg + 1;
+    return posix_getopt_short(argc, argv, optstring);
 }
 
 /*
@@ -914,25 +1057,86 @@ int utimes(const char *path, const struct timeval times[2]) {
     return -1;
 }
 
+int utime(const char *path, const struct utimbuf *times) {
+    (void)path;
+    (void)times;
+    errno = ENOSYS;
+    return -1;
+}
+
+int unlink(const char *path) {
+    if (path == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    return (oops_fs_unlink(path) == 0) ? 0 : (errno = ENOENT, -1);
+}
+
 /*
- * `unlinkat`. `AT_FDCWD` is the only anchor here, and `AT_REMOVEDIR` asks for a `rmdir` the SDK
- * does not have - refused rather than unlinking the directory's *name* and leaving its contents
- * unreachable, which is what passing it through to `unlink` would do.
+ * `mkdtemp`: `mkstemp`'s directory twin, with its name drawn from `getentropy` below. A name
+ * already taken is tried again, and one hundred collisions in a row is `EEXIST`.
  */
+char *mkdtemp(char *tmpl) {
+    static const char digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+    size_t len;
+    char *x;
+
+    if (tmpl == NULL || (len = strlen(tmpl)) < 6 || strcmp(tmpl + len - 6, "XXXXXX") != 0) {
+        errno = EINVAL;
+        return NULL;
+    }
+    x = tmpl + len - 6;
+    for (int attempt = 0; attempt < 100; attempt++) {
+        unsigned char r[6];
+        if (getentropy(r, sizeof(r)) != 0) {
+            return NULL;
+        }
+        for (int i = 0; i < 6; i++) {
+            x[i] = digits[r[i] % 36u];
+        }
+        if (!oops_fs_exists(tmpl)) {
+            return (oops_fs_mkdir(tmpl, 0700) == 0) ? tmpl : (errno = EIO, (char *)NULL);
+        }
+    }
+    errno = EEXIST;
+    return NULL;
+}
+
+/* `unlinkat`. `AT_FDCWD` is the only anchor here, and `AT_REMOVEDIR` is `rmdir`. */
 int unlinkat(int dirfd, const char *path, int flags) {
     if (dirfd != AT_FDCWD) {
         errno = EBADF;
         return -1;
     }
     if (flags & AT_REMOVEDIR) {
-        errno = ENOSYS;
-        return -1;
+        return rmdir(path);
     }
     if (path == NULL) {
         errno = EINVAL;
         return -1;
     }
     return (oops_fs_unlink(path) == 0) ? 0 : (errno = EIO, -1);
+}
+
+/* `sys/utsname.h` says which of these are known and why the rest are empty. */
+int uname(struct utsname *name) {
+    if (name == NULL) {
+        errno = EFAULT;
+        return -1;
+    }
+    memset(name, 0, sizeof(*name));
+    (void)oops_snprintf(name->sysname, sizeof(name->sysname), "FreeBSD");
+    (void)oops_snprintf(name->nodename, sizeof(name->nodename), "localhost");
+    (void)oops_snprintf(name->machine, sizeof(name->machine), "amd64");
+    return 0;
+}
+
+int rmdir(const char *path) {
+    if (path == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+    return (oops_fs_rmdir(path) == 0) ? 0 : (errno = EIO, -1);
 }
 
 /* No links on this filesystem - `unistd.h` says why a copy would be worse than a refusal. */
@@ -1148,9 +1352,14 @@ int ioctl(int fd, unsigned long request, ...) {
  * it silently leaves a socket blocking for ioquake3, which asks for `O_NONBLOCK` and ignores the
  * return. Answering both properly costs nothing.
  *
- * Everything else fails with `EINVAL`. Descriptor duplication, locking and close-on-exec have no
- * meaning here, and `fcntl` is too open-ended an interface to answer generally - the same
- * reasoning as `ioctl` above.
+ * `F_GETFD` and `F_SETFD` are close-on-exec, and that one has a true answer: nothing here can
+ * exec, so every descriptor already behaves as `FD_CLOEXEC` asks - which is why `O_CLOEXEC` is 0.
+ * `F_GETFD` reports the flag set and `F_SETFD` accepts either value. cURL sets it on every socket
+ * and treats a failure as a failed connection.
+ *
+ * Everything else fails with `EINVAL`. Descriptor duplication and locking have no meaning here,
+ * and `fcntl` is too open-ended an interface to answer generally - the same reasoning as `ioctl`
+ * above.
  */
 int fcntl(int fd, int cmd, ...) {
     va_list ap;
@@ -1163,6 +1372,10 @@ int fcntl(int fd, int cmd, ...) {
     switch (cmd) {
         case F_GETFL:
             return O_RDWR; /* see the note above */
+        case F_GETFD:
+            return FD_CLOEXEC;
+        case F_SETFD:
+            return 0;
         case F_SETFL:
             va_start(ap, cmd);
             {
@@ -1484,6 +1697,7 @@ __attribute__((weak)) long oops_recv(int s, void *b, size_t l, int f) { (void)s;
 __attribute__((weak)) long oops_sendto(int s, const void *b, size_t l, int f, const char *ip, uint16_t port) { (void)s; (void)b; (void)l; (void)f; (void)ip; (void)port; errno = ENOSYS; return -1; }
 __attribute__((weak)) long oops_recvfrom(int s, void *b, size_t l, int f, char *ip, size_t ipl, uint16_t *port) { (void)s; (void)b; (void)l; (void)f; (void)ip; (void)ipl; (void)port; errno = ENOSYS; return -1; }
 __attribute__((weak)) int oops_setsockopt(int s, int lvl, int opt, const void *v, size_t vl) { (void)s; (void)lvl; (void)opt; (void)v; (void)vl; errno = ENOSYS; return -1; }
+__attribute__((weak)) int oops_getsockopt(int s, int lvl, int opt, void *v, size_t *vl) { (void)s; (void)lvl; (void)opt; (void)v; (void)vl; errno = ENOSYS; return -1; }
 __attribute__((weak)) int oops_set_nonblocking(int s, int nb) { (void)s; (void)nb; errno = ENOSYS; return -1; }
 /* 0 - "not a would-block". With no network linked every call already failed for a permanent
  * reason, so reporting "try again" would turn `select` below into an infinite wait. */
@@ -1782,19 +1996,26 @@ int setsockopt(int sock, int level, int optname, const void *optval,
 }
 
 /*
- * No reading an option back: the SDK has no `getsockopt`, so every option is refused with
- * `ENOPROTOOPT` - the answer a caller gets for an option the system does not know. That
- * includes `SO_ERROR`, which a non-blocking `connect` reads to learn how it went; a caller
- * told "no" treats the connection as failed, which is the safe way to be wrong.
+ * Reading an option back, through `oops_getsockopt` - `oops/net.h` says which parts of that are
+ * measured. `SO_ERROR` is the one that matters: a non-blocking `connect` reads it to learn how the
+ * connection went (cURL's `verifyconnect`). The option numbers are FreeBSD's, passed through as
+ * `setsockopt` passes them. A failure is `ENOPROTOOPT`, which a caller treats as a failed
+ * connection - the safe way to be wrong.
  */
 int getsockopt(int sock, int level, int optname, void *optval, socklen_t *optlen) {
-    (void)sock;
-    (void)level;
-    (void)optname;
-    (void)optval;
-    (void)optlen;
-    errno = ENOPROTOOPT;
-    return -1;
+    size_t len;
+
+    if (optval == NULL || optlen == NULL) {
+        errno = EFAULT;
+        return -1;
+    }
+    len = (size_t)*optlen;
+    if (oops_getsockopt(sock, level, optname, optval, &len) != 0) {
+        errno = ENOPROTOOPT;
+        return -1;
+    }
+    *optlen = (socklen_t)len;
+    return 0;
 }
 
 /*

@@ -77,7 +77,12 @@ apply_patches() {
     if [ -n "$PATCH_DIR" ] && [ -d "$PATCH_DIR" ]; then
         for p in $(ls "$PATCH_DIR"/*.patch 2>/dev/null | sort); do
             echo "upstream: applying $(basename "$p")"
-            ( cd "$DIR" && git -c core.autocrlf=false -c core.eol=lf \
+            # The ceiling stops git looking above `$DIR` for a repository. A cloned upstream is
+            # its own, so nothing changes there; an unpacked archive is not, and without the
+            # ceiling git finds the collection's repository instead, treats the patch's paths as
+            # outside the current directory, and skips every hunk while reporting success.
+            ( cd "$DIR" && GIT_CEILING_DIRECTORIES="$(cd .. && pwd)" \
+                  git -c core.autocrlf=false -c core.eol=lf \
                   apply --whitespace=nowarn "$p" ) || {
                 echo "upstream-fetch: $(basename "$p") does not apply to $REV" >&2
                 exit 1
@@ -117,13 +122,29 @@ archive)
     rm -rf "$DIR"/* "$DIR"/.[!.]* 2>/dev/null || true
     rm -rf "$DIR" 2>/dev/null || true
     mkdir -p "$DIR"
+    # A tarball can hold symbolic links, some dangling until a build generates their target
+    # (NetSurf's bundle links `res/Messages` to an `en/Messages` its build writes). Git Bash's
+    # tar makes a link by copying the target, which fails for those; `winsymlinks:sys` makes it
+    # write the link itself instead. The setting means nothing on a platform with real links.
     case "$URL" in
         *.zip) unzip -q "$DOWNLOAD" -d "$DIR" ;;
-        *) tar -xf "$DOWNLOAD" -C "$DIR" ;;
+        *) MSYS="${MSYS:+$MSYS }winsymlinks:sys" tar -xf "$DOWNLOAD" -C "$DIR" ;;
     esac || {
         echo "upstream-fetch: $DOWNLOAD did not unpack" >&2
         exit 1
     }
+    # Those `sys` links are only links to Git Bash: the build container reads each as a small
+    # file holding a cookie. So on Windows every link that resolves becomes a copy of what it
+    # points at (NetSurf's `res/throbber` is a directory in another front end), and a dangling
+    # one is left for the build that generates its target.
+    case "$(uname -o 2>/dev/null)" in
+        Msys | Cygwin)
+            find "$DIR" -type l | while read -r link; do
+                [ -e "$link" ] || continue
+                cp -rL "$link" "$link.oops-copy" && rm -f "$link" && mv "$link.oops-copy" "$link"
+            done
+            ;;
+    esac
     rm -f "$DOWNLOAD"
     apply_patches
     printf '%s' "$WANT" > "$STAMP"

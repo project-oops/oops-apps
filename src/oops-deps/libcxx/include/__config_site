@@ -66,7 +66,10 @@
  * the quiet one.
  */
 #define _LIBCPP_HAS_FILESYSTEM 1
-#define _LIBCPP_HAS_RANDOM_DEVICE 0
+/* `std::random_device` is `arc4random` on FreeBSD (`__config`'s `_LIBCPP_USING_ARC4_RANDOM`),
+ * which oops-sdk's C library has over the kernel's `getrandom`. Ghostship's randomiser and UI
+ * seed from one. */
+#define _LIBCPP_HAS_RANDOM_DEVICE 1
 #define _LIBCPP_HAS_TIME_ZONE_DATABASE 0
 #define _LIBCPP_INSTRUMENTED_WITH_ASAN 0
 #define _LIBCPP_HAS_NO_STD_MODULES

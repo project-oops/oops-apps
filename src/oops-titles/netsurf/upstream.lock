@@ -1,13 +1,15 @@
 # NetSurf's origin - a web browser in C with its own layout engine, built here with its
 # framebuffer front end, which draws through SDL.
 #
-# The browser is one repository; its parsers and decoders (libcss, libdom, libhubbub,
-# libnsfb and the rest) are each their own, and are vendored under `src/oops-deps/` as the
-# port reaches them - `make survey` lists them.
+# The browser is one repository and its parsers and decoders (libcss, libdom, libhubbub,
+# libnsfb and the rest) are each their own. The project's mirrors of the libraries carry no
+# release tags, so the pin is the release's full-source bundle instead: NetSurf 3.11 with
+# every library and the build system at the versions it shipped with, unpacked to
+# `upstream/netsurf-all-3.11/`. These libraries are NetSurf's alone, so they stay in this
+# title rather than under `src/oops-deps/`.
 #
-# Pinned to the `release/3.11` tag. It is annotated: UPSTREAM_REV is the commit it peels to,
-# not the tag object.
-UPSTREAM_KIND=git
-UPSTREAM_URL=https://github.com/netsurf-browser/netsurf
-UPSTREAM_REV=3709818641a695f1dd0bf7435f04f91f5798db75
-UPSTREAM_REF=release/3.11
+# The pin is the bundle's digest.
+UPSTREAM_KIND=archive
+UPSTREAM_URL=https://download.netsurf-browser.org/netsurf/releases/source-full/netsurf-all-3.11.tar.gz
+UPSTREAM_REV=sha256:4dea880ff3c2f698bfd62c982b259340f9abcd7f67e6c8eb2b32c61f71644b7b
+UPSTREAM_REF=3.11

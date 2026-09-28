@@ -64,4 +64,19 @@
 #define __BYTE_ORDER BYTE_ORDER
 #endif
 
+/* FreeBSD's own spellings, which its `<machine/endian.h>` defines first and derives the plain ones
+ * from. BSD-shaped code tests these (libnsfb's `plot.h`). */
+#ifndef _LITTLE_ENDIAN
+#define _LITTLE_ENDIAN LITTLE_ENDIAN
+#endif
+#ifndef _BIG_ENDIAN
+#define _BIG_ENDIAN BIG_ENDIAN
+#endif
+#ifndef _PDP_ENDIAN
+#define _PDP_ENDIAN PDP_ENDIAN
+#endif
+#ifndef _BYTE_ORDER
+#define _BYTE_ORDER BYTE_ORDER
+#endif
+
 #endif /* OOPS_POSIX_MACHINE_ENDIAN_H */

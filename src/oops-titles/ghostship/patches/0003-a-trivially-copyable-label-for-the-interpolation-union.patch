@@ -1,0 +1,31 @@
+A trivially copyable label for the interpolation union
+
+The same change as `../spaghetti-kart/patches/0002`, which explains it: `union
+Data` is a `vector` element, libc++ static-asserts Cpp17MoveInsertable when the
+vector grows, and the union's `label` member - a `std::pair`, which in libc++
+carries a non-trivially-copyable base - deletes the union's copy constructor.
+A two-member aggregate with `operator<` is all the file uses of it.
+
+diff --git a/src/port/interpolation/FrameInterpolation.cpp b/src/port/interpolation/FrameInterpolation.cpp
+index e207c0f..0d67e36 100644
+--- a/src/port/interpolation/FrameInterpolation.cpp
++++ b/src/port/interpolation/FrameInterpolation.cpp
+@@ -106,7 +106,17 @@ enum class Op {
+     SetApplyMatrixTransformations,
+ };
+ 
+-typedef pair<const void*, uintptr_t> label;
++// A plain aggregate rather than a std::pair, because it is a member of the union below and that
++// union has to be trivially copyable for `vector<Data>` to relocate on growth. libc++'s pair
++// carries a non-trivially-copyable base, which deletes the union's copy constructor.
++struct label {
++    const void* ptr;
++    uintptr_t idx;
++
++    bool operator<(const label& o) const {
++        return ptr != o.ptr ? ptr < o.ptr : idx < o.idx;
++    }
++};
+ 
+ union Data {
+     Data() {

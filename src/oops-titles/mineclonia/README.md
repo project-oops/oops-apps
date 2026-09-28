@@ -20,8 +20,11 @@ separate title from [Craft](../craft/), which is its own small engine.
 
 ## Building
 
-`make` prints the survey: the pins and the dependencies still to vendor.
-`make MNCL_ARMED=1 title` builds the payload.
+`make title` builds the payload. `make package` adds the engine's Lua, shaders, fonts and
+textures and the game as one tar beside `eboot.bin`, which the title unpacks the first time it
+starts: some 10,000 files, which would otherwise be copied onto the console one at a time.
+`make survey` prints the pins and the dependencies; `make census` compiles every source and
+names any that fail.
 
 ## Docs
 

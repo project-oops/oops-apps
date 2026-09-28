@@ -39,6 +39,7 @@ libkernel _sendto
 libkernel sendto
 libkernel _setsockopt
 libkernel setsockopt
+libkernel _getsockopt
 libkernel accept
 libkernel _accept
 libkernel bind

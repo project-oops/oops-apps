@@ -13,6 +13,8 @@
 #   can, and without it the C loop in `huf_decompress.c` is the one used.
 # - No `ZSTD_MULTITHREAD`: compression runs on the caller's thread, so the library needs no
 #   thread pool of its own.
+# - `ZSTD_TRACE=0`: tracing is four weak hooks a profiler defines, and a weak reference nothing
+#   defines is still an undefined name to `common/app.mk`'s link check.
 ifndef OOPS_ZSTD_MK
 OOPS_ZSTD_MK := 1
 
@@ -28,7 +30,7 @@ OOPS_ZSTD_SRCS := $(wildcard $(OOPS_ZSTD_UPSTREAM)/lib/common/*.c \
                              $(OOPS_ZSTD_UPSTREAM)/lib/compress/*.c \
                              $(OOPS_ZSTD_UPSTREAM)/lib/decompress/*.c)
 OOPS_ZSTD_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
-                   -nostdlibinc -fPIC -O2 -w -DZSTD_DISABLE_ASM=1 -DXXH_NAMESPACE=ZSTD_ \
+                   -nostdlibinc -fPIC -O2 -w -DZSTD_DISABLE_ASM=1 -DXXH_NAMESPACE=ZSTD_ -DZSTD_TRACE=0 \
                    $(OOPS_ZSTD_INCLUDE) $(OOPS_POSIX_INCLUDE) \
                    $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
 

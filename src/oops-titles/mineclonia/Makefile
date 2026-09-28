@@ -25,6 +25,8 @@ IRR := $(LUANTI)/irr
 # blocks; both are required. cURL, gettext, LevelDB, PostgreSQL, OpenSSL and ncurses are options,
 # all off (`shim/include/cmake_config.h`): nothing here downloads content, and a single-player
 # world lives in SQLite.
+# Armed by default: the payload links with nothing unresolved.
+MNCL_ARMED ?= 1
 SCAFFOLD_ARM    := MNCL_ARMED
 SCAFFOLD_DEPS   := sdl2 libcxx openal-soft libogg libvorbis freetype libpng libjpeg-turbo zlib \
                    zstd sqlite
@@ -70,6 +72,10 @@ MNCL_SRCS := $(filter-out %/porting_android.cpp %/database-leveldb.cpp %/databas
                           %/database-redis.cpp %/src/catch.cpp %/settings_translation_file.cpp, \
     $(shell find $(LUANTI)/src -name '*.cpp' -not -path '*/unittest/*' -not -path '*/benchmark/*' \
             -not -path '*/src/test/*' 2>/dev/null | sort))
+# Plus `builtin_files.cpp`, which upstream's CMake generates: the builtin Lua's digests.
+MNCL_GEN := $(CURDIR)/build/gen
+$(shell sh $(CURDIR)/shim/gen-builtin-files.sh $(LUANTI) $(MNCL_GEN)/builtin_files.cpp >&2)
+MNCL_SRCS += $(MNCL_GEN)/builtin_files.cpp
 MNCL_IRR_SRCS := $(filter-out %/CEGLManager.cpp,$(wildcard $(IRR)/src/*.cpp))
 # Lua is built as C++ (`lib/lua/CMakeLists.txt:1`), so its errors unwind as exceptions through
 # the engine's C++. `lua.c` and `luac.c` are the interpreter and compiler programs.
@@ -114,6 +120,10 @@ CENSUS_libs_c_FLAGS = $(MNCL_BASE) -std=gnu11 -I$(CURDIR)/shim/include/sha256 $(
 
 # `net` for the engine's loopback server, which a single-player world runs through.
 OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog net
+
+# `__tls_get_addr` is libkernel's, which `common/symbols.txt` records, so the loader resolves it;
+# the engine's `thread_local`s reach it, as `../balatro`'s do.
+EXTRA_UNDEF_ALLOW := ^__tls_get_addr$$
 
 include $(OOPS_APPS_ROOT)/common/deps.mk
 

@@ -205,8 +205,10 @@ OOPS_LIBCXX_SRCS := \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/optional.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/ostream.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/print.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/random.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/random_shuffle.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/regex.cpp \
+    $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/shared_mutex.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/string.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/strstream.cpp \
     $(OOPS_LIBCXX_UPSTREAM)/libcxx/src/stdexcept.cpp \

@@ -1,0 +1,34 @@
+No file picker on a console: the mobile ROM fallback instead
+
+`SelectGameFromUI` opens a desktop file dialog through `portable-file-dialogs`,
+which runs zenity or kdialog over pipe/fork/dup2 - none of which this platform
+has, and the header does not compile for it. `../ship-of-harkinian/patches/0006`
+makes the same call for the same header.
+
+The mobile arm is the one that fits: after the first-run scan of the title's
+directory finds nothing, look for `baserom.us.z64` beside the program. There is
+no pointer to browse with, and a ROM copied onto the console lands in that
+directory anyway.
+
+diff --git a/src/port/GameExtractor.cpp b/src/port/GameExtractor.cpp
+index 8c94f89..4e867eb 100644
+--- a/src/port/GameExtractor.cpp
++++ b/src/port/GameExtractor.cpp
+@@ -30,7 +30,7 @@ std::string GameExtractor::sLastError;
+ 
+ #ifdef __EMSCRIPTEN__
+ #include "port/web/WebUtils.h"
+-#elif !defined(__IOS__) && !defined(__ANDROID__) && !defined(__SWITCH__)
++#elif !defined(__IOS__) && !defined(__ANDROID__) && !defined(__SWITCH__) && !defined(__PROSPERO__)
+ #include "portable-file-dialogs.h"
+ #endif
+ 
+@@ -103,7 +103,7 @@ bool GameExtractor::SelectGameFromUI() {
+     if (romPath.empty()) {
+         return false;
+     }
+-#elif !defined(__IOS__) && !defined(__ANDROID__) && !defined(__SWITCH__)
++#elif !defined(__IOS__) && !defined(__ANDROID__) && !defined(__SWITCH__) && !defined(__PROSPERO__)
+     // Desktop: fallback to file dialogue if no baserom found
+     // if (!foundGame) {
+     if (!pfd::settings::available()) {

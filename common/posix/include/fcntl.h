@@ -38,11 +38,20 @@
 #ifndef O_LARGEFILE
 #define O_LARGEFILE 0x0000
 #endif
+/* FreeBSD's value, as oops-sdk's `fcntl.h` has it: refuse a symbolic link, of which this
+ * filesystem has none. Guarded because a compile can reach both copies. */
+#ifndef O_NOFOLLOW
+#define O_NOFOLLOW 0x0100
+#endif
 
 #define F_GETFL 3
 #define F_SETFL 4
 #define F_GETFD 1
 #define F_SETFD 2
+/* The one descriptor flag, always on: `posix.c`'s `fcntl` says why. */
+#ifndef FD_CLOEXEC
+#define FD_CLOEXEC 1
+#endif
 
 #ifdef __cplusplus
 extern "C" {

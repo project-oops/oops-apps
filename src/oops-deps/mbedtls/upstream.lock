@@ -1,0 +1,9 @@
+# Mbed TLS's origin: the TLS curl speaks HTTPS through, for SuperTuxKart's add-ons and online
+# play and for NetSurf. The 3.6 long-term-support branch.
+#
+# An annotated tag: `refs/tags/mbedtls-3.6.7` is the tag object and the hash below is the
+# commit it points at.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/Mbed-TLS/mbedtls
+UPSTREAM_REV=068ff080b369adfac81509f9b57b2afabaf82dc5
+UPSTREAM_REF=mbedtls-3.6.7

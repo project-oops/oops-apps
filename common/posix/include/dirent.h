@@ -12,15 +12,22 @@
  * that `oops_fs_mkdir` already used. `oops_fs_opendir`/`readdir`/`closedir` now exist, and this
  * is the POSIX spelling over them.
  *
- * `d_name` is the only field here. POSIX guarantees no others, `d_ino` and `d_type` are
- * extensions, and a port reading them would be reading something this shim would have to invent.
+ * `d_name` is the field POSIX guarantees. `d_type` is the BSD extension, and it is here because
+ * `oops_fs_readdir` reports whether each entry is a directory: `DT_DIR` when it is, `DT_REG`
+ * when it is not, since this filesystem has no links, devices or sockets to be instead (Luanti's
+ * Irrlicht reads it). `d_ino` would have to be invented, so it is not declared.
  */
 #ifndef OOPS_POSIX_DIRENT_H
 #define OOPS_POSIX_DIRENT_H
 
 typedef struct OOPS_DIR DIR;
 
+#define DT_UNKNOWN 0
+#define DT_DIR 4
+#define DT_REG 8
+
 struct dirent {
+    unsigned char d_type;
     char d_name[256];
 };
 

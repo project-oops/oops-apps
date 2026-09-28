@@ -71,6 +71,17 @@ int close(int fd);
 /* The new offset, or -1. `off_t` is 64-bit here, so there is no `lseek64` to be a different
  * function - a port naming it wants a `#define` to this one, which is what StormLib's patch does. */
 off_t lseek(int fd, off_t offset, int whence);
+/* At an offset, leaving the descriptor's own position where it was. There is no positioned I/O
+ * call underneath, so these seek, transfer and seek back: correct for one thread using the
+ * descriptor, **not atomic** against another thread using the same one, which POSIX's are. */
+ssize_t pread(int fd, void *buf, size_t count, off_t offset);
+ssize_t pwrite(int fd, const void *buf, size_t count, off_t offset);
+
+/* Command-line options, POSIX's form: `getopt.h` has GNU's long form. Parsing stops at the first
+ * operand or at `--`; arguments are not permuted. */
+extern char *optarg;
+extern int optind, opterr, optopt;
+int getopt(int argc, char *const argv[], const char *optstring);
 
 /* Always 0. Unlike POSIX's, this accepts a value of a million or more rather than failing with
  * `EINVAL` - see the definition in `posix.c` for why that rule does not apply here. */
@@ -122,11 +133,21 @@ int symlink(const char *target, const char *linkpath);
 
 /*
  * The `*at()` form of `unlink`. `AT_FDCWD` is the only anchor this platform has - `fcntl.h` says
- * why - and for it this is `unlink`. `AT_REMOVEDIR` asks it to remove a *directory* instead, and
- * that fails with `ENOSYS`: the SDK has `oops_fs_unlink` and no `rmdir`, the same gap
- * `SDL_SYS_RemovePath` records.
+ * why - and for it this is `unlink`. `AT_REMOVEDIR` asks it to remove a *directory* instead,
+ * which is `rmdir`.
  */
 int unlinkat(int dirfd, const char *path, int flags);
+
+/* Removes a file, over `oops_fs_unlink`; a failure's `errno` is `ENOENT`. */
+int unlink(const char *path);
+
+/* Makes a directory with a unique name from a template ending `XXXXXX`, which it rewrites.
+ * FreeBSD declares it here as well as in `<stdlib.h>`. */
+char *mkdtemp(char *tmpl);
+
+/* Removes an empty directory, over `oops_fs_rmdir`. A failure's `errno` is `EIO`: the SDK call
+ * does not say whether the directory was missing, not empty or refused. */
+int rmdir(const char *path);
 
 /*
  * **Configurable limits, and only `_PC_PATH_MAX` has an answer.**

@@ -1,0 +1,9 @@
+# curl's origin: the HTTP client SuperTuxKart (`lib/` through `src/online/`) and NetSurf
+# (`content/fetchers/curl.c`) fetch through.
+#
+# An annotated tag: `refs/tags/curl-8_22_0` is the tag object and the hash below is the commit
+# it points at.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/curl/curl
+UPSTREAM_REV=01346829096c61b372692f6dc43ffa778c6caccd
+UPSTREAM_REF=curl-8_22_0

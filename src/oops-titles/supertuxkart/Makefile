@@ -30,6 +30,11 @@ SCAFFOLD_SUPPLY := nothing - the game and its data are free and ship in the pack
 
 OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog net
 
+OOPS_MBEDTLS ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/mbedtls)
+include $(OOPS_MBEDTLS)/oops-mbedtls.mk
+OOPS_CURL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/curl)
+include $(OOPS_CURL)/oops-curl.mk
+
 # Arming is where the game's source list (`sources.cmake`) and the bundled libraries' are
 # transcribed, with `NO_SHADERC=ON`, `shim/stkt_start.cpp` and `common/crashtrace.c`, and a
 # `package` target that stages `upstream/data` and the assets. Until then an armed build says so

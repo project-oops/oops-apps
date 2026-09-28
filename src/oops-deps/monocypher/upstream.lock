@@ -1,0 +1,7 @@
+# Monocypher's origin: the Ed25519 signature check libultraship links unconditionally
+# (`cmake/dependencies/common.cmake:241`), for Ghostship's archives.
+#
+# The commit libultraship's own FetchContent names, so the port verifies what upstream does.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/LoupVaillant/Monocypher
+UPSTREAM_REV=0d85f98c9d9b0227e42cf795cb527dff372b40a4

@@ -176,9 +176,8 @@ ssize_t recvfrom(int sock, void *buf, size_t len, int flags,
  * Straight through to `oops_setsockopt`, which is why the constants above are FreeBSD's real values
  * rather than tokens this shim interprets.
  *
- * `getsockopt` always fails with `ENOPROTOOPT`: the SDK has no counterpart, so no option can be
- * read back. Xash3D's Steam broker reads `SO_ERROR` after a non-blocking connect and treats the
- * refusal as a failed connection, which offline is the truth.
+ * `getsockopt` is `oops_getsockopt` the same way, and fails with `ENOPROTOOPT`. Its main reader is
+ * `SO_ERROR` after a non-blocking connect (cURL, Xash3D's Steam broker).
  */
 int setsockopt(int sock, int level, int optname, const void *optval,
                socklen_t optlen);

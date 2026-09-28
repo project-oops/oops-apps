@@ -381,7 +381,7 @@ TARGET_SYS_SRCS ?= $(filter-out $(PAYLOAD_SRCS), $(wildcard $(CORE_SDK_SRCS)))
 # oops-sdk binds weakly, mapped to libkernel in `common/symbols.txt` and present in
 # `obscene/data/obscene-report.txt`. `oops_keyboard_poll_buttons` is a weak reference from
 # `input.c` that resolves to null when a title does not link keyboard.c.
-UNDEF_ALLOW ?= ^sce[A-Z]|^sysctlbyname$$|^__error$$|^__errno$$|^__sys_socketex$$|^oops_keyboard_poll_buttons$$|^_?(accept|bind|close|connect|listen|recv|recvfrom|sendto|setsockopt|sigaction|sigprocmask)$$
+UNDEF_ALLOW ?= ^sce[A-Z]|^sysctlbyname$$|^__error$$|^__errno$$|^__sys_socketex$$|^oops_keyboard_poll_buttons$$|^_?(accept|bind|close|connect|listen|recv|recvfrom|sendto|setsockopt|sigaction|sigprocmask)$$|^_getsockopt$$
 NM ?= nm
 
 # Off for a hosted title (USE_MESA), whose libc names resolve at load, and reported as off on

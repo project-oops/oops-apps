@@ -30,11 +30,11 @@
 # Building both would be a duplicate-symbol link error, and taking libc++abi's instead would
 # route a title's allocations away from the SDK heap.
 #
-# `cxa_thread_atexit.cpp` - registers destructors for `thread_local` objects, through a TLS key
-# API (`__libcpp_tls_key`) the freestanding libc does not have and `_LIBCPP_HAS_THREADS 0` says
-# it will not get. A title that declares a `thread_local` with a destructor gets a link error
-# naming `__cxa_thread_atexit`, which is the honest failure: the destructor genuinely would not
-# have run.
+# `cxa_thread_atexit.cpp` - registers destructors for `thread_local` objects. This archive is
+# built with `_LIBCXXABI_HAS_NO_THREADS`, which empties that file, so oops-sdk's thread module
+# (`src/thread/thread.c`) defines `__cxa_thread_atexit` instead, with the same per-thread-list
+# fallback over its TLS keys. A title with thread-locals and no `thread` feature gets the link
+# error naming it, which is the honest failure.
 #
 # All three are exclusions with a reason, not a list of what happened to compile. Note that the
 # first was invisible until something *linked* the archive: all nineteen sources compile

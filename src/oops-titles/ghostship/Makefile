@@ -28,9 +28,10 @@ GHST_TORCH := $(GHST_UP)/Torch
 # `USE_SATELLA` off, so neither IXWebSocket nor mbedTLS is needed. yaml-cpp is Torch's.
 SCAFFOLD_ARM    := GHST_ARMED
 SCAFFOLD_DEPS   := sdl2 zlib libzip stb nlohmann-json thread-pool tinyxml2 spdlog imgui cimgui \
-                   prism-processor libgfxd tomlplusplus semver libogg libvorbis dr-libs yaml-cpp
-SCAFFOLD_SUPPLY := a Super Mario 64 ROM (US or JP, .z64) as /data/homebrew/GHST00001/sm64.z64, \
-                   converted to sm64.o2r on the console at first start
+                   prism-processor libgfxd tomlplusplus semver libogg libvorbis dr-libs yaml-cpp \
+                   monocypher
+SCAFFOLD_SUPPLY := a Super Mario 64 ROM (US or JP, big-endian .z64, any name) in \
+                   /data/homebrew/GHST00001/, converted to sm64.o2r on the console at first start
 
 include $(OOPS_APPS_ROOT)/common/posix.mk
 OOPS_TOMLPP ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/tomlplusplus)
@@ -69,6 +70,8 @@ OOPS_VORBIS ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libvorbis)
 include $(OOPS_VORBIS)/oops-libvorbis.mk
 OOPS_GFXD ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libgfxd)
 include $(OOPS_GFXD)/oops-libgfxd.mk
+OOPS_MONOCYPHER ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/monocypher)
+include $(OOPS_MONOCYPHER)/oops-monocypher.mk
 
 OOPS_CXX_EXCEPTIONS = 1
 OOPS_CXX_STD        = c++20
@@ -98,8 +101,14 @@ GHST_CXX_SRCS := $(filter-out %/android/% %/port/net/% %/port/web/%, \
     $(addprefix $(GHST_UP)/,$(call GHST_FIND,src/pc src/port,*.cpp)))
 
 # libultraship whole, as `../spaghetti-kart` builds it: each backend guards its own contents.
+# `ENABLE_SCRIPTING` is off, as upstream sets it for iOS, Android and the web (CMakeLists.txt:463):
+# its C mods compile with TCC and load as shared libraries, neither of which this platform has.
+# That removes `ship/scripting/`, `ship/security/` and the scripting bridge
+# (`src/ship/CMakeLists.txt:87-99`, `src/libultraship/CMakeLists.txt:14`).
 GHST_LUS_C_SRCS := $(sort $(shell find $(GHST_LUS)/src -name '*.c' 2>/dev/null))
-GHST_LUS_CXX_SRCS := $(sort $(shell find $(GHST_LUS)/src -name '*.cpp' 2>/dev/null))
+GHST_LUS_CXX_SRCS := $(filter-out $(GHST_LUS)/src/ship/scripting/% $(GHST_LUS)/src/ship/security/% \
+                         %/bridge/scriptingbridge.cpp, \
+    $(sort $(shell find $(GHST_LUS)/src -name '*.cpp' 2>/dev/null)))
 
 # Torch as Ghostship configures it (CMakeLists.txt:744-751): a library, not the standalone tool,
 # with Super Mario 64's factories and the N64 audio ones its sound banks are written in
@@ -151,7 +160,7 @@ GHST_INCLUDE = $(OOPS_POSIX_INCLUDE) \
     $(OOPS_THREADPOOL_INCLUDE) $(OOPS_SDL_INCLUDE) $(OOPS_SDL_PREFIX_INCLUDE) \
     $(OOPS_SPDLOG_INCLUDE) $(OOPS_TINYXML2_INCLUDE) $(OOPS_PRISM_INCLUDE) $(OOPS_STB_INCLUDE) \
     $(OOPS_IMGUI_INCLUDE) $(OOPS_CIMGUI_INCLUDE) $(OOPS_ZLIB_INCLUDE) $(OOPS_DR_LIBS_INCLUDE) \
-    $(OOPS_VORBIS_INCLUDE) $(OOPS_GFXD_INCLUDE) $(OOPS_YAML_INCLUDE) \
+    $(OOPS_VORBIS_INCLUDE) $(OOPS_GFXD_INCLUDE) $(OOPS_YAML_INCLUDE) $(OOPS_MONOCYPHER_INCLUDE) \
     -I$(GHST_GEN_DIR) -include ship/cvars_generated.h $(GHST_DEFS) \
     -I$(CURDIR)/shim/include \
     -I$(GHST_UP) -I$(GHST_UP)/include -I$(GHST_UP)/src \
