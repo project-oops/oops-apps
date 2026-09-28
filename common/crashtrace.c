@@ -112,9 +112,31 @@ static void crashtrace_handler(int signum, void *arg1, void *arg2) {
     }
     in_handler = 1;
 
-    crashtrace_hex(hex, (uint64_t)(unsigned int)signum);
     oops_klog("crash", "fatal signal - the payload addresses on the stack follow,");
     oops_klog("crash", "innermost first; resolve them in the title's .map");
+
+    /*
+     * Which signal, and the second argument.
+     *
+     * The number was being formatted here and then thrown away - the next `crashtrace_hex`
+     * overwrote the buffer with `rip` before anything printed it. Every report this handler
+     * has produced was therefore silent about the one thing that separates a bad
+     * dereference (11) from a bad instruction (4), which is the difference between "a
+     * pointer was null" and "execution reached a guard that should be unreachable". A day
+     * went into guessing between those two readings from `rip` alone.
+     *
+     * `arg2` is printed as the value it is, not read through. `oops/thread.h` records the
+     * handler as receiving (signum, arg1, arg2) and only arg1 is known to be the context,
+     * so this says what arrived and leaves interpreting it to whoever reads the log with
+     * the platform's headers to hand. A pointer that looks like an address is a lead; one
+     * that looks like a small integer is a code.
+     */
+    crashtrace_hex(hex, (uint64_t)(unsigned int)signum);
+    oops_klog("crash", "  signal:");
+    oops_klog("crash", hex);
+    crashtrace_hex(hex, (uint64_t)(uintptr_t)arg2);
+    oops_klog("crash", "  arg2:");
+    oops_klog("crash", hex);
 
     /*
      * What the platform handed us, and the words behind it.
@@ -135,7 +157,6 @@ static void crashtrace_handler(int signum, void *arg1, void *arg2) {
      * is what the re-entry guard above is for: a fault here removes the handler and
      * lets the original signal stand rather than looping.
      */
-    (void)arg2;
     if (arg1 != (void *)0) {
         const uint64_t *ctx = (const uint64_t *)arg1;
         crashtrace_hex(hex, ctx[OOPS_CRASHTRACE_CTX_RIP]);
