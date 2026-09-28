@@ -19,6 +19,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 HERE="$PWD"
 
+# Build with the machine rather than one file at a time. `common/jobs.sh` works out how
+# many compiles fit in the memory that is free and adds a load limit so a build running
+# beside this one gets its share; `OOPS_JOBS` overrides it and `OOPS_JOBS=0` turns it off.
+# It is computed once, and only the top-level make is given it - make's own jobserver hands
+# the budget down to sub-makes, which is why this does not go in a makefile.
+JOBS="$(sh "$HERE/common/jobs.sh")"
+# shellcheck disable=SC2086  # deliberately word-split: it is two flags or none
+
 # Every app under src/<category>/, one per line, as a bare name. The name carries no
 # category, so CI artifact names and verbs do not change when an app moves category.
 apps() {
@@ -103,7 +111,7 @@ over() {
             continue
         fi
         printf '=== %s: %s ===\n' "$app" "$target"
-        if ! make -C "$app_dir" "$target"; then
+        if ! make $JOBS -C "$app_dir" "$target"; then
             if is_payload "$app_dir"; then
                 printf '=== %s: %s failed - a payload in development, not failing the run ===\n' "$app" "$target" >&2
             else
@@ -140,7 +148,7 @@ distribute() {
 
         if [ "$probe_rc" -eq 0 ]; then
             printf '=== %s: dist ===\n' "$app"
-            if make -C "$app_dir" dist; then
+            if make $JOBS -C "$app_dir" dist; then
                 shipped=$((shipped + 1))
             elif is_payload "$app_dir"; then
                 printf '=== %s: dist failed - a payload in development, not failing the run ===\n' "$app" >&2
