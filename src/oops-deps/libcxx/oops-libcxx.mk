@@ -419,7 +419,8 @@ TARGET_CXX ?= clang++
 # FreeBSD, which the sysroot declares under `__BSD_VISIBLE` - cleared by the `_POSIX_C_SOURCE`
 # above. Restored for that source alone, because the reason `_POSIX_C_SOURCE` is set holds for
 # the rest. The call reaches `common/posix`, which refuses it, and libc++ falls back to its
-# `fstream` path.
+# `fstream` path. `random.cpp` is the other: `std::random_device` takes `arc4random` on FreeBSD
+# (`_LIBCPP_USING_ARC4_RANDOM`), declared under the same guard.
 OOPS_LIBCXX_BSD_FLAGS := -U_POSIX_C_SOURCE -D__BSD_VISIBLE=1
 
 # `ar` is handed the list rather than the directory - `common/deps.mk` says what the glob cost.
@@ -430,7 +431,7 @@ $(OOPS_LIBCXX_LIB): $(OOPS_LIBCXX_SRCS) $(lastword $(MAKEFILE_LIST)) \
 	@n=0; objs=""; for src in $(OOPS_LIBCXX_SRCS); do \
 	    n=$$((n+1)); o=$(OOPS_LIBCXX_BUILD)/cxx$$n.o; \
 	    extra=""; \
-	    case "$$src" in *filesystem/operations.cpp) extra="$(OOPS_LIBCXX_BSD_FLAGS)";; esac; \
+	    case "$$src" in *filesystem/operations.cpp|*/src/random.cpp) extra="$(OOPS_LIBCXX_BSD_FLAGS)";; esac; \
 	    $(TARGET_CXX) $(OOPS_LIBCXX_CFLAGS) $$extra -c -o "$$o" "$$src" || exit 1; \
 	    objs="$$objs $$o"; \
 	done; \

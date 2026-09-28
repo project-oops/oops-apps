@@ -17,5 +17,11 @@ endif
 OOPS_POSIX_INCLUDE := -I$(OOPS_POSIX_DIR)/include
 OOPS_POSIX_SRCS := $(OOPS_POSIX_DIR)/posix.c
 
+# A hosted title takes its C library from the Mesa sysroot and needs neither `OOPS_POSIX_SRCS`
+# nor `OOPS_POSIX_INCLUDE`: the sysroot has those calls, and these headers would shadow it. It
+# takes this instead, which holds only what the sysroot declares and no platform library
+# exports. Add it to `PAYLOAD_SRCS`; there is no include directory to go with it.
+OOPS_POSIX_HOSTED_SRCS := $(OOPS_POSIX_DIR)/hosted.c
+
 # `OOPS_POSIX_HOME` is the home directory `getpwuid` reports. A title sets it to its own
 # data directory.
