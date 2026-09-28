@@ -149,6 +149,20 @@ long pathconf(const char *path, int name);
 long fpathconf(int fd, int name);
 
 /*
+ * `sysconf`, for the one limit a payload can state exactly: the page size, 16 KiB, the
+ * alignment the SDK's memory calls require (`oops/memory.h`). Every other name - the CPU
+ * count among them, which no SDK call reports - fails with `EINVAL`, the answer POSIX gives
+ * for a limit the system does not know, and callers fall back (LÖVE's `getPageSize` does).
+ * The numbers are FreeBSD's.
+ */
+#define _SC_OPEN_MAX          5
+#define _SC_PAGESIZE          47
+#define _SC_PAGE_SIZE         _SC_PAGESIZE
+#define _SC_NPROCESSORS_CONF  57
+#define _SC_NPROCESSORS_ONLN  58
+long sysconf(int name);
+
+/*
  * **Both always fail, and that is the useful answer.** A payload is one process: there is no second
  * one for `fork` to produce and no program image for `execvp` to replace it with. Failing is not a
  * shortfall here, it is the truth, and the callers are written for it - ioquake3's `Sys_Exec` reads

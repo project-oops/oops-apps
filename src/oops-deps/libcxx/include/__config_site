@@ -72,12 +72,17 @@
 #define _LIBCPP_HAS_NO_STD_MODULES
 
 /*
- * **No wide characters.** This is what collapses the locale surface from unmanageable to
- * absent: `__locale_dir/support/bsd_like.h` guards every `isw*_l`, `wcs*_l` and `mb*_l` wrapper
- * behind this switch, so turning it off removes about thirty of the forty-five platform
- * functions libc++ would otherwise want. Nothing in the queued titles uses `wchar_t`.
+ * **Wide characters, on since 2026-09-28.** They were off while nothing used `wchar_t`, and the
+ * cost looked like FreeBSD's whole `_l` function family. Luanti (Mineclonia) changed the first
+ * half: its text and its Irrlicht fork's are `std::wstring` throughout, 122 sources of it. The
+ * second half never materialised - the no-locale backend (see localization below) calls the
+ * plain C functions, not the `_l` ones - so what it took was oops-sdk's C library gaining the
+ * wide set: `<wchar.h>`'s conversions, strings, numbers and streams, and `<wctype.h>`. `wchar_t`
+ * is a Unicode scalar value and the multibyte encoding is UTF-8 (oops-sdk `<wchar.h>` says what is
+ * approximate). All 52 libc++ sources compile with it on, and every wide C function they import
+ * is defined.
  */
-#define _LIBCPP_HAS_WIDE_CHARACTERS 0
+#define _LIBCPP_HAS_WIDE_CHARACTERS 1
 #define _LIBCPP_HAS_UNICODE 0
 
 /*

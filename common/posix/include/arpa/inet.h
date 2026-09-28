@@ -33,6 +33,9 @@ char *inet_ntoa(struct in_addr in);
 
 /* `AF_INET` only; 1 on success, 0 for a malformed address, -1 for an unsupported family. */
 int inet_pton(int af, const char *src, void *dst);
+/* 1 and `*dst` set for a dotted quad, 0 otherwise. The historical shorthand forms
+ * (`127.1`) are not accepted: this is `inet_pton` with `inet_aton`'s signature. */
+int inet_aton(const char *src, struct in_addr *dst);
 /* `dst` on success, NULL with `errno` set. `size` must be at least 16 for `AF_INET`. */
 const char *inet_ntop(int af, const void *src, char *dst, socklen_t size);
 

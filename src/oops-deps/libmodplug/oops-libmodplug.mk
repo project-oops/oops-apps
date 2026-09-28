@@ -17,7 +17,17 @@ OOPS_MODPLUG_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
 OOPS_MODPLUG_UPSTREAM ?= $(OOPS_MODPLUG_DIR)/upstream
 OOPS_MODPLUG_BUILD ?= $(OOPS_MODPLUG_DIR)/build
-OOPS_MODPLUG_INCLUDE := -I$(OOPS_MODPLUG_UPSTREAM)/src -DMODPLUG_STATIC
+# Callers include `<libmodplug/modplug.h>`, the installed layout, where the tree has
+# `src/modplug.h`; `build/prefix/libmodplug/` is that header copied under the installed name,
+# as `oops-sdl.mk` does for `SDL2/`. Order a consumer's objects after `OOPS_MODPLUG_PREFIX_STAMP`.
+OOPS_MODPLUG_PREFIX_DIR := $(OOPS_MODPLUG_BUILD)/prefix
+OOPS_MODPLUG_PREFIX_STAMP := $(OOPS_MODPLUG_PREFIX_DIR)/.stamp
+OOPS_MODPLUG_INCLUDE := -I$(OOPS_MODPLUG_UPSTREAM)/src -I$(OOPS_MODPLUG_PREFIX_DIR) -DMODPLUG_STATIC
+
+$(OOPS_MODPLUG_PREFIX_STAMP): $(OOPS_MODPLUG_UPSTREAM)/src/modplug.h
+	@mkdir -p $(OOPS_MODPLUG_PREFIX_DIR)/libmodplug
+	@cp $(OOPS_MODPLUG_UPSTREAM)/src/modplug.h $(OOPS_MODPLUG_PREFIX_DIR)/libmodplug/
+	@touch $@
 OOPS_MODPLUG_LIB := $(OOPS_MODPLUG_BUILD)/libmodplug.a
 OOPS_MODPLUG_LDFLAGS := $(OOPS_MODPLUG_LIB)
 OOPS_MODPLUG_SRCS := $(wildcard $(OOPS_MODPLUG_UPSTREAM)/src/*.cpp)

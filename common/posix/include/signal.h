@@ -107,6 +107,23 @@ struct sigaction {
 int sigaction(int sig, const struct sigaction *act, struct sigaction *oact);
 int sigemptyset(sigset_t *set);
 int sigaddset(sigset_t *set, int sig);
+int sigfillset(sigset_t *set);
+int sigdelset(sigset_t *set, int sig);
+int sigismember(const sigset_t *set, int sig);
+
+/*
+ * **A signal mask holds nothing off, and says so.** The signals that can fire here are
+ * synchronous faults, raised by the thread they interrupt - blocking one would not defer it,
+ * it would lose the fault - so there is no asynchronous delivery for a mask to apply to. Both
+ * calls succeed, and the previous mask they report is the empty one, which is the truth.
+ * LÖVE masks every signal around creating a thread (`modules/thread/threads.cpp`), so that no
+ * asynchronous signal lands on it; there is none to land.
+ */
+#define SIG_BLOCK 1
+#define SIG_UNBLOCK 2
+#define SIG_SETMASK 3
+int sigprocmask(int how, const sigset_t *set, sigset_t *oset);
+int pthread_sigmask(int how, const sigset_t *set, sigset_t *oset);
 
 /*
  * **`kill` is an existence test and nothing more.**

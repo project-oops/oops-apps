@@ -3,14 +3,21 @@
 #   OOPS_ZLIB ?= $(abspath ../../oops-deps/zlib)
 #   include $(OOPS_ZLIB)/oops-zlib.mk
 #
-# `Z_SOLO` is zlib's switch for compression without file I/O: it removes the `gzopen`/`gzread`
-# family, the only part that wants `<fcntl.h>`. Consumers use the deflate and inflate core only.
+# The deflate and inflate core, the one-shot `compress`/`uncompress` on top of it (LÖVE's
+# `love.data.compress` and its PNG and EXR paths call them), and zlib's default allocator over
+# `malloc`. The `gzopen`/`gzread` file family is not built - it is the only part that wants
+# `<fcntl.h>` - and nothing here calls it.
+#
+# `Z_SOLO` used to be defined for every consumer. It hides the file family, but it also removes
+# the default allocator and the one-shot functions built on it, which is more than was meant.
+# A consumer that still defines it (Neverball does, in its own flags) sees fewer declarations
+# over the same `z_stream`, which is harmless.
 ifndef OOPS_ZLIB_DIR
 OOPS_ZLIB_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
 OOPS_ZLIB_UPSTREAM ?= $(OOPS_ZLIB_DIR)/upstream
 OOPS_ZLIB_BUILD ?= $(OOPS_ZLIB_DIR)/build
-OOPS_ZLIB_INCLUDE := -I$(OOPS_ZLIB_UPSTREAM) -DZ_SOLO
+OOPS_ZLIB_INCLUDE := -I$(OOPS_ZLIB_UPSTREAM)
 OOPS_ZLIB_LIB := $(OOPS_ZLIB_BUILD)/libz.a
 OOPS_ZLIB_LDFLAGS := $(OOPS_ZLIB_LIB)
 OOPS_ZLIB_SRCS := $(addprefix $(OOPS_ZLIB_UPSTREAM)/,adler32.c crc32.c deflate.c inflate.c \

@@ -1,7 +1,9 @@
 # Balatro, through oops-sdk.
 #
-#   make           the survey - what stands between this title and a link
 #   make title     the payload, packaged - once BLTR_ARMED=1 links
+#   make survey    the pin, the dependencies and what the player supplies
+#   make census    compile every component's sources for the target, set by set
+#   make census-one S=<set> F=<path>   every error in one source
 #
 # LÖVE 11.5 (`upstream/`), running the game from the player's own `Balatro.exe`. Nothing of
 # Balatro is fetched or built: the engine is the port, and every other LÖVE game runs on the same
@@ -16,24 +18,96 @@ OOPS_RENDERER = gl2
 
 include $(OOPS_APPS_ROOT)/common/upstream.mk
 
+LOVE := $(CURDIR)/upstream/src
+
 # PhysFS, Box2D, lua-enet, luasocket, glslang and the image decoders are bundled under
-# `src/libraries/` and build from upstream. LuaJIT is built with its JIT disabled
-# (`LUAJIT_DISABLE_JIT`): the interpreter needs no executable memory, and the games are written
-# against LuaJIT's `bit` library, which PUC Lua 5.1 does not have.
+# `src/libraries/` and build from upstream. LuaJIT is the interpreter only (`oops-luajit.mk`).
 SCAFFOLD_ARM    := BLTR_ARMED
 SCAFFOLD_DEPS   := sdl2 libcxx openal-soft freetype libogg libvorbis libtheora libmodplug zlib \
                    luajit
 SCAFFOLD_SUPPLY := Balatro.exe from the player's own copy of Balatro, as \
                    /data/homebrew/BLTR00001/Balatro.exe
 
+OOPS_SDL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/sdl2)
+include $(OOPS_SDL)/oops-sdl.mk
+OOPS_FT ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/freetype)
+include $(OOPS_FT)/oops-freetype.mk
+OOPS_VORBIS ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libvorbis)
+include $(OOPS_VORBIS)/oops-libvorbis.mk
+OOPS_THEORA ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libtheora)
+include $(OOPS_THEORA)/oops-libtheora.mk
+OOPS_ZLIB ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/zlib)
+include $(OOPS_ZLIB)/oops-zlib.mk
+include $(OOPS_APPS_ROOT)/common/posix.mk
+
+OOPS_CXX_EXCEPTIONS = 1
+OOPS_CXX_STD        = c++11
+OOPS_LIBCXX ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libcxx)
+include $(OOPS_LIBCXX)/oops-libcxx.mk
+include $(OOPS_LIBCXX)/oops-libunwind.mk
+include $(OOPS_LIBCXX)/oops-libcxxabi.mk
+OOPS_MODPLUG ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libmodplug)
+include $(OOPS_MODPLUG)/oops-libmodplug.mk
+OOPS_LUAJIT ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/luajit)
+include $(OOPS_LUAJIT)/oops-luajit.mk
+# After SDL2, libc++ and the POSIX shim, whose include variables it reads.
+OOPS_OPENAL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/openal-soft)
+include $(OOPS_OPENAL)/oops-openal-soft.mk
+
+# --- the components ---------------------------------------------------------------------
+#
+# Every module with every backend LÖVE builds on Linux, which is the branch `common/config.h`
+# takes for FreeBSD - SDL for window, input, events and threads, OpenAL and the null device for
+# audio, OpenGL for graphics - and every bundled library, less the Windows halves of the socket
+# libraries. `love.cpp` holds `main`.
+BLTR_LOVE_SRCS := $(LOVE)/love.cpp $(filter-out %/android.cpp, $(wildcard $(LOVE)/common/*.cpp)) \
+    $(shell find $(LOVE)/modules -name '*.cpp' 2>/dev/null | sort)
+# luasocket's Unix-domain and serial modules want `AF_UNIX` and `<sys/un.h>`, which a payload
+# has no use for, and `luasocket.cpp` does not register them.
+BLTR_LIB_EXCL := %/wsocket.c %/win32.c $(LOVE)/libraries/glslang/glslang/OSDependent/Windows/% \
+                 %/libluasocket/unix.c %/libluasocket/unixtcp.c %/libluasocket/unixudp.c \
+                 %/libluasocket/unixstream.c %/libluasocket/unixdgram.c %/libluasocket/serial.c
+BLTR_LIB_CXX_SRCS := $(filter-out $(BLTR_LIB_EXCL), \
+    $(shell find $(LOVE)/libraries \( -name '*.cpp' -o -name '*.cc' \) 2>/dev/null | sort))
+BLTR_LIB_C_SRCS := $(filter-out $(BLTR_LIB_EXCL), \
+    $(shell find $(LOVE)/libraries -name '*.c' 2>/dev/null | sort))
+
+# --- flags --------------------------------------------------------------------------------
+#
+# `LOVE_NOMPG123`: LÖVE 11 decodes MP3 only through mpg123, which is not built, so MP3 is
+# unsupported; Ogg Vorbis, WAV, FLAC and tracker modules are. `HAS_SOCKLEN_T` is
+# CMakeLists.txt:198's, for luasocket.
+#
+# `PHYSFS_NO_CDROM_SUPPORT` is PhysFS's own switch (`physfs_platform_unix.c:26`): its CD-ROM
+# discovery walks the mounted filesystems through `<sys/mount.h>`, and there are no discs to find.
+BLTR_BASE := -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -nostdlibinc \
+             -fPIC -O2 -w -DLOVE_NOMPG123 -DHAS_SOCKLEN_T -DPHYSFS_NO_CDROM_SUPPORT=1
+BLTR_SYS   = $(OOPS_POSIX_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
+BLTR_INC   = -I$(LOVE) -I$(LOVE)/libraries -I$(LOVE)/modules \
+             -I$(LOVE)/libraries/enet/libenet/include $(OOPS_LUAJIT_INCLUDE) $(OOPS_FT_INCLUDE) \
+             $(OOPS_VORBIS_INCLUDE) $(OOPS_THEORA_INCLUDE) $(OOPS_ZLIB_INCLUDE) \
+             $(OOPS_MODPLUG_INCLUDE) $(OOPS_OPENAL_INCLUDE) $(OOPS_SDL_INCLUDE)
+
+CENSUS_SETS := love libs_cxx libs_c
+CENSUS_love_SRCS := $(BLTR_LOVE_SRCS)
+CENSUS_love_FLAGS = -x c++ $(BLTR_BASE) -std=c++11 $(OOPS_LIBCXX_INCLUDE) $(BLTR_SYS) $(BLTR_INC)
+CENSUS_libs_cxx_SRCS := $(BLTR_LIB_CXX_SRCS)
+CENSUS_libs_cxx_FLAGS = -x c++ $(BLTR_BASE) -std=c++11 $(OOPS_LIBCXX_INCLUDE) $(BLTR_SYS) \
+                        $(BLTR_INC) -include sys/select.h
+CENSUS_libs_c_SRCS := $(BLTR_LIB_C_SRCS)
+# ENet's `unix.h` takes `fd_set` from `<sys/types.h>`, which FreeBSD's includes `<sys/select.h>`
+# to provide; here the two are separate headers, so the C libraries see it first.
+CENSUS_libs_c_FLAGS = $(BLTR_BASE) -std=gnu11 $(BLTR_SYS) $(BLTR_INC) -include sys/select.h
+
 OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog
 
-# Arming is where LÖVE's source list is transcribed from its CMakeLists.txt, with
-# `shim/bltr_start.cpp`, `common/player_data.c` and `common/crashtrace.c` beside it. Until then
-# an armed build says so rather than linking a payload of three files.
 ifeq ($(BLTR_ARMED),1)
-$(error balatro: the source lists are not transcribed yet - `make survey` says what is next)
+$(error balatro: the payload link is not written yet - `make census` says how close it is)
 endif
 
 include $(OOPS_APPS_ROOT)/common/app.mk
 include $(OOPS_APPS_ROOT)/common/scaffold.mk
+include $(OOPS_APPS_ROOT)/common/census.mk
+
+# The header views the sources include through, which a census compiles against too.
+census: $(OOPS_MODPLUG_PREFIX_STAMP)

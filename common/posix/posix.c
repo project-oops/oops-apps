@@ -52,6 +52,10 @@
 #include <netdb.h>      /* struct hostent and h_errno, which this file defines */
 #include <netinet/in.h> /* sockaddr_in, htons/ntohs */
 #include <signal.h>     /* sighandler_t and the SIG* numbers, for the signal() below */
+#include <sys/resource.h> /* struct rusage and struct rlimit, for the refusals below */
+#include <iconv.h>        /* the declarations this file's iconv answers */
+#include <poll.h>         /* struct pollfd, for the poll below */
+#include <wchar.h>        /* mbrtowc and wcrtomb, which iconv's UTF-8 side is */
 #include <stdarg.h>     /* va_list, for the variadic ioctl below */
 #include <sys/ioctl.h>  /* FIONBIO and the ioctl declaration this file answers */
 #include <sys/param.h>  /* PATH_MAX, which pathconf below reports */
@@ -1340,6 +1344,66 @@ int sigaddset(sigset_t *set, int sig) {
     return 0;
 }
 
+int sigfillset(sigset_t *set) {
+    *set = ~0ul;
+    return 0;
+}
+
+int sigdelset(sigset_t *set, int sig) {
+    if (sig <= 0 || sig >= OOPS_POSIX_NSIG) {
+        errno = EINVAL;
+        return -1;
+    }
+    *set &= ~(1ul << (unsigned)sig);
+    return 0;
+}
+
+int sigismember(const sigset_t *set, int sig) {
+    if (sig <= 0 || sig >= OOPS_POSIX_NSIG) {
+        errno = EINVAL;
+        return -1;
+    }
+    return (*set & (1ul << (unsigned)sig)) != 0;
+}
+
+/* `signal.h` says why a mask holds nothing off, and why the previous one is empty. */
+int sigprocmask(int how, const sigset_t *set, sigset_t *oset) {
+    if (set != NULL && how != SIG_BLOCK && how != SIG_UNBLOCK && how != SIG_SETMASK) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (oset != NULL) {
+        *oset = 0;
+    }
+    return 0;
+}
+
+int pthread_sigmask(int how, const sigset_t *set, sigset_t *oset) {
+    return sigprocmask(how, set, oset) == 0 ? 0 : EINVAL;
+}
+
+/* `sys/resource.h`: no resource accounting reaches a payload. */
+int getrusage(int who, struct rusage *usage) {
+    (void)who;
+    (void)usage;
+    errno = ENOSYS;
+    return -1;
+}
+
+int getrlimit(int resource, struct rlimit *rlp) {
+    (void)resource;
+    (void)rlp;
+    errno = ENOSYS;
+    return -1;
+}
+
+int setrlimit(int resource, const struct rlimit *rlp) {
+    (void)resource;
+    (void)rlp;
+    errno = ENOSYS;
+    return -1;
+}
+
 /* ---------------------------------------------------------------------------
  * Sockets, over `oops/net.h`. See `sys/socket.h` and `netdb.h` for what is and is not here.
  * ------------------------------------------------------------------------- */
@@ -2491,4 +2555,200 @@ __attribute__((weak)) int bcmp(const void *a, const void *b, size_t n) {
     if (!n) return 0;
     if (!a || !b) return a == b ? 0 : 1;
     return memcmp(a, b, n) != 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * `iconv`, between the Unicode encodings. `iconv.h` says what is converted and what refused.
+ * ------------------------------------------------------------------------- */
+
+enum { OOPS_ICONV_UTF8 = 1, OOPS_ICONV_UTF32LE = 2, OOPS_ICONV_UTF16LE = 3 };
+
+static int oops_iconv_encoding(const char *name) {
+    if (strcasecmp(name, "UTF-8") == 0 || strcasecmp(name, "UTF8") == 0) {
+        return OOPS_ICONV_UTF8;
+    }
+    if (strcasecmp(name, "UTF-32LE") == 0 || strcasecmp(name, "UTF32LE") == 0 ||
+        strcasecmp(name, "WCHAR_T") == 0 || strcasecmp(name, "UCS-4LE") == 0) {
+        return OOPS_ICONV_UTF32LE;
+    }
+    if (strcasecmp(name, "UTF-16LE") == 0 || strcasecmp(name, "UTF16LE") == 0) {
+        return OOPS_ICONV_UTF16LE;
+    }
+    return 0;
+}
+
+iconv_t iconv_open(const char *tocode, const char *fromcode) {
+    const int to = tocode ? oops_iconv_encoding(tocode) : 0;
+    const int from = fromcode ? oops_iconv_encoding(fromcode) : 0;
+    if (!to || !from) {
+        errno = EINVAL;
+        return (iconv_t)-1;
+    }
+    return (iconv_t)(uintptr_t)((unsigned)to << 8 | (unsigned)from);
+}
+
+int iconv_close(iconv_t cd) {
+    (void)cd;
+    return 0;
+}
+
+/* One character from `in`: its code point in `*cp` and the bytes it took, 0 when the input
+ * ends mid-character, or -1 when it is not a character. */
+static long oops_iconv_decode(int enc, const unsigned char *in, size_t n, uint32_t *cp) {
+    if (enc == OOPS_ICONV_UTF32LE) {
+        if (n < 4u) return 0;
+        *cp = (uint32_t)in[0] | (uint32_t)in[1] << 8 | (uint32_t)in[2] << 16 |
+              (uint32_t)in[3] << 24;
+        return (*cp > 0x10ffffu || (*cp >= 0xd800u && *cp <= 0xdfffu)) ? -1 : 4;
+    }
+    if (enc == OOPS_ICONV_UTF16LE) {
+        if (n < 2u) return 0;
+        const uint32_t u = (uint32_t)in[0] | (uint32_t)in[1] << 8;
+        if (u >= 0xdc00u && u <= 0xdfffu) return -1;
+        if (u < 0xd800u || u > 0xdbffu) {
+            *cp = u;
+            return 2;
+        }
+        if (n < 4u) return 0;
+        const uint32_t lo = (uint32_t)in[2] | (uint32_t)in[3] << 8;
+        if (lo < 0xdc00u || lo > 0xdfffu) return -1;
+        *cp = 0x10000u + ((u - 0xd800u) << 10) + (lo - 0xdc00u);
+        return 4;
+    }
+    {
+        mbstate_t st;
+        wchar_t wc;
+        memset(&st, 0, sizeof(st));
+        const size_t r = mbrtowc(&wc, (const char *)in, n, &st);
+        if (r == (size_t)-2) return 0;
+        if (r == (size_t)-1) return -1;
+        *cp = (uint32_t)wc;
+        return r == 0u ? 1 : (long)r;
+    }
+}
+
+/* `cp` into `out`: the bytes written, 0 when it does not fit. */
+static size_t oops_iconv_encode(int enc, uint32_t cp, unsigned char *out, size_t n) {
+    if (enc == OOPS_ICONV_UTF32LE) {
+        if (n < 4u) return 0u;
+        out[0] = (unsigned char)cp;
+        out[1] = (unsigned char)(cp >> 8);
+        out[2] = (unsigned char)(cp >> 16);
+        out[3] = (unsigned char)(cp >> 24);
+        return 4u;
+    }
+    if (enc == OOPS_ICONV_UTF16LE) {
+        if (cp < 0x10000u) {
+            if (n < 2u) return 0u;
+            out[0] = (unsigned char)cp;
+            out[1] = (unsigned char)(cp >> 8);
+            return 2u;
+        }
+        if (n < 4u) return 0u;
+        const uint32_t v = cp - 0x10000u;
+        const uint32_t hi = 0xd800u + (v >> 10);
+        const uint32_t lo = 0xdc00u + (v & 0x3ffu);
+        out[0] = (unsigned char)hi;
+        out[1] = (unsigned char)(hi >> 8);
+        out[2] = (unsigned char)lo;
+        out[3] = (unsigned char)(lo >> 8);
+        return 4u;
+    }
+    {
+        char buf[4];
+        const size_t m = wcrtomb(buf, (wchar_t)cp, NULL);
+        if (m == (size_t)-1 || m > n) return 0u;
+        memcpy(out, buf, m);
+        return m;
+    }
+}
+
+size_t iconv(iconv_t cd, char **inbuf, size_t *inbytesleft, char **outbuf,
+             size_t *outbytesleft) {
+    const unsigned key = (unsigned)(uintptr_t)cd;
+    const int to = (int)(key >> 8);
+    const int from = (int)(key & 0xffu);
+
+    if (!inbuf || !*inbuf) {
+        return 0u; /* no shift state to reset between these encodings */
+    }
+    while (*inbytesleft > 0u) {
+        uint32_t cp = 0u;
+        const long took =
+            oops_iconv_decode(from, (const unsigned char *)*inbuf, *inbytesleft, &cp);
+        if (took < 0) {
+            errno = EILSEQ;
+            return (size_t)-1;
+        }
+        if (took == 0) {
+            errno = EINVAL;
+            return (size_t)-1;
+        }
+        const size_t put =
+            oops_iconv_encode(to, cp, (unsigned char *)*outbuf, *outbytesleft);
+        if (put == 0u) {
+            errno = E2BIG;
+            return (size_t)-1;
+        }
+        *inbuf += took;
+        *inbytesleft -= (size_t)took;
+        *outbuf += put;
+        *outbytesleft -= put;
+    }
+    return 0u;
+}
+
+/* ---------------------------------------------------------------------------
+ * `poll`, over `select`'s readiness check. `poll.h` says what can be asked.
+ * ------------------------------------------------------------------------- */
+
+int poll(struct pollfd *fds, nfds_t nfds, int timeout_ms) {
+    const short readable = (short)(POLLIN | POLLRDNORM);
+    uint64_t remaining_us = timeout_ms < 0 ? 0u : (uint64_t)timeout_ms * 1000u;
+    nfds_t i;
+
+    for (i = 0; i < nfds; i++) {
+        if ((fds[i].events & ~readable) != 0) {
+            errno = EINVAL;
+            return -1;
+        }
+    }
+    for (;;) {
+        int ready = 0;
+        for (i = 0; i < nfds; i++) {
+            fds[i].revents = 0;
+            if (fds[i].fd >= 0 && fds[i].events != 0 && fd_can_read(fds[i].fd)) {
+                fds[i].revents = (short)(fds[i].events & readable);
+                ready++;
+            }
+        }
+        if (ready > 0) {
+            return ready;
+        }
+        if (timeout_ms >= 0 && remaining_us == 0u) {
+            return 0;
+        }
+        {
+            const uint32_t step = (timeout_ms < 0 || remaining_us > OOPS_SELECT_POLL_US)
+                                      ? OOPS_SELECT_POLL_US
+                                      : (uint32_t)remaining_us;
+            oops_time_sleep_us(step);
+            if (timeout_ms >= 0) {
+                remaining_us -= step;
+            }
+        }
+    }
+}
+
+/* `unistd.h` says which name is answered and why the rest are not. */
+long sysconf(int name) {
+    if (name == _SC_PAGESIZE) {
+        return 16384L;
+    }
+    errno = EINVAL;
+    return -1L;
+}
+
+int inet_aton(const char *src, struct in_addr *dst) {
+    return inet_pton(AF_INET, src, dst) == 1 ? 1 : 0;
 }

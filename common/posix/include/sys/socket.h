@@ -94,10 +94,20 @@ struct sockaddr_storage {
 #define SOL_SOCKET    0xffff
 #define SO_REUSEADDR  0x0004
 #define SO_KEEPALIVE  0x0008
+#define SO_DONTROUTE  0x0010
 #define SO_BROADCAST  0x0020
+#define SO_LINGER     0x0080
+#define SO_SNDBUF     0x1001
+#define SO_RCVBUF     0x1002
 #define SO_SNDTIMEO   0x1005
 #define SO_RCVTIMEO   0x1006
 #define SO_ERROR      0x1007
+
+/* `SO_LINGER`'s argument, FreeBSD's layout. */
+struct linger {
+    int l_onoff;
+    int l_linger;
+};
 
 #define SHUT_RD   0
 #define SHUT_WR   1

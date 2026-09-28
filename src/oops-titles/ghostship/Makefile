@@ -1,12 +1,15 @@
 # Ghostship, through oops-sdk.
 #
 #   make           the survey - what stands between this title and a link
+#   make census    compile every component's sources for the target, set by set
+#   make census-one S=<set> F=<path>   every error in one source
 #   make title     the payload, packaged - once GHST_ARMED=1 links
 #
 # Harbour Masters' Super Mario 64 on libultraship. The runtime, its shader dialect and its
-# dependency stack are the ones `../spaghetti-kart` and `../ship-of-harkinian` already carry,
-# and the ROM converter is Torch, the one Spaghetti Kart links - so this title follows those two
-# rather than paralleling them.
+# dependency stack are the ones `../spaghetti-kart` and `../ship-of-harkinian` already carry.
+# Torch - the ROM converter - is linked in rather than left out: Ghostship's own first-run flow
+# (`src/port/Engine.cpp:691` onward) finds a ROM, converts it to `sm64.o2r` with a progress bar,
+# and starts, so the port's part is to build it.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
@@ -15,24 +18,166 @@ OOPS_RENDERER = gl2
 
 include $(OOPS_APPS_ROOT)/common/upstream.mk
 
+GHST_UP := $(CURDIR)/upstream
+GHST_LUS := $(GHST_UP)/libultraship
+GHST_TORCH := $(GHST_UP)/Torch
+
 # libultraship's stack, as `../spaghetti-kart` names it, and `cimgui`, which this port's C code
-# reaches ImGui through. Networking (`USE_NETWORKING`, CMakeLists.txt:193) stays off, so neither
-# IXWebSocket nor mbedTLS is needed.
+# reaches ImGui through. Upstream turns networking on by default (`USE_SATELLA`, its mod-signing
+# and relay service, CMakeLists.txt:173, pulls `USE_NETWORKING` on at :193); this build sets
+# `USE_SATELLA` off, so neither IXWebSocket nor mbedTLS is needed. yaml-cpp is Torch's.
 SCAFFOLD_ARM    := GHST_ARMED
 SCAFFOLD_DEPS   := sdl2 zlib libzip stb nlohmann-json thread-pool tinyxml2 spdlog imgui cimgui \
-                   prism-processor libgfxd tomlplusplus semver libogg libvorbis dr-libs
+                   prism-processor libgfxd tomlplusplus semver libogg libvorbis dr-libs yaml-cpp
 SCAFFOLD_SUPPLY := a Super Mario 64 ROM (US or JP, .z64) as /data/homebrew/GHST00001/sm64.z64, \
                    converted to sm64.o2r on the console at first start
 
+include $(OOPS_APPS_ROOT)/common/posix.mk
+OOPS_TOMLPP ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/tomlplusplus)
+include $(OOPS_TOMLPP)/oops-tomlplusplus.mk
+OOPS_SEMVER ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/semver)
+include $(OOPS_SEMVER)/oops-semver.mk
+OOPS_JSON ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/nlohmann-json)
+include $(OOPS_JSON)/oops-nlohmann-json.mk
+OOPS_ZLIB ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/zlib)
+include $(OOPS_ZLIB)/oops-zlib.mk
+OOPS_LIBZIP ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libzip)
+include $(OOPS_LIBZIP)/oops-libzip.mk
+OOPS_THREADPOOL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/thread-pool)
+include $(OOPS_THREADPOOL)/oops-thread-pool.mk
+OOPS_SDL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/sdl2)
+include $(OOPS_SDL)/oops-sdl.mk
+OOPS_SPDLOG ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/spdlog)
+include $(OOPS_SPDLOG)/oops-spdlog.mk
+OOPS_TINYXML2 ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/tinyxml2)
+include $(OOPS_TINYXML2)/oops-tinyxml2.mk
+OOPS_PRISM ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/prism-processor)
+include $(OOPS_PRISM)/oops-prism.mk
+OOPS_STB ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/stb)
+include $(OOPS_STB)/oops-stb.mk
+OOPS_IMGUI ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/imgui)
+include $(OOPS_IMGUI)/oops-imgui.mk
+OOPS_CIMGUI ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/cimgui)
+include $(OOPS_CIMGUI)/oops-cimgui.mk
+OOPS_DR_LIBS ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/dr-libs)
+include $(OOPS_DR_LIBS)/oops-dr-libs.mk
+OOPS_VORBIS ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libvorbis)
+include $(OOPS_VORBIS)/oops-libvorbis.mk
+OOPS_GFXD ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libgfxd)
+include $(OOPS_GFXD)/oops-libgfxd.mk
+
+OOPS_CXX_EXCEPTIONS = 1
+OOPS_CXX_STD        = c++20
+OOPS_LIBCXX ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libcxx)
+include $(OOPS_LIBCXX)/oops-libcxx.mk
+include $(OOPS_LIBCXX)/oops-libunwind.mk
+include $(OOPS_LIBCXX)/oops-libcxxabi.mk
+OOPS_YAML ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/yaml-cpp)
+include $(OOPS_YAML)/oops-yaml-cpp.mk
+
+# --- the sources, transcribed from upstream's globs --------------------------------------
+#
+# CMakeLists.txt:235's `GLOB_RECURSE`, less its four filters (:294-297): the `.inc.c` fragments
+# other sources include, the EU build's `bin/eu`, the decompilation's own `main.c`, and
+# `dlmalloc.c`. `bin/`, `text/` and `textures/` do not exist in this tree: they would hold assets
+# converted from a ROM, and this port reads those from `sm64.o2r` instead.
+GHST_FIND = $(shell cd $(GHST_UP) && find $(1) -name '$(2)' 2>/dev/null | sort)
+GHST_C_SRCS := $(filter-out %.inc.c bin/eu/% %/src/game/main.c %/src/pc/dlmalloc.c, \
+    $(addprefix $(GHST_UP)/, \
+        $(call GHST_FIND,actors data levels sound src/audio src/buffers src/engine src/game \
+                         src/goddard src/menu src/pc src/port,*.c) \
+        $(addprefix lib/src/, alBnkfNew.c guLookAtRef.c guMtxF2L.c guNormalize.c guOrthoF.c \
+                    guPerspectiveF.c guRotateF.c guScaleF.c guLookAtF.c guTranslateF.c \
+                    osAiSetFrequency.c)))
+# The port's C++, less the Android bridge and the networking trees `USE_NETWORKING` would add.
+GHST_CXX_SRCS := $(filter-out %/android/% %/port/net/% %/port/web/%, \
+    $(addprefix $(GHST_UP)/,$(call GHST_FIND,src/pc src/port,*.cpp)))
+
+# libultraship whole, as `../spaghetti-kart` builds it: each backend guards its own contents.
+GHST_LUS_C_SRCS := $(sort $(shell find $(GHST_LUS)/src -name '*.c' 2>/dev/null))
+GHST_LUS_CXX_SRCS := $(sort $(shell find $(GHST_LUS)/src -name '*.cpp' 2>/dev/null))
+
+# Torch as Ghostship configures it (CMakeLists.txt:744-751): a library, not the standalone tool,
+# with Super Mario 64's factories and the N64 audio ones its sound banks are written in
+# (`assets/ymls/*/sound`) - the others read other games' ROMs. Its `ui/` viewer is `BUILD_UI`,
+# off; `main.cpp` is the standalone tool's.
+GHST_TORCH_FACTORIES_OFF := mk64 sf64 pm64 fzerox bk64 mario_artist oot
+GHST_TORCH_CXX_SRCS := $(filter-out $(GHST_TORCH)/src/main.cpp $(GHST_TORCH)/src/ui/% \
+        $(foreach f,$(GHST_TORCH_FACTORIES_OFF),$(GHST_TORCH)/src/factories/$(f)/%), \
+    $(sort $(shell find $(GHST_TORCH)/src -name '*.cpp' 2>/dev/null)) \
+    $(wildcard $(GHST_TORCH)/lib/strhash64/*.cpp $(GHST_TORCH)/lib/bk_zip/*.cpp))
+GHST_TORCH_C_SRCS := $(filter-out $(GHST_TORCH)/src/ui/%, \
+    $(sort $(shell find $(GHST_TORCH)/src -name '*.c' 2>/dev/null)) \
+    $(wildcard $(GHST_TORCH)/lib/libmio0/*.c $(GHST_TORCH)/lib/libyay0/*.c \
+               $(GHST_TORCH)/lib/libyaz0/*.c))
+
+# --- definitions and includes ---------------------------------------------------------------
+#
+# CMakeLists.txt:202's game switches, libultraship's `ENABLE_OPENGL` and `EXCLUDE_MPQ_SUPPORT`
+# (:448), and the four `../spaghetti-kart` adds for this target (thread-local state the loader does
+# not relocate, and miniaudio's `uint64_t`). Torch runs as a library (`STANDALONE` undefined) with
+# `SM64_SUPPORT` and `NAUDIO_SUPPORT`.
+GHST_DEFS := -DVERSION_US=1 -DENABLE_RUMBLE=1 -DF3D_OLD=1 -DF3D_GBI=1 -DGBI_FLOATS=1 \
+             -D_LANGUAGE_C -D_USE_MATH_DEFINES -DAVOID_UB=1 -DENABLE_OPENGL=1 \
+             -DEXCLUDE_MPQ_SUPPORT -DSM64_SUPPORT -DNAUDIO_SUPPORT -DYAML_CPP_STATIC_DEFINE \
+             -DSPDLOG_NO_THREAD_ID -DSPDLOG_NO_TLS -DSTBI_NO_THREAD_LOCALS -DMA_USE_STDINT
+
+# The CVAR names, from upstream's own cmake files in the order CMake reads them: Ghostship's
+# overrides first (CMakeLists.txt:7-8), then libultraship's defaults.
+GHST_GEN_DIR := $(CURDIR)/build/gen
+GHST_CVARS_H := $(GHST_GEN_DIR)/ship/cvars_generated.h
+$(shell sh $(OOPS_APPS_ROOT)/common/gen-lus-cvars.sh $(GHST_CVARS_H) OOPS_GHST_CVARS_GENERATED_H \
+            $(GHST_UP)/cmake/ghostship-cvars.cmake $(GHST_UP)/cmake/lus-cvars.cmake \
+            $(GHST_LUS)/cmake/cvars.cmake >&2)
+
+GHST_INCLUDE = $(OOPS_POSIX_INCLUDE) \
+    $(OOPS_TOMLPP_INCLUDE) $(OOPS_SEMVER_INCLUDE) $(OOPS_JSON_INCLUDE) $(OOPS_LIBZIP_INCLUDE) \
+    $(OOPS_THREADPOOL_INCLUDE) $(OOPS_SDL_INCLUDE) $(OOPS_SDL_PREFIX_INCLUDE) \
+    $(OOPS_SPDLOG_INCLUDE) $(OOPS_TINYXML2_INCLUDE) $(OOPS_PRISM_INCLUDE) $(OOPS_STB_INCLUDE) \
+    $(OOPS_IMGUI_INCLUDE) $(OOPS_CIMGUI_INCLUDE) $(OOPS_ZLIB_INCLUDE) $(OOPS_DR_LIBS_INCLUDE) \
+    $(OOPS_VORBIS_INCLUDE) $(OOPS_GFXD_INCLUDE) $(OOPS_YAML_INCLUDE) \
+    -I$(GHST_GEN_DIR) -include ship/cvars_generated.h $(GHST_DEFS) \
+    -I$(CURDIR)/shim/include \
+    -I$(GHST_UP) -I$(GHST_UP)/include -I$(GHST_UP)/src \
+    -I$(GHST_LUS)/include -I$(GHST_LUS)/include/libultraship -I$(GHST_LUS)/src \
+    -I$(GHST_TORCH)/src -I$(GHST_TORCH)/lib -I$(GHST_TORCH)/lib/binarytools \
+    -I$(GHST_TORCH)/lib/strhash64 -I$(GHST_TORCH)/lib/n64graphics \
+    -DOOPS_POSIX_HOME=\"/app0\"
+
+# The C is built as upstream builds it on the desktop, `-O1 -fno-strict-aliasing`
+# (CMakeLists.txt:167): its comment says strict aliasing breaks the camera through undefined
+# behaviour in the decompiled code.
+GHST_BASE := -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -nostdlibinc \
+             -fPIC -w
+GHST_SYS   = $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
+GHST_C     = $(GHST_BASE) -O1 -fno-strict-aliasing -std=gnu11 $(GHST_INCLUDE) -include assert.h \
+             $(GHST_SYS)
+GHST_CXX   = -x c++ $(GHST_BASE) -O2 -std=c++20 -fexceptions -frtti -Wno-c++11-narrowing \
+             $(OOPS_LIBCXX_INCLUDE) $(GHST_INCLUDE) -include cctype $(GHST_SYS)
+
+CENSUS_SETS := game_c game_cxx lus_c lus_cxx torch_c torch_cxx
+CENSUS_game_c_SRCS := $(GHST_C_SRCS)
+CENSUS_game_c_FLAGS = $(GHST_C)
+CENSUS_game_cxx_SRCS := $(GHST_CXX_SRCS)
+CENSUS_game_cxx_FLAGS = $(GHST_CXX)
+CENSUS_lus_c_SRCS := $(GHST_LUS_C_SRCS)
+CENSUS_lus_c_FLAGS = $(GHST_C)
+CENSUS_lus_cxx_SRCS := $(GHST_LUS_CXX_SRCS)
+CENSUS_lus_cxx_FLAGS = $(GHST_CXX)
+CENSUS_torch_c_SRCS := $(GHST_TORCH_C_SRCS)
+CENSUS_torch_c_FLAGS = $(GHST_C)
+CENSUS_torch_cxx_SRCS := $(GHST_TORCH_CXX_SRCS)
+CENSUS_torch_cxx_FLAGS = $(GHST_CXX)
+
 OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog
 
-# Arming is where upstream's source lists, libultraship's and Torch's are transcribed, as
-# `../spaghetti-kart/Makefile` does, with `shim/ghst_start.cpp`, `common/player_data.c` and
-# `common/crashtrace.c` beside them. Until then an armed build says so rather than linking a
-# payload of three files.
 ifeq ($(GHST_ARMED),1)
-$(error ghostship: the source lists are not transcribed yet - `make survey` says what is next)
+$(error ghostship: the payload link is not written yet - `make census` says how close it is)
 endif
 
 include $(OOPS_APPS_ROOT)/common/app.mk
 include $(OOPS_APPS_ROOT)/common/scaffold.mk
+include $(OOPS_APPS_ROOT)/common/census.mk
+
+# The `SDL2/` header view the sources include through, which a census compiles against too.
+census: $(OOPS_SDL_PREFIX_STAMP)
