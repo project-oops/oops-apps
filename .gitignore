@@ -28,3 +28,26 @@ desktop.ini
 *.swp
 *.swo
 *~
+
+# Artifacts the build cannot reproduce, staged by hand from a host toolchain a payload
+# build does not have. They sit outside `build/` because make clears that.
+prebuilt/
+
+# Except Ship of Harkinian's, which is tracked.
+#
+# It is the port's own assets - its fonts, its UI textures, libultraship's shaders - and
+# libultraship refuses to start without it. It carries nothing from a cartridge: it is built
+# by `extract_assets.py --norom`, and the names say so, being things like
+# `gTitleRandomizerSubtitleTex` and `gRocsFeatherTex` that exist in the port and not in the
+# game.
+#
+# Tracked because the alternative is that the title has no release at all. Producing it needs
+# a host build of ZAPD with its desktop dependencies, which CI does not have and should not
+# grow, so an untracked copy means every published archive for this title is one that cannot
+# start. 4.5MB against that is cheap.
+#
+# It is a derived artifact pinned to an upstream revision, so it can go stale silently. It
+# does not: the archive carries a `portVersion` entry and the Makefile refuses to package one
+# that disagrees with `UPSTREAM_REF`.
+!src/oops-titles/ship-of-harkinian/prebuilt/
+!src/oops-titles/ship-of-harkinian/prebuilt/soh.o2r

@@ -492,7 +492,17 @@ TARGET_CFLAGS += $(SOH_WARNINGS)
 # archive lands in `build/` and this target only stages it, so a tree without the host
 # toolchain still builds a payload and says plainly what is missing.
 # ---------------------------------------------------------------------------
-SOH_O2R := $(CURDIR)/build/soh.o2r
+#
+# `prebuilt/`, not `build/`. This is the one artifact here that make does not know how to
+# make: producing it needs a HOST build of ZAPD, which pulls OTRExporter, libultraship and
+# their desktop dependencies, so it is generated once by hand and then staged. Keeping it
+# under `build/` put it somewhere make is entitled to delete, and `common/app.mk` duly
+# deleted it the first time the build roots moved between the Docker and WSL runners -
+# turning a fifteen-minute rebuild into an hour of rebuilding ZAPD to get back an archive
+# that had not changed.
+#
+# `build/` is for what the build can reproduce. This cannot, so it lives outside.
+SOH_O2R := $(CURDIR)/prebuilt/soh.o2r
 
 # ---------------------------------------------------------------------------
 # `assets.zip`: what ZAPD reads while it converts the player's ROM
@@ -543,6 +553,10 @@ package: title $(SOH_ASSETS_ZIP)
 	    echo "ship-of-harkinian: no $(SOH_O2R)" >&2; \
 	    echo "  it is the port's own assets and needs no ROM - see docs/PORTING.md" >&2; \
 	    exit 1; }
+	@# It is tracked rather than rebuilt, being the one thing here that needs a host ZAPD,
+	@# so a lock bump would otherwise leave yesterday's archive shipping beside today's code.
+	@test -n "$(SOH_PYTHON)" && $(SOH_PYTHON) $(CURDIR)/tools/check-o2r-version.py \
+	    $(SOH_O2R) $(UPSTREAM_REF)
 	@cp $(SOH_O2R) build/title/$(TITLE_ID)/soh.o2r
 	@cp $(SOH_ASSETS_ZIP) build/title/$(TITLE_ID)/assets.zip
 	@# Both are zips; a truncated copy fails here rather than on the console, where it
