@@ -1,0 +1,21 @@
+Take the Linux platform branch on FreeBSD too
+
+RSDKv5 picks its platform from the compiler's predefined macros and falls through to
+Windows for anything it does not name. This target is FreeBSD's ABI, so every Win32
+header and device would be selected. The Linux branch is the POSIX-and-SDL2 one - with
+`RSDK_USE_SDL2` it takes SDL2 for rendering, input and audio - which is what this
+platform provides. Defining `__linux__` instead would reach libc++'s configuration too.
+
+diff --git a/dependencies/RSDKv5/RSDKv5/RSDK/Core/RetroEngine.hpp b/dependencies/RSDKv5/RSDKv5/RSDK/Core/RetroEngine.hpp
+index 6d6c352..0a70743 100644
+--- a/dependencies/RSDKv5/RSDKv5/RSDK/Core/RetroEngine.hpp
++++ b/dependencies/RSDKv5/RSDKv5/RSDK/Core/RetroEngine.hpp
+@@ -139,7 +139,7 @@ enum GameRegions {
+ #elif defined __SWITCH__
+ #define RETRO_PLATFORM   (RETRO_SWITCH)
+ #define RETRO_DEVICETYPE (RETRO_STANDARD)
+-#elif defined __linux__
++#elif defined __linux__ || defined __FreeBSD__
+ #define RETRO_PLATFORM   (RETRO_LINUX)
+ #define RETRO_DEVICETYPE (RETRO_STANDARD)
+ #else

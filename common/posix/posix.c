@@ -2263,6 +2263,39 @@ int dladdr(const void *addr, Dl_info *info) {
     return 0;
 }
 
+/* `dlfcn.h` says why each of these fails. `dlerror` reports once per failure, as POSIX has it. */
+static int s_dl_failed;
+
+void *dlopen(const char *path, int mode) {
+    (void)path;
+    (void)mode;
+    s_dl_failed = 1;
+    return NULL;
+}
+
+void *dlsym(void *handle, const char *name) {
+    (void)handle;
+    (void)name;
+    s_dl_failed = 1;
+    return NULL;
+}
+
+int dlclose(void *handle) {
+    (void)handle;
+    s_dl_failed = 1;
+    return -1;
+}
+
+char *dlerror(void) {
+    static char message[] = "no dynamic loading: a payload is one module";
+
+    if (!s_dl_failed) {
+        return NULL;
+    }
+    s_dl_failed = 0;
+    return message;
+}
+
 /* The `*at()` form. `AT_FDCWD` is the only anchor here - `fcntl.h` and `openat` above say why -
  * and for it this is `chmod`, which refuses. */
 int fchmodat(int dirfd, const char *path, mode_t mode, int flags) {

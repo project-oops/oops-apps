@@ -12,12 +12,12 @@
 ifndef OOPS_THEORA_MK
 OOPS_THEORA_MK := 1
 
-OOPS_OGG ?= $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../libogg)
-include $(OOPS_OGG)/oops-libogg.mk
-
+# This file's own directory first: `MAKEFILE_LIST` names libogg's once that is included.
 ifndef OOPS_THEORA_DIR
 OOPS_THEORA_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
+OOPS_OGG ?= $(abspath $(OOPS_THEORA_DIR)/../libogg)
+include $(OOPS_OGG)/oops-libogg.mk
 OOPS_THEORA_UPSTREAM ?= $(OOPS_THEORA_DIR)/upstream
 OOPS_THEORA_BUILD ?= $(OOPS_THEORA_DIR)/build
 OOPS_THEORA_INCLUDE := -I$(OOPS_THEORA_UPSTREAM)/include $(OOPS_OGG_INCLUDE)

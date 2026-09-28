@@ -15,6 +15,11 @@ The decompiled game logic, linked into the decompiled RSDKv5 engine it runs on (
   commit records.
 - **Fetched, not vendored** - the upstream sources are pulled on demand via `upstream.lock`;
   only the port's own `shim/` and `patches/` live here.
+- **One patch** - RSDKv5 picks its platform from the compiler's macros and falls through to
+  Windows for anything it does not know; `patches/0001` has FreeBSD take the Linux branch,
+  which with `RSDK_USE_SDL2` is SDL2 for rendering, input and audio.
+- **No mods** - the mod loader walks mod folders with `std::filesystem`, which the pinned libc++
+  does not build, so it is compiled out. The game itself is unaffected.
 
 ## Your game data
 
@@ -29,8 +34,8 @@ Without it the title says exactly this on screen and stops.
 
 ## Building
 
-`make` prints the survey: the pin, the dependencies still to vendor, and what the player
-supplies. `make SMNA_ARMED=1 title` builds the payload.
+`make title` builds the payload. `make survey` prints the pin, the dependencies and what the
+player supplies; `make census` compiles every component's sources and names any that fail.
 
 ## Docs
 

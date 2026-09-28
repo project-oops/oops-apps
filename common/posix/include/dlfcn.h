@@ -14,8 +14,15 @@
  * Returning 0 is what the platform actually offers, and every caller of `dladdr` already has a
  * path for it, because it fails on a static binary everywhere else too.
  *
- * `dlopen`/`dlsym`/`dlclose` are deliberately absent. There is no loading of a second module into
- * a payload, and a program reaching for them wants a design conversation rather than a stub.
+ * # `dlopen` always fails, and says why
+ *
+ * There is no loading of a second module into a payload. A program that must load one wants a
+ * design conversation - Xash3D's answer is to link its libraries in and look names up in a
+ * table (`src/oops-titles/half-life`). But a program that only *may* load one - RSDKv5, which
+ * looks for mod logic libraries and, when its game is not linked in, a game library - is
+ * written for `dlopen` returning NULL, and that is the true answer. So `dlopen` returns NULL,
+ * `dlerror` says there is no dynamic loading here, and `dlsym` and `dlclose` fail on the handle
+ * nothing could have produced. The `RTLD_*` values are FreeBSD's.
  *
  * # `info` is zeroed even on failure, and that is not tidiness
  *
@@ -41,6 +48,17 @@ extern "C" {
 
 /* Always 0, with `*info` zeroed. See above. */
 int dladdr(const void *addr, Dl_info *info);
+
+#define RTLD_LAZY   1
+#define RTLD_NOW    2
+#define RTLD_GLOBAL 0x100
+#define RTLD_LOCAL  0
+
+/* Always NULL, with `dlerror` saying why. See above. */
+void *dlopen(const char *path, int mode);
+void *dlsym(void *handle, const char *name);
+int dlclose(void *handle);
+char *dlerror(void);
 
 #ifdef __cplusplus
 }
