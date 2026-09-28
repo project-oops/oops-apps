@@ -2752,3 +2752,109 @@ long sysconf(int name) {
 int inet_aton(const char *src, struct in_addr *dst) {
     return inet_pton(AF_INET, src, dst) == 1 ? 1 : 0;
 }
+
+int getpeername(int sock, struct sockaddr *addr, socklen_t *addrlen) {
+    (void)sock;
+    (void)addr;
+    (void)addrlen;
+    errno = EOPNOTSUPP;
+    return -1;
+}
+
+struct hostent *gethostbyaddr(const void *addr, socklen_t len, int type) {
+    (void)addr;
+    (void)len;
+    (void)type;
+    h_errno = HOST_NOT_FOUND;
+    return NULL;
+}
+
+/* ---------------------------------------------------------------------------
+ * Scatter-gather over `sendto`/`recvfrom`. `sys/socket.h` says what is kept.
+ * ------------------------------------------------------------------------- */
+
+/* Large enough for any UDP datagram, so a receive never loses the end of one. */
+#define OOPS_POSIX_DGRAM_MAX 65536u
+static unsigned char s_msg_buf[OOPS_POSIX_DGRAM_MAX];
+
+ssize_t sendmsg(int sock, const struct msghdr *msg, int flags) {
+    size_t total = 0;
+    int i;
+
+    for (i = 0; i < msg->msg_iovlen; i++) {
+        const size_t len = msg->msg_iov[i].iov_len;
+        if (total + len > sizeof(s_msg_buf)) {
+            errno = EMSGSIZE;
+            return -1;
+        }
+        memcpy(s_msg_buf + total, msg->msg_iov[i].iov_base, len);
+        total += len;
+    }
+    return sendto(sock, s_msg_buf, total, flags, (const struct sockaddr *)msg->msg_name,
+                  msg->msg_namelen);
+}
+
+ssize_t recvmsg(int sock, struct msghdr *msg, int flags) {
+    socklen_t namelen = msg->msg_namelen;
+    size_t copied = 0;
+    ssize_t n;
+    int i;
+
+    n = recvfrom(sock, s_msg_buf, sizeof(s_msg_buf), flags, (struct sockaddr *)msg->msg_name,
+                 msg->msg_name != NULL ? &namelen : NULL);
+    if (n < 0) {
+        return -1;
+    }
+    msg->msg_flags = 0;
+    msg->msg_controllen = 0;
+    if (msg->msg_name != NULL) {
+        msg->msg_namelen = namelen;
+    }
+    for (i = 0; i < msg->msg_iovlen && copied < (size_t)n; i++) {
+        size_t take = msg->msg_iov[i].iov_len;
+        if (take > (size_t)n - copied) {
+            take = (size_t)n - copied;
+        }
+        memcpy(msg->msg_iov[i].iov_base, s_msg_buf + copied, take);
+        copied += take;
+    }
+    if (copied < (size_t)n) {
+        msg->msg_flags |= MSG_TRUNC;
+    }
+    return (ssize_t)copied;
+}
+
+const char *hstrerror(int err) {
+    switch (err) {
+    case 0: return "Resolver Error 0 (no error)";
+    case HOST_NOT_FOUND: return "Unknown host";
+    case TRY_AGAIN: return "Host name lookup failure";
+    case NO_RECOVERY: return "Unknown server error";
+    case NO_DATA: return "No address associated with name";
+    default: return "Unknown resolver error";
+    }
+}
+
+/*
+ * Entropy from the kernel, through FreeBSD's `getrandom` (syscall 563), which is what FreeBSD's
+ * own `getentropy` is. Nothing here stretches a clock into something that looks random: if the
+ * kernel refuses the call, this fails, and LuaJIT - the caller - falls back to its own seeding.
+ */
+int getentropy(void *buf, size_t len) {
+    size_t got = 0;
+
+    if (len > 256u) {
+        errno = EIO;
+        return -1;
+    }
+    while (got < len) {
+        const long rc = sys_call(563, (long)((unsigned char *)buf + got), (long)(len - got), 0, 0,
+                                 0, 0);
+        if (rc <= 0) {
+            errno = rc == 0 ? EIO : sys_get_errno();
+            return -1;
+        }
+        got += (size_t)rc;
+    }
+    return 0;
+}

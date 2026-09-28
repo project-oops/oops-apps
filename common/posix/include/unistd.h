@@ -162,6 +162,10 @@ long fpathconf(int fd, int name);
 #define _SC_NPROCESSORS_ONLN  58
 long sysconf(int name);
 
+/* Up to 256 bytes of kernel entropy (FreeBSD's `getrandom`), or -1: nothing is invented when
+ * the kernel says no. */
+int getentropy(void *buf, size_t len);
+
 /*
  * **Both always fail, and that is the useful answer.** A payload is one process: there is no second
  * one for `fork` to produce and no program image for `execvp` to replace it with. Failing is not a

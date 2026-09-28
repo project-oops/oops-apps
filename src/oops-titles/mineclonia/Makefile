@@ -87,7 +87,9 @@ MNCL_DEPS_INC = $(OOPS_ZSTD_INCLUDE) $(OOPS_SQLITE_INCLUDE) $(OOPS_FT_INCLUDE) $
 MNCL_LIB_INC := -I$(LUANTI)/lib/lua/src -I$(LUANTI)/lib/gmp -I$(LUANTI)/lib/jsoncpp \
                 -I$(LUANTI)/lib/bitop -I$(LUANTI)/lib/lstrpack -I$(LUANTI)/lib/sha256 \
                 -I$(LUANTI)/lib/tiniergltf
-MNCL_CXX = -x c++ $(MNCL_BASE) -std=c++17 $(OOPS_LIBCXX_INCLUDE) $(MNCL_SYS)
+# `gnu++17`, not `c++17`: the Irrlicht fork refuses `__STRICT_ANSI__` (`CFileSystem.cpp`), which
+# the strict mode defines, and upstream's CMake builds with the GNU extensions on.
+MNCL_CXX = -x c++ $(MNCL_BASE) -std=gnu++17 $(OOPS_LIBCXX_INCLUDE) $(MNCL_SYS)
 # `irr/src/CMakeLists.txt:80-160` for SDL2 and the legacy driver.
 MNCL_IRR_DEFS := -D_IRR_POSIX_API_ -D_IRR_COMPILE_WITH_SDL_DEVICE_ \
                  -D_IRR_COMPILE_WITH_JOYSTICK_EVENTS_ -D_IRR_COMPILE_WITH_OPENGL_ \
@@ -113,10 +115,66 @@ CENSUS_libs_c_FLAGS = $(MNCL_BASE) -std=gnu11 -I$(CURDIR)/shim/include/sha256 $(
 # `net` for the engine's loopback server, which a single-player world runs through.
 OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog net
 
+include $(OOPS_APPS_ROOT)/common/deps.mk
+
 ifeq ($(MNCL_ARMED),1)
-$(error mineclonia: the payload link is not written yet - `make census` says how close it is)
+# --- the payload ------------------------------------------------------------------------
+#
+# The engine, its Irrlicht fork, Lua and the bundled libraries in one archive, linked whole:
+# `main` is in there, and Irrlicht registers its loaders and Luanti its script APIs through
+# static constructors, which a plain archive link would drop.
+MNCL_BUILD := build/luanti
+
+define mncl_objs
+MNCL_$(1)_OBJS := $$(call oops_objs,$$(MNCL_BUILD)/$(1),$$(CENSUS_$(1)_SRCS))
+$$(call oops_obj_rules,$$(MNCL_BUILD)/$(1),TARGET_CC,CENSUS_$(1)_FLAGS,$$(CENSUS_$(1)_SRCS))
+-include $$(MNCL_$(1)_OBJS:.o=.d)
+endef
+$(foreach s,$(CENSUS_SETS),$(eval $(call mncl_objs,$(s))))
+
+MNCL_LIB := $(MNCL_BUILD)/libluanti.a
+MNCL_OBJS := $(foreach s,$(CENSUS_SETS),$(MNCL_$(s)_OBJS))
+$(MNCL_LIB): $(MNCL_OBJS)
+	@rm -f $@
+	@a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $(MNCL_OBJS)
+	@echo "mineclonia: $@ ($(words $(MNCL_OBJS)) objects)"
+
+# The entry shim is C++ (Luanti's `main` is), and brings the C++ runtime with it.
+OOPS_CXX_SRCS := $(CURDIR)/shim/mncl_start.cpp
+include $(OOPS_APPS_ROOT)/common/cxx.mk
+OOPS_CXX_INCLUDE += $(OOPS_LIBCXX_INCLUDE)
+OOPS_CXX_FLAGS += -I$(OOPS_APPS_ROOT)/common $(OOPS_POSIX_INCLUDE) -DOOPS_POSIX_HOME=\"/app0\"
+
+EXTRA_TARGET_CFLAGS += -DOOPS_CXX_EXTERNAL_NEW_DELETE $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE) \
+                       -I$(OOPS_APPS_ROOT)/common -DOOPS_POSIX_HOME=\"/app0\"
+PAYLOAD_SRCS := $(OOPS_APPS_ROOT)/common/tar_unpack.c $(OOPS_APPS_ROOT)/common/crashtrace.c \
+                $(OOPS_POSIX_SRCS)
+EXTRA_TARGET_LDFLAGS += -Wl,--whole-archive $(MNCL_LIB) -Wl,--no-whole-archive \
+                        $(OOPS_CXX_LDFLAGS) $(OOPS_SQLITE_LDFLAGS) $(OOPS_ZSTD_LDFLAGS) \
+                        $(OOPS_FT_LDFLAGS) $(OOPS_PNG_LDFLAGS) $(OOPS_JPEG_LDFLAGS) \
+                        $(OOPS_VORBIS_LDFLAGS) $(OOPS_OPENAL_LDFLAGS) $(OOPS_SDL_LDFLAGS) \
+                        $(OOPS_LIBCXX_LDFLAGS) $(OOPS_LIBCXXABI_LDFLAGS) $(OOPS_LIBUNWIND_LDFLAGS)
+PAYLOAD_EXTRA_DEPS   += $(MNCL_LIB) $(OOPS_CXX_LIB) $(OOPS_SQLITE_LIB) $(OOPS_ZSTD_LIB) \
+                        $(OOPS_FT_LIB) $(OOPS_PNG_LIB) $(OOPS_ZLIB_LIB) $(OOPS_JPEG_LIB) \
+                        $(OOPS_VORBIS_LIB) $(OOPS_OGG_LIB) $(OOPS_OPENAL_LIBS) $(OOPS_SDL_LIB) \
+                        $(OOPS_LIBCXX_LIB) $(OOPS_LIBCXXABI_LIB) $(OOPS_LIBUNWIND_LIB)
 endif
 
 include $(OOPS_APPS_ROOT)/common/app.mk
 include $(OOPS_APPS_ROOT)/common/scaffold.mk
 include $(OOPS_APPS_ROOT)/common/census.mk
+
+# --- the data ---------------------------------------------------------------------------
+#
+# Luanti's run-in-place tree - `builtin/` (the engine's own Lua), `client/` (shaders), `fonts/`,
+# `textures/` - with the game under `games/mineclonia`: some 10,000 files, which `pros restore`
+# would copy one at a time for over an hour. So `make package` puts them in one tar beside
+# `eboot.bin`, and `shim/mncl_start.cpp` unpacks it on first start (`common/tar_unpack.c`).
+.PHONY: package
+package: title
+	@rm -rf build/data && mkdir -p build/data/games
+	@cp -r upstream/builtin upstream/client upstream/fonts upstream/textures build/data/
+	@cp -r upstream-game build/data/games/mineclonia
+	@rm -rf build/data/games/mineclonia/.git build/data/games/mineclonia/.oops-upstream-stamp
+	@tar --format=gnu -cf build/title/$(TITLE_ID)/luanti-data.tar -C build/data .
+	@echo "mineclonia: data is $$(find build/data -type f | wc -l) files in one tar, $$(du -sh build/title/$(TITLE_ID)/luanti-data.tar | cut -f1)"

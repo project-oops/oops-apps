@@ -51,6 +51,10 @@ OOPS_SPDLOG ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/spdlog)
 include $(OOPS_SPDLOG)/oops-spdlog.mk
 OOPS_TINYXML2 ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/tinyxml2)
 include $(OOPS_TINYXML2)/oops-tinyxml2.mk
+# Ghostship's libultraship wants a newer prism than the shared pin (`upstream-prism.lock` says
+# which), so the dependency builds from this title's own copy, into this title's build tree.
+OOPS_PRISM_UPSTREAM := $(CURDIR)/upstream-prism
+OOPS_PRISM_BUILD := $(CURDIR)/build/prism
 OOPS_PRISM ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/prism-processor)
 include $(OOPS_PRISM)/oops-prism.mk
 OOPS_STB ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/stb)
@@ -146,12 +150,15 @@ GHST_INCLUDE = $(OOPS_POSIX_INCLUDE) \
 
 # The C is built as upstream builds it on the desktop, `-O1 -fno-strict-aliasing`
 # (CMakeLists.txt:167): its comment says strict aliasing breaks the camera through undefined
-# behaviour in the decompiled code.
+# behaviour in the decompiled code. The decompiled C also passes pointers as integers and back,
+# which this clang rejects by default and the desktop compilers upstream targets warn about;
+# `../spaghetti-kart` turns the same three off.
 GHST_BASE := -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -nostdlibinc \
              -fPIC -w
 GHST_SYS   = $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
-GHST_C     = $(GHST_BASE) -O1 -fno-strict-aliasing -std=gnu11 $(GHST_INCLUDE) -include assert.h \
-             $(GHST_SYS)
+GHST_C     = $(GHST_BASE) -O1 -fno-strict-aliasing -std=gnu11 -Wno-int-conversion \
+             -Wno-incompatible-pointer-types -Wno-incompatible-function-pointer-types \
+             $(GHST_INCLUDE) -include assert.h $(GHST_SYS)
 GHST_CXX   = -x c++ $(GHST_BASE) -O2 -std=c++20 -fexceptions -frtti -Wno-c++11-narrowing \
              $(OOPS_LIBCXX_INCLUDE) $(GHST_INCLUDE) -include cctype $(GHST_SYS)
 

@@ -55,6 +55,15 @@ typedef int32_t pid_t;
 #define _PID_T_DECLARED
 #endif
 
+/* The BSD unsigned shorthands, under the guard oops-sdk's copy uses for the same four. */
+#ifndef _OOPS_BSD_UTYPES_DECLARED
+#define _OOPS_BSD_UTYPES_DECLARED
+typedef unsigned char u_char;
+typedef unsigned short u_short;
+typedef unsigned int u_int;
+typedef unsigned long u_long;
+#endif
+
 #ifndef _TIME_T_DECLARED
 typedef int64_t time_t;
 #define _TIME_T_DECLARED

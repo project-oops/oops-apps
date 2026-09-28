@@ -47,6 +47,14 @@ struct sockaddr_in {
 #define IP_MULTICAST_IF   9
 #define IP_MULTICAST_TTL  10
 #define IP_MULTICAST_LOOP 11
+#define IP_ADD_MEMBERSHIP  12
+#define IP_DROP_MEMBERSHIP 13
+
+/* `IP_ADD_MEMBERSHIP`'s argument: the group, and the local interface to join it on. */
+struct ip_mreq {
+    struct in_addr imr_multiaddr;
+    struct in_addr imr_interface;
+};
 
 /*
  * # IPv6: the types are here, and nothing behind them works
@@ -102,12 +110,26 @@ struct ipv6_mreq {
  * callers take its address and pass it by value. */
 extern const struct in6_addr in6addr_any;
 extern const struct in6_addr in6addr_loopback;
+/* The same two as initialisers, for a caller building its own. */
+#define IN6ADDR_ANY_INIT                                                                   \
+    {                                                                                      \
+        {                                                                                  \
+            { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }                             \
+        }                                                                                  \
+    }
+#define IN6ADDR_LOOPBACK_INIT                                                              \
+    {                                                                                      \
+        {                                                                                  \
+            { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }                             \
+        }                                                                                  \
+    }
 
 #define IPPROTO_IPV6 41
 
 /* FreeBSD's option numbers, which are RFC 3493's - note that `IPV6_JOIN_GROUP` and
  * `IPV6_LEAVE_GROUP` are 12 and 13 here where Linux uses 20 and 21. Getting that wrong would send
  * a well-formed request for the wrong option. */
+#define IPV6_UNICAST_HOPS    4
 #define IPV6_MULTICAST_IF    9
 #define IPV6_MULTICAST_HOPS 10
 #define IPV6_MULTICAST_LOOP 11

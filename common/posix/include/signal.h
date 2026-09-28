@@ -65,6 +65,9 @@
 
 typedef void (*sighandler_t)(int);
 
+/* The type a handler can write atomically; FreeBSD's on amd64. */
+typedef long sig_atomic_t;
+
 #define SIG_DFL ((sighandler_t)0)
 #define SIG_IGN ((sighandler_t)1)
 #define SIG_ERR ((sighandler_t)-1)

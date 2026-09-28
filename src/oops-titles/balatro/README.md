@@ -17,7 +17,10 @@ other LÖVE 11 game runs on the same payload given a different archive.
 - **Fetched, not vendored** - the upstream sources are pulled on demand via `upstream.lock`;
   only the port's own `shim/` and `patches/` live here.
 - **LuaJIT without the JIT** - the interpreter needs no executable memory, and the games are
-  written against LuaJIT's libraries.
+  written against LuaJIT's libraries. Its FFI is off for the same reason; LÖVE's own Lua uses
+  the FFI only when it is there.
+- **No MP3** - LÖVE 11 decodes MP3 through mpg123, which is not built. Ogg Vorbis, WAV, FLAC
+  and tracker modules play.
 
 ## Your game
 
@@ -32,8 +35,8 @@ mounts that. Without it the title says exactly this on screen and stops.
 
 ## Building
 
-`make` prints the survey: the pin, the dependencies still to vendor, and what the player
-supplies. `make BLTR_ARMED=1 title` builds the payload.
+`make title` builds the payload. `make survey` prints the pin, the dependencies and what the
+player supplies; `make census` compiles every source and names any that fail.
 
 ## Docs
 

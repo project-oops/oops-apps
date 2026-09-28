@@ -41,6 +41,14 @@ extern int h_errno;
  * static. */
 struct hostent *gethostbyname(const char *name);
 
+/* Always NULL with `h_errno` `HOST_NOT_FOUND`: the SDK resolves names to addresses, not
+ * addresses back to names, so no reverse lookup can be answered. Callers (luasocket, ENet)
+ * fall back to the dotted-quad text. */
+struct hostent *gethostbyaddr(const void *addr, socklen_t len, int type);
+
+/* The message for an `h_errno` value. */
+const char *hstrerror(int err);
+
 #ifdef __cplusplus
 }
 #endif

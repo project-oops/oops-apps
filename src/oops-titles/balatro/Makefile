@@ -1,6 +1,6 @@
 # Balatro, through oops-sdk.
 #
-#   make title     the payload, packaged - once BLTR_ARMED=1 links
+#   make title     the payload, packaged
 #   make survey    the pin, the dependencies and what the player supplies
 #   make census    compile every component's sources for the target, set by set
 #   make census-one S=<set> F=<path>   every error in one source
@@ -22,6 +22,8 @@ LOVE := $(CURDIR)/upstream/src
 
 # PhysFS, Box2D, lua-enet, luasocket, glslang and the image decoders are bundled under
 # `src/libraries/` and build from upstream. LuaJIT is the interpreter only (`oops-luajit.mk`).
+# Armed by default: the payload links with nothing unresolved.
+BLTR_ARMED ?= 1
 SCAFFOLD_ARM    := BLTR_ARMED
 SCAFFOLD_DEPS   := sdl2 libcxx openal-soft freetype libogg libvorbis libtheora libmodplug zlib \
                    luajit
@@ -63,10 +65,13 @@ include $(OOPS_OPENAL)/oops-openal-soft.mk
 BLTR_LOVE_SRCS := $(LOVE)/love.cpp $(filter-out %/android.cpp, $(wildcard $(LOVE)/common/*.cpp)) \
     $(shell find $(LOVE)/modules -name '*.cpp' 2>/dev/null | sort)
 # luasocket's Unix-domain and serial modules want `AF_UNIX` and `<sys/un.h>`, which a payload
-# has no use for, and `luasocket.cpp` does not register them.
+# has no use for, and `luasocket.cpp` does not register them. Its `compat.c` supplies Lua 5.2's
+# `luaL_setfuncs` to a Lua 5.1, and LuaJIT - which reports itself as 5.1 - defines it already; a
+# desktop's dynamic link lets one quietly win, a static one refuses the pair.
 BLTR_LIB_EXCL := %/wsocket.c %/win32.c $(LOVE)/libraries/glslang/glslang/OSDependent/Windows/% \
                  %/libluasocket/unix.c %/libluasocket/unixtcp.c %/libluasocket/unixudp.c \
-                 %/libluasocket/unixstream.c %/libluasocket/unixdgram.c %/libluasocket/serial.c
+                 %/libluasocket/unixstream.c %/libluasocket/unixdgram.c %/libluasocket/serial.c \
+                 %/libluasocket/compat.c
 BLTR_LIB_CXX_SRCS := $(filter-out $(BLTR_LIB_EXCL), \
     $(shell find $(LOVE)/libraries \( -name '*.cpp' -o -name '*.cc' \) 2>/dev/null | sort))
 BLTR_LIB_C_SRCS := $(filter-out $(BLTR_LIB_EXCL), \
@@ -101,8 +106,54 @@ CENSUS_libs_c_FLAGS = $(BLTR_BASE) -std=gnu11 $(BLTR_SYS) $(BLTR_INC) -include s
 
 OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog
 
+# `__tls_get_addr` is libkernel's, which `common/symbols.txt` records, so the loader resolves it;
+# the C++ runtime's thread-locals reach it, as `../spaghetti-kart`'s do.
+EXTRA_UNDEF_ALLOW := ^__tls_get_addr$$
+
+include $(OOPS_APPS_ROOT)/common/deps.mk
+
 ifeq ($(BLTR_ARMED),1)
-$(error balatro: the payload link is not written yet - `make census` says how close it is)
+# --- the payload ------------------------------------------------------------------------
+#
+# LÖVE and its bundled libraries in one archive, linked whole: `main` is in there, and the Lua
+# modules register themselves by table, which a plain archive link would drop.
+BLTR_BUILD := build/love
+
+define bltr_objs
+BLTR_$(1)_OBJS := $$(call oops_objs,$$(BLTR_BUILD)/$(1),$$(CENSUS_$(1)_SRCS))
+$$(call oops_obj_rules,$$(BLTR_BUILD)/$(1),TARGET_CC,CENSUS_$(1)_FLAGS,$$(CENSUS_$(1)_SRCS))
+-include $$(BLTR_$(1)_OBJS:.o=.d)
+endef
+$(foreach s,$(CENSUS_SETS),$(eval $(call bltr_objs,$(s))))
+
+BLTR_LIB := $(BLTR_BUILD)/liblove.a
+BLTR_OBJS := $(BLTR_love_OBJS) $(BLTR_libs_cxx_OBJS) $(BLTR_libs_c_OBJS)
+$(BLTR_OBJS): | $(OOPS_MODPLUG_PREFIX_STAMP)
+$(BLTR_LIB): $(BLTR_OBJS)
+	@rm -f $@
+	@a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $(BLTR_OBJS)
+	@echo "balatro: $@ ($(words $(BLTR_OBJS)) objects)"
+
+# The entry shim is C++ (LÖVE's `main` is), and brings the C++ runtime with it.
+OOPS_CXX_SRCS := $(CURDIR)/shim/bltr_start.cpp
+include $(OOPS_APPS_ROOT)/common/cxx.mk
+OOPS_CXX_INCLUDE += $(OOPS_LIBCXX_INCLUDE)
+OOPS_CXX_FLAGS += -I$(OOPS_APPS_ROOT)/common $(OOPS_POSIX_INCLUDE) -DOOPS_POSIX_HOME=\"/app0\"
+
+# The POSIX shim's headers before SDL's: `sdl2/include` carries a `unistd.h` of its own.
+EXTRA_TARGET_CFLAGS += -DOOPS_CXX_EXTERNAL_NEW_DELETE $(OOPS_POSIX_INCLUDE) $(OOPS_SDL_INCLUDE) \
+                       -I$(OOPS_APPS_ROOT)/common -DOOPS_POSIX_HOME=\"/app0\"
+PAYLOAD_SRCS := $(OOPS_APPS_ROOT)/common/player_data.c $(OOPS_APPS_ROOT)/common/crashtrace.c \
+                $(OOPS_POSIX_SRCS)
+EXTRA_TARGET_LDFLAGS += -Wl,--whole-archive $(BLTR_LIB) -Wl,--no-whole-archive \
+                        $(OOPS_CXX_LDFLAGS) $(OOPS_LUAJIT_LDFLAGS) $(OOPS_MODPLUG_LDFLAGS) \
+                        $(OOPS_THEORA_LDFLAGS) $(OOPS_VORBIS_LDFLAGS) $(OOPS_OPENAL_LDFLAGS) \
+                        $(OOPS_FT_LDFLAGS) $(OOPS_ZLIB_LDFLAGS) $(OOPS_SDL_LDFLAGS) \
+                        $(OOPS_LIBCXX_LDFLAGS) $(OOPS_LIBCXXABI_LDFLAGS) $(OOPS_LIBUNWIND_LDFLAGS)
+PAYLOAD_EXTRA_DEPS   += $(BLTR_LIB) $(OOPS_CXX_LIB) $(OOPS_LUAJIT_LIB) $(OOPS_MODPLUG_LIB) \
+                        $(OOPS_THEORA_LIB) $(OOPS_VORBIS_LIB) $(OOPS_OGG_LIB) $(OOPS_OPENAL_LIBS) \
+                        $(OOPS_FT_LIB) $(OOPS_ZLIB_LIB) $(OOPS_SDL_LIB) $(OOPS_LIBCXX_LIB) \
+                        $(OOPS_LIBCXXABI_LIB) $(OOPS_LIBUNWIND_LIB)
 endif
 
 include $(OOPS_APPS_ROOT)/common/app.mk

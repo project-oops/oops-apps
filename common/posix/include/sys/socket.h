@@ -82,8 +82,31 @@ struct sockaddr_storage {
 #define MSG_OOB       0x1
 #define MSG_PEEK      0x2
 #define MSG_DONTROUTE 0x4
+#define MSG_TRUNC     0x10
 #define MSG_WAITALL   0x40
 #define MSG_DONTWAIT  0x80
+
+/* The backlog `listen` is told to take when a caller wants the most there is. FreeBSD's. */
+#define SOMAXCONN 128
+
+/*
+ * Scatter-gather sends and receives, FreeBSD's layout. `sendmsg` gathers the vectors into one
+ * datagram and sends it with `sendto`; `recvmsg` receives a whole datagram - into a buffer large
+ * enough for any UDP datagram, so nothing is lost there - and scatters it across the vectors,
+ * setting `MSG_TRUNC` in `msg_flags` when they were too short for it. Control data (`msg_control`)
+ * is neither sent nor received: `msg_controllen` comes back 0. ENet's UDP layer is the caller.
+ */
+#include <sys/uio.h>
+
+struct msghdr {
+    void *msg_name;
+    socklen_t msg_namelen;
+    struct iovec *msg_iov;
+    int msg_iovlen;
+    void *msg_control;
+    socklen_t msg_controllen;
+    int msg_flags;
+};
 
 /*
  * Socket options. The values are FreeBSD's, and they reach the platform unchanged - `setsockopt`
@@ -161,10 +184,15 @@ int setsockopt(int sock, int level, int optname, const void *optval,
                socklen_t optlen);
 int getsockopt(int sock, int level, int optname, void *optval, socklen_t *optlen);
 
-/* Always `EOPNOTSUPP`: the SDK cannot report a socket's own address. */
+/* Always `EOPNOTSUPP`: the SDK cannot report a socket's own address, or its peer's. */
 int getsockname(int sock, struct sockaddr *addr, socklen_t *addrlen);
+int getpeername(int sock, struct sockaddr *addr, socklen_t *addrlen);
 
 int listen(int sock, int backlog);
+
+/* See the note at `struct msghdr`. */
+ssize_t sendmsg(int sock, const struct msghdr *msg, int flags);
+ssize_t recvmsg(int sock, struct msghdr *msg, int flags);
 /* The peer is parsed back from the SDK's dotted-quad text, as `recvfrom` does. */
 int accept(int sock, struct sockaddr *addr, socklen_t *addrlen);
 

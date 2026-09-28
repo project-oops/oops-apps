@@ -1,0 +1,11 @@
+# prism-processor at the revision Starship's libultraship asks for
+# (`libultraship/cmake/dependencies/common.cmake:111`), fetched into `upstream-prism/`
+# (`common/upstream.mk`). Each Harbour Masters port pins its own, and this one differs from the
+# commit `src/oops-deps/prism-processor` pins for Spaghetti Kart and Ship of Harkinian, so the
+# Makefile points that dependency's build at this tree instead.
+#
+# The repository has no tags; this is the bare commit libultraship names.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/KiritoDv/prism-processor
+UPSTREAM_REV=7ae724a6fb7df8cbf547445214a1a848aefef747
+UPSTREAM_REF=7ae724a6

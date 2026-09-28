@@ -1,0 +1,11 @@
+# prism-processor at the revision Ghostship's libultraship asks for
+# (`libultraship/cmake/dependencies/common.cmake:218`), fetched into `upstream-prism/`
+# (`common/upstream.mk`). It is newer than the one `src/oops-deps/prism-processor` pins for
+# Spaghetti Kart's and Ship of Harkinian's libultraship - this one has `prism::SettingDecl` -
+# so the Makefile points that dependency's build at this tree instead.
+#
+# The repository has no tags; this is the bare commit libultraship names.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/KiritoDv/prism-processor
+UPSTREAM_REV=aa8370981b2cf57c46172e6aa639d720137f9a92
+UPSTREAM_REF=aa837098

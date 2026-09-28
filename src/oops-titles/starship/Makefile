@@ -49,6 +49,10 @@ OOPS_SPDLOG ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/spdlog)
 include $(OOPS_SPDLOG)/oops-spdlog.mk
 OOPS_TINYXML2 ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/tinyxml2)
 include $(OOPS_TINYXML2)/oops-tinyxml2.mk
+# Starship's libultraship pins its own prism (`upstream-prism.lock` says which), so the dependency
+# builds from this title's copy, into this title's build tree.
+OOPS_PRISM_UPSTREAM := $(CURDIR)/upstream-prism
+OOPS_PRISM_BUILD := $(CURDIR)/build/prism
 OOPS_PRISM ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/prism-processor)
 include $(OOPS_PRISM)/oops-prism.mk
 OOPS_STB ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/stb)
@@ -137,7 +141,10 @@ STRF_INCLUDE = $(OOPS_POSIX_INCLUDE) \
 STRF_BASE := -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -nostdlibinc \
              -fPIC -O2 -w
 STRF_SYS   = $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
-STRF_C     = $(STRF_BASE) -std=gnu11 $(STRF_INCLUDE) -include assert.h $(STRF_SYS)
+# The decompiled C passes pointers as integers and back, which this clang rejects by default;
+# `../spaghetti-kart` turns the same three off.
+STRF_C     = $(STRF_BASE) -std=gnu11 -Wno-int-conversion -Wno-incompatible-pointer-types \
+             -Wno-incompatible-function-pointer-types $(STRF_INCLUDE) -include assert.h $(STRF_SYS)
 STRF_CXX   = -x c++ $(STRF_BASE) -std=c++20 -fexceptions -frtti -Wno-c++11-narrowing \
              $(OOPS_LIBCXX_INCLUDE) $(STRF_INCLUDE) -include cctype $(STRF_SYS)
 
