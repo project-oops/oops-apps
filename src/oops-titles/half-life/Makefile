@@ -182,8 +182,9 @@ HL_GAME_INC := -I$(HLSDK)/dlls -I$(HLSDK)/common -I$(HLSDK)/engine -I$(HLSDK)/pm
 # and `pm_math.c`'s `Length` would collide with `cl_dll/util.cpp`'s, which upstream's build
 # keeps apart by language.
 CENSUS_client_SRCS := $(filter %.cpp,$(HL_CLIENT_SRCS))
+# `shim/include` for `memory.h`, which `cl_dll/entity.cpp` includes (see the header).
 CENSUS_client_FLAGS = $(HL_CXX) $(HL_GAME_DEFS) -DCLIENT_DLL=1 -DINTERNAL_VGUI_SUPPORT=1 \
-    -I$(HLSDK)/cl_dll $(HL_GAME_INC) -I$(HLSDK)/utils/vgui/include
+    -I$(HLSDK)/cl_dll $(HL_GAME_INC) -I$(HLSDK)/utils/vgui/include -I$(CURDIR)/shim/include
 CENSUS_client_c_SRCS := $(filter %.c,$(HL_CLIENT_SRCS))
 CENSUS_client_c_FLAGS = $(HL_BASE) -std=gnu11 $(HL_SYS) $(HL_GAME_DEFS) -DCLIENT_DLL=1 \
     -I$(HLSDK)/cl_dll $(HL_GAME_INC)
