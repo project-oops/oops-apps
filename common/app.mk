@@ -168,7 +168,20 @@ ifneq ($(strip $(shell cat $(OOPS_BUILD_ROOTS_STAMP) 2>/dev/null)),$(strip $(OOP
 ifneq ($(wildcard $(BUILD)),)
 $(info $(APP_NAME): build roots moved since this tree was compiled - clearing $(BUILD))
 endif
-$(shell rm -rf $(BUILD))
+# Everything but `$(BUILD)/gen`.
+#
+# A title generates its headers into `$(BUILD)/gen` while its own makefile is read - the
+# CVAR tables for the three libultraship ports, the version strings - and that happens
+# before this file is included, because this file is included last. Clearing the whole of
+# `$(BUILD)` here therefore deleted a header that had just been written and would not be
+# written again until the next invocation, and every compile that force-includes it failed
+# on a build whose only crime was moving between the Docker and WSL runners.
+#
+# Keeping them is not a special case, it is what the rule already says: objects are cleared
+# because depfiles record absolute paths and the `-I` flags change. Generated sources are
+# derived from upstream, which has not moved, so a root that changed says nothing about
+# them.
+$(shell find $(BUILD) -mindepth 1 -maxdepth 1 ! -name gen -exec rm -rf {} + 2>/dev/null)
 $(shell mkdir -p $(BUILD) && echo '$(OOPS_BUILD_ROOTS)' > $(OOPS_BUILD_ROOTS_STAMP))
 endif
 
@@ -197,11 +210,12 @@ else
 OOPS_SDK_LIBC_INCLUDE ?= -I$(OOPS_SDK_DIR)/include/libc
 OOPS_TARGET_NOSTDLIBINC ?= -nostdlibinc
 endif
-TARGET_CFLAGS ?= -std=c11 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion \
+TARGET_CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion \
                  -Wstrict-prototypes -Wmissing-prototypes -Wvla \
                  -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -fPIC \
                  -fno-stack-protector -fvisibility=hidden $(OOPS_TARGET_NOSTDLIBINC) \
                  $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) $(EXTRA_TARGET_CFLAGS)
+
 
 # Application identity macros for telemetry and logs.
 ifeq ($(strip $(BUILD_VERSION)),)
