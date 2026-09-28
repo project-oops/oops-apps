@@ -1,0 +1,81 @@
+Convert in the one directory a payload has, rather than a temp dir
+
+`CallZapd` builds a scratch directory, symlinks the install's `assets` into it and
+chdirs there, so a desktop can run the extractor from somewhere writable without
+disturbing the install. Every part of that is a desktop assumption, and on this
+platform each one fails differently:
+
+  - `temp_directory_path()` reads TMPDIR and falls back to `/tmp`. A payload's
+    sandbox has neither, so the scratch directory is made somewhere that is not
+    there.
+  - `create_symlink` reaches `common/posix`'s `symlink`, which refuses - see
+    `common/posix/include/fcntl.h`. `std::filesystem` reports that by throwing,
+    which ends the conversion before ZAPD is reached.
+  - `current_path(tempdir)` reaches `chdir`, which answers and changes nothing. A
+    payload has one directory and cannot move it, so even a scratch directory that
+    existed would never be entered.
+
+None of it is needed. A payload has exactly one directory, `/app0`, which is both
+the install and where the archive belongs, and the relative paths this function
+already builds - `assets/xml/<version>`, `assets/filelists`, `--otrfile oot.o2r` -
+resolve against it at the kernel boundary. So this reads the definitions where
+`shim/soh_start.c` unpacked them and writes `oot.o2r` beside them, first time.
+
+The copy at the end goes with it. `otrFile` and `exportdir` both resolve to
+`/app0`, so it is a file onto itself, and `std::filesystem::copy` calls equivalent
+paths an error rather than a no-op.
+
+diff --git a/soh/soh/Extractor/Extract.cpp b/soh/soh/Extractor/Extract.cpp
+index 93fa64c..fa82a74 100644
+--- a/soh/soh/Extractor/Extract.cpp
++++ b/soh/soh/Extractor/Extract.cpp
+@@ -662,6 +662,23 @@ bool Extractor::CallZapd(std::string installPath, std::string exportdir, std::at
+     std::string romPath = std::filesystem::absolute(mCurrentRomPath).string();
+     installPath = std::filesystem::absolute(installPath).string();
+     exportdir = std::filesystem::absolute(exportdir).string();
++#ifdef __PROSPERO__
++    // No scratch directory, because there is nothing for one to solve here.
++    //
++    // The temporary directory below exists so a desktop can run the extractor from
++    // somewhere writable without disturbing the install, and it is built out of three
++    // things this platform does not have: a temp directory (`temp_directory_path` reads
++    // TMPDIR and falls back to /tmp, and a payload's sandbox holds neither), a symlink
++    // (`common/posix`'s `symlink` refuses, so the call throws), and a working directory
++    // that can move (`chdir` answers and changes nothing - see `common/posix/posix.c`).
++    //
++    // What it needs instead is already true. A payload has exactly one directory, /app0,
++    // which is both the install and the place the archive belongs; the relative paths
++    // just below resolve against it at the kernel boundary, which is what
++    // `oops_fs_resolve_path` is for. So `assets/xml/...` reads the definitions unpacked
++    // by `shim/soh_start.c` and `--otrfile oot.o2r` writes beside them, first time.
++    (void)exportdir;
++#else
+     // Work this out in the temporary folder
+     std::string tempdir = Mkdtemp();
+     std::string curdir = std::filesystem::current_path().string();
+@@ -673,6 +690,7 @@ bool Extractor::CallZapd(std::string installPath, std::string exportdir, std::at
+ #endif
+ 
+     std::filesystem::current_path(tempdir);
++#endif
+ 
+     snprintf(xmlPath, 1024, "assets/xml/%s", version);
+     snprintf(confPath, 1024, "assets/Config_%s.xml", version);
+@@ -703,11 +721,17 @@ bool Extractor::CallZapd(std::string installPath, std::string exportdir, std::at
+ 
+     zapd_report(argc, (char**)argv.data(), extractCount, totalExtract);
+ 
++#ifndef __PROSPERO__
+     std::filesystem::copy(otrFile, exportdir + "/" + otrFile, std::filesystem::copy_options::overwrite_existing);
+ 
+     // Go back to where this game was executed from
+     std::filesystem::current_path(curdir);
+     std::filesystem::remove_all(tempdir);
++#endif
++    // On this platform the copy above would be a file onto itself: `otrFile` and
++    // `exportdir` both resolve to /app0, so ZAPD has already written it where
++    // libultraship will look, and `std::filesystem::copy` treats equivalent paths as an
++    // error rather than a no-op.
+ 
+     return false;
+ }

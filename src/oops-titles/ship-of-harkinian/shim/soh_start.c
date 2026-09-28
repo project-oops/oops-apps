@@ -17,6 +17,7 @@
  */
 void oops_crashtrace_install(void);
 #include "oops/time.h"
+#include "oops/zip.h"
 #include <SDL2/SDL.h>
 #include <dirent.h>
 #include <stdlib.h>
@@ -30,11 +31,11 @@ int ship_of_harkinian_start(const payload_args_t *args);
  * Says which game data is present, before libultraship looks.
  *
  * The build ships soh.o2r, the port's own archive, and carries no game assets. oot.o2r
- * and oot-mq.o2r are converted from a ROM the player supplies, on a desktop - see
- * `shim/Extract.cpp` for why the converter is not in this payload - so a fresh install
- * has neither. libultraship answers a missing one with SDL_ShowSimpleMessageBox ("Main
- * OTR file not found"), and the same fact goes to the log, where it can be read without
- * a screen.
+ * and oot-mq.o2r are converted from a ROM the player supplies, by this payload, on the
+ * console - so a fresh install has neither, and an install with a ROM has neither until
+ * the first run finishes converting it. libultraship answers a missing one with
+ * SDL_ShowSimpleMessageBox ("Main OTR file not found"), and the same fact goes to the
+ * log, where it can be read without a screen.
  *
  * It used to report and carry on, on the grounds that whether the game can start is
  * libultraship's answer to give. It does not give one: `OTRGlobals.cpp:295` passes
@@ -91,6 +92,56 @@ static int soh_have_rom(void) {
     return found;
 }
 
+/*
+ * Put the asset definitions on disk, once, before anything looks for them.
+ *
+ * ZAPD does not read a cartridge and work out what is in it: it reads XML saying what
+ * lives at which offset, per ROM version, and there are 7,700 of those files. They ship
+ * as `assets.zip` because `pros restore` costs per file rather than per byte and the
+ * console has no use for 7,700 files it reads once - see the `make package` section of
+ * the Makefile.
+ *
+ * `assets/xml` is the marker as well as the destination: if it is there the work is
+ * done, and the archive is read again only if it is not. `OTRGlobals.cpp:433` tests
+ * `installPath + "/assets"` and puts up "Extractor assets not found" when it is
+ * missing, so this has to happen before `main`, not on the way into a conversion.
+ */
+static void soh_ensure_assets(void) {
+    char marker[256];
+    char archive[256];
+    uint64_t started;
+    int rc;
+
+    if (oops_snprintf(marker, sizeof(marker), "%s/assets/xml", OOPS_POSIX_HOME) <= 0 ||
+        oops_snprintf(archive, sizeof(archive), "%s/assets.zip", OOPS_POSIX_HOME) <=
+            0) {
+        return;
+    }
+    if (oops_fs_exists(marker)) {
+        return;
+    }
+    if (!oops_fs_exists(archive)) {
+        oops_log_error("SOH",
+                       "%s is missing: it ships with the build and holds the XML "
+                       "the converter reads",
+                       archive);
+        return;
+    }
+
+    oops_log_info("SOH", "unpacking the asset definitions - this happens once");
+    started = oops_time_get_ms();
+    rc = oops_zip_extract(archive, OOPS_POSIX_HOME);
+    if (rc != OOPS_ZIP_OK) {
+        oops_log_error("SOH",
+                       "could not unpack %s (%d); a ROM cannot be converted "
+                       "without it",
+                       archive, rc);
+        return;
+    }
+    oops_log_info("SOH", "asset definitions unpacked in %llu ms",
+                  (unsigned long long)(oops_time_get_ms() - started));
+}
+
 static int soh_report_game_data(void) {
     static const char *const archives[] = {"oot.o2r", "oot-mq.o2r"};
     char path[256];
@@ -109,10 +160,11 @@ static int soh_report_game_data(void) {
         return 1;
     }
 
-    /* No archive, but a ROM is enough: upstream's extractor converts it on the way in.
-     */
+    /* No archive, but a ROM is enough: upstream's extractor converts it on the way in,
+     * once the definitions it reads are on disk. */
     if (soh_have_rom()) {
         oops_log_info("SOH", "no archive yet - the ROM will be converted on this run");
+        soh_ensure_assets();
         return 1;
     }
 

@@ -466,7 +466,10 @@ EXTRA_UNDEF_ALLOW := ^__tls_get_addr$$
 # GL 2.0 surface. `dialog` is for SDL's message box, which the console draws through
 # libSceMsgDialog - see `oops-deps/sdl2/backend/SDL_prosperovideo.c`.
 OOPS_RENDERER := gl2
-OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog
+# `zip` is for the asset definitions, not for anything the game does: they ship as one
+# archive and `oops_zip_extract` unpacks them the first time a ROM is converted. See the
+# `make package` section below for why they are not shipped as a file tree.
+OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog zip
 
 include $(OOPS_APPS_ROOT)/common/app.mk
 
@@ -491,17 +494,63 @@ TARGET_CFLAGS += $(SOH_WARNINGS)
 # ---------------------------------------------------------------------------
 SOH_O2R := $(CURDIR)/build/soh.o2r
 
+# ---------------------------------------------------------------------------
+# `assets.zip`: what ZAPD reads while it converts the player's ROM
+#
+# ZAPD does not read a cartridge and work out what is in it. It reads XML saying what is
+# at which offset, one set per ROM version, and those descriptions are 50MB across 7,680
+# files. That is the second half of the runtime conversion: the payload has the converter
+# (`SOH_ZAPD_ALL` above), and this is the data the converter reads.
+#
+# One archive rather than a tree, for two reasons. `pros restore` costs per file and not
+# per byte - 7,680 of them is hours on the wire - and the console has no use for 7,680
+# files it reads once. XML deflates about ten to one, so the package grows a few megabytes
+# rather than fifty, and `shim/soh_start.c` unpacks it to `/app0/assets` the first time a
+# conversion needs it.
+#
+# The flattening (`extractor/Config_*.xml` and `extractor/filelists` move up beside `xml/`)
+# is `Extractor::CallZapd`'s layout rather than upstream's; `tools/make-assets-zip.py`
+# does it here so the device only has to unpack.
+# ---------------------------------------------------------------------------
+SOH_ASSETS_SRC := $(CURDIR)/upstream/soh/assets
+SOH_ASSETS_ZIP := $(CURDIR)/build/assets.zip
+SOH_ASSETS_TOOL := $(CURDIR)/tools/make-assets-zip.py
+# The tool reads the version names out of this rather than restating them, so a version
+# added upstream and not shipped fails the build instead of failing on somebody's console.
+SOH_EXTRACT_CPP := $(CURDIR)/upstream/soh/soh/Extractor/Extract.cpp
+
+# The build image carries `python3` and no `zip`; `python` is the name on some hosts.
+# Both answer `import zipfile`, which is the whole of what the tool needs, and a zip is
+# what the device reads - a tarball would want a second reader over there for no gain.
+SOH_PYTHON = $(shell for p in python3 python; do \
+                 if $$p -c 'import zipfile' >/dev/null 2>&1; then echo $$p; break; fi; \
+             done)
+
+$(SOH_ASSETS_ZIP): $(SOH_ASSETS_TOOL) $(UPSTREAM_STAMP)
+	@test -n "$(SOH_PYTHON)" || { \
+	    echo "ship-of-harkinian: no python3 with zipfile, so no $(notdir $@)" >&2; \
+	    echo "  it holds the XML ZAPD reads to convert a ROM; the build image has one" >&2; \
+	    exit 1; }
+	@mkdir -p $(dir $@)
+	@$(SOH_PYTHON) $(SOH_ASSETS_TOOL) $(SOH_ASSETS_SRC) $(SOH_EXTRACT_CPP) $@
+
+.PHONY: assets-zip
+assets-zip: $(SOH_ASSETS_ZIP)
+
 .PHONY: package
-package: title
+package: title $(SOH_ASSETS_ZIP)
 	@test -f $(SOH_O2R) || { \
 	    echo "ship-of-harkinian: no $(SOH_O2R)" >&2; \
 	    echo "  it is the port's own assets and needs no ROM - see docs/PORTING.md" >&2; \
 	    exit 1; }
 	@cp $(SOH_O2R) build/title/$(TITLE_ID)/soh.o2r
-	@# The archive is a zip; a truncated copy fails here rather than on the console,
-	@# where it arrives as libultraship reporting the file missing.
-	@head -c2 build/title/$(TITLE_ID)/soh.o2r | grep -q PK || { \
-	    echo "ship-of-harkinian: the staged soh.o2r is not an archive" >&2; exit 1; }
+	@cp $(SOH_ASSETS_ZIP) build/title/$(TITLE_ID)/assets.zip
+	@# Both are zips; a truncated copy fails here rather than on the console, where it
+	@# arrives as libultraship reporting a file missing.
+	@for f in soh.o2r assets.zip; do \
+	    head -c2 build/title/$(TITLE_ID)/$$f | grep -q PK || { \
+	        echo "ship-of-harkinian: the staged $$f is not an archive" >&2; exit 1; }; \
+	done
 	@echo "ship-of-harkinian: package is build/title/$(TITLE_ID) ($$(du -sh build/title/$(TITLE_ID) | cut -f1), $$(find build/title/$(TITLE_ID) -type f | wc -l) files)"
 
 # The survey is the default when there is no payload to build.
