@@ -24,10 +24,13 @@ OOPS_SDL_UPSTREAM ?= $(OOPS_SDL_DIR)/upstream
 
 # `__PROSPERO__` selects `include/SDL_config_prospero.h` through the arm `patches/0001-*` adds
 # to upstream's config chain. `backend/` is on the path because the patched
-# `src/thread/SDL_thread_c.h` needs its `SYS_ThreadHandle`.
+# `src/thread/SDL_thread_c.h` needs its `SYS_ThreadHandle`. `include/freestanding/` holds the
+# `unistd.h` stand-in a freestanding build needs for `_exit`; a hosted one has the sysroot's,
+# which the stand-in would shadow (SuperTuxKart's `usleep` went undeclared), so it is left off.
 OOPS_SDL_INCLUDE := \
     -D__PROSPERO__=1 \
     -I$(OOPS_SDL_DIR)/include \
+    $(if $(filter 1,$(OOPS_DEPS_HOSTED)),,-I$(OOPS_SDL_DIR)/include/freestanding) \
     -I$(OOPS_SDL_DIR)/backend \
     -I$(OOPS_SDL_UPSTREAM)/include \
     -I$(OOPS_SDL_UPSTREAM)/src
