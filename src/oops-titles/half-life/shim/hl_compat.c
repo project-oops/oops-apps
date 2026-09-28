@@ -5,7 +5,8 @@
 
 #include <stdarg.h>
 
-/* One line, scanned. `EOF` when there is no line to read, as `fscanf` reports end of file. */
+/* One line, scanned. `EOF` when there is no line to read, as `fscanf` reports end of
+ * file. */
 int fscanf(FILE *f, const char *fmt, ...) {
     char line[512];
     va_list args;

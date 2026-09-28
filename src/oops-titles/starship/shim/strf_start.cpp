@@ -44,13 +44,14 @@ starship_start(const payload_args_t *args) {
     oops_log_info("STRF", "entry");
     oops_crashtrace_install();
 
-    /* An archive already converted is enough; otherwise the ROM it is converted from. */
+    /* An archive already converted is enough; otherwise the ROM it is converted from.
+     */
     if (oops_snprintf(path, sizeof(path), "%s/%s", OOPS_POSIX_HOME, "sf64.o2r") <= 0 ||
         !oops_fs_exists(path)) {
-        oops_require_player_data(
-            "sf64.z64", "sf64.z64",
-            "Starship plays from your own Star Fox 64 ROM (US 1.0 or 1.1, .z64), converted on "
-            "the console the first time it starts.");
+        oops_require_player_data("sf64.z64", "sf64.z64",
+                                 "Starship plays from your own Star Fox 64 ROM (US 1.0 "
+                                 "or 1.1, .z64), converted on "
+                                 "the console the first time it starts.");
     }
 
     /* libultraship resolves its config and save paths through HOME, and the environment

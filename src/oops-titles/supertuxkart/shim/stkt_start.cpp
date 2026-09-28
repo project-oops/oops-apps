@@ -1,14 +1,15 @@
 /*
  * Payload entry point.
  *
- * C++ rather than C: SuperTuxKart's `main` is at `src/main.cpp`, a C++ translation unit,
- * and in a freestanding C++ build it is an ordinary, mangled function that a C declaration
- * would miss without the link saying so.
+ * C++ rather than C: SuperTuxKart's `main` is at `src/main.cpp`, a C++ translation
+ * unit, and in a freestanding C++ build it is an ordinary, mangled function that a C
+ * declaration would miss without the link saying so.
  *
- * The file manager (`src/io/file_manager.cpp`) is pointed at the package by environment:
- * `SUPERTUXKART_DATADIR` for stk-code's own `data/`, `SUPERTUXKART_ASSETS_DIR` for the
- * karts, tracks, textures and music, and `SUPERTUXKART_SAVEDIR` for config and saves. All
- * of them are under `/app0`, where the package mounts.
+ * The file manager (`src/io/file_manager.cpp`) is pointed at the package by
+ * environment: `SUPERTUXKART_DATADIR` for stk-code's own `data/`,
+ * `SUPERTUXKART_ASSETS_DIR` for the karts, tracks, textures and music, and
+ * `SUPERTUXKART_SAVEDIR` for config and saves. All of them are under `/app0`, where the
+ * package mounts.
  */
 #include "oops/syscall.h"
 #include "oops/system.h"

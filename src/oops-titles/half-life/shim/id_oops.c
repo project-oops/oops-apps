@@ -6,8 +6,8 @@
  * `net/if_dl.h`. The shared `getifaddrs` always fails (`common/posix/include/ifaddrs.h`
  * says why) and there is no `net/if_dl.h`, so that branch could only ever find nothing.
  * Upstream's fallback branch - for every platform with no way to ask - reports none
- * directly, and this is that fallback: the engine then derives its identity from the other
- * sources it tries, and from `~/.xash_id` once it has written one.
+ * directly, and this is that fallback: the engine then derives its identity from the
+ * other sources it tries, and from `~/.xash_id` once it has written one.
  */
 #include <stdint.h>
 

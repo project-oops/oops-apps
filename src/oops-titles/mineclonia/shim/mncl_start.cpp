@@ -1,12 +1,12 @@
 /*
  * Payload entry point.
  *
- * C++ rather than C: Luanti's `main` is at `src/main.cpp`, a C++ translation unit, and in a
- * freestanding C++ build it is an ordinary, mangled function that a C declaration would miss
- * without the link saying so.
+ * C++ rather than C: Luanti's `main` is at `src/main.cpp`, a C++ translation unit, and
+ * in a freestanding C++ build it is an ordinary, mangled function that a C declaration
+ * would miss without the link saying so.
  *
- * The engine is built `RUN_IN_PLACE`, so its share and user paths are both the directory
- * argv[0] names - `/app0`, where the package mounts. The game is packaged at
+ * The engine is built `RUN_IN_PLACE`, so its share and user paths are both the
+ * directory argv[0] names - `/app0`, where the package mounts. The game is packaged at
  * `games/mineclonia`, and worlds, settings and the mod cache are written beside it. The
  * engine opens on its own main menu, where the game is already the only one installed.
  */

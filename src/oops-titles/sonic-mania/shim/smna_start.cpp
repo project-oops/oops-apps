@@ -1,14 +1,16 @@
 /*
  * Payload entry point.
  *
- * C++ rather than C: upstream's `main` is at `dependencies/RSDKv5/RSDKv5/main.cpp`, a C++
- * translation unit, and in a freestanding C++ build it is an ordinary, mangled function
- * that a C declaration would miss without the link saying so. Declaring it from C++ matches
- * what main.cpp emits. That `main` hands `RSDK_main` the game logic, which is linked in
- * (upstream's `GAME_STATIC`) rather than loaded from a library at run time.
+ * C++ rather than C: upstream's `main` is at `dependencies/RSDKv5/RSDKv5/main.cpp`, a
+ * C++ translation unit, and in a freestanding C++ build it is an ordinary, mangled
+ * function that a C declaration would miss without the link saying so. Declaring it
+ * from C++ matches what main.cpp emits. That `main` hands `RSDK_main` the game logic,
+ * which is linked in (upstream's `GAME_STATIC`) rather than loaded from a library at
+ * run time.
  *
- * The data is the player's own `Data.rsdk`, from their copy of the game, which the engine
- * opens by that name from its working directory (`RSDK/User/Core/UserCore.cpp:313`).
+ * The data is the player's own `Data.rsdk`, from their copy of the game, which the
+ * engine opens by that name from its working directory
+ * (`RSDK/User/Core/UserCore.cpp:313`).
  */
 #include "oops/syscall.h"
 #include "oops/system.h"
@@ -37,10 +39,10 @@ sonic_mania_start(const payload_args_t *args) {
     oops_log_info("SMNA", "entry");
     oops_crashtrace_install();
 
-    oops_require_player_data(
-        "Data.rsdk", "Data.rsdk",
-        "Sonic Mania plays from your own copy of the game: Data.rsdk, from the directory "
-        "the game is installed in.");
+    oops_require_player_data("Data.rsdk", "Data.rsdk",
+                             "Sonic Mania plays from your own copy of the game: "
+                             "Data.rsdk, from the directory "
+                             "the game is installed in.");
 
     /* Settings.ini and the save files are written through HOME. */
     if (setenv("HOME", OOPS_POSIX_HOME, 1) != 0) {

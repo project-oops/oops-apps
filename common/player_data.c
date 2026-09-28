@@ -8,7 +8,8 @@
 #include "oops/fs.h"
 #include "oops/system.h"
 
-/* Unprefixed: `$(OOPS_SDL_INCLUDE)` is on every SDL title's path, the `SDL2/` view is not. */
+/* Unprefixed: `$(OOPS_SDL_INCLUDE)` is on every SDL title's path, the `SDL2/` view is
+ * not. */
 #include <SDL.h>
 #include <stdlib.h>
 

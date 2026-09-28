@@ -2,11 +2,11 @@
  * The engine's library loader for a static build, in place of upstream's
  * `engine/platform/misc/lib_static.c`.
  *
- * Each game library - the filesystem, the renderer, the menu, the client and the server -
- * is linked into the payload as one relocatable object whose only global symbol is its
- * export table, `lib_<name>_exports`. `generated_library_tables.h` lists those tables by
- * library name. Loading a library is finding its table; resolving a function is finding a
- * name in it.
+ * Each game library - the filesystem, the renderer, the menu, the client and the server
+ * - is linked into the payload as one relocatable object whose only global symbol is
+ * its export table, `lib_<name>_exports`. `generated_library_tables.h` lists those
+ * tables by library name. Loading a library is finding its table; resolving a function
+ * is finding a name in it.
  *
  * Two things differ from upstream's version:
  *
@@ -17,12 +17,12 @@
  *   builds. A name that matches nothing is logged, because that is the one failure this
  *   file can cause and it would otherwise read as "library missing" with no hint why.
  *
- * - **`COM_NameForFunction` answers.** Save games record entity callbacks - think, touch,
- *   use - by name, and resolve them by name on load. Upstream's static version returns
- *   NULL, which makes every save that holds a callback fail. The client and server tables
- *   here are generated from every function their objects define, mangled C++ names
- *   included - the names `dladdr` gives on a desktop - so the reverse lookup is a search
- *   of the same table.
+ * - **`COM_NameForFunction` answers.** Save games record entity callbacks - think,
+ * touch, use - by name, and resolve them by name on load. Upstream's static version
+ * returns NULL, which makes every save that holds a callback fail. The client and
+ * server tables here are generated from every function their objects define, mangled
+ * C++ names included - the names `dladdr` gives on a desktop - so the reverse lookup is
+ * a search of the same table.
  */
 #include "platform/platform.h"
 #include "library.h"
@@ -64,7 +64,8 @@ static void Lib_BaseName(const char *path, char *out, size_t size) {
     out[n] = '\0';
 }
 
-void *COM_LoadLibrary(const char *dllname, int build_ordinals_table, qboolean directpath) {
+void *COM_LoadLibrary(const char *dllname, int build_ordinals_table,
+                      qboolean directpath) {
     char base[64];
     void *lib;
 

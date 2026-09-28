@@ -1,11 +1,11 @@
 /*
  * Payload entry point.
  *
- * This calls NetSurf's `main` in `frontends/framebuffer/gui.c`, a C translation unit, so
- * the name is unmangled and a C shim reaches it.
+ * This calls NetSurf's `main` in `frontends/framebuffer/gui.c`, a C translation unit,
+ * so the name is unmangled and a C shim reaches it.
  *
- * The framebuffer front end finds its resources - the default stylesheets, the fonts, the
- * toolbar images, `Choices` - on the path compiled in as `NETSURF_FB_RESPATH` and
+ * The framebuffer front end finds its resources - the default stylesheets, the fonts,
+ * the toolbar images, `Choices` - on the path compiled in as `NETSURF_FB_RESPATH` and
  * `NETSURF_FB_FONTPATH` (`frontends/framebuffer/gui.c:2203`), which this build sets to
  * `/app0/res`, where the package mounts. Cookies and the URL database go under HOME.
  */

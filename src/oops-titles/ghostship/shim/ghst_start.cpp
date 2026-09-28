@@ -44,13 +44,14 @@ ghostship_start(const payload_args_t *args) {
     oops_log_info("GHST", "entry");
     oops_crashtrace_install();
 
-    /* An archive already converted is enough; otherwise the ROM it is converted from. */
+    /* An archive already converted is enough; otherwise the ROM it is converted from.
+     */
     if (oops_snprintf(path, sizeof(path), "%s/%s", OOPS_POSIX_HOME, "sm64.o2r") <= 0 ||
         !oops_fs_exists(path)) {
-        oops_require_player_data(
-            "sm64.z64", "sm64.z64",
-            "Ghostship plays from your own Super Mario 64 ROM (US or JP, .z64), converted on "
-            "the console the first time it starts.");
+        oops_require_player_data("sm64.z64", "sm64.z64",
+                                 "Ghostship plays from your own Super Mario 64 ROM (US "
+                                 "or JP, .z64), converted on "
+                                 "the console the first time it starts.");
     }
 
     /* libultraship resolves its config and save paths through HOME, and the environment

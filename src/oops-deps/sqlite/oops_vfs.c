@@ -1,27 +1,29 @@
 /*
  * SQLite's operating-system layer for this platform: a VFS and a mutex implementation.
  *
- * The amalgamation is built with `SQLITE_OS_OTHER=1`, SQLite's own switch for a platform it
- * has no layer for. That leaves three things to the embedder, all here:
+ * The amalgamation is built with `SQLITE_OS_OTHER=1`, SQLite's own switch for a
+ * platform it has no layer for. That leaves three things to the embedder, all here:
  *
- * - **`sqlite3_os_init`/`sqlite3_os_end`**, which register the VFS below as the default.
- * - **The VFS**: files over the SDK's descriptors (`oops_fs_open` and friends, which are the
- *   kernel's own), with `ftruncate` and `fsync` from the shared POSIX layer. SQLite's Unix VFS
- *   would have wanted `fcntl` byte-range locks, `mmap`, `fchown` and static `pthread`
- *   initialisers; none of it is needed by a single process.
+ * - **`sqlite3_os_init`/`sqlite3_os_end`**, which register the VFS below as the
+ * default.
+ * - **The VFS**: files over the SDK's descriptors (`oops_fs_open` and friends, which
+ * are the kernel's own), with `ftruncate` and `fsync` from the shared POSIX layer.
+ * SQLite's Unix VFS would have wanted `fcntl` byte-range locks, `mmap`, `fchown` and
+ * static `pthread` initialisers; none of it is needed by a single process.
  * - **Mutexes** (`SQLITE_MUTEX_APPDEF`), over `oops_mutex_*`.
  *
  * # Locking is a no-op, and that is correct here
  *
- * SQLite's file locks keep *processes* from corrupting a database they share. A payload is one
- * process, and threads inside it are serialised by the mutexes, which are real. So every lock
- * level is granted and `xCheckReservedLock` reports none held - the same answer SQLite's own
- * `unix-none` VFS gives, and for the same reason.
+ * SQLite's file locks keep *processes* from corrupting a database they share. A payload
+ * is one process, and threads inside it are serialised by the mutexes, which are real.
+ * So every lock level is granted and `xCheckReservedLock` reports none held - the same
+ * answer SQLite's own `unix-none` VFS gives, and for the same reason.
  *
  * # What is not here
  *
- * No shared-memory methods, so WAL mode is refused (`SQLITE_OMIT_WAL`); the rollback journal is
- * used, which is SQLite's default. No `xDlOpen`: loadable extensions are compiled out
+ * No shared-memory methods, so WAL mode is refused (`SQLITE_OMIT_WAL`); the rollback
+ * journal is used, which is SQLite's default. No `xDlOpen`: loadable extensions are
+ * compiled out
  * (`SQLITE_OMIT_LOAD_EXTENSION`).
  */
 #include "sqlite3.h"
@@ -79,12 +81,14 @@ static int ovfs_write(sqlite3_file *f, const void *buf, int amt, sqlite3_int64 o
     if (oops_fs_seek(p->fd, off, SEEK_SET) != off) {
         return SQLITE_IOERR_WRITE;
     }
-    return oops_fs_write(p->fd, buf, (size_t)amt) == amt ? SQLITE_OK : SQLITE_IOERR_WRITE;
+    return oops_fs_write(p->fd, buf, (size_t)amt) == amt ? SQLITE_OK
+                                                         : SQLITE_IOERR_WRITE;
 }
 
 static int ovfs_truncate(sqlite3_file *f, sqlite3_int64 size) {
-    return ftruncate(((oops_sqlite_file *)f)->fd, (off_t)size) == 0 ? SQLITE_OK
-                                                                     : SQLITE_IOERR_TRUNCATE;
+    return ftruncate(((oops_sqlite_file *)f)->fd, (off_t)size) == 0
+               ? SQLITE_OK
+               : SQLITE_IOERR_TRUNCATE;
 }
 
 static int ovfs_sync(sqlite3_file *f, int flags) {
@@ -149,14 +153,19 @@ static const sqlite3_io_methods ovfs_io = {
     ovfs_file_control,
     ovfs_sector_size,
     ovfs_device_characteristics,
-    0, 0, 0, 0, /* no shared memory: WAL is compiled out */
-    0, 0,       /* no memory mapping */
+    0,
+    0,
+    0,
+    0, /* no shared memory: WAL is compiled out */
+    0,
+    0, /* no memory mapping */
 };
 
-/* ---- the VFS ---------------------------------------------------------------------- */
+/* ---- the VFS ----------------------------------------------------------------------
+ */
 
-static int ovfs_open(sqlite3_vfs *vfs, sqlite3_filename name, sqlite3_file *f, int flags,
-                     int *out_flags) {
+static int ovfs_open(sqlite3_vfs *vfs, sqlite3_filename name, sqlite3_file *f,
+                     int flags, int *out_flags) {
     static unsigned temp_serial;
     oops_sqlite_file *p = (oops_sqlite_file *)f;
     int oflags = (flags & SQLITE_OPEN_READWRITE) ? O_RDWR : O_RDONLY;
@@ -209,7 +218,8 @@ static int ovfs_access(sqlite3_vfs *vfs, const char *path, int what, int *out) {
 
 static int ovfs_full_path(sqlite3_vfs *vfs, const char *path, int size, char *out) {
     (void)vfs;
-    /* The SDK resolves a relative path against /app0 itself (`oops_fs_resolve_path`). */
+    /* The SDK resolves a relative path against /app0 itself (`oops_fs_resolve_path`).
+     */
     sqlite3_snprintf(size, out, "%s", path);
     return SQLITE_OK;
 }
@@ -220,7 +230,8 @@ static int ovfs_randomness(sqlite3_vfs *vfs, int n, char *out) {
 
     (void)vfs;
     for (i = 0; i < n; i++) {
-        /* xorshift over the clock: seeds SQLite's own PRNG, which is all this is for. */
+        /* xorshift over the clock: seeds SQLite's own PRNG, which is all this is for.
+         */
         x ^= x << 13;
         x ^= x >> 7;
         x ^= x << 17;
@@ -270,13 +281,18 @@ static sqlite3_vfs ovfs = {
     ovfs_delete,
     ovfs_access,
     ovfs_full_path,
-    0, 0, 0, 0, /* no loadable extensions */
+    0,
+    0,
+    0,
+    0, /* no loadable extensions */
     ovfs_randomness,
     ovfs_sleep,
     ovfs_current_time,
     ovfs_last_error,
     ovfs_current_time_int64,
-    0, 0, 0,
+    0,
+    0,
+    0,
 };
 
 int sqlite3_os_init(void) {
@@ -287,14 +303,16 @@ int sqlite3_os_end(void) {
     return SQLITE_OK;
 }
 
-/* ---- mutexes ---------------------------------------------------------------------- */
+/* ---- mutexes ----------------------------------------------------------------------
+ */
 
 typedef struct sqlite3_mutex {
     oops_mutex_t m;
     int id;
 } oops_sqlite_mutex;
 
-/* SQLite's static mutexes, SQLITE_MUTEX_STATIC_MAIN through SQLITE_MUTEX_STATIC_VFS3. */
+/* SQLite's static mutexes, SQLITE_MUTEX_STATIC_MAIN through SQLITE_MUTEX_STATIC_VFS3.
+ */
 #define OOPS_SQLITE_STATIC 12
 static oops_sqlite_mutex s_static[OOPS_SQLITE_STATIC];
 
