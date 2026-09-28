@@ -53,10 +53,10 @@ static int soh_report_game_data(void);
 /*
  * Whether a ROM the game could convert is sitting in the package directory.
  *
- * Upstream converts one itself - `OTRGlobals.cpp:645` searches for a ROM and hands it to
- * `CallZapd` on a worker thread, counting through `extractCount`/`totalExtract` - and
- * that path has been dead here only because ZAPD was not in the payload. It is now, so a
- * ROM is reason enough to start: the game does the rest.
+ * Upstream converts one itself - `OTRGlobals.cpp:645` searches for a ROM and hands it
+ * to `CallZapd` on a worker thread, counting through `extractCount`/`totalExtract` -
+ * and that path has been dead here only because ZAPD was not in the payload. It is now,
+ * so a ROM is reason enough to start: the game does the rest.
  */
 static int soh_have_rom(void) {
     static const char *const suffixes[] = {".z64", ".n64", ".v64"};
@@ -109,7 +109,8 @@ static int soh_report_game_data(void) {
         return 1;
     }
 
-    /* No archive, but a ROM is enough: upstream's extractor converts it on the way in. */
+    /* No archive, but a ROM is enough: upstream's extractor converts it on the way in.
+     */
     if (soh_have_rom()) {
         oops_log_info("SOH", "no archive yet - the ROM will be converted on this run");
         return 1;
