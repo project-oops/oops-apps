@@ -83,7 +83,11 @@ oops_obj_rules = $(foreach s,$(sort $(4)),$(eval $(call oops_obj_rule_one,$(1),$
 #
 #     @:$(call oops_rsp,$@.rsp,$(OBJS))
 #     $(TARGET_CC) $(FLAGS) -o $@ @$@.rsp
-oops_rsp = $(file >$(1))$(foreach w,$(2),$(file >>$(1),$(w)))
+#
+# It makes the file's directory first. make expands a recipe whole before running any of its
+# lines, so a `mkdir -p` line above this one has not run yet when the file is opened: on a clean
+# checkout (CI's) that was `open: build/cxx/libcxxtitle.a.rsp: No such file or directory`.
+oops_rsp = $(shell mkdir -p $(dir $(1)))$(file >$(1))$(foreach w,$(2),$(file >>$(1),$(w)))
 
 # $(call oops_ar_check,<objects>)
 #
