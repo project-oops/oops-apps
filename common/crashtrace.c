@@ -83,6 +83,24 @@
 #define OOPS_CRASHTRACE_CTX_RIP 28u
 #define OOPS_CRASHTRACE_CTX_RSP 31u
 
+/*
+ * The trap number and the address that faulted, derived rather than guessed.
+ *
+ * The three indices above are spaced exactly as FreeBSD's `mcontext` spaces those
+ * registers: `mc_rbp` to `mc_rip` is eleven words there and 17 to 28 here, `mc_rip` to
+ * `mc_rsp` is three and 28 to 31 here. Three measured values agreeing with one layout at
+ * a uniform offset of eight words is a stronger statement than any one of them, and it
+ * puts `mc_trapno` at 24 and `mc_addr` at 25.
+ *
+ * They are printed together because each checks the other, and because this file warns
+ * above that a drifted index gives a plausible address rather than an obvious error. A
+ * page fault is trap 12 on this architecture: a `trap` that reads 12 alongside an `addr`
+ * that explains the signal is two independent confirmations, and a `trap` that reads
+ * anything else says to believe neither.
+ */
+#define OOPS_CRASHTRACE_CTX_TRAPNO 24u
+#define OOPS_CRASHTRACE_CTX_ADDR 25u
+
 static void crashtrace_hex(char *out, uint64_t v) {
     static const char digits[] = "0123456789abcdef";
     for (int i = 0; i < 16; i++) {
@@ -159,6 +177,12 @@ static void crashtrace_handler(int signum, void *arg1, void *arg2) {
      */
     if (arg1 != (void *)0) {
         const uint64_t *ctx = (const uint64_t *)arg1;
+        crashtrace_hex(hex, ctx[OOPS_CRASHTRACE_CTX_TRAPNO]);
+        oops_klog("crash", "  trap (12 = page fault):");
+        oops_klog("crash", hex);
+        crashtrace_hex(hex, ctx[OOPS_CRASHTRACE_CTX_ADDR]);
+        oops_klog("crash", "  faulting address:");
+        oops_klog("crash", hex);
         crashtrace_hex(hex, ctx[OOPS_CRASHTRACE_CTX_RIP]);
         oops_klog("crash", "  rip:");
         oops_klog("crash", hex);
