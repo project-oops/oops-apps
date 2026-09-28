@@ -1,0 +1,9 @@
+# HarfBuzz's origin: the text shaper SuperTuxKart lays its text out with, over FreeType
+# (`src/font/font_manager.cpp`, `hb_ft_font_create`).
+#
+# An annotated tag: `refs/tags/14.5.0` is the tag object and the hash below is the commit it
+# points at.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/harfbuzz/harfbuzz
+UPSTREAM_REV=863d3f7787c6df18d20e4535c5906bf3eb803bd5
+UPSTREAM_REF=14.5.0

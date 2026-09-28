@@ -145,8 +145,8 @@ CENSUS_public_FLAGS = $(HL_C) -DXASH_BUILD_COMMIT=\"$(UPSTREAM_REV)\" \
                       -DXASH_BUILD_BRANCH=\"master\" -DXASH_BUILD_COMMIT_DATE=\"2026-09-28\"
 
 CENSUS_engine_SRCS := $(HL_ENGINE_SRCS) $(CURDIR)/shim/lib_static_oops.c \
-                      $(CURDIR)/shim/id_oops.c $(CURDIR)/shim/hl_compat.c
-CENSUS_engine_FLAGS = $(HL_C) -DENGINE_DLL=1 -include $(CURDIR)/shim/include/hl_compat.h \
+                      $(CURDIR)/shim/id_oops.c
+CENSUS_engine_FLAGS = $(HL_C) -DENGINE_DLL=1 \
     -I$(XASH)/engine/common -I$(XASH)/engine/common/imagelib -I$(XASH)/engine/common/soundlib \
     -I$(XASH)/engine/server -I$(XASH)/engine/client -I$(XASH)/engine/client/vgui \
     -I$(XASH)/engine/platform -I$(XASH)/3rdparty/MultiEmulator/include \

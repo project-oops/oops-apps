@@ -1,0 +1,8 @@
+# LuaJIT's origin: the Lua 5.1 implementation LÖVE runs games on by default
+# (`CMakeLists.txt:59`). Built as an interpreter only - `oops-luajit.mk` says why.
+#
+# LuaJIT publishes no release tags for 2.1; it is a rolling branch. This is the head of `v2.1`.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/LuaJIT/LuaJIT
+UPSTREAM_REV=c6ffc141a8762b41703f9287d63d93622a13dd8f
+UPSTREAM_REF=v2.1@2026-09-28
