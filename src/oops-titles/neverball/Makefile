@@ -152,8 +152,9 @@ data:
 	@bash scripts/mapc.sh
 
 # `make package` adds Neverball's content (levels, textures, fonts, music) to the title
-# package built by `common/app.mk`. `make data` must run first, or the package has no levels.
-package: title
+# package built by `common/app.mk`, compiling the levels first: `make dist` packages, so a
+# package that asked for a separate `make data` step shipped nothing.
+package: title data
 	@test -d upstream/data || { echo "neverball: no upstream/data - run make first" >&2; exit 1; }
 	@if [ "$$(find upstream/data -name '*.sol' | wc -l)" -eq 0 ]; then \
 	    echo "neverball: no compiled levels - run 'make data' first" >&2; exit 1; fi

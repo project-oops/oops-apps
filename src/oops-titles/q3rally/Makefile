@@ -323,9 +323,10 @@ pak: qvm
 # ---------------------------------------------------------------------------
 # `make package`: the title package from `common/app.mk` plus the game's `.pk3`
 # ---------------------------------------------------------------------------
+# The `.pk3` is built first, since `make dist` packages.
 .PHONY: package
-package: title
-	@test -f $(Q3_PAK) || { echo "q3rally: no $(Q3_PAK) - run 'make pak' first" >&2; exit 1; }
+package: title pak
+	@test -f $(Q3_PAK) || { echo "q3rally: no $(Q3_PAK) after 'make pak'" >&2; exit 1; }
 	@rm -rf build/title/$(TITLE_ID)/baseq3r
 	@mkdir -p build/title/$(TITLE_ID)/baseq3r
 	@cp $(Q3_PAK) build/title/$(TITLE_ID)/baseq3r/

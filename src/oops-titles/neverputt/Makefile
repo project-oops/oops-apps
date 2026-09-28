@@ -142,8 +142,8 @@ data:
 	@bash scripts/mapc.sh
 
 # `make package` adds the game's content to the title package built by `common/app.mk`; the
-# game does not start without it.
-package: title
+# game does not start without it. The courses are compiled first, since `make dist` packages.
+package: title data
 	@test -d upstream/data || { echo "neverputt: no upstream/data - run make first" >&2; exit 1; }
 	@if [ "$$(find upstream/data -name '*.sol' | wc -l)" -eq 0 ]; then \
 	    echo "neverputt: no compiled courses - run 'make data' first" >&2; exit 1; fi
