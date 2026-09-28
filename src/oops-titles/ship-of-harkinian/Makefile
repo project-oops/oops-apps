@@ -264,7 +264,7 @@ SOH_SURVEY_DIR ?= upstream/libultraship/src upstream/soh
 # symbol in the file is duplicated. Excluding it by name means the archive can be
 # generated without breaking the payload afterwards; deleting the stray copy each time
 # works exactly until the next generation.
-SOH_EXCLUDE_RE := speechsynthesizer/(SAPI|Darwin|ESpeak)|soh/Extractor/|Enhancements/crowd-control/|src/boot/build\.c|src/dmadata/|src/elf_message/|src/libultra/io/|src/libultra/libc/|src/libultra/os/|src/libultra/rmon/|src/libultra/gu/(cosf|lookat|lookathil|perspective|position|sinf|sqrtf|us2dex)\.c|libultraship/libultra/os_(cache|pi)\.cpp
+SOH_EXCLUDE_RE := speechsynthesizer/(SAPI|Darwin|ESpeak)|Enhancements/crowd-control/|src/boot/build\.c|src/dmadata/|src/elf_message/|src/libultra/io/|src/libultra/libc/|src/libultra/os/|src/libultra/rmon/|src/libultra/gu/(cosf|lookat|lookathil|perspective|position|sinf|sqrtf|us2dex)\.c|libultraship/libultra/os_(cache|pi)\.cpp
 
 .PHONY: compile-survey
 compile-survey:
@@ -381,8 +381,11 @@ SOH_C_ALL   = $(shell find $(CURDIR)/upstream/soh/src $(CURDIR)/upstream/soh/soh
 
 ifeq ($(SOH_ARMED),1)
 OOPS_CXX_STD        = c++20
-OOPS_CXX_SRCS = $(SOH_CXX_ALL) $(SOH_ZAPD_ALL) $(CURDIR)/shim/Extract.cpp \
-                $(CURDIR)/shim/zapd_stubs.cpp
+# `shim/Extract.cpp` is gone: upstream's own `soh/Extractor/Extract.cpp` is compiled
+# instead, now that ZAPD is in the payload for it to call. It finds the ROM, validates
+# and byteswaps it, and runs the conversion - all of which the shim could only report
+# not doing.
+OOPS_CXX_SRCS = $(SOH_CXX_ALL) $(SOH_ZAPD_ALL) $(CURDIR)/shim/zapd_stubs.cpp
 # Object names collide across the port's trees - ControlDeck, Controller, Menu and more appear in
 # both soh and libultraship - so the objects go on the link line rather than into an archive that
 # would keep one of each. Set before the include, which is where `oops_ar_check` runs.

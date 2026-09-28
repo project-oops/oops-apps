@@ -1,0 +1,43 @@
+No file picker on a console, so find the ROM by looking for it
+
+`GetRomPathFromBox` opens a desktop file dialog through `portable-file-dialogs`,
+which shells out to zenity or kdialog over pipe/fork/dup2. None of those exist on
+this platform, and the header is the only part of the extractor that does not
+compile for it - five errors, all from that one include.
+
+It is also not wanted. There is no pointer to browse with and nowhere to browse
+to: a ROM copied onto the console lands in the title's own directory. Declining
+here sends the caller to `ManuallySearchForRomMatchingType`, which scans exactly
+that directory, so the console path is the one upstream already provides for
+machines without a dialog.
+
+diff --git a/soh/soh/Extractor/Extract.cpp b/soh/soh/Extractor/Extract.cpp
+index 7819df6..93fa64c 100644
+--- a/soh/soh/Extractor/Extract.cpp
++++ b/soh/soh/Extractor/Extract.cpp
+@@ -5,7 +5,12 @@
+ #pragma comment(lib, "Shlwapi.lib")
+ #endif
+ #include "Extract.h"
++#ifndef __PROSPERO__
++// Desktop file pickers, which shell out to zenity or kdialog through pipe/fork/dup2.
++// None of that exists on this platform and none of it is wanted: the ROM is found by
++// scanning the title's own directory.
+ #include "portable-file-dialogs.h"
++#endif
+ #include <ship/utils/binarytools/BitConverter.h>
+ #include "soh/ShipUtils.h"
+ #include "variables.h"
+@@ -317,6 +322,12 @@ bool Extractor::GetRomPathFromBox() {
+         return false;
+     }
+     mCurrentRomPath = nameBuffer;
++#elif defined(__PROSPERO__)
++    // No file picker here, and nothing to pick with: `portable-file-dialogs` runs zenity
++    // or kdialog through pipe/fork/dup2, none of which this platform has. Declining sends
++    // the caller to `ManuallySearchForRomMatchingType`, which scans the title's own
++    // directory - which is where a ROM copied onto the console lands anyway.
++    return false;
+ #else
+     auto selection = pfd::open_file("Select a file", mSearchPath, { "N64 Roms", "*.z64 *.n64 *.v64" }).result();
+ 

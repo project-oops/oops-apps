@@ -18,6 +18,7 @@
 void oops_crashtrace_install(void);
 #include "oops/time.h"
 #include <SDL2/SDL.h>
+#include <dirent.h>
 #include <stdlib.h>
 
 int main(int argc, char **argv);
@@ -49,6 +50,47 @@ int ship_of_harkinian_start(const payload_args_t *args);
  */
 static int soh_report_game_data(void);
 
+/*
+ * Whether a ROM the game could convert is sitting in the package directory.
+ *
+ * Upstream converts one itself - `OTRGlobals.cpp:645` searches for a ROM and hands it to
+ * `CallZapd` on a worker thread, counting through `extractCount`/`totalExtract` - and
+ * that path has been dead here only because ZAPD was not in the payload. It is now, so a
+ * ROM is reason enough to start: the game does the rest.
+ */
+static int soh_have_rom(void) {
+    static const char *const suffixes[] = {".z64", ".n64", ".v64"};
+    DIR *dir = opendir(OOPS_POSIX_HOME);
+    struct dirent *entry;
+    int found = 0;
+
+    if (dir == NULL) {
+        oops_log_warn("SOH", "could not list %s to look for a ROM", OOPS_POSIX_HOME);
+        return 0;
+    }
+    while (!found && (entry = readdir(dir)) != NULL) {
+        const char *name = entry->d_name;
+        size_t len = 0;
+        size_t s;
+
+        while (name[len]) {
+            len++;
+        }
+        for (s = 0; s < sizeof(suffixes) / sizeof(suffixes[0]); s++) {
+            const char *suf = suffixes[s];
+            if (len >= 4u && name[len - 4] == suf[0] && name[len - 3] == suf[1] &&
+                name[len - 2] == suf[2] && name[len - 1] == suf[3]) {
+                oops_log_info("SOH", "found a ROM to convert: %s/%s", OOPS_POSIX_HOME,
+                              name);
+                found = 1;
+                break;
+            }
+        }
+    }
+    closedir(dir);
+    return found;
+}
+
 static int soh_report_game_data(void) {
     static const char *const archives[] = {"oot.o2r", "oot-mq.o2r"};
     char path[256];
@@ -67,6 +109,12 @@ static int soh_report_game_data(void) {
         return 1;
     }
 
+    /* No archive, but a ROM is enough: upstream's extractor converts it on the way in. */
+    if (soh_have_rom()) {
+        oops_log_info("SOH", "no archive yet - the ROM will be converted on this run");
+        return 1;
+    }
+
     if (oops_snprintf(path, sizeof(path), "%s/%s", OOPS_POSIX_HOME, "soh.o2r") > 0 &&
         !oops_fs_exists(path)) {
         oops_log_error("SOH", "%s is missing: the port archive ships with the build",
@@ -74,8 +122,9 @@ static int soh_report_game_data(void) {
     }
 
     oops_log_error("SOH",
-                   "oot.o2r missing - convert an Ocarina of Time ROM to it on a "
-                   "desktop and copy it to /data/homebrew/%s/oot.o2r, beside eboot.bin",
+                   "no ROM and no archive - copy a .z64, .n64 or .v64 to "
+                   "/data/homebrew/%s/, beside eboot.bin, and it is converted on the "
+                   "next launch",
                    OOPS_APP_ID);
     return 0;
 }
@@ -102,10 +151,11 @@ static void soh_say_no_rom(void) {
      * already see.
      */
     if (oops_snprintf(message, sizeof(message),
-                      "oot.o2r was not found.\n\n"
-                      "Convert an Ocarina of Time ROM to oot.o2r on a desktop, then "
-                      "copy it here, beside eboot.bin:\n\n"
-                      "    /data/homebrew/%s/oot.o2r\n\n"
+                      "No Ocarina of Time ROM was found.\n\n"
+                      "Copy your own ROM here, beside eboot.bin:\n\n"
+                      "    /data/homebrew/%s/\n\n"
+                      "A .z64, .n64 or .v64 file - any name will do. It is converted "
+                      "on the next launch, once, and takes a few minutes.\n\n"
                       "The ROM is yours to supply; nothing else is missing.",
                       OOPS_APP_ID) <= 0) {
         return;
