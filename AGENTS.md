@@ -59,13 +59,27 @@ is "this code", it belongs in the SDK or `common/`.
 
 ## Build and verify
 
-`<OOPS>` is the collection checkout. Build one app in the pinned container:
+`<OOPS>` is the collection checkout.
+
+**With a local clang 21 on `PATH`, just build** - it is the first choice in CONVENTIONS
+section 8 and much the fastest, because a container and WSL both reach these sources across
+a filesystem boundary that costs about 10ms per file open against about 1ms locally. A build
+of a libultraship title opens hundreds of thousands of files, so that is the build time:
+
+```bash
+cd <OOPS>/oops-apps/src/<category>/<app> && make all
+```
+
+Otherwise the pinned container, which is what defines the version:
 
 ```bash
 MSYS_NO_PATHCONV=1 docker run --rm -v "<OOPS>:/w" \
     -w /w/oops-apps/src/<category>/<app> silkeh/clang:21 make all
 ```
 
+- Builds are parallel by default through `./bin/oops-apps`, which asks `common/jobs.sh` for
+  a job count that fits in free memory and adds a load limit so a second build gets its
+  share. Calling `make` directly gets none of that: pass `$(common/jobs.sh)` yourself.
 - `MSYS_NO_PATHCONV=1` stops Git Bash rewriting `/w` into a Windows path.
 - A build failing on paths under `/mnt/c/...` is stale dependency output from a WSL build:
   `rm -rf build` in that app and rebuild.

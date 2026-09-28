@@ -143,8 +143,9 @@ $(call oops_ar_check,$(OOPS_CXX_OBJS))
 $(OOPS_CXX_LIB): $(OOPS_CXX_OBJS) $(oops_makefiles)
 	@mkdir -p $(OOPS_CXX_BUILD)
 	@rm -f $@
+	@:$(call oops_rsp,$@.rsp,$(OOPS_CXX_OBJS))
 	@ar_tool=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
-	 "$$ar_tool" rcs $@ $(OOPS_CXX_OBJS)
+	 "$$ar_tool" rcs $@ @$@.rsp
 	@echo "cxx: $@ ($(words $(OOPS_CXX_OBJS)) objects)"
 endif
 

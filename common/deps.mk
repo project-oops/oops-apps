@@ -59,6 +59,32 @@ $(call oops_obj,$(1),$(4)): $(4) $$(oops_makefiles)
 endef
 oops_obj_rules = $(foreach s,$(sort $(4)),$(eval $(call oops_obj_rule_one,$(1),$(2),$(3),$(s))))
 
+# $(call oops_rsp,<file>,<words>)
+#
+# Write the words to <file>, one per line, for a tool to read back as `@<file>`.
+#
+# This exists because a command line has a length limit and these lists are past it. The
+# payload link names every object: measured at 102,065 characters for Ship of Harkinian,
+# against Windows' CreateProcess limit of 32,767. A native build there fails at the link
+# with an unhelpful error, or silently truncates, and the same list goes to `ar`.
+#
+# Linux's own limit is far higher, so this is not a Windows workaround bolted on for one
+# runner - `clang`, `ld.lld` and `llvm-ar` all read `@file` everywhere, so it is one code
+# path on every host rather than two that can disagree.
+#
+# `$(file ...)` and not `echo`, because the obvious fix does not work: a recipe that echoed
+# 1,500 names into a file would put those names on a command line to do it, which is the
+# limit this is avoiding. `$(file ...)` is make writing the file itself, with no shell in
+# between. It needs GNU make 4.0 or newer; `toolchain.mk` pins the compiler, and this is the
+# one thing here that pins make.
+#
+# Used from a recipe, where it expands to nothing and is prefixed with `@:` so the line
+# still has a command to run:
+#
+#     @:$(call oops_rsp,$@.rsp,$(OBJS))
+#     $(TARGET_CC) $(FLAGS) -o $@ @$@.rsp
+oops_rsp = $(file >$(1))$(foreach w,$(2),$(file >>$(1),$(w)))
+
 # $(call oops_ar_check,<objects>)
 #
 # `ar` stores a member under its basename and `ar r` replaces a member of the same name, so
