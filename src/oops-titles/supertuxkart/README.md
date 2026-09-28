@@ -22,8 +22,11 @@ data are free, so the package is complete and the player supplies nothing. It si
 
 ## Building
 
-`make` prints the survey: the pins and the dependencies still to vendor.
-`make STKT_ARMED=1 title` builds the payload.
+`make title` builds the payload, hosted against oops-mesa's sysroot. A first link needs
+`make imports` between two `make title` runs: the import manifest is generated from the linked
+payload, as for every Mesa title. `make package` adds stk-code's `data/` and the release assets
+as one tar the title unpacks on first start. `make survey` prints the pins; `make census`
+compiles every source and names any that fail.
 
 ## Docs
 
