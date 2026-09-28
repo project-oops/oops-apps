@@ -73,14 +73,19 @@ STKT_LIB := $(STKT)/lib
 stkt_find = $(sort $(shell find $(1) -name '$(2)' 2>/dev/null))
 STKT_GAME_SRCS := $(call stkt_find,$(STKT)/src,*.cpp)
 STKT_BULLET_SRCS := $(call stkt_find,$(STKT_LIB)/bullet/src,*.cpp)
-STKT_IRR_SRCS := $(wildcard $(STKT_LIB)/irrlicht/source/Irrlicht/*.cpp \
-                            $(STKT_LIB)/irrlicht/source/Irrlicht/*.c)
+# Less the Wayland protocol glue, generated C for the Wayland device, which is off.
+STKT_IRR_SRCS := $(filter-out %_protocol.c, \
+                   $(wildcard $(STKT_LIB)/irrlicht/source/Irrlicht/*.cpp \
+                              $(STKT_LIB)/irrlicht/source/Irrlicht/*.c))
 STKT_AS_SRCS := $(wildcard $(STKT_LIB)/angelscript/source/*.cpp)
 STKT_GE_SRCS := $(wildcard $(STKT_LIB)/graphics_engine/src/*.cpp)
 STKT_GE_C_SRCS := $(wildcard $(STKT_LIB)/graphics_engine/src/*.c)
 STKT_LIBS_CXX_SRCS := $(wildcard $(STKT_LIB)/libsquish/*.cpp $(STKT_LIB)/tinygettext/src/*.cpp)
-STKT_LIBS_C_SRCS := $(wildcard $(STKT_LIB)/enet/*.c $(STKT_LIB)/graphics_utils/mipmap/*.c \
-                               $(STKT_LIB)/mcpp/*.c) $(STKT_LIB)/sheenbidi/Source/SheenBidi.c
+STKT_LIBS_C_SRCS := $(wildcard $(STKT_LIB)/enet/*.c $(STKT_LIB)/graphics_utils/mipmap/*.c) \
+                    $(STKT_LIB)/sheenbidi/Source/SheenBidi.c
+# mcpp's own list (`lib/mcpp/CMakeLists.txt`), with the two definitions it builds under.
+STKT_MCPP_SRCS := $(addprefix $(STKT_LIB)/mcpp/,directive.c eval.c expand.c main.c \
+                    main_libmcpp.c mbchar.c support.c system.c)
 
 # --- flags ------------------------------------------------------------------------------
 #
@@ -105,7 +110,9 @@ STKT_CXX = -x c++ -std=c++17 $(STKT_BASE) -nostdinc++ -fexceptions -frtti $(OOPS
 STKT_C = -x c -std=gnu11 $(STKT_BASE) $(STKT_DEFS) $(STKT_INC) $(STKT_DEP_INC) \
          $(OOPS_MESA_INCLUDE) $(OOPS_SDK_INCLUDE)
 
-CENSUS_SETS := game bullet irrlicht angelscript ge ge_c libs_cxx libs_c
+CENSUS_SETS := game bullet irrlicht angelscript ge ge_c libs_cxx libs_c mcpp
+CENSUS_mcpp_SRCS := $(STKT_MCPP_SRCS)
+CENSUS_mcpp_FLAGS = $(STKT_C) -DMCPP_LIB -DHAVE_CONFIG_H
 CENSUS_game_SRCS := $(STKT_GAME_SRCS)
 CENSUS_game_FLAGS = $(STKT_CXX)
 CENSUS_bullet_SRCS := $(STKT_BULLET_SRCS)
