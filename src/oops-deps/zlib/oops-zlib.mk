@@ -5,8 +5,9 @@
 #
 # The deflate and inflate core, the one-shot `compress`/`uncompress` on top of it (LÖVE's
 # `love.data.compress` and its PNG and EXR paths call them), and zlib's default allocator over
-# `malloc`. The `gzopen`/`gzread` file family is not built - it is the only part that wants
-# `<fcntl.h>` - and nothing here calls it.
+# `malloc`. The `gzopen`/`gzread` file family is not in the archive - it is the only part that
+# wants `<fcntl.h>` and `<unistd.h>` - but `OOPS_ZLIB_GZ_SRCS` names it for a title that links
+# `common/posix` and compiles them with its own flags (NetSurf reads its `Messages` through it).
 #
 # `Z_SOLO` used to be defined for every consumer. It hides the file family, but it also removes
 # the default allocator and the one-shot functions built on it, which is more than was meant.
@@ -22,6 +23,7 @@ OOPS_ZLIB_LIB := $(OOPS_ZLIB_BUILD)/libz.a
 OOPS_ZLIB_LDFLAGS := $(OOPS_ZLIB_LIB)
 OOPS_ZLIB_SRCS := $(addprefix $(OOPS_ZLIB_UPSTREAM)/,adler32.c crc32.c deflate.c inflate.c \
     inftrees.c inffast.c trees.c zutil.c compress.c uncompr.c infback.c)
+OOPS_ZLIB_GZ_SRCS := $(addprefix $(OOPS_ZLIB_UPSTREAM)/,gzclose.c gzlib.c gzread.c gzwrite.c)
 OOPS_ZLIB_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                    -nostdlibinc -fPIC -O2 -w $(OOPS_ZLIB_INCLUDE) $(OOPS_POSIX_INCLUDE) \
                    $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)

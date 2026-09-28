@@ -5,8 +5,9 @@
 #   EXTRA_TARGET_LDFLAGS += $(OOPS_CURL_LDFLAGS)
 #   PAYLOAD_EXTRA_DEPS   += $(OOPS_CURL_LIB)
 #
-# libcurl's `lib/Makefile.inc` `CSOURCES` less QUIC and SSH, which this build does not enable:
-# `lib/`, `vauth/`, `vdns/`, `vtls/` and `curlx/`. Every backend source guards its own contents,
+# libcurl's `lib/Makefile.inc` `CSOURCES` less the QUIC and SSH backends, which this build does
+# not enable: `lib/`, `vauth/`, `vdns/`, `vtls/`, `curlx/`, and `vquic/vquic.c`, which holds the
+# "no HTTP/3 here" answers the HTTP code asks for. Every backend source guards its own contents,
 # so the ones not selected compile to nothing. `include/curl_config.h` stands in for CMake's
 # probe and says what is on.
 #
@@ -36,7 +37,8 @@ OOPS_CURL_SRCS := $(sort $(wildcard $(OOPS_CURL_UPSTREAM)/lib/*.c \
                                     $(OOPS_CURL_UPSTREAM)/lib/vauth/*.c \
                                     $(OOPS_CURL_UPSTREAM)/lib/vdns/*.c \
                                     $(OOPS_CURL_UPSTREAM)/lib/vtls/*.c \
-                                    $(OOPS_CURL_UPSTREAM)/lib/curlx/*.c))
+                                    $(OOPS_CURL_UPSTREAM)/lib/curlx/*.c \
+                                    $(OOPS_CURL_UPSTREAM)/lib/vquic/vquic.c))
 OOPS_CURL_CFLAGS = -target x86_64-unknown-freebsd -nostdlib -fPIC -O2 -w -std=gnu11 \
                    -DHAVE_CONFIG_H -DBUILDING_LIBCURL -I$(OOPS_CURL_DIR)/include \
                    $(OOPS_CURL_INCLUDE) -I$(OOPS_CURL_UPSTREAM)/lib \

@@ -44,8 +44,10 @@ OOPS_SDL12_LDFLAGS := -Wl,--whole-archive $(OOPS_SDL12_LIB) -Wl,--no-whole-archi
 
 $(OOPS_SDL12_SDL2_LIB): $(OOPS_SDL_LIB) $(lastword $(MAKEFILE_LIST))
 	@mkdir -p $(OOPS_SDL12_BUILD)
-	@nm_tool=$$(command -v $(NM) 2>/dev/null || command -v llvm-nm 2>/dev/null || command -v nm); \
-	 oc_tool=$$(command -v $(OBJCOPY) 2>/dev/null || command -v llvm-objcopy 2>/dev/null || command -v objcopy); \
+	@# `$(or)`, because `command -v` with an empty operand succeeds and prints nothing, which
+	@# would end each chain at its first link when the variable is unset.
+	@nm_tool=$$(command -v $(or $(NM),llvm-nm) 2>/dev/null || command -v llvm-nm 2>/dev/null || command -v nm); \
+	 oc_tool=$$(command -v $(or $(OBJCOPY),llvm-objcopy) 2>/dev/null || command -v llvm-objcopy 2>/dev/null || command -v objcopy); \
 	 if [ -z "$$nm_tool" ] || [ -z "$$oc_tool" ]; then \
 	   echo "oops-sdl12: need nm and objcopy to rename SDL2's symbols, and one is missing" >&2; \
 	   exit 1; \
