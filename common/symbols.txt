@@ -6,6 +6,7 @@ libkernel sceKernelRead
 libkernel sceKernelOpen
 libkernel sceKernelClose
 libkernel sceKernelGetdents
+libkernel sceKernelGetdirentries
 libkernel sceKernelLseek
 libkernel sceKernelJitCreateSharedMemory
 libkernel sceKernelJitMapSharedMemory
