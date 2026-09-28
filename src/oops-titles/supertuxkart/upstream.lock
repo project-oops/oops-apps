@@ -1,0 +1,10 @@
+# SuperTuxKart's code - `stk-code`, the game and its Irrlicht fork.
+#
+# The data is the second origin, `upstream-assets.lock`. Both are free, so the package
+# carries everything and the player supplies nothing.
+#
+# Pinned to the `1.5` release, a lightweight tag: the ref and the commit are one object.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/supertuxkart/stk-code
+UPSTREAM_REV=1fb491f507216c5d181ccd85f29ff08eca003827
+UPSTREAM_REF=1.5

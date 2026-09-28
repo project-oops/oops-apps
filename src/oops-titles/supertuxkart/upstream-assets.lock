@@ -1,0 +1,10 @@
+# SuperTuxKart's data, fetched into `upstream-assets/` (`common/upstream.mk`).
+#
+# The data is in no git repository: the desktop assets live in the project's Subversion
+# repository, and the project publishes them as a release download of `stk-assets-mobile`.
+# `stk-assets.zip` is the standard set (228 MB); `-full` adds uncompressed textures and `-lq`
+# halves them. The pin is the digest GitHub publishes for the file.
+UPSTREAM_KIND=archive
+UPSTREAM_URL=https://github.com/supertuxkart/stk-assets-mobile/releases/download/1.5/stk-assets.zip
+UPSTREAM_REV=sha256:05477fc253a82eb6766888f4a514c9660d045838bf39634f4d1744f7b5fab272
+UPSTREAM_REF=1.5

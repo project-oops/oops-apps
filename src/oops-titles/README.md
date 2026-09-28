@@ -66,7 +66,6 @@ what their source says about rendering.
 | SuperTux 3D | `github.com/edstoner/supertux_3d` | `5d409c08` | GDScript and assets for Godot 3.x; no C or C++; porting it is porting Godot's `platform/` layer |
 | Armagetron Advanced | `github.com/ArmagetronAd/armagetronad` | `v0.2.9.3.0` (`036daaf3`) | GL 1.x (`glBegin` and vertex arrays); C++ with exceptions, RTTI and boost |
 | RetroArch | `github.com/libretro/RetroArch` | `v1.22.2` (`69a4f0ea`) | separate `gl1`, `gl2` and `gl3` video drivers; C |
-| SuperTuxKart | `github.com/supertuxkart/stk-code` | `1.5` (`1fb491f5`) | OpenGL 3.3 or GLES 3.0 per its README; assets in the separate `stk-assets` repository |
 
 ## Porting families
 
@@ -75,8 +74,8 @@ whether a port is in reach:
 
 | Family | Renderer | Here |
 |---|---|---|
-| `libultraship` (Ship of Harkinian, 2ship2harkinian, SpaghettiKart, Starship, PaperBoat, Ghostship) | its own Fast3D over GL 2.1-era GLSL under a `#version 130` directive; no direct GL calls in the games | in reach: [ship-of-harkinian](ship-of-harkinian/), [spaghetti-kart](spaghetti-kart/) |
-| `sm64-port`, `perfect_dark` | GL 2.0; assets extracted from a ROM at build time | [sm64](sm64/) |
+| `libultraship` (Ship of Harkinian, 2ship2harkinian, SpaghettiKart, Starship, PaperBoat, Ghostship) | its own Fast3D over GL 2.1-era GLSL under a `#version 130` directive; no direct GL calls in the games | in reach: [ship-of-harkinian](ship-of-harkinian/), [spaghetti-kart](spaghetti-kart/), [ghostship](ghostship/), [starship](starship/) |
+| `sm64-port`, `perfect_dark` | GL 2.0; assets extracted from a ROM at build time | [sm64](sm64/), superseded by [ghostship](ghostship/) |
 | N64Recomp (Banjo, Zelda 64, Harvest Moon 64) | RT64, which is Vulkan and D3D12 | out of reach |
 | Dusklight (Twilight Princess) | Aurora over WebGPU and Dawn | out of reach |
 | raw decompilations (`zeldaret/oot`, `n64decomp/sm64`, ...) | none: they build a ROM or DOL | not ports |

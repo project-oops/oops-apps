@@ -18,6 +18,12 @@
 # recipe. `upstream-fetch.sh` runs on every read and compares its stamp against the lock, so
 # a lock change takes effect; an up-to-date tree costs no network and prints nothing. The
 # removal targets skip it.
+#
+# A title built from more than one origin - an engine and the game it runs, a program and its
+# asset repository - carries one more lock per origin, `upstream-<name>.lock`, with the same
+# keys. It is fetched into `upstream-<name>/`, with its patches in `patches/<name>/`, and a
+# failed fetch stops the build the same way. Its keys are read by the shell rather than by
+# make, so they do not overwrite the primary lock's `UPSTREAM_*`.
 
 ifndef OOPS_UPSTREAM_MK
 OOPS_UPSTREAM_MK := 1
@@ -49,6 +55,26 @@ endif
 upstream-clean:
 	@rm -rf $(UPSTREAM_DIR)
 	@echo "$(APP_NAME): removed $(UPSTREAM_DIR)"
+endif
+
+# The further origins. `set -a` exports what the lock sets, which is how the script reads
+# `UPSTREAM_SPARSE` and `UPSTREAM_SUBMODULES`; the subshell keeps them from leaking.
+UPSTREAM_EXTRA := $(patsubst upstream-%.lock,%,$(wildcard upstream-*.lock))
+ifneq ($(UPSTREAM_EXTRA),)
+ifeq ($(filter clean upstream-clean distclean,$(MAKECMDGOALS)),)
+$(foreach n,$(UPSTREAM_EXTRA),$(shell ( set -a; . ./upstream-$(n).lock; set +a; \
+    UPSTREAM_NAME="$(APP_NAME)/$(n)" $(OOPS_UPSTREAM_DIR_SELF)/upstream-fetch.sh \
+    "$$UPSTREAM_KIND" "$$UPSTREAM_URL" "$$UPSTREAM_REV" "upstream-$(n)" \
+    "$(CURDIR)/patches/$(n)" ) >&2))
+$(foreach n,$(UPSTREAM_EXTRA),$(if $(wildcard upstream-$(n)/.oops-upstream-stamp),,\
+    $(error $(APP_NAME): fetch of upstream-$(n) failed - see above)))
+endif
+
+upstream-clean: upstream-extra-clean
+.PHONY: upstream-extra-clean
+upstream-extra-clean:
+	@rm -rf $(addprefix upstream-,$(UPSTREAM_EXTRA))
+	@echo "$(APP_NAME): removed $(addprefix upstream-,$(UPSTREAM_EXTRA))"
 endif
 
 endif

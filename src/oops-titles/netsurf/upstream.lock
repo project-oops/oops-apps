@@ -1,0 +1,13 @@
+# NetSurf's origin - a web browser in C with its own layout engine, built here with its
+# framebuffer front end, which draws through SDL.
+#
+# The browser is one repository; its parsers and decoders (libcss, libdom, libhubbub,
+# libnsfb and the rest) are each their own, and are vendored under `src/oops-deps/` as the
+# port reaches them - `make survey` lists them.
+#
+# Pinned to the `release/3.11` tag. It is annotated: UPSTREAM_REV is the commit it peels to,
+# not the tag object.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/netsurf-browser/netsurf
+UPSTREAM_REV=3709818641a695f1dd0bf7435f04f91f5798db75
+UPSTREAM_REF=release/3.11

@@ -1,0 +1,9 @@
+# Half-Life's game code - hlsdk-portable, the SDK's client and server made portable. Fetched
+# into `upstream-hlsdk/` (`common/upstream.mk`).
+#
+# Pinned to a commit on the default branch, which is the Half-Life game; the project's tags
+# name mods (`gravgun-1.0`) and its branches carry the rest.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/FWGS/hlsdk-portable
+UPSTREAM_REV=6c168fc79d95c8ffb934fa37aaafbbd424e03c1a
+UPSTREAM_REF=master@2026-09-28

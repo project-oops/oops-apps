@@ -1,0 +1,14 @@
+# Half-Life's engine - Xash3D FWGS, a GoldSrc-compatible engine in C.
+#
+# The game code is the second origin, `upstream-hlsdk.lock`. The game's data is the player's
+# own `valve/` directory, read at run time.
+#
+# Pinned to a commit on the default branch: the project publishes rolling `continuous`
+# builds rather than releases, and its last numbered tag (`v0.20`) is years behind.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/FWGS/xash3d-fwgs
+UPSTREAM_REV=b60684821a0528fe0b55a456f839dd7e3ba9fcce
+UPSTREAM_REF=master@2026-09-28
+
+# The renderers, the utility library and the bundled third-party code are submodules.
+UPSTREAM_SUBMODULES=1

@@ -1,0 +1,14 @@
+# Sonic Mania's origin - the decompilation of its game logic, with the RSDKv5 engine it runs
+# on as a submodule.
+#
+# The game's data is the player's own `Data.rsdk`, read at run time.
+#
+# Pinned to the `v1.1.1` release. It is an annotated tag: UPSTREAM_REV is the commit it peels
+# to, not the tag object.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/RSDKModding/Sonic-Mania-Decompilation
+UPSTREAM_REV=56cf1bbac45ebf9da5df781c2983317c3fbb6d5f
+UPSTREAM_REF=v1.1.1
+
+# `dependencies/RSDKv5`, the engine; the pinned commit records its revision.
+UPSTREAM_SUBMODULES=1

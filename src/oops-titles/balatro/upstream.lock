@@ -1,0 +1,11 @@
+# Balatro's engine - LÖVE, the Lua game framework it is written for.
+#
+# Nothing of Balatro is fetched. The game is the player's own `Balatro.exe`, which is a LÖVE
+# executable with the game appended as a zip; LÖVE reads that archive at run time.
+#
+# Pinned to the `11.5` release, the version Balatro ships with. It is an annotated tag:
+# UPSTREAM_REV is the commit it peels to, not the tag object.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/love2d/love
+UPSTREAM_REV=6eb8d546736d5915a8b5af30b2cf33456dfdcb1a
+UPSTREAM_REF=11.5

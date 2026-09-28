@@ -1,0 +1,13 @@
+# Starship's origin - Harbour Masters' native port of Star Fox 64, on `libultraship`.
+#
+# The same runtime as `../spaghetti-kart`, and the same asset converter (torch), so the ROM
+# conversion proven there carries across.
+#
+# Pinned to the `v2.0.0` release, a lightweight tag: the ref and the commit are one object.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/HarbourMasters/Starship
+UPSTREAM_REV=cb19785b51698185a688e17ba1a34c7889195bdb
+UPSTREAM_REF=v2.0.0
+
+# `libultraship` and `torch`; the pinned commit records their revisions.
+UPSTREAM_SUBMODULES=1

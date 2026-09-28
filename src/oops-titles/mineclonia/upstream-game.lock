@@ -1,0 +1,8 @@
+# Mineclonia itself - the game, in Lua and assets, that Luanti runs. Fetched into
+# `upstream-game/` (`common/upstream.mk`) and packaged under `games/mineclonia`.
+#
+# Pinned to the `0.123.1` release.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://codeberg.org/mineclonia/mineclonia
+UPSTREAM_REV=cdb1329ef4f46988592f400a8a09d71c6a8878db
+UPSTREAM_REF=0.123.1

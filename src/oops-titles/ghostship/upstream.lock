@@ -1,0 +1,13 @@
+# Ghostship's origin - Harbour Masters' native port of Super Mario 64, on `libultraship`.
+#
+# The same runtime as `../ship-of-harkinian` and `../spaghetti-kart`, so the platform work is
+# shared. It replaces `../sm64`, whose upstream compiles the ROM's assets into the program.
+#
+# Pinned to the `3.0.0` release, a lightweight tag: the ref and the commit are one object.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/HarbourMasters/Ghostship
+UPSTREAM_REV=deb091c29caff57dd986398087b058f16b11911e
+UPSTREAM_REF=3.0.0
+
+# `libultraship` and the asset converter; the pinned commit records their revisions.
+UPSTREAM_SUBMODULES=1

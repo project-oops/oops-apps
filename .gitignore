@@ -9,8 +9,10 @@ build/
 dist/
 
 # A title's upstream source, fetched at the revision its `upstream.lock` names. The lock,
-# patches and shim beside it are tracked; the fetched tree is not.
+# patches and shim beside it are tracked; the fetched tree is not. `upstream-<name>/` is a
+# second origin, fetched from `upstream-<name>.lock` (`common/upstream.mk`).
 upstream/
+upstream-*/
 
 # Python is not used here, so there is no bytecode rule; a stray file shows in `git status`.
 

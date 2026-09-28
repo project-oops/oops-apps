@@ -71,12 +71,68 @@ if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$WANT" ]; then
     exit 0
 fi
 
+# Patches apply to the clean tree in name order, and one that does not apply stops the build.
+# `git apply` works outside a repository too, so an unpacked archive is patched the same way.
+apply_patches() {
+    if [ -n "$PATCH_DIR" ] && [ -d "$PATCH_DIR" ]; then
+        for p in $(ls "$PATCH_DIR"/*.patch 2>/dev/null | sort); do
+            echo "upstream: applying $(basename "$p")"
+            ( cd "$DIR" && git -c core.autocrlf=false -c core.eol=lf \
+                  apply --whitespace=nowarn "$p" ) || {
+                echo "upstream-fetch: $(basename "$p") does not apply to $REV" >&2
+                exit 1
+            }
+        done
+    fi
+}
+
 case "$KIND" in
 git) ;;
+# A release download that is not in any repository - SuperTuxKart's data is one. The pin is
+# the file's digest, `sha256:<hex>`, which GitHub publishes for a release asset, so pinning
+# one needs no download; the fetch refuses a file that does not match it.
+archive)
+    case "$REV" in
+        sha256:[0-9a-f]*) ;;
+        *)
+            echo "upstream-fetch: an archive's UPSTREAM_REV is its digest, sha256:<hex>, not '$REV'" >&2
+            exit 1
+            ;;
+    esac
+    echo "${UPSTREAM_NAME:-upstream}: fetching upstream at ${UPSTREAM_REF:-$REV}"
+    echo "upstream: $URL @ $REV"
+    DOWNLOAD="$DIR.download"
+    rm -f "$DOWNLOAD"
+    curl -fL --retry 3 -s -o "$DOWNLOAD" "$URL" || {
+        echo "upstream-fetch: download failed: $URL" >&2
+        rm -f "$DOWNLOAD"
+        exit 1
+    }
+    GOT="sha256:$(sha256sum "$DOWNLOAD" | cut -d' ' -f1)"
+    if [ "$GOT" != "$REV" ]; then
+        echo "upstream-fetch: asked for $REV and got $GOT" >&2
+        rm -f "$DOWNLOAD"
+        exit 1
+    fi
+    rm -rf "$DIR"/* "$DIR"/.[!.]* 2>/dev/null || true
+    rm -rf "$DIR" 2>/dev/null || true
+    mkdir -p "$DIR"
+    case "$URL" in
+        *.zip) unzip -q "$DOWNLOAD" -d "$DIR" ;;
+        *) tar -xf "$DOWNLOAD" -C "$DIR" ;;
+    esac || {
+        echo "upstream-fetch: $DOWNLOAD did not unpack" >&2
+        exit 1
+    }
+    rm -f "$DOWNLOAD"
+    apply_patches
+    printf '%s' "$WANT" > "$STAMP"
+    exit 0
+    ;;
 *)
     echo "upstream-fetch: unknown kind '$KIND' - the lock's UPSTREAM_KIND must be one this" >&2
-    echo "                script implements. git is the only one so far; add another here" >&2
-    echo "                rather than in a title." >&2
+    echo "                script implements: git or archive. Add another here rather than in" >&2
+    echo "                a title." >&2
     exit 1
     ;;
 esac
@@ -170,15 +226,8 @@ if [ -n "$SUBMODULES" ] && [ -f "$DIR/.gitmodules" ]; then
     fi
 fi
 
-# Patches apply to the clean checkout in name order, and one that does not apply stops the build.
+apply_patches
 if [ -n "$PATCH_DIR" ] && [ -d "$PATCH_DIR" ]; then
-    for p in $(ls "$PATCH_DIR"/*.patch 2>/dev/null | sort); do
-        echo "upstream: applying $(basename "$p")"
-        ( cd "$DIR" && $GIT apply --whitespace=nowarn "$p" ) || {
-            echo "upstream-fetch: $(basename "$p") does not apply to $REV" >&2
-            exit 1
-        }
-    done
     check_eol
 fi
 

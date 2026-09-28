@@ -35,7 +35,8 @@ the game's assets, so it cannot be published, and this pin therefore has no payl
 
 [`../ship-of-harkinian`](../ship-of-harkinian/README.md) is the shape a port of this game needs:
 the build ships only the port's own archive, and the title converts the player's copy on the
-hardware at first run. Reaching that here means an upstream that reads the ROM at run time.
+hardware at first run. [`../ghostship`](../ghostship/README.md) is that port of this game:
+Harbour Masters' Super Mario 64 on `libultraship`, which reads the ROM at run time.
 
 What remains useful is the platform layer, which `make census` measures against oops-sdk, and the
 entry point in `shim/`, which is upstream-independent.

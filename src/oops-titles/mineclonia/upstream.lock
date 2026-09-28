@@ -1,0 +1,11 @@
+# Mineclonia's engine - Luanti (formerly Minetest), a voxel engine in C++ scripted in Lua.
+#
+# The game is the second origin, `upstream-game.lock`. Both are free, so the package carries
+# everything and the player supplies nothing.
+#
+# Pinned to the `5.17.0` release. It is an annotated tag: UPSTREAM_REV is the commit it
+# peels to, not the tag object.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/luanti-org/luanti
+UPSTREAM_REV=c0e6812b1a4260bb25a1f606f70f55f4962bb97d
+UPSTREAM_REF=5.17.0
