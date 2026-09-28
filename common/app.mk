@@ -277,7 +277,7 @@ MKMODULE_KIND ?= executable
 
 .DEFAULT_GOAL := all
 
-.PHONY: all check skeleton elf eboot title dist clean
+.PHONY: all check skeleton elf eboot title title-zip dist clean
 
 ifneq ($(strip $(PAYLOAD_SRCS)),)
 all: $(if $(HOST_TEST_SRCS),$(BUILD)/$(APP_NAME)_selftest) skeleton $(BUILD)/$(APP_NAME).elf
@@ -399,7 +399,8 @@ $(call oops_obj_rules,$(BUILD)/obj,TARGET_CC,TARGET_CFLAGS,$(PAYLOAD_SRCS) $(TAR
 
 $(BUILD)/$(APP_NAME).elf: $(OOPS_PAYLOAD_OBJS) $(PAYLOAD_EXTRA_DEPS) \
                           $(oops_makefiles) | $(BUILD)
-	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) -o $@ $(OOPS_PAYLOAD_OBJS)
+	@:$(call oops_rsp,$@.rsp,$(OOPS_PAYLOAD_OBJS))
+	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) -o $@ @$@.rsp
 	@nm_tool=$$(command -v $(NM) 2>/dev/null || command -v llvm-nm 2>/dev/null || true); \
 	if [ "$(UNDEF_CHECK)" != "1" ]; then \
 	  echo "$(APP_NAME): the undefined-symbol check is off - a hosted title's C library is"; \
@@ -505,26 +506,77 @@ title: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	    fi; \
 	    chmod 0755 "$(BUILD)/title/$(TITLE_ID)/eboot.bin" 2>/dev/null || true; \
 	    [ -f "$(BUILD)/title/$(TITLE_ID)/sce_module/libc.prx" ] && chmod 0755 "$(BUILD)/title/$(TITLE_ID)/sce_module/libc.prx" 2>/dev/null || true; \
-	    ZIP_OUT="$(CURDIR)/$(TITLE_ZIP_ARTIFACT)"; rm -f "$$ZIP_OUT"; \
-	    if command -v zip >/dev/null 2>&1; then \
-	        ( cd $(BUILD)/title && zip -qr "$$ZIP_OUT" $(TITLE_ID) ); \
-	    elif python3 -c 'import zipfile' >/dev/null 2>&1; then \
-	        ( cd $(BUILD)/title && python3 -m zipfile -c "$$ZIP_OUT" $(TITLE_ID) ); \
-	    elif tar --version 2>/dev/null | grep -qiE 'bsdtar|libarchive'; then \
-	        ( cd $(BUILD)/title && tar -a -cf "$$ZIP_OUT" $(TITLE_ID) ); \
-	    else \
-	        echo "$(APP_NAME): cannot package title - GNU tar would write a tar named .zip; install 'zip' or 'python3' (or bsdtar)" >&2; exit 1; \
-	    fi; \
-	    echo "$(APP_NAME): created $(TITLE_ZIP_ARTIFACT)"; \
 	else \
 	    echo "selfish not found at $(SELFISH) - build it with cargo build -p selfish-cli"; \
 	fi
+	@$(MAKE) --no-print-directory title-zip
+
+# The archive, as a step of its own.
+#
+# It was the tail of `title`, which meant it ran before any `package` target could put the
+# game's data in the directory - `package` depends on `title`, so the zip was always written
+# first and the data arrived after it. Twelve titles shipped that way: a staged tree of 87MB
+# and a published archive of 1.9MB holding the payload and nothing else.
+#
+# Separating it costs a second zip of an already-staged tree when `dist` runs `package`, and
+# buys an archive that is whatever the directory actually holds at the moment it is made.
+.PHONY: title-zip
+title-zip:
+	@mkdir -p $(DIST)
+	@ZIP_OUT="$(CURDIR)/$(TITLE_ZIP_ARTIFACT)"; rm -f "$$ZIP_OUT"; \
+	if command -v zip >/dev/null 2>&1; then \
+	    ( cd $(BUILD)/title && zip -qr "$$ZIP_OUT" $(TITLE_ID) ); \
+	elif python3 -c 'import zipfile' >/dev/null 2>&1; then \
+	    ( cd $(BUILD)/title && python3 -m zipfile -c "$$ZIP_OUT" $(TITLE_ID) ); \
+	elif tar --version 2>/dev/null | grep -qiE 'bsdtar|libarchive'; then \
+	    ( cd $(BUILD)/title && tar -a -cf "$$ZIP_OUT" $(TITLE_ID) ); \
+	else \
+	    echo "$(APP_NAME): cannot package title - GNU tar would write a tar named .zip; install 'zip' or 'python3' (or bsdtar)" >&2; exit 1; \
+	fi; \
+	echo "$(APP_NAME): created $(TITLE_ZIP_ARTIFACT) ($$(du -h "$$ZIP_OUT" | cut -f1))"
+
+# $(call oops_verify_title_runs,<staged title dir>)
+#
+# A title that has a `package` target has it because something else has to be in the
+# directory before the thing runs - Bugdom's 66MB of `Data/`, Neverball's, Ship of
+# Harkinian's `soh.o2r` and `assets.zip`. If the staged tree holds the payload skeleton and
+# nothing else, that step did not happen, and what ships is a download that boots and then
+# cannot find its own assets.
+#
+# This is checked here rather than inside `oops_verify_dist` because that lives in
+# `oops-sdk.mk`, which knows about artifact formats; whether a title needs data beside its
+# payload is this layer's business.
+#
+# **Why it is needed at all.** `dist` used to stage the `title` goal, and `package` was only
+# ever run by hand. Restoring to a console from `build/title/<id>` after a local `make
+# package` worked, so twelve titles looked fine in development and every one of them
+# published a zip with no game data in it - bugdom at 1.9MB against 66MB of `Data/`. The two
+# paths diverged at exactly the step that makes the title playable, and nothing compared
+# them. `dist` now prefers `package`, and this refuses to let the old shape ship again.
+oops_title_skeleton := eboot.bin sce_sys sce_module
+define oops_verify_title_runs
+    if $(MAKE) -n package >/dev/null 2>&1; then \
+        extra=$$(ls -A $(1) 2>/dev/null | grep -vxF -e eboot.bin -e sce_sys -e sce_module | wc -l); \
+        if [ "$$extra" -eq 0 ]; then \
+            echo "$(APP_NAME): this title defines 'package', so it needs more than a payload to run," >&2; \
+            echo "  but $(1) holds only eboot.bin, sce_sys and sce_module. Nothing that ships" >&2; \
+            echo "  from here would start. See the 'package' target in this app's Makefile." >&2; \
+            exit 1; \
+        fi; \
+        echo "$(APP_NAME): title carries $$extra entr$$([ $$extra -eq 1 ] && echo y || echo ies) beside the payload"; \
+    fi
+endef
 
 ifneq ($(filter-out check-only,$(FORMATS)),)
 ifneq ($(strip $(PAYLOAD_SRCS)),)
 # Release staging for each format in $(FORMATS). The mkmodule stamp is a prerequisite
 # because mkmodule rewrites the ELF in place (it fills the empty `PT_SCE_DYNLIBDATA` the linker
 # script reserves), so the staged `.elf` is always the tagged one.
+#
+# The `title` format stages `package` where an app has one. `title` is the payload and its
+# `sce_sys`; `package` is that plus whatever the game reads at runtime, and it is the second
+# one that a person can actually play. An app with no `package` target ships `title`, which
+# for it is the same thing.
 dist: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	@mkdir -p $(DIST)
 	@for fmt in $(FORMATS); do \
@@ -537,7 +589,11 @@ dist: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	            $(MAKE) eboot; \
 	            ;; \
 	        title) \
-	            $(MAKE) title; \
+	            if $(MAKE) -n package >/dev/null 2>&1; then \
+	                $(MAKE) package && $(MAKE) title-zip; \
+	            else \
+	                $(MAKE) title; \
+	            fi; \
 	            ;; \
 	        *) \
 	            echo "warning: unknown format '$$fmt' in FORMATS" >&2; \
@@ -545,6 +601,7 @@ dist: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	    esac; \
 	done
 	@$(call oops_verify_dist,$(DIST))
+	@$(call oops_verify_title_runs,$(BUILD)/title/$(TITLE_ID))
 endif
 endif
 
