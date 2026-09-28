@@ -41,6 +41,13 @@ struct sockaddr_in {
 #define IPPROTO_TCP  6
 #define IPPROTO_UDP 17
 
+/* `setsockopt(IPPROTO_IP, ...)` options, FreeBSD's values: they reach the kernel unchanged. */
+#define IP_TOS 3
+#define IP_TTL 4
+#define IP_MULTICAST_IF   9
+#define IP_MULTICAST_TTL  10
+#define IP_MULTICAST_LOOP 11
+
 /*
  * # IPv6: the types are here, and nothing behind them works
  *

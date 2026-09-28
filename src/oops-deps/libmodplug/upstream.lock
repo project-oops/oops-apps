@@ -1,0 +1,9 @@
+# libmodplug's origin: the tracker-module player (MOD, S3M, XM, IT) LÖVE decodes module music
+# with (`CMakeLists.txt:188`, required). Balatro reaches it through LÖVE.
+#
+# The repository has no tags; this is the default branch's head, `libmodplug-0.8.9.0` plus the
+# fixes after it.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/Konstanty/libmodplug
+UPSTREAM_REV=d1b97ed0020bc620a059d3675d1854b40bd2608d
+UPSTREAM_REF=master@2026-09-28

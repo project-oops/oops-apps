@@ -160,6 +160,11 @@ long fpathconf(int fd, int name);
  */
 pid_t fork(void);
 int execvp(const char *file, char *const argv[]);
+/* The same answer: Xash3D's `Sys_Restart` prints the error and carries on. */
+int execv(const char *path, char *const argv[]);
+
+/* The kernel's `dup`, on the kernel's own descriptors - which `oops_fs_open` returns. */
+int dup(int fd);
 
 /*
  * **The console's own IP address, in dotted-quad form, or a failure.**

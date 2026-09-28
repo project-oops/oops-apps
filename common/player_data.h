@@ -11,8 +11,10 @@
  * someone copying files onto the console, so the message names the same directory as the
  * player sees it: `/data/homebrew/<title id>/`, the one `eboot.bin` sits in.
  *
- * Needs SDL2: the message goes through `SDL_ShowSimpleMessageBox`, which works before
- * `SDL_Init` and draws the message itself when no video-out session is open yet.
+ * Needs SDL2 and `OOPS_POSIX_HOME`: the message goes through `SDL_ShowSimpleMessageBox`,
+ * which works before `SDL_Init` and draws the message itself when no video-out session is
+ * open yet. The title's `EXTRA_TARGET_CFLAGS` carries `$(OOPS_SDL_INCLUDE)` and
+ * `-DOOPS_POSIX_HOME=\"/app0\"`.
  */
 #ifndef OOPS_APPS_PLAYER_DATA_H
 #define OOPS_APPS_PLAYER_DATA_H

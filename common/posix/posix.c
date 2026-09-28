@@ -34,6 +34,7 @@
 #include "oops/heap.h"
 #include "oops/net.h" /* the socket and resolver calls the BSD-socket shims below map onto */
 #include "oops/netctl.h" /* oops_net_ctl_get_info, the only source of this machine's own address */
+#include "oops/syscall.h" /* sys_call and sys_get_errno, for the dup below */
 #include "oops/system.h"
 #include "oops/thread.h" /* oops_thread_self, for pthread_getthreadid_np */
 #include "oops/time.h"
@@ -1295,6 +1296,50 @@ sighandler_t signal(int sig, sighandler_t handler) {
     return previous;
 }
 
+/* `signal.h` says what is kept and what is refused. */
+int sigaction(int sig, const struct sigaction *act, struct sigaction *oact) {
+    sighandler_t previous;
+
+    if (sig <= 0 || sig >= OOPS_POSIX_NSIG) {
+        errno = EINVAL;
+        return -1;
+    }
+    if (act == NULL) {
+        if (oact != NULL) {
+            memset(oact, 0, sizeof(*oact));
+            oact->sa_handler = s_sig_handlers[sig];
+        }
+        return 0;
+    }
+    if ((act->sa_flags & SA_SIGINFO) != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    previous = signal(sig, act->sa_handler);
+    if (previous == SIG_ERR) {
+        return -1;
+    }
+    if (oact != NULL) {
+        memset(oact, 0, sizeof(*oact));
+        oact->sa_handler = previous;
+    }
+    return 0;
+}
+
+int sigemptyset(sigset_t *set) {
+    *set = 0;
+    return 0;
+}
+
+int sigaddset(sigset_t *set, int sig) {
+    if (sig <= 0 || sig >= OOPS_POSIX_NSIG) {
+        errno = EINVAL;
+        return -1;
+    }
+    *set |= 1ul << (unsigned)sig;
+    return 0;
+}
+
 /* ---------------------------------------------------------------------------
  * Sockets, over `oops/net.h`. See `sys/socket.h` and `netdb.h` for what is and is not here.
  * ------------------------------------------------------------------------- */
@@ -1368,6 +1413,8 @@ const char *inet_ntop(int af, const void *src, char *dst, socklen_t size) {
 __attribute__((weak)) int oops_socket(int d, int t, int p) { (void)d; (void)t; (void)p; errno = ENOSYS; return -1; }
 __attribute__((weak)) int oops_connect(int s, const char *ip, uint16_t port) { (void)s; (void)ip; (void)port; errno = ENOSYS; return -1; }
 __attribute__((weak)) int oops_bind(int s, const char *ip, uint16_t port) { (void)s; (void)ip; (void)port; errno = ENOSYS; return -1; }
+__attribute__((weak)) int oops_listen(int s, int backlog) { (void)s; (void)backlog; errno = ENOSYS; return -1; }
+__attribute__((weak)) int oops_accept(int s, char *ip, size_t ipl, uint16_t *port) { (void)s; if (ip && ipl) ip[0] = '\0'; if (port) *port = 0; errno = ENOSYS; return -1; }
 __attribute__((weak)) long oops_send(int s, const void *b, size_t l, int f) { (void)s; (void)b; (void)l; (void)f; errno = ENOSYS; return -1; }
 __attribute__((weak)) long oops_recv(int s, void *b, size_t l, int f) { (void)s; (void)b; (void)l; (void)f; errno = ENOSYS; return -1; }
 __attribute__((weak)) long oops_sendto(int s, const void *b, size_t l, int f, const char *ip, uint16_t port) { (void)s; (void)b; (void)l; (void)f; (void)ip; (void)port; errno = ENOSYS; return -1; }
@@ -1668,6 +1715,74 @@ ssize_t recvfrom(int sock, void *buf, size_t len, int flags,
 int setsockopt(int sock, int level, int optname, const void *optval,
                socklen_t optlen) {
     return oops_setsockopt(sock, level, optname, optval, (size_t)optlen);
+}
+
+/*
+ * No reading an option back: the SDK has no `getsockopt`, so every option is refused with
+ * `ENOPROTOOPT` - the answer a caller gets for an option the system does not know. That
+ * includes `SO_ERROR`, which a non-blocking `connect` reads to learn how it went; a caller
+ * told "no" treats the connection as failed, which is the safe way to be wrong.
+ */
+int getsockopt(int sock, int level, int optname, void *optval, socklen_t *optlen) {
+    (void)sock;
+    (void)level;
+    (void)optname;
+    (void)optval;
+    (void)optlen;
+    errno = ENOPROTOOPT;
+    return -1;
+}
+
+/*
+ * The SDK has no way to ask a socket for its own address, so this fails with `EOPNOTSUPP`.
+ * Xash3D asks after binding its server socket, to print the address, and says it could not
+ * get one.
+ */
+int getsockname(int sock, struct sockaddr *addr, socklen_t *addrlen) {
+    (void)sock;
+    (void)addr;
+    (void)addrlen;
+    errno = EOPNOTSUPP;
+    return -1;
+}
+
+int listen(int sock, int backlog) {
+    return oops_listen(sock, backlog);
+}
+
+/*
+ * `oops_accept` names the peer as dotted-quad text, as `recvfrom` does, and it is parsed
+ * back the same way. A NULL `addr` is allowed and asks for nothing.
+ */
+int accept(int sock, struct sockaddr *addr, socklen_t *addrlen) {
+    char ip[INET_ADDRSTRLEN];
+    uint16_t port = 0;
+    int fd;
+
+    ip[0] = '\0';
+    fd = oops_accept(sock, ip, sizeof(ip), &port);
+    if (fd < 0 || addr == NULL || addrlen == NULL) {
+        return fd;
+    }
+    {
+        struct sockaddr_in in;
+        uint32_t packed = 0;
+        socklen_t copy = (socklen_t)sizeof(in);
+
+        memset(&in, 0, sizeof(in));
+        in.sin_len = (uint8_t)sizeof(in);
+        in.sin_family = AF_INET;
+        in.sin_port = htons(port);
+        if (ip[0] != '\0' && oops_net_inet_pton(ip, &packed) == 0) {
+            in.sin_addr.s_addr = packed;
+        }
+        if (*addrlen < copy) {
+            copy = *addrlen; /* truncated, as POSIX allows */
+        }
+        memcpy(addr, &in, copy);
+        *addrlen = (socklen_t)sizeof(in);
+    }
+    return fd;
 }
 
 /* ---------------------------------------------------------------------------
@@ -2037,6 +2152,26 @@ int execvp(const char *file, char *const argv[]) {
     (void)argv;
     errno = ENOSYS;
     return -1;
+}
+
+int execv(const char *path, char *const argv[]) {
+    return execvp(path, argv);
+}
+
+/*
+ * FreeBSD's `dup` (syscall 41), through the SDK's trampoline. The descriptors `oops_fs_open`
+ * returns are the kernel's own - `fs_open_raw` opens through the same trampoline - so the
+ * kernel's `dup` applies to them unchanged. Xash3D's filesystem duplicates an archive's handle
+ * for each file it opens inside it.
+ */
+int dup(int fd) {
+    long rc = sys_call(41, fd, 0, 0, 0, 0, 0);
+
+    if (rc < 0) {
+        errno = sys_get_errno();
+        return -1;
+    }
+    return (int)rc;
 }
 
 /*

@@ -108,11 +108,12 @@ jobs:
         app: ${{ fromJSON(needs.discover.outputs.apps) }}
     steps:
       # Before `actions/checkout`, which without git falls back to a download with no
-      # submodules.
+      # submodules. `curl` and `unzip` fetch a dependency pinned as an archive
+      # (`UPSTREAM_KIND=archive`, `common/upstream-fetch.sh`).
       - name: Tools the container does not ship
         run: |
           apt-get update -qq
-          apt-get install -y -qq git zip jq ca-certificates lld
+          apt-get install -y -qq git zip unzip curl jq ca-certificates lld
       # The collection, then this repository inside it; no job-level working-directory.
       - uses: actions/checkout@v4
         with:
@@ -236,7 +237,7 @@ jobs:
       - name: Tools this job needs
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq git curl build-essential ca-certificates zip jq lld
+          sudo apt-get install -y -qq git curl build-essential ca-certificates zip unzip jq lld
       - uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/OOPS

@@ -26,6 +26,8 @@ for lock in "$DEPS"/*/upstream.lock; do
     url="$(sed -n 's/^UPSTREAM_URL=//p' "$lock")"
     rev="$(sed -n 's/^UPSTREAM_REV=//p' "$lock")"
     sparse="$(sed -n 's/^UPSTREAM_SPARSE=//p' "$lock")"
+    submodules="$(sed -n 's/^UPSTREAM_SUBMODULES=//p' "$lock")"
+    ref="$(sed -n 's/^UPSTREAM_REF=//p' "$lock")"
 
     if [ -z "$kind" ] || [ -z "$url" ] || [ -z "$rev" ]; then
         echo "deps-fetch: $name: lock is missing KIND, URL or REV" >&2
@@ -33,7 +35,9 @@ for lock in "$DEPS"/*/upstream.lock; do
         continue
     fi
 
-    if UPSTREAM_SPARSE="$sparse" "$FETCH" "$kind" "$url" "$rev" "$dir/upstream" "$dir/patches"; then
+    # Every key the fetch records in its stamp, as `common/upstream.mk` passes them for a title.
+    if UPSTREAM_SPARSE="$sparse" UPSTREAM_SUBMODULES="$submodules" UPSTREAM_REF="$ref" \
+       UPSTREAM_NAME="$name" "$FETCH" "$kind" "$url" "$rev" "$dir/upstream" "$dir/patches"; then
         fetched=$((fetched + 1))
     else
         echo "deps-fetch: $name: fetch failed" >&2

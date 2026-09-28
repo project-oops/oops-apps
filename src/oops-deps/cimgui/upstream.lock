@@ -1,0 +1,13 @@
+# cimgui's origin: the C interface to Dear ImGui, which Ghostship's and Starship's C code reaches
+# ImGui through. It wraps the ImGui already vendored at `../imgui` (v1.91.9b-docking) - the tag
+# below is cimgui's release for that exact version - so its own `imgui` submodule is not fetched.
+#
+# `1.91.9bdock` is a lightweight tag: the ref and the commit are one object.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/cimgui/cimgui
+UPSTREAM_REV=03e6c8d1f21d5766761916f71fbb419d7f373b76
+UPSTREAM_REF=1.91.9bdock
+
+# `imgui`, its submodule, is pinned at `4806a192` - the same commit as `../imgui/upstream.lock` -
+# so the headers `cimgui.cpp` includes by relative path are the ones the payload links.
+UPSTREAM_SUBMODULES=1

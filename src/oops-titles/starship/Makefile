@@ -14,11 +14,13 @@ OOPS_RENDERER = gl2
 
 include $(OOPS_APPS_ROOT)/common/upstream.mk
 
-# libultraship's stack, as `../spaghetti-kart` names it, with `cimgui` for the port's C code and
-# SDL2_net, which upstream finds unconditionally (CMakeLists.txt:383).
+# libultraship's stack, as `../spaghetti-kart` names it. SDL2_net is found only under
+# `USE_NETWORKING` (CMakeLists.txt:378), which upstream sets off (:107), so it is not needed.
+# Upstream defines `CIMGUI_DEFINE_ENUMS_AND_STRUCTS` (:118) but no C source calls cimgui, so
+# that is not linked either.
 SCAFFOLD_ARM    := STRF_ARMED
-SCAFFOLD_DEPS   := sdl2 sdl2-net zlib libzip stb nlohmann-json thread-pool tinyxml2 spdlog imgui \
-                   cimgui prism-processor libgfxd tomlplusplus semver libogg libvorbis dr-libs
+SCAFFOLD_DEPS   := sdl2 zlib libzip stb nlohmann-json thread-pool tinyxml2 spdlog imgui \
+                   prism-processor libgfxd tomlplusplus semver libogg libvorbis dr-libs
 SCAFFOLD_SUPPLY := a Star Fox 64 ROM (US 1.0 or 1.1, .z64) as /data/homebrew/STRF00001/sf64.z64, \
                    converted to sf64.o2r on the console at first start
 

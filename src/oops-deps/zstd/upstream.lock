@@ -1,0 +1,9 @@
+# zstd's origin: the compression Luanti stores map blocks in (`src/CMakeLists.txt:268`,
+# required).
+#
+# An annotated tag: `refs/tags/v1.5.7` is the tag object and the hash below is the commit it
+# points at.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/facebook/zstd
+UPSTREAM_REV=f8745da6ff1ad1e7bab384bd1f9d742439278e99
+UPSTREAM_REF=v1.5.7

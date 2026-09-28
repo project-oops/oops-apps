@@ -17,6 +17,11 @@ library at run time.
   pinned by commit hash. Neither project cuts releases, so each pin is a dated commit on its
   default branch.
 - **Fetched, not vendored** - only the port's own `shim/` and `patches/` live here.
+- **One library per component, as upstream's static build makes them** - the filesystem, the
+  renderer, the menu, the client and the server are each linked into a relocatable object whose
+  only global symbol is its export table, so the client and the server can each carry the
+  shared player-movement code without colliding. The client's and server's tables list every
+  function they define, which is how save games find entity callbacks by name.
 
 ## Your game data
 
@@ -31,8 +36,8 @@ Without it the title says exactly this on screen and stops.
 
 ## Building
 
-`make` prints the survey: the pins, the dependencies still to vendor, and what the player
-supplies. `make HALF_ARMED=1 title` builds the payload.
+`make title` builds the payload. `make survey` prints the pins, the dependencies and what the
+player supplies; `make census` compiles every component's sources and names any that fail.
 
 ## Docs
 

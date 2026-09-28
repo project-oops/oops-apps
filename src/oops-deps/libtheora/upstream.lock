@@ -1,0 +1,9 @@
+# libtheora's origin: the Theora video decoder. Sonic Mania's cutscenes and LÖVE's video
+# streams (Balatro) decode through it.
+#
+# An annotated tag: `refs/tags/v1.2.0` is the tag object and the hash below is the commit it
+# points at.
+UPSTREAM_KIND=git
+UPSTREAM_URL=https://github.com/xiph/theora
+UPSTREAM_REV=8e4808736e9c181b971306cc3f05df9e61354004
+UPSTREAM_REF=v1.2.0

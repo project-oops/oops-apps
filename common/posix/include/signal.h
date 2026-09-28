@@ -58,8 +58,8 @@
  *                                              ignores it, as ioquake3 does, is no worse off than
  *                                              on a system where the signal simply never arrives.
  *
- * `sigaction` is still absent. It carries flags, masks and a three-argument handler that this
- * platform has nothing to map onto, and a partial `sigaction` would be the silent kind of wrong.
+ * `sigaction` is `signal` with a structure around it, and refuses everything `signal` cannot
+ * keep - see its own note below.
  */
 #define SIGBUS  10
 
@@ -75,6 +75,38 @@ extern "C" {
 
 /* The previous handler, or `SIG_ERR` if this signal cannot be delivered here. See above. */
 sighandler_t signal(int sig, sighandler_t handler);
+
+/*
+ * **`sigaction` does exactly what `signal` does, and refuses the rest out loud.**
+ *
+ * The structure carries more than this platform can honour: a three-argument handler
+ * (`SA_SIGINFO`), a mask of signals blocked while the handler runs, and flags. The plain
+ * handler maps onto `signal` above and is installed the same way - so a fault handler
+ * fires. Everything else fails with `EINVAL` rather than being quietly dropped: a
+ * `SA_SIGINFO` handler, and any signal `signal` itself cannot deliver. `sa_mask` is not
+ * applied; the signals that can fire here are synchronous faults, raised by the thread
+ * they interrupt, so there is nothing for a mask to hold off.
+ *
+ * `oact`, when given, receives the previous plain handler.
+ *
+ * Xash3D's `Posix_SetupSigtermHandling` asks for `SIGTERM`, which no one can send a payload,
+ * and is told so.
+ */
+typedef unsigned long sigset_t;
+
+struct sigaction {
+    sighandler_t sa_handler;
+    void (*sa_sigaction)(int, void *, void *);
+    sigset_t sa_mask;
+    int sa_flags;
+};
+
+#define SA_RESTART 0x0002
+#define SA_SIGINFO 0x0040
+
+int sigaction(int sig, const struct sigaction *act, struct sigaction *oact);
+int sigemptyset(sigset_t *set);
+int sigaddset(sigset_t *set, int sig);
 
 /*
  * **`kill` is an existence test and nothing more.**

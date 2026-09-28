@@ -3,13 +3,10 @@
  *
  * # What is here
  *
- * A TCP client - `socket`, `connect`, `send`, `recv` - for Craft's `client.c`, and a UDP endpoint -
+ * A TCP client - `socket`, `connect`, `send`, `recv` - for Craft's `client.c`, a UDP endpoint -
  * `bind`, `sendto`, `recvfrom`, `setsockopt` - for ioquake3's `net_ip.c`, which is a game protocol
- * rather than a stream.
- *
- * `listen` and `accept` are still absent. The SDK has `oops_listen`/`oops_accept` and they would be
- * a short shim, but nothing in this tree runs a TCP server and an untested shim is worse than a
- * missing one.
+ * rather than a stream, and a TCP server - `listen`, `accept` - for Xash3D's remote console
+ * (`engine/common/xrcon.c`), over `oops_listen`/`oops_accept`.
  *
  * # `AF_INET6` is declared and always refused
  *
@@ -146,10 +143,20 @@ ssize_t recvfrom(int sock, void *buf, size_t len, int flags,
  * Straight through to `oops_setsockopt`, which is why the constants above are FreeBSD's real values
  * rather than tokens this shim interprets.
  *
- * `getsockopt` is absent: the SDK has no counterpart, and nothing in this tree reads an option back.
+ * `getsockopt` always fails with `ENOPROTOOPT`: the SDK has no counterpart, so no option can be
+ * read back. Xash3D's Steam broker reads `SO_ERROR` after a non-blocking connect and treats the
+ * refusal as a failed connection, which offline is the truth.
  */
 int setsockopt(int sock, int level, int optname, const void *optval,
                socklen_t optlen);
+int getsockopt(int sock, int level, int optname, void *optval, socklen_t *optlen);
+
+/* Always `EOPNOTSUPP`: the SDK cannot report a socket's own address. */
+int getsockname(int sock, struct sockaddr *addr, socklen_t *addrlen);
+
+int listen(int sock, int backlog);
+/* The peer is parsed back from the SDK's dotted-quad text, as `recvfrom` does. */
+int accept(int sock, struct sockaddr *addr, socklen_t *addrlen);
 
 #ifdef __cplusplus
 }

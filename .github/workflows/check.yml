@@ -20,11 +20,12 @@ jobs:
     container: silkeh/clang:21
     steps:
       # Before `actions/checkout`, which without git falls back to a download with no
-      # submodules.
+      # submodules. `curl` and `unzip` fetch a dependency pinned as an archive
+      # (`UPSTREAM_KIND=archive`, `common/upstream-fetch.sh`).
       - name: Tools the container does not ship
         run: |
           apt-get update -qq
-          apt-get install -y -qq git zip jq ca-certificates lld
+          apt-get install -y -qq git zip unzip curl jq ca-certificates lld
 
       - uses: actions/checkout@v4
         with:

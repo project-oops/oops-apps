@@ -8,6 +8,10 @@
 # The float API is selected by a name being *absent*: `#ifndef DISABLE_FLOAT_API` guards
 # `FLOAT2INT16`, so `-DDISABLE_FLOAT_API=0` switches it off rather than on.
 #
+# `CUSTOM_MODES` adds the `opus_custom_*` API - CELT at frame sizes and rates of the caller's
+# choosing - without changing the standard one. Xash3D's voice chat codec is built on it
+# (`engine/client/voice.c`), as its bundled copy of this library is.
+#
 # Guarded as a whole, as libogg is, so that a title naming both this and `oops-opusfile.mk` does not
 # define the same recipes twice.
 ifndef OOPS_OPUS_MK
@@ -40,7 +44,7 @@ OOPS_OPUS_SRCS := $(filter-out $(OOPS_OPUS_EXCLUDE), \
 OOPS_OPUS_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                    -nostdlibinc -fPIC -O2 -w -std=gnu11 \
                    -DOPUS_BUILD=1 -DUSE_ALLOCA=0 -DVAR_ARRAYS=1 \
-                   -DOPUS_HAVE_RTCD=0 -DHAVE_LRINTF=1 -DHAVE_LRINT=1 \
+                   -DOPUS_HAVE_RTCD=0 -DHAVE_LRINTF=1 -DHAVE_LRINT=1 -DCUSTOM_MODES=1 \
                    -DPACKAGE_VERSION=\"1.5.2\" \
                    $(OOPS_OPUS_INCLUDE) \
                    -I$(OOPS_OPUS_UPSTREAM)/celt -I$(OOPS_OPUS_UPSTREAM)/silk \

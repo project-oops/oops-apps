@@ -7,3 +7,6 @@ UPSTREAM_KIND=git
 UPSTREAM_URL=https://github.com/FWGS/hlsdk-portable
 UPSTREAM_REV=6c168fc79d95c8ffb934fa37aaafbbd424e03c1a
 UPSTREAM_REF=master@2026-09-28
+
+# `freevgui`, the VGUI reimplementation the client links statically.
+UPSTREAM_SUBMODULES=1
