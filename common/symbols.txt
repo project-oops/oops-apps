@@ -454,3 +454,4 @@ libSceImeDialog sceImeDialogAbort
 libSceImeDialog sceImeDialogGetStatus
 libSceImeDialog sceImeDialogGetResult
 libSceRandom sceRandomGetRandomNumber
+libkernel sceKernelConvertUtcToLocaltime
