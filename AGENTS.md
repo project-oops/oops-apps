@@ -80,14 +80,23 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "<OOPS>:/w" \
 - Builds are parallel by default through `./bin/oops-apps`, which asks `common/jobs.sh` for
   a job count that fits in free memory and adds a load limit so a second build gets its
   share. Calling `make` directly gets none of that: pass `$(common/jobs.sh)` yourself.
-- **One app, one runner, and never two at once.** Each runner writes depfiles naming the
-  tree the way it sees it - a drive-letter path natively, `/oops/...` in the container,
-  `/mnt/c/...` under WSL - and each poisons the others. `common/app.mk` stamps the roots in
-  `$(BUILD)` and clears it when they move, which handles *switching* runners; it cannot
-  handle two building at the same time, because the stamp matches and the check never
-  fires. The symptoms are a missing file whose path is from somebody else's runner, or a
-  PCH that is fatally stale mid-build. If you find another build already running in an
-  app's `build/`, wait for it rather than starting a second.
+- **Build as many apps at once as the machine will take** - they have separate `build/`
+  directories and do not interact. `common/jobs.sh` already shares the cores between them.
+  Two things are not fine, and only the second is ours:
+  - Two builds of the *same* app at once. Two `make` processes writing the same objects in
+    the same directory collide, here as anywhere; wait rather than starting a second.
+  - The same app built from a *different runner* than last time. An app's `build/` is tied
+    to how the tree was addressed when it was filled: depfiles record absolute paths, and
+    the container sees `/oops/...`, WSL `/mnt/c/...`, a native build a drive path. So the
+    runner is part of the build directory's identity. `common/app.mk` stamps the roots and
+    clears `$(BUILD)` when they change, which makes switching correct at the cost of a full
+    rebuild - so pick one runner per app and stay on it.
+
+  Those two combine into the failure worth recognising: another session building the *same*
+  app from a *different* runner at the same time. The roots check only runs as a build
+  starts, so neither build can see the other arriving. The symptoms are a missing file
+  whose path belongs to a runner you are not using, or a precompiled header that goes
+  fatally stale partway through.
 - A build failing on paths under `/mnt/c/...` or `/oops/...` is stale dependency output
   from another runner: `rm -rf build` in that app and rebuild.
 - `MSYS_NO_PATHCONV=1` stops Git Bash rewriting `/w` into a Windows path.
