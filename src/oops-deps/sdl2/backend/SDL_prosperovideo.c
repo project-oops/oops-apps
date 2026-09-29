@@ -71,7 +71,13 @@ static void PROSPERO_WarpMouse(SDL_Window *window, int x, int y) {
  *
  * What the player confirms arrives as one SDL_TEXTINPUT at the field's cursor. A cancel
  * delivers nothing.
+ *
+ * Nothing typed is learned into the system's dictionary or suggestions: a game's text
+ * box has no business training them. SDL2 has no notion of a password field, so a
+ * title marks one by setting `SDL_OOPS_IME_PASSWORD=1` before `SDL_StartTextInput`
+ * (and `0` for any other field); the keyboard then masks the entry as it is typed.
  */
+#define PROSPERO_HINT_IME_PASSWORD "SDL_OOPS_IME_PASSWORD"
 #pragma weak oops_dialog_ime_open
 #pragma weak oops_dialog_ime_poll
 #pragma weak oops_dialog_ime_get_result
@@ -99,6 +105,10 @@ static void PROSPERO_ShowScreenKeyboard(_THIS, SDL_Window *window) {
     param.user_id = -1;
     param.type = OOPS_IME_TYPE_DEFAULT;
     param.max_text_len = 255;
+    param.flags = OOPS_IME_FLAG_NO_LEARNING;
+    if (SDL_GetHintBoolean(PROSPERO_HINT_IME_PASSWORD, SDL_FALSE)) {
+        param.flags |= OOPS_IME_FLAG_PASSWORD;
+    }
     const int rc = oops_dialog_ime_open(&param);
     if (rc == 0) {
         data->ime_shown = 1;
