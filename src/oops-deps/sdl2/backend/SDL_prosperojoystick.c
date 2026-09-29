@@ -59,6 +59,10 @@ enum {
 static SDL_JoystickID prospero_instance_id = -1;
 static int prospero_opened;
 
+/* Whether `PROSPERO_JoystickInit` has run, however it was reached. SDL does not always
+ * call it before asking this driver for a count - see `PROSPERO_JoystickGetCount`. */
+static int prospero_inited;
+
 /*
  * A stick reports -128..127 and SDL wants -32768..32767. This form is exact at both
  * ends (-128 gives -32768, 127 gives 32767), where `v * 256` stops at 32512.
@@ -74,6 +78,10 @@ static Sint16 prospero_trigger_axis(uint8_t v) {
 }
 
 static int PROSPERO_JoystickInit(void) {
+    /* Set here as well as in `GetCount`, so whichever reaches it first does the work
+       once and the other skips it. */
+    prospero_inited = 1;
+
     /*
      * A failure here is not fatal to the subsystem: the SDK remembers it, `GetCount`
      * answers zero and the title takes its no-controller path.
@@ -165,10 +173,32 @@ static int PROSPERO_JoystickGetCount(void) {
      * mouse, so the first thing a player sees is a prompt that cannot be answered, with a
      * cursor that does not move.
      *
-     * `oops_input_init` returns silently when the pad is already open, so asking again on
-     * every count costs nothing and removes the ordering from the question entirely.
+     * Only the pad is opened here, and deliberately nothing else. SDL calls this from
+     * inside its joystick subsystem with the joystick lock held, so anything that takes
+     * that lock again - `SDL_GameControllerAddMapping` among them - deadlocks the title
+     * where it stands, with the log ending mid-start-up and no fault to show for it.
+     * Registering the mapping from here did exactly that. It belongs in `Detect`, which
+     * SDL calls from `SDL_PumpEvents`, outside the lock.
      */
     (void)oops_input_init();
+
+    /*
+     * And stop the keyboard being folded into this pad, here, for the same reason.
+     *
+     * `oops_input_read_state` folds the keyboard into port 0 by default, and `Init` is
+     * where that is turned off - so when SDL never calls `Init`, it is never turned off.
+     * Measured: `pad buttons 0x00000000 -> 0x00000080` and then nothing ever again, which
+     * is `OOPS_BUTTON_LEFT` held down for the life of the process. ImGui reads that as
+     * navigation held left, so a menu selection slides to the leftmost item and stays
+     * there, and every real press afterwards is fighting it. Two keyboard handles are
+     * opened on this console whether or not a keyboard is attached, and one of them
+     * supplies that phantom key.
+     *
+     * This is an SDK call and takes no SDL lock, so unlike the controller mapping it is
+     * safe from here.
+     */
+    oops_input_set_keyboard_as_pad(0);
+
     rc = oops_input_poll(PROSPERO_PAD_PORT, &st);
     const int count = (rc == 0 && st.connected) ? 1 : 0;
 
@@ -203,6 +233,27 @@ static SDL_JoystickID PROSPERO_JoystickGetDeviceInstanceID(int device_index);
 static void PROSPERO_JoystickDetect(void) {
     static int announced = 0;
     const int count = PROSPERO_JoystickGetCount();
+
+    /*
+     * The game-controller mapping, registered here because here is safe.
+     *
+     * SDL decides whether a joystick is a *game controller* by looking its GUID up in a
+     * mapping table. Without that registration a title reading `SDL_CONTROLLER_*` - which
+     * is what ImGui's gamepad navigation reads - sees nothing at all, however well the raw
+     * axes report; the comment in `Init` records Bugdom's menu ignoring a stick the log
+     * showed reaching 127, for exactly this reason. `Init` registers it, and SDL does not
+     * always call `Init` before asking this driver for a count.
+     *
+     * It cannot go in `GetCount`: SDL calls that with the joystick lock held, and
+     * `SDL_GameControllerAddMapping` takes the same lock. `Detect` is called from
+     * `SDL_PumpEvents`, outside it.
+     */
+    if (count > 0 && !prospero_inited) {
+        prospero_inited = 1;
+        oops_log_info("INPUT", "registering the pad's mapping late - SDL asked for a "
+                               "count before it initialised this driver");
+        (void)PROSPERO_JoystickInit();
+    }
 
     if (count > 0 && !announced) {
         announced = 1;
@@ -270,6 +321,11 @@ static int PROSPERO_JoystickOpen(SDL_Joystick *joystick, int device_index) {
     joystick->instance_id = PROSPERO_JoystickGetDeviceInstanceID(0);
 
     prospero_opened = 1;
+    /* Whether anything opened the pad at all is the first thing worth knowing: a title
+       that never opens it gets no `Update` calls, so no buttons, however healthy the
+       driver and the pad both are. */
+    oops_log_info("INPUT", "SDL opened the pad (instance %d, %d buttons, %d axes)",
+                  (int)joystick->instance_id, PROSPERO_NUM_BUTTONS, PROSPERO_NUM_AXES);
     return 0;
 }
 
@@ -335,14 +391,99 @@ static int PROSPERO_JoystickSetSensorsEnabled(SDL_Joystick *joystick,
 }
 
 static void PROSPERO_JoystickUpdate(SDL_Joystick *joystick) {
+    static int pumped = 0;
+    static uint32_t last_buttons = 0;
+    static int poll_failed = 0;
+    static int axes_told = 0;
+    static int8_t last_lx = 0;
+    static int8_t last_ly = 0;
+    static Uint8 last_hat = SDL_HAT_CENTERED;
+    static unsigned long polls = 0;
     oops_pad_state_t st;
     Uint8 hat = SDL_HAT_CENTERED;
     uint32_t b;
+    int rc;
 
-    if (oops_input_poll(PROSPERO_PAD_PORT, &st) != 0) {
+    /*
+     * Say that SDL is polling at all, and say what the pad reports when it changes.
+     *
+     * Without these two lines the input path has three silent places to die - nothing
+     * opens the pad, SDL never pumps the driver, or the pad reports nothing - and they
+     * look identical from outside: a title that does not respond. Each line is printed
+     * on a change rather than per frame, so a held button costs one line and an idle
+     * pad costs none.
+     */
+    if (!pumped) {
+        pumped = 1;
+        oops_log_info("INPUT", "SDL is pumping the pad driver");
+    }
+
+    rc = oops_input_poll(PROSPERO_PAD_PORT, &st);
+    if (rc != 0) {
+        if (!poll_failed) {
+            poll_failed = 1;
+            oops_log_warn("INPUT", "pad poll failed while open (rc=%d) - no buttons "
+                                   "will reach this title",
+                          rc);
+        }
         return;
     }
+    poll_failed = 0;
     b = st.buttons;
+
+    /*
+     * On change, and on a heartbeat.
+     *
+     * Change alone is not enough: a button that sticks down prints one line and then
+     * nothing ever again, which reads exactly like a driver that is not being polled at
+     * all. Those are opposite faults and they looked identical for a whole round of this.
+     * The heartbeat makes "still polling, still 0x80" a statement rather than a silence.
+     */
+    polls++;
+    if (b != last_buttons) {
+        oops_log_info("INPUT", "pad buttons 0x%08x -> 0x%08x", (unsigned)last_buttons,
+                      (unsigned)b);
+        last_buttons = b;
+    } else if ((polls % 600) == 0) {
+        oops_log_info("INPUT", "pad still polling: buttons 0x%08x, left stick (%d,%d)",
+                      (unsigned)b, (int)st.left_stick_x, (int)st.left_stick_y);
+    }
+
+    /*
+     * What the sticks actually report, raw and converted, once.
+     *
+     * `oops/input.h` declares these `int8_t` and documents -128..127 with 0 at rest, and
+     * `prospero_stick_axis` is correct for that. A pad that reports 0..255 with 128 at rest
+     * would arrive here as -128 and convert to -32768 - a stick held hard over, at rest,
+     * which ImGui reads as navigation held down and the menu selection never settles. The
+     * two readings look identical from outside, so print them rather than reason about
+     * them: at rest, raw near 0 is right and raw near -128 is the other case.
+     */
+    /*
+     * And again whenever a stick actually moves, so a selection that changes on its own
+     * can be matched against what the pad is reporting at that moment. The threshold is
+     * wide enough that resting noise - measured at raw 7 or less - prints nothing, and
+     * narrow enough to catch anything ImGui would read as navigation.
+     */
+    if (st.left_stick_x / 16 != last_lx / 16 || st.left_stick_y / 16 != last_ly / 16) {
+        last_lx = st.left_stick_x;
+        last_ly = st.left_stick_y;
+        oops_log_info("INPUT", "left stick raw (%d,%d) -> sdl (%d,%d)", (int)last_lx,
+                      (int)last_ly, (int)prospero_stick_axis(last_lx),
+                      (int)prospero_stick_axis(last_ly));
+    }
+
+    if (!axes_told) {
+        axes_told = 1;
+        oops_log_info("INPUT",
+                      "sticks at first poll: raw L(%d,%d) R(%d,%d) -> sdl L(%d,%d) "
+                      "R(%d,%d); 0 at rest is signed, -128 is an unsigned pad misread",
+                      (int)st.left_stick_x, (int)st.left_stick_y, (int)st.right_stick_x,
+                      (int)st.right_stick_y, (int)prospero_stick_axis(st.left_stick_x),
+                      (int)prospero_stick_axis(st.left_stick_y),
+                      (int)prospero_stick_axis(st.right_stick_x),
+                      (int)prospero_stick_axis(st.right_stick_y));
+    }
 
     SDL_PrivateJoystickAxis(joystick, PROSPERO_AXIS_LEFTX,
                             prospero_stick_axis(st.left_stick_x));

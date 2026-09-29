@@ -267,7 +267,17 @@ void oops_crashtrace_install(void);
 void oops_crashtrace_install(void) {
     /* SIGSEGV is 11, SIGBUS 10, SIGILL 4: the three a bad pointer arrives as. A signal
      * the platform refuses to hand over reports negative and costs nothing. */
-    static const int signals[] = {11, 10, 4};
+    /*
+     * 11 SEGV, 10 BUS, 4 ILL - and 6 ABRT, which was missing and mattered.
+     *
+     * `abort` is how a C++ program ends when an exception escapes a thread, when
+     * `std::terminate` runs, and when an assert fires. None of those raise any of the
+     * other three, so a worker dying that way produced a title that simply stopped: no
+     * trace, no message, and a log whose last line was whatever it had been doing. Ship of
+     * Harkinian writing its archive stopped exactly like that, and the absence of a trace
+     * was read as "still running, just slow" for longer than it should have been.
+     */
+    static const int signals[] = {11, 10, 4, 6};
     for (unsigned i = 0; i < sizeof(signals) / sizeof(signals[0]); i++) {
         const int rc =
             oops_thread_install_exception_handler(signals[i], crashtrace_handler);
