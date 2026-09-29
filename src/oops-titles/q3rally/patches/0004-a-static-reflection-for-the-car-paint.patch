@@ -1,0 +1,31 @@
+A static reflection for the car paint.
+
+Every car shader in `baseq3r/scripts/cars.shader` starts with a `map $dynamicreflection`
+stage: a reflection renderergl2 renders live into a cube map. This port builds
+renderergl1, which has no such image, rejects the stage, and so drops the whole shader -
+the cars drew as bare wheels and frames. In renderergl1 the name now resolves to
+`textures/reflect/chrometest2`, the static environment map 28 of the game's own chrome
+shaders use (falling back to white if it is ever missing), so the paint reads as
+reflective without the cube map.
+
+--- a/engine/code/renderergl1/tr_shader.c
++++ b/engine/code/renderergl1/tr_shader.c
+@@ -624,6 +624,18 @@
+ 				stage->bundle[0].image[0] = tr.whiteImage;
+ 				continue;
+ 			}
++			// The car paint's reflection. renderergl2 renders it live into a cube map; this
++			// renderer has none, and rejecting the stage dropped the whole shader - the cars
++			// drew as bare wheels and frames. A static environment map the game's own
++			// chrome shaders use stands in, so the paint still reads as reflective.
++			else if ( !Q_stricmp( token, "$dynamicreflection" ) )
++			{
++				stage->bundle[0].image[0] = R_FindImageFile( "textures/reflect/chrometest2",
++					IMGTYPE_COLORALPHA, IMGFLAG_MIPMAP );
++				if ( !stage->bundle[0].image[0] )
++					stage->bundle[0].image[0] = tr.whiteImage;
++				continue;
++			}
+ 			else if ( !Q_stricmp( token, "$lightmap" ) )
+ 			{
+ 				stage->bundle[0].isLightmap = qtrue;

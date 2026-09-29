@@ -116,6 +116,12 @@ static int PROSPERO_JoystickInit(void) {
      * The GUID is `SDL_CreateJoystickGUIDForName` over the same name `GetDeviceName`
      * returns, which is what SDL will compute for it - see
      * `PROSPERO_JoystickGetDeviceGUID`.
+     *
+     * The triggers are `+a4`/`+a5`, half axes, as `GetGamepadMapping` below declares
+     * them. A bare `a4` is read as the full signed range (`SDL_gamecontroller.c`,
+     * `SDL_PrivateGameControllerParseElement`), so a released trigger - 0 here - came out
+     * at half travel: a title saw R2 held from the moment the pad opened and never saw
+     * it pressed. This string wins over that function, being matched by GUID first.
      */
     {
         SDL_JoystickGUID guid = SDL_CreateJoystickGUIDForName(PROSPERO_JOYSTICK_NAME);
@@ -129,7 +135,7 @@ static int PROSPERO_JoystickInit(void) {
                      "leftstick:b7,rightstick:b8,leftshoulder:b9,rightshoulder:b10,"
                      "dpup:b11,dpdown:b12,dpleft:b13,dpright:b14,misc1:b15,"
                      "leftx:a0,lefty:a1,rightx:a2,righty:a3,"
-                     "lefttrigger:a4,righttrigger:a5,",
+                     "lefttrigger:+a4,righttrigger:+a5,",
                      guid_text, PROSPERO_JOYSTICK_NAME);
 
         if (SDL_GameControllerAddMapping(mapping) < 0) {
