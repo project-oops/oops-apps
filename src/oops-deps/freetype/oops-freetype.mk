@@ -7,9 +7,11 @@
 #   EXTRA_TARGET_LDFLAGS += $(OOPS_FT_LDFLAGS)
 #   PAYLOAD_EXTRA_DEPS   += $(OOPS_FT_LIB)
 #
-# The titles here render TrueType, so this compiles the core, the `sfnt`/`truetype` driver
-# pair, the two rasterisers and the autohinter - upstream's minimal TrueType build. A format
-# nothing opens is still a parser reading untrusted bytes, so the rest stay out.
+# The titles here render TrueType and OpenType-CFF, so this compiles the core, the
+# `sfnt`/`truetype` driver pair, the `cff` driver with the `psaux` module it parses
+# charstrings with, the two rasterisers and the autohinter. CFF came in with SuperTuxKart,
+# whose fonts are `.otf`. A format nothing opens is still a parser reading untrusted bytes,
+# so the rest stay out.
 #
 # Freestanding or hosted by the including title (`common/dep-sys.mk`).
 ifndef OOPS_FT_MK
@@ -36,6 +38,8 @@ OOPS_FT_SRCS := \
     $(OOPS_FT_UPSTREAM)/src/base/ftbitmap.c \
     $(OOPS_FT_UPSTREAM)/src/sfnt/sfnt.c \
     $(OOPS_FT_UPSTREAM)/src/truetype/truetype.c \
+    $(OOPS_FT_UPSTREAM)/src/cff/cff.c \
+    $(OOPS_FT_UPSTREAM)/src/psaux/psaux.c \
     $(OOPS_FT_UPSTREAM)/src/psnames/psnames.c \
     $(OOPS_FT_UPSTREAM)/src/smooth/smooth.c \
     $(OOPS_FT_UPSTREAM)/src/raster/raster.c \
