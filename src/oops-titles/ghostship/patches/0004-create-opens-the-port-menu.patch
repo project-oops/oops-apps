@@ -1,0 +1,22 @@
+Create opens the port menu: controller navigation is on for this console.
+
+The port menu - settings, controls, the input editor - opens from the pad's Create
+button only while controller navigation is on, and that setting defaults to off
+everywhere except the Switch and Wii U builds, which turn it on because a pad is all
+they have. So is this console: without it a player holding only a pad can never
+open the menu, since the other way in is Escape or F1 on a keyboard.
+
+This registers the same default under `OOPS_TARGET`. It is a default, so a saved
+setting still wins.
+
+--- a/src/port/Engine.cpp
++++ b/src/port/Engine.cpp
+@@ -630,7 +630,7 @@
+     Instance->AudioInit();
+     Instance->LoadDictionary();
+     Instance->LoadPlayerAnims();
+-#if defined(__SWITCH__) || defined(__WIIU__)
++#if defined(__SWITCH__) || defined(__WIIU__) || defined(OOPS_TARGET)
+     CVarRegisterInteger(CVAR_IMGUI_CONTROLLER_NAV, 1); // always enable controller nav on switch/wii u
+ #endif
+     GhostshipGui::SetupGuiElements();

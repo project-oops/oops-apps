@@ -401,10 +401,27 @@ static void drain_pad(struct GLFWwindow *w) {
 
     if (pad.buttons & OOPS_BUTTON_CROSS)
         w->key_down[GLFW_KEY_SPACE] = 1;
-    if (pad.buttons & OOPS_BUTTON_R1)
-        w->key_down['E'] = 1;
-    if (pad.buttons & OOPS_BUTTON_L1)
-        w->key_down['R'] = 1;
+
+    /* L1 and R1 cycle the held block, which Craft does in its key callback
+     * (`main.c`, `on_key`) and never by polling a held key - so they are delivered as
+     * key presses, edge-detected, not only marked down. */
+    static const struct {
+        unsigned int mask;
+        int key;
+    } KEYS[2] = {
+        {OOPS_BUTTON_R1, 'E'},
+        {OOPS_BUTTON_L1, 'R'},
+    };
+    static unsigned char s_key_was[2];
+    for (int i = 0; i < 2; i++) {
+        const unsigned char now = (unsigned char)((pad.buttons & KEYS[i].mask) != 0u);
+        if (now == s_key_was[i])
+            continue;
+        s_key_was[i] = now;
+        if (w->on_key)
+            w->on_key((GLFWwindow *)w, KEYS[i].key, 0, now ? GLFW_PRESS : GLFW_RELEASE,
+                      0);
+    }
 
     /*
      * Options is deliberately unmapped. It used to open the chat line, which strands a

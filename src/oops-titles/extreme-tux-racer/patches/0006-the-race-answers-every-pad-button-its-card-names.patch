@@ -1,0 +1,91 @@
+The race answers every pad button its card names.
+
+`patches/0002` translates pad buttons to keys for screens that register no joystick
+handler of their own. The race registers `RacingJoyButton`, so that translation never
+ran there, and `RacingJoyButton` acted on Cross alone: mid-race, pause, trick and quit
+had no button, although the help card (`patches/0005`) listed them.
+
+`RacingJoyButton` now maps them itself: Cross and R1 charge and jump, L1 is the trick
+modifier, Options pauses and Circle quits the race - the last two through `RacingKeys`,
+so they do exactly what `p` and Escape do. The help card is corrected to match, lists
+the left stick, and says Circle (the only button that leaves it) rather than "any key".
+
+It also fixes two comments in `winsys.cpp` that had Square and Triangle swapped: the
+backend reports Square as button 2 and Triangle as 3.
+
+--- a/racing.cpp
++++ b/racing.cpp
+@@ -109,11 +109,18 @@
+ 	}
+ }
+ 
++// The race registers this handler, so `CWinsys::PadButtonKey`'s pad-to-key translation - which
++// only runs for screens without one - never reached it: mid-race only Cross did anything, and
++// pause, trick and quit had no button. Indices are the SDL backend's GameController order
++// (`oops-deps/sdl2/backend/SDL_prosperojoystick.c`).
+ void RacingJoyButton (int button, int state) {
+-	if (button == 0) {
+-		key_charging = (bool) state;
+-	} else if (button == 1) {
+-//		key_charging = (bool) state;
++	switch (button) {
++		case 0:  key_charging = (bool) state; break;        // Cross - charge and jump
++		case 10: key_charging = (bool) state; break;        // R1 - the same
++		case 9:  trick_modifier = (bool) state; break;      // L1 - trick
++		case 6:  if (state) RacingKeys (SDLK_p, false, false, 0, 0); break;      // Options
++		case 1:  if (state) RacingKeys (SDLK_ESCAPE, false, false, 0, 0); break; // Circle
++		default: break;
+ 	}
+ }
+ 
+--- a/winsys.cpp
++++ b/winsys.cpp
+@@ -433,15 +433,15 @@
+ // press arrives at exactly the handler the same keypress would, and no screen's own code changes.
+ //
+ // The mapping is the console's convention rather than SDL's button order:
+-//   cross -> Return, circle -> Escape, triangle -> Tab, square -> Backspace
++//   cross -> Return, circle -> Escape, square -> Tab, triangle -> Backspace
+ // and the D-pad hat to the four arrows. `PROSPERO_BTN_*` in the SDL backend puts cross at 0 and
+ // circle at 1, which is SDL_GameController order.
+ unsigned int CWinsys::PadButtonKey (int button) {
+ 	switch (button) {
+ 		case 0: return SDLK_RETURN;     // cross
+ 		case 1: return SDLK_ESCAPE;     // circle
+-		case 2: return SDLK_TAB;        // triangle
+-		case 3: return SDLK_BACKSPACE;  // square
++		case 2: return SDLK_TAB;        // square
++		case 3: return SDLK_BACKSPACE;  // triangle
+ 
+ 		// **The race needs more than the menus do, and had none of it.**
+ 		//
+--- a/help.cpp
++++ b/help.cpp
+@@ -113,13 +113,13 @@
+ 	int offs = FT.AutoDistanceN (2);
+ 	int y = ytop;
+ 
+-	FT.DrawString (xleft1, y, "D-pad up / down   Paddle / brake");      y += offs;
+-	FT.DrawString (xleft1, y, "D-pad left/right  Turn");                y += offs;
+-	FT.DrawString (xleft1, y, "R1                Charge a jump");       y += offs;
++	FT.DrawString (xleft1, y, "Left stick        Steer, paddle, brake"); y += offs;
++	FT.DrawString (xleft1, y, "D-pad             Steer, paddle, brake"); y += offs;
++	FT.DrawString (xleft1, y, "Cross / R1        Charge and jump");     y += offs;
+ 	FT.DrawString (xleft1, y, "L1                Trick (while airborne)"); y += offs;
+ 	FT.DrawString (xleft1, y, "Options           Pause");               y += offs;
+-	FT.DrawString (xleft1, y, "Cross             Select");              y += offs;
+-	FT.DrawString (xleft1, y, "Circle            Back / quit the race"); y += offs;
++	FT.DrawString (xleft1, y, "Circle            Quit the race");       y += offs;
++	FT.DrawString (xleft1, y, "Menus             Cross selects, Circle goes back"); y += offs;
+ 
+ 	// The wireframe, right of the list. Skipped rather than substituted if it did not load -
+ 	// see `pad_texid` - because the list above is the part that matters.
+@@ -129,7 +129,7 @@
+ 		Tex.DrawDirect (pad_texid, xleft2, ytop - draw_h / 3, draw_w, draw_h);
+ 	}
+ 
+-	FT.DrawString (CENTER, AutoYPosN (90), "Press any key to return to the main menu");
++	FT.DrawString (CENTER, AutoYPosN (90), "Press Circle to return to the main menu");
+     Winsys.SwapBuffers();
+ 
+ } 

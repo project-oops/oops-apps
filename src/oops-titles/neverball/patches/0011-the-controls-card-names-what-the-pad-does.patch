@@ -1,0 +1,24 @@
+The controls card names what the pad does.
+
+Two rows of the card `patches/0008` added were wrong against `ball/st_play.c`:
+
+- "Confirm / Look = Cross". Cross starts the level from the ready screen and confirms in
+  menus; looking around is F5 with cheats on, which no pad button reaches.
+- "Rotate the view = L1 / R1" left out the right stick, which rotates the view too
+  (`st_play.c`, the X1 axis).
+
+--- a/ball/st_help.c
++++ b/ball/st_help.c
+@@ -219,10 +219,10 @@
+             gui_filler(kd);
+ 
+             help_binding(kd, _("Tilt the floor"),   _("Left Stick"));
+-            help_binding(kd, _("Rotate the view"),  _("L1 / R1"));
++            help_binding(kd, _("Rotate the view"),  _("Right Stick / L1 / R1"));
+             help_binding(kd, _("Rotate faster"),    _("Hold L3"));
+             help_binding(kd, _("Change camera"),    _("Square"));
+-            help_binding(kd, _("Confirm / Look"),   _("Cross"));
++            help_binding(kd, _("Start / confirm"),  _("Cross"));
+             help_binding(kd, _("Back"),             _("Circle"));
+             help_binding(kd, _("Pause"),            _("Options"));
+ 
