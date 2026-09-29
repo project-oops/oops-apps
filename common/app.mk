@@ -235,6 +235,29 @@ endif
 TARGET_CFLAGS += -DOOPS_APP_ID=\"$(TITLE_ID)\" -DOOPS_APP_NAME=\"$(APP_NAME)\" -D'OOPS_APP_VERSION="$(BUILD_VERSION)"'
 CFLAGS        += -DOOPS_APP_ID=\"$(TITLE_ID)\" -DOOPS_APP_NAME=\"$(APP_NAME)\" -D'OOPS_APP_VERSION="$(BUILD_VERSION)"'
 
+# The build's timestamp as a header, for the line every payload logs first.
+#
+# `OOPS_APP_VERSION` above is a `-D`, and a `-D` is read when an object is compiled - make
+# rebuilds an object when its sources change, not when a flag's value does. So an object
+# that did not change carries whichever timestamp it was first compiled under: the
+# controls shim reported "built 15:07" from a payload linked at 15:40, and two runs of
+# new code were read as runs of old code. A version that has to say which link it came
+# from cannot be a compile-time flag.
+#
+# A header can, because `-MMD` records it: rewritten when the version moves, it makes
+# exactly the objects that include it stale, which is one small file. The comparison
+# keeps an unchanged version from touching it at all - except where `$(file)` writes CRLF
+# and reads the CR back, which only means the shim recompiles every build, never that it
+# is stale.
+OOPS_APP_VERSION_H := $(abspath $(BUILD))/gen/oops_app_version.h
+oops_app_version_line := \#define OOPS_APP_BUILT "$(BUILD_VERSION)"
+ifneq ($(file <$(OOPS_APP_VERSION_H)),$(oops_app_version_line))
+$(shell mkdir -p $(dir $(OOPS_APP_VERSION_H)))
+$(file >$(OOPS_APP_VERSION_H),$(oops_app_version_line))
+endif
+TARGET_CFLAGS += -D'OOPS_APP_VERSION_H="$(OOPS_APP_VERSION_H)"'
+CFLAGS        += -D'OOPS_APP_VERSION_H="$(OOPS_APP_VERSION_H)"'
+
 # A hosted title drops `-ffreestanding` and `-fno-builtin`, which Mesa cannot build under.
 # `-nostdlib` stays: the platform C library resolves at load, and the linker must not pull in
 # the build machine's crt files or libc. Filtered, so an overridden `TARGET_CFLAGS` is covered.

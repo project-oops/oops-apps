@@ -222,6 +222,15 @@ void oops_controls_card_show(const char *title, const char *table, size_t table_
 #define OOPS_APP_VERSION "dev"
 #endif
 
+/* The link's own timestamp, from the header `app.mk` rewrites when it moves - not the
+ * `-D` above, which an object keeps from whenever it was last compiled. See app.mk. */
+#ifdef OOPS_APP_VERSION_H
+#include OOPS_APP_VERSION_H
+#endif
+#ifndef OOPS_APP_BUILT
+#define OOPS_APP_BUILT OOPS_APP_VERSION
+#endif
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wc23-extensions"
 static const unsigned char s_table[] = {
@@ -251,7 +260,7 @@ __attribute__((visibility("default"))) int oops_controls_entry(const void *args)
      * said which payload it was.
      */
     oops_log_info("APP", "%s %s, built %s", OOPS_APP_NAME, OOPS_APP_ID,
-                  OOPS_APP_VERSION);
+                  OOPS_APP_BUILT);
     oops_controls_card_show(OOPS_CONTROLS_TITLE, (const char *)s_table,
                             sizeof(s_table) - 1u, s_png, sizeof(s_png));
     return OOPS_CONTROLS_NEXT(args);
