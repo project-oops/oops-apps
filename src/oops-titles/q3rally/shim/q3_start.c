@@ -70,23 +70,14 @@ __attribute__((visibility("default"))) int q3rally_start(const payload_args_t *a
     const char *root = 0;
     size_t i;
 
-    char *argv[] = {arg0,
-                    (char *)"+set",
-                    (char *)"fs_basepath",
-                    basepath,
-                    (char *)"+set",
-                    (char *)"fs_homepath",
-                    (char *)OOPS_POSIX_HOME,
-                    (char *)"+set",
-                    (char *)"vm_game",
+    char *argv[] = {arg0, (char *)"+set", (char *)"fs_basepath", basepath,
+                    (char *)"+set", (char *)"fs_homepath", (char *)OOPS_POSIX_HOME,
+                    (char *)"+set", (char *)"vm_game", (char *)"2", (char *)"+set",
+                    (char *)"vm_cgame", (char *)"2", (char *)"+set", (char *)"vm_ui",
                     (char *)"2",
-                    (char *)"+set",
-                    (char *)"vm_cgame",
-                    (char *)"2",
-                    (char *)"+set",
-                    (char *)"vm_ui",
-                    (char *)"2",
-                    0};
+                    /* The display's own size, as SDL reports it (`sdl_glimp.c`, mode
+                       -2), rather than r_customwidth's 1280x720 in a corner of it. */
+                    (char *)"+set", (char *)"r_mode", (char *)"-2", 0};
 
     (void)args;
 

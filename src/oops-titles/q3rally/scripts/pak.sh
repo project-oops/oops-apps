@@ -47,6 +47,12 @@ def add(zf, root, skip_dotfiles):
     for dirpath, dirnames, filenames in os.walk(root):
         if skip_dotfiles:
             dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        # A `dir/` entry for every directory, as `zip -r` writes one: ioquake3 lists a pk3's
+        # directories (`FS_GetFileList(dir, "/")`) from these entries alone, and the menus
+        # enumerate cars, skins, music and backgrounds that way.
+        rel = os.path.relpath(dirpath, root).replace(os.sep, "/")
+        if rel != ".":
+            zf.writestr(rel + "/", b"")
         for name in filenames:
             if skip_dotfiles and name.startswith("."):
                 continue
@@ -77,7 +83,9 @@ bad = [n for n in names if n.startswith("baseq3r/")]
 if bad:
     sys.exit("pak: %d entries are rooted at baseq3r/ - the engine would read this as empty (%s)"
              % (len(bad), bad[0]))
-for need in ("default.cfg", "vm/qagame.qvm", "vm/cgame.qvm", "vm/ui.qvm"):
+# Without directory entries every directory listing is empty, and the UI's first random
+# pick of a menu background divides by that zero (`Menu_Cache`, `UI_RandomInt`).
+for need in ("default.cfg", "vm/qagame.qvm", "vm/cgame.qvm", "vm/ui.qvm", "gfx/2d/"):
     if need not in names:
         sys.exit("pak: %s is missing from the archive" % need)
 print("pak: %d entries, paths rooted correctly, all three modules present" % len(names))

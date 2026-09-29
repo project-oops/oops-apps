@@ -1,0 +1,76 @@
+Cross on a text field opens the on-screen keyboard.
+
+The first thing q3rally asks a new player is a profile name, and a player holding only
+a pad had no way to type one. The engine starts SDL text input once for the whole
+session (`IN_Init`), and the SDL backend opens the system keyboard only when a title
+asks for it (`SDL_ENABLE_SCREEN_KEYBOARD`), so that start-up call does not pop a
+keyboard over the first frame.
+
+- `sdl/sdl_input.c`: an `in_screenkeyboard` command that sets the hint for one
+  `SDL_StartTextInput`, which opens the keyboard. What the player enters arrives as
+  SDL_TEXTINPUT, which the engine already delivers to the focused field as characters.
+- `q3_ui/ui_mfield.c`: Cross on any text field runs that command. Every field the UI
+  draws goes through `MenuField_Key`, so the profile name, the player name and a
+  server address all get it.
+
+--- a/engine/code/sdl/sdl_input.c
++++ b/engine/code/sdl/sdl_input.c
+@@ -1396,6 +1396,8 @@
+ 	}
+ }
+ 
++static void IN_ScreenKeyboard_f( void );
++
+ /*
+ ===============
+ IN_Init
+@@ -1430,6 +1432,7 @@
+ #endif
+ 
+ 	SDL_StartTextInput( );
++	Cmd_AddCommand( "in_screenkeyboard", IN_ScreenKeyboard_f );
+ 
+ 	mouseAvailable = ( in_mouse->value != 0 );
+ 	IN_DeactivateMouse( qtrue );
+@@ -1449,8 +1452,26 @@
+ IN_Shutdown
+ ===============
+ */
++/*
++===============
++IN_ScreenKeyboard_f
++
++Opens the platform's on-screen keyboard, for a player with only a pad. Text input is
++started once for the whole session (IN_Init), so the keyboard cannot simply follow it;
++this asks for it once, by name, when the menus want text. What the player enters arrives
++as SDL_TEXTINPUT, which reaches the focused field like typed characters.
++===============
++*/
++static void IN_ScreenKeyboard_f( void )
++{
++	SDL_SetHint( SDL_HINT_ENABLE_SCREEN_KEYBOARD, "1" );
++	SDL_StartTextInput( );
++	SDL_SetHint( SDL_HINT_ENABLE_SCREEN_KEYBOARD, "0" );
++}
++
+ void IN_Shutdown( void )
+ {
++	Cmd_RemoveCommand( "in_screenkeyboard" );
+ 	SDL_StopTextInput( );
+ 
+ 	IN_DeactivateMouse( qtrue );
+--- a/engine/code/q3_ui/ui_mfield.c
++++ b/engine/code/q3_ui/ui_mfield.c
+@@ -412,6 +412,12 @@
+ 		case K_UPARROW:
+ 			break;
+ 
++		case K_PAD0_A:
++			// Cross on a text field opens the on-screen keyboard; its text arrives as
++			// characters, like typing. A pad has no other way to enter a name.
++			trap_Cmd_ExecuteText( EXEC_APPEND, "in_screenkeyboard\n" );
++			return ( menu_in_sound );
++
+ 		default:
+ 			if ( keycode & K_CHAR_FLAG )
+ 			{
