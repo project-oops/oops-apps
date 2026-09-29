@@ -78,10 +78,10 @@ __attribute__((visibility("default"))) int q3rally_start(const payload_args_t *a
         /* The display's own size, as SDL reports it (`sdl_glimp.c`, mode
            -2), rather than r_customwidth's 1280x720 in a corner of it. */
         (char *)"+set", (char *)"r_mode", (char *)"-2",
-        /* One glDrawElements per surface. Without GL_EXT_compiled_vertex_array
-           the renderer defaults to triangle strips of glArrayElement
-           (`tr_shade.c`), each strip its own glBegin/glEnd draw in oops-gl,
-           and the menus ran at 2 frames a second. */
+        /* One glDrawElements per surface. Without GL_EXT_compiled_vertex_array the
+           renderer defaults to triangle strips of glArrayElement (`tr_shade.c`), each
+           strip its own glBegin/glEnd: measured, a race ran at 10-15 frames a second
+           that way against about 20 with this. */
         (char *)"+set", (char *)"r_primitives", (char *)"2", 0};
 
     (void)args;
