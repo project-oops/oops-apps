@@ -229,7 +229,10 @@ static void soh_say_no_rom(void) {
                       "Copy your own ROM here, beside eboot.bin:\n\n"
                       "    /data/homebrew/%s/\n\n"
                       "A .z64, .n64 or .v64 file - any name will do. It is converted "
-                      "on the next launch, once, and takes a few minutes.\n\n"
+                      "on the next launch, once. Extraction is quick; writing the "
+                      "archive is not, and the whole conversion takes upwards of "
+                      "twenty minutes. The progress bar keeps moving throughout - "
+                      "let it finish.\n\n"
                       "The ROM is yours to supply; nothing else is missing.",
                       OOPS_APP_ID) <= 0) {
         return;

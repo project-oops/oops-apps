@@ -17,6 +17,7 @@
 
 #include "oops/input.h"
 #include "oops/system.h" /* oops_log_info - see PROSPERO_JoystickGetCount */
+#include "oops/time.h"   /* oops_time_get_ms - the poll heartbeat is on a clock */
 
 #define PROSPERO_PAD_PORT 0
 
@@ -444,9 +445,26 @@ static void PROSPERO_JoystickUpdate(SDL_Joystick *joystick) {
         oops_log_info("INPUT", "pad buttons 0x%08x -> 0x%08x", (unsigned)last_buttons,
                       (unsigned)b);
         last_buttons = b;
-    } else if ((polls % 600) == 0) {
-        oops_log_info("INPUT", "pad still polling: buttons 0x%08x, left stick (%d,%d)",
-                      (unsigned)b, (int)st.left_stick_x, (int)st.left_stick_y);
+    } else {
+        /*
+         * Every thirty seconds of wall clock, not every 600 polls.
+         *
+         * A poll count is a frame count only while frames are being drawn. The ROM
+         * conversion runs this loop with nothing to render, so 600 polls came round
+         * several times a second and the heartbeat buried a twenty-minute log in
+         * itself - the whole of that capture is this one line. A clock says the same
+         * thing at the same rate whatever the loop is doing.
+         */
+        static uint64_t last_beat_ms;
+        const uint64_t now_ms = oops_time_get_ms();
+        if (now_ms - last_beat_ms >= 30000u) {
+            last_beat_ms = now_ms;
+            oops_log_info("INPUT",
+                          "pad still polling: buttons 0x%08x, left stick (%d,%d), "
+                          "%llu polls",
+                          (unsigned)b, (int)st.left_stick_x, (int)st.left_stick_y,
+                          (unsigned long long)polls);
+        }
     }
 
     /*
