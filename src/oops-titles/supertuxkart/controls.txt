@@ -1,0 +1,12 @@
+# The start-up controls card (common/controls_card.h). These are the defaults
+# patches/0001 sets; Help, Controls in the game shows the live bindings.
+R2 = Accelerate
+L2 = Brake / reverse
+Left stick = Steer
+Cross = Use powerup
+Square = Nitro
+R1 = Skid
+Circle = Look back
+Create = Rescue
+Options = Pause
+> Menus: Cross selects, Circle goes back. Rebind in Options, Controls.

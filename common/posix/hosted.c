@@ -20,6 +20,8 @@
  */
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <stdarg.h>
 #include <limits.h>
 #include <net/if.h>
 #include <netdb.h>
@@ -32,6 +34,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
@@ -252,6 +255,55 @@ int getentropy(void *buf, size_t n) {
     }
     arc4random_buf(buf, n);
     return 0;
+}
+
+/* The wall clock over `clock_gettime(CLOCK_REALTIME)`, which libkernel exports and
+   oops-mesa's timed waits already run on. libkernel's own `gettimeofday` has never been
+   measured for a title, and ENet paces every retransmit and timeout by it: a clock that
+   did not advance was one reading of SuperTuxKart's quick-play connect never finishing.
+   The zone argument is obsolete in POSIX and left untouched. */
+int gettimeofday(struct timeval *tp, struct timezone *tzp) {
+    struct timespec ts;
+
+    (void)tzp;
+    if (tp == NULL) {
+        return 0;
+    }
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+        return -1;
+    }
+    tp->tv_sec = ts.tv_sec;
+    tp->tv_usec = (suseconds_t)(ts.tv_nsec / 1000);
+    return 0;
+}
+
+/*
+ * `fcntl`, with a socket's non-blocking flag set the way this platform takes it.
+ *
+ * `fcntl(F_SETFL, O_NONBLOCK)` returns -1 on this console, while the `SO_NBIO` socket
+ * option (0x1200 in libSceNet) works (oops-sdk `src/net/net.c`, `oops_set_nonblocking`).
+ * A caller that ignores the -1 keeps a blocking socket: SuperTuxKart's ENet did, and its
+ * quick-play connect sat in a receive that no reply ever ended. So `F_SETFL` on a socket
+ * sets `SO_NBIO` from the flag; the platform's `_fcntl` does everything else, files
+ * included.
+ */
+extern int _fcntl(int fd, int cmd, ...);
+
+int fcntl(int fd, int cmd, ...) {
+    va_list ap;
+    long arg;
+
+    va_start(ap, cmd);
+    arg = va_arg(ap, long);
+    va_end(ap);
+
+    if (cmd == F_SETFL) {
+        const int nbio = (arg & O_NONBLOCK) ? 1 : 0;
+        if (setsockopt(fd, SOL_SOCKET, 0x1200, &nbio, (socklen_t)sizeof(nbio)) == 0) {
+            return 0; /* a socket: its only F_SETFL flag that matters is set */
+        }
+    }
+    return _fcntl(fd, cmd, arg);
 }
 
 /* UTC broken-down time, by arithmetic (the civil-from-days algorithm), so it is

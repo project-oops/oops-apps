@@ -1,0 +1,14 @@
+# The start-up controls card (common/controls_card.h): the pad defaults patches/0002
+# adds to baseq3r/default.cfg.
+R2 = Accelerate
+L2 = Brake / reverse
+Left stick / D-pad = Steer
+Cross = Handbrake
+Square = Fire
+Circle = Use item
+Triangle = Turbo
+L1 / R1 = Previous / next weapon
+R3 = Horn
+Create = Scores
+Options = Menu
+> Menus: Cross selects, Circle goes back. Rebind in Setup, Controls.

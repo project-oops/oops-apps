@@ -32,7 +32,7 @@
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 OOPS_SDK       ?= $(abspath $(OOPS_APPS_ROOT)/../oops-sdk)
 
-OOPS_FEATURES := display draw input keyboard net http
+OOPS_FEATURES := display draw input keyboard net http pkg
 
 HOST_TEST_SRCS = oopsy-daisy_selftest.c oopsy-daisy.c oopsy-daisy_page.c $(OOPS_FEATURE_draw_SRCS)
 

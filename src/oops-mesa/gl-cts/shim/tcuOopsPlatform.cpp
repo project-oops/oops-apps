@@ -27,19 +27,13 @@ extern "C" {
 
 namespace oops {
 
-/* Defined in the generated `gl_loader_table.cpp`. */
+/* Defined in `gl_loader.cpp`. */
 glw::GenericFuncType glLoaderGet(const char *name);
-unsigned glLoaderCount(void);
 
 namespace {
 
-/*
- * The loader is a table lookup: a static title has no `dlsym`, and this Mesa build
- * does not export `_glapi_get_proc_address`. `tools/gen-gl-loader.py` generates the
- * table from upstream's `glwInitGL33.inl` and what Mesa's `libglapi_bridge.a` defines.
- * It never returns null: an absent entry point is a stub that throws
- * `NotSupportedError`.
- */
+/* Mesa's dispatch answers the lookup, which is what `glXGetProcAddress` does. It never
+   returns null; a name the dispatch does not know throws `NotSupportedError`. */
 class FunctionLoader : public glw::FunctionLoader {
   public:
     glw::GenericFuncType get(const char *name) const override {

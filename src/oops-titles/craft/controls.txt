@@ -1,0 +1,8 @@
+# The start-up controls card (common/controls_card.h): the pad as the GLFW shim
+# presents it (shim/glfw_shim.c); the HUD shows the same list (patches/0002).
+Left stick = Move
+Right stick = Look
+Cross = Jump
+Square = Break a block
+Circle = Place a block
+L1 / R1 = Previous / next block

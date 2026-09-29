@@ -74,13 +74,12 @@ call. EGL and Vulkan are left to the base class, which reports them unsupported.
 
 ### The function loader
 
-dEQP fills `glw::Functions` through a loader shaped like `dlsym`. This platform has no runtime
-symbol table, and Mesa does not export `_glapi_get_proc_address` in this build, so the lookup
-happens at link time: `tools/gen-gl-loader.py` reads the names out of upstream's own
-`glwInitGL33.inl` and `glwInitExtGL.inl`, intersects them with what `nm` says Mesa's
-`libglapi_bridge.a` defines, and emits the table.
+dEQP fills `glw::Functions` through a loader shaped like `dlsym`. `shim/gl_loader.cpp` answers it
+with `_mesa_glapi_get_proc_address`, which is what `glXGetProcAddress` calls: it resolves by name
+against the stub table Mesa generates from `gl_and_es_API.xml`, so the reachable set is the whole
+dispatch rather than the subset `libGL.so` exports as linkable symbols.
 
-**A null is a real answer**: `glu::ContextInfo` checks a pointer before use, and a test whose
-entry point is absent reports `NotSupported`. A loader that returned something plausible would
-turn that into a fault inside the test. Re-run the generator after any change to
-`libglapi_bridge`; the count and the full absent list go to stderr.
+**A null is not a real answer.** dEQP's callers do not all check the pointer before use, and one
+in a function table is a call to address zero. A name the dispatch does not know is logged and
+resolves to a stub that throws `NotSupportedError`, which is how dEQP records a case that did not
+run.

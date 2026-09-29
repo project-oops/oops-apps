@@ -18,7 +18,8 @@
  * name alone is shown.
  *
  * Every call accepts NULL and does nothing, so a title need not branch on whether the
- * display could be opened. It needs the `display`, `draw` and `png` features.
+ * display could be opened. It needs the `display`, `draw` and `png` features, and
+ * `common/tar_unpack.c` beside it in `PAYLOAD_SRCS`.
  */
 #ifndef OOPS_APPS_LOADING_SCREEN_H
 #define OOPS_APPS_LOADING_SCREEN_H

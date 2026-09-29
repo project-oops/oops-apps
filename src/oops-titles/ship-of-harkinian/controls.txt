@@ -1,0 +1,12 @@
+# The start-up controls card (common/controls_card.h): libultraship's N64 defaults
+# (ControllerDefaultMappings.cpp), which this port does not remap.
+Left stick = Move
+Cross = Action / talk (A)
+Circle = Sword (B)
+R2 = Shield (R)
+L2 = Target (Z)
+Right stick = Items / first person (C)
+L1 = L
+Options = Pause (Start)
+Create = Port menu
+> Rebind in the port menu: Settings, Controls.

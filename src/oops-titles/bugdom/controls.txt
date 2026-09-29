@@ -1,0 +1,11 @@
+# The start-up controls card (common/controls_card.h): Bugdom's fixed pad table
+# (upstream/src/System/input.c:110-140).
+Left stick / D-pad = Walk / roll
+Right stick = Swivel the camera
+Cross = Jump / boost
+Square = Kick / boost
+Circle = Morph into a ball
+Triangle = Buddy attack
+L1 / R1 = Zoom in / out
+Options = Pause
+> Menus: the left stick moves the pointer, Cross clicks. About shows the full pad page.

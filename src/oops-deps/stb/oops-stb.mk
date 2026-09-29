@@ -18,7 +18,7 @@ OOPS_STB_INCLUDE := -I$(OOPS_STB_UPSTREAM)
 OOPS_STB_LIB := $(OOPS_STB_BUILD)/libstb.a
 OOPS_STB_LDFLAGS := $(OOPS_STB_LIB)
 OOPS_STB_CFLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
-                  -nostdlibinc -fPIC -O2 -w $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) \
+                  -nostdlibinc -fPIC -ftls-model=initial-exec -O2 -w $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) \
                   $(OOPS_POSIX_INCLUDE) $(OOPS_STB_INCLUDE)
 
 $(OOPS_STB_LIB): $(OOPS_STB_UPSTREAM)/stb_image.h $(lastword $(MAKEFILE_LIST))

@@ -8,9 +8,8 @@ OOPS_APPS_ROOT ?= $(abspath ../../..)
 # The fetch runs while this file is read: the source lists below wildcard its directories.
 include $(OOPS_APPS_ROOT)/common/upstream.mk
 
-# libc++'s `<filesystem>` calls into an operating system interface, and `common/posix` is where
-# this collection answers it: `copy_file_range`, `utimensat`, `openat`, `realpath`. A title
-# linking libc++ links it too.
+# libc++'s `<filesystem>` reaches for POSIX calls the Mesa sysroot declares and no platform
+# library exports. `common/posix/hosted.c` answers them; a title linking libc++ links it.
 include $(OOPS_APPS_ROOT)/common/posix.mk
 
 OOPS_RENDERER = mesa
@@ -116,8 +115,8 @@ CTS_DEFINES := -D_XOPEN_SOURCE=600 -DDEQP_TARGET_NAME=\"OOPS\"
 # `<stdlib.h>`; force-including it leaves `<stdlib.h>` unshadowed.
 CTS_C_EXTRA := -include malloc_np.h
 
-# The platform layer and the loader table `tools/gen-gl-loader.py` generates at build time.
-CTS_SHIM_CXX := shim/tcuOopsPlatform.cpp shim/gl_loader_table.cpp shim/gl_cts_gaps.cpp \
+# The platform layer, and the GL lookup over Mesa's own dispatch.
+CTS_SHIM_CXX := shim/tcuOopsPlatform.cpp shim/gl_loader.cpp shim/gl_cts_gaps.cpp \
                 shim/gl_cts_registry.cpp shim/gl_cts_spirv_stub.cpp
 
 # Upstream's C builds into an archive under `-w`, so the repository's `-Werror -Wconversion`
@@ -146,7 +145,7 @@ OOPS_CXX_SRCS       = $(CTS_CXX_SRCS) $(CTS_SHIM_CXX)
 OOPS_FEATURES := display thread
 
 PAYLOAD_SRCS        = shim/gl_cts_entry.c \
-                      $(OOPS_POSIX_SRCS)
+                      $(OOPS_POSIX_HOSTED_SRCS)
 
 include $(OOPS_LIBCXX)/oops-libcxx.mk
 include $(OOPS_LIBCXX)/oops-libunwind.mk
@@ -159,12 +158,6 @@ OOPS_CXX_INCLUDE     += $(OOPS_LIBCXX_INCLUDE) $(CTS_INCLUDES) $(CTS_DEFINES)
 # variable, and the general-dynamic model's `__tls_get_addr` faults in libkernel on this
 # platform. oops-mesa builds Mesa with the same flag. It goes on the C++ only; see below.
 OOPS_CXX_INCLUDE     += -ftls-model=initial-exec
-
-# `OOPS_POSIX_HOME` is the directory the shim reports from `getpwuid` and resolves a relative
-# path against; this title reads only absolute paths. Its include directory is deliberately not
-# added: those headers are written against oops-sdk's freestanding libc, and on a hosted title
-# they shadow the Mesa sysroot's own.
-EXTRA_TARGET_CFLAGS  += -DOOPS_POSIX_HOME=\"/data/$(TITLE_ID)\"
 
 # `CTS_DEFINES` stays out of `EXTRA_TARGET_CFLAGS`, which reaches oops-mesa's runtime shim:
 # `src/runtime/libc_absent.c` needs `__BSD_VISIBLE`. The defines go to upstream's C archive
@@ -206,14 +199,6 @@ $(OOPS_CTS_LIB): $(OOPS_CTS_OBJS)
 	@echo "gl-cts: $(words $(OOPS_CTS_OBJS)) C objects -> $@"
 
 -include $(OOPS_CTS_OBJS:.o=.d)
-
-# The loader table depends on upstream's `glwInit*.inl` and on what Mesa's
-# `libglapi_bridge.a` defines.
-MESA_GLAPI := $(OOPS_MESA)/build/mesa/src/mesa/glapi/glapi/libglapi_bridge.a
-
-shim/gl_loader_table.cpp: tools/gen-gl-loader.py $(MESA_GLAPI) \
-                          $(UP)/opengl/wrapper/glwInitGL33.inl $(UP)/opengl/wrapper/glwInitExtGL.inl
-	@python3 tools/gen-gl-loader.py $(MESA_GLAPI) > $@
 
 $(SYMBOLS_FILE): $(BUILD)/$(APP_NAME).elf
 	@if [ ! -f "$@" ]; then \

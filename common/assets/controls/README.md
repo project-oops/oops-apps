@@ -19,7 +19,32 @@ from the top.
 
 It is white on transparent with no fills, so a title tints it to its own menu colour.
 
-## How a title uses it
+## Two cards per title
+
+Every title shows its controls twice:
+
+- **At start-up**, before the game, from a `controls.txt` beside the title's Makefile. This one is
+  shared code (`common/controls_card.h`): `common/controls.mk` builds it in, embeds the table and
+  this drawing in the payload, and puts it in front of the title's entry point, so a title opts in
+  with the file alone. It stays up for ten seconds or until Cross or Options. The table is written
+  by hand, so it states the defaults.
+- **In the game**, on a help or options screen the game already has, by a patch to that title.
+  This one reads the live bindings, so it follows a rebind. A game with no such screen gets an
+  overlay instead (Craft), or only the start-up card.
+
+`controls.txt`:
+
+```
+# a comment
+R2 = Accelerate
+Left stick = Steer
+> A note under the table, such as where the in-game card is.
+```
+
+Button names are this pad's: Cross, Circle, Square, Triangle, L1, L2, R1, R2, L3, R3, Options,
+Create, Touchpad, Left stick, Right stick, D-pad.
+
+## The in-game card
 
 1. Copy `controller.png` into the packaged data from the title's `package` rule, not into the
    upstream tree, which stays as upstream ships it. Neverball's Makefile is the worked example;

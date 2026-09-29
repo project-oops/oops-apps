@@ -1,0 +1,8 @@
+# The start-up controls card (common/controls_card.h): RSDKv5's SDL2 pad mapping and
+# the game's own reads (Objects/Global/Player.c).
+Left stick / D-pad = Move
+Cross / Circle / Square = Jump
+Down + jump = Spin dash
+Triangle = Swap character (Encore)
+Options = Pause
+> Menus: Cross confirms, Circle goes back. Options, Controls shows the pad.

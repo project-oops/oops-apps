@@ -1,0 +1,12 @@
+# The start-up controls card (common/controls_card.h): libultraship's N64 defaults
+# (ControllerDefaultMappings.cpp), which this port does not remap.
+Left stick = Move
+Cross = Jump (A)
+Circle = Punch / dive (B)
+L2 = Crouch / ground pound (Z)
+Right stick = Camera (C buttons)
+R2 = Camera mode (R)
+L1 = L
+Options = Pause (Start)
+Create = Port menu
+> Rebind in the port menu: Settings, Controls, Controller Bindings.

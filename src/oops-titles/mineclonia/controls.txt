@@ -1,0 +1,17 @@
+# The start-up controls card (common/controls_card.h): Luanti's gamepad defaults
+# (upstream/src/defaultsettings.cpp), which Mineclonia's minetest.conf does not change.
+Left stick = Walk
+Right stick = Look
+Cross = Jump
+Circle = Sneak
+Square = Sprint
+Triangle = Inventory
+R2 = Dig
+L2 = Place / use
+L1 / R1 = Hotbar slot
+D-pad up = Zoom
+D-pad down = Drop item
+D-pad left = Fly
+Create = Minimap
+Options = Pause
+> The menus and the inventory need a USB mouse; the pad plays the game.

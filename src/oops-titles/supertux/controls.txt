@@ -1,0 +1,9 @@
+# The start-up controls card (common/controls_card.h): SuperTux's game-controller
+# defaults (upstream/src/control/game_controller_manager.cpp).
+Left stick / D-pad = Walk, duck, climb, enter doors
+Cross = Jump
+Square = Run, grab, fire
+Right stick = Look around
+L1 / R1 = Look left / right
+Options = Pause
+> Menus: Cross selects, Circle goes back. On the map, Cross enters a level.

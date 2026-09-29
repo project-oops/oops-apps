@@ -1,0 +1,11 @@
+# The start-up controls card (common/controls_card.h): Bugdom 2's defaults
+# (upstream/Source/System/InputDefaults.c:21-157); Settings, Configure Gamepad rebinds.
+Left stick / D-pad = Move
+Right stick = Rotate the camera
+Cross = Jump
+Square = Kick
+Circle = Pick up / drop
+Triangle = Launch buddy
+R3 = Camera mode
+Options = Pause
+> Menus: D-pad or stick, Cross selects, Circle goes back.

@@ -1,0 +1,9 @@
+# The start-up controls card (common/controls_card.h): ball/st_play.c with the pad
+# indices patches/0009 sets. Help, Controls in the game has the full card.
+Left stick = Tilt the floor
+Right stick / L1 / R1 = Rotate the view
+Hold L3 = Rotate faster
+Square = Next camera
+Cross = Start the level
+Options = Pause
+> Motion tilt is in Options; click the touchpad to re-centre it.

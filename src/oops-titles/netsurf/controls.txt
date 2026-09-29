@@ -1,0 +1,8 @@
+# The start-up controls card (common/controls_card.h). The framebuffer front end reads
+# keys and the mouse only (libnsfb/src/surface/sdl.c); the pad does nothing.
+USB mouse = Point, click, scroll
+USB keyboard = Type, and the keys below
+Ctrl+L = Address bar
+Backspace = Back
+F5 = Reload
+> NetSurf needs a USB keyboard and mouse; the pad is not used.

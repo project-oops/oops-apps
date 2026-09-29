@@ -1,0 +1,5 @@
+# The start-up controls card (common/controls_card.h): oops-sdk GLUT's pad-to-key
+# mapping (src/gl/glut.c) as the default demo, gears, reads it.
+D-pad = Rotate the view
+Options = End the demo
+> Each build is one demo; other demos read the same keys differently.

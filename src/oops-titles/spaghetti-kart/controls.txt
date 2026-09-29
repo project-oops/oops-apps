@@ -1,0 +1,12 @@
+# The start-up controls card (common/controls_card.h): the port's own defaults
+# (upstream/src/port/Engine.cpp:126-147).
+Left stick = Steer
+Cross = Accelerate (A)
+Square = Brake / reverse (B)
+R1 / R2 = Hop / drift (R)
+L2 = Use item (Z)
+Triangle / Circle = C-Left / C-Down
+L1 = L
+Options = Pause (Start)
+Create = Port menu
+> Menus: Cross confirms, Square goes back.

@@ -46,6 +46,10 @@ OOPS_GL_SRCS := \
 # Load project-level configuration (app.env) if present
 -include app.env
 
+# The controls card, for a title that carries a `controls.txt`: before the feature list is
+# resolved, since it adds to it, and before `ENTRY_POINT` gets its default.
+include $(OOPS_APPS_ROOT)/common/controls.mk
+
 # The renderer a title links. `gl1` (fixed-function GL 1.x) and `gl2` (GL 2.0) link oops-gl's
 # freestanding sources; `mesa` sets `USE_MESA` for hosted upstream Mesa (oops-mesa D002). All
 # three provide the same `oops/gfx.h` API (oops-sdk D012), so title source does not change.
@@ -213,6 +217,7 @@ endif
 TARGET_CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Werror -Wshadow -Wconversion -Wsign-conversion \
                  -Wstrict-prototypes -Wmissing-prototypes -Wvla \
                  -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -fPIC \
+                 -ftls-model=initial-exec \
                  -fno-stack-protector -fvisibility=hidden $(OOPS_TARGET_NOSTDLIBINC) \
                  $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE) $(EXTRA_TARGET_CFLAGS)
 
@@ -383,6 +388,7 @@ TARGET_SYS_SRCS ?= $(filter-out $(PAYLOAD_SRCS), $(wildcard $(CORE_SDK_SRCS)))
 # `input.c` that resolves to null when a title does not link keyboard.c.
 UNDEF_ALLOW ?= ^sce[A-Z]|^sysctlbyname$$|^__error$$|^__errno$$|^__sys_socketex$$|^oops_keyboard_poll_buttons$$|^_?(accept|bind|close|connect|listen|recv|recvfrom|sendto|setsockopt|sigaction|sigprocmask)$$|^_getsockopt$$
 NM ?= nm
+READELF ?= llvm-readelf
 
 # Off for a hosted title (USE_MESA), whose libc names resolve at load, and reported as off on
 # every link. Such a title may set `UNDEF_CHECK=1` and list its sysroot's exports in
@@ -399,8 +405,13 @@ $(call oops_obj_rules,$(BUILD)/obj,TARGET_CC,TARGET_CFLAGS,$(PAYLOAD_SRCS) $(TAR
 
 $(BUILD)/$(APP_NAME).elf: $(OOPS_PAYLOAD_OBJS) $(PAYLOAD_EXTRA_DEPS) \
                           $(oops_makefiles) | $(BUILD)
-	@:$(call oops_rsp,$@.rsp,$(OOPS_PAYLOAD_OBJS))
-	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_LDFLAGS) -o $@ @$@.rsp
+	@# Everything, not just the objects. Measured on a native Windows build of Ship of
+	@# Harkinian: with the 1,500 objects already in the file, what remained was still
+	@# 55,944 characters - 45 `-I` paths and 17 `-Wl,` options - against CreateProcess's
+	@# 32,767, and make reported it as `e=87: The parameter is incorrect`, which names
+	@# neither the limit nor the command. The flags are the half that does not shrink.
+	@:$(call oops_rsp,$@.rsp,$(TARGET_CFLAGS) $(TARGET_LDFLAGS) -o $@ $(OOPS_PAYLOAD_OBJS))
+	$(TARGET_CC) @$@.rsp
 	@nm_tool=$$(command -v $(NM) 2>/dev/null || command -v llvm-nm 2>/dev/null || true); \
 	if [ "$(UNDEF_CHECK)" != "1" ]; then \
 	  echo "$(APP_NAME): the undefined-symbol check is off - a hosted title's C library is"; \
@@ -417,6 +428,18 @@ $(BUILD)/$(APP_NAME).elf: $(OOPS_PAYLOAD_OBJS) $(PAYLOAD_EXTRA_DEPS) \
 	    echo "  A payload link ignores unresolved symbols, so this would have faulted on the"; \
 	    echo "  console instead of failing here. Add the file that defines them to PAYLOAD_SRCS,"; \
 	    echo "  or to CORE_SDK_SRCS in common/app.mk when every payload needs it."; \
+	    rm -f $@; \
+	    exit 1; \
+	  fi; \
+	fi
+	@readelf_tool=$$(command -v $(READELF) 2>/dev/null || command -v llvm-readelf 2>/dev/null || command -v readelf 2>/dev/null || true); \
+	if [ -n "$$readelf_tool" ]; then \
+	  tlsgd=$$("$$readelf_tool" -r $@ 2>/dev/null | grep -E 'TLSGD|DTPMOD' || true); \
+	  if [ -n "$$tlsgd" ]; then \
+	    echo "$(APP_NAME): general-dynamic TLS relocations detected:"; \
+	    echo "$$tlsgd" | sed 's/^/    /'; \
+	    echo "  The platform loader does not populate DTV for secondary threads; __tls_get_addr"; \
+	    echo "  faults at 0x8. Compile C/C++ with -ftls-model=initial-exec to emit GOTTPOFF/TPOFF64."; \
 	    rm -f $@; \
 	    exit 1; \
 	  fi; \
@@ -492,7 +515,7 @@ title: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
 	    if [ "$(TITLE_CATEGORY)" = "big-app" ] || [ -z "$(TITLE_CATEGORY)" ]; then \
 	        mkdir -p $(BUILD)/title/$(TITLE_ID)/sce_module; \
 	        $(TARGET_CC) -std=c11 -target x86_64-unknown-freebsd -ffreestanding -fno-builtin \
-	            -nostdlib -fPIC -fno-stack-protector -fvisibility=hidden -shared \
+	            -nostdlib -fPIC -fno-stack-protector -fvisibility=hidden -shared $(LLD_FLAG) \
 	            -Wl,-e,module_start -Wl,-T,$(SELFISH)/link/library.ld \
 	            -Wl,-z,noexecstack -Wl,-z,max-page-size=0x4000 -Wl,-z,common-page-size=0x4000 -Wl,-z,norelro \
 	            -o $(BUILD)/libc.module.elf $(OOPS_SDK_DIR)/src/system/sce_module.c; \

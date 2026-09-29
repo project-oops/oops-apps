@@ -1,0 +1,8 @@
+# The start-up controls card (common/controls_card.h): upstream/putt/st_all.c with the
+# pad indices patches/0003 sets.
+Left stick left / right = Aim
+Left stick up / down = Power
+Hold Square = Fine aim and power
+Cross = Putt
+Options = Pause
+> Menus: left stick moves, Cross selects, Circle goes back.

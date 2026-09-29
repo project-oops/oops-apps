@@ -1,0 +1,15 @@
+# The start-up controls card (common/controls_card.h): the engine's built-in pad binds
+# (engine/client/input/in_keys.c). A config.cfg in the copied valve/ folder can replace them.
+Left stick = Move
+Right stick = Look
+R1 = Fire
+R2 = Secondary fire
+Cross = Jump
+L1 = Duck
+Circle = Use
+Square = Reload
+Triangle = Flashlight
+D-pad left / right = Weapon
+D-pad down = Last weapon
+Options = Menu
+Create = Pause

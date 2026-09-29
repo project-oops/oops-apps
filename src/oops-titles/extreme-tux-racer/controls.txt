@@ -1,0 +1,9 @@
+# The start-up controls card (common/controls_card.h): racing.cpp's pad handling with
+# the race buttons patches/0006 routes.
+Left stick = Steer, paddle, brake
+D-pad = Steer, paddle, brake
+Cross / R1 = Charge and jump
+L1 = Trick
+Options = Pause
+Circle = Quit the race
+> Menus: D-pad moves, Cross selects, Circle goes back.

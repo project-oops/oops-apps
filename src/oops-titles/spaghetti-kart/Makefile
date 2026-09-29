@@ -283,10 +283,6 @@ PAYLOAD_EXTRA_DEPS   += $(OOPS_CXX_LIB) $(OOPS_IMGUI_LIB) \
                         $(OOPS_LIBCXX_LIB) $(OOPS_LIBCXXABI_LIB) $(OOPS_LIBUNWIND_LIB)
 endif
 
-# `__tls_get_addr` is libkernel's, which `common/symbols.txt:391` records, so the loader resolves it.
-# It arrives through `BS::thread_pool`'s `this_thread`, which libultraship's resource loader uses; it
-# is the one import this title adds to the set `UNDEF_ALLOW` already covers.
-EXTRA_UNDEF_ALLOW := ^__tls_get_addr$$
 
 OOPS_FEATURES := display input keyboard mouse audio suspend thread draw dialog
 

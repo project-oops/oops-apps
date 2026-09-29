@@ -26,6 +26,8 @@ stx_start(const payload_args_t *args) {
 
     (void)args;
 
+    /* Reads `/app0/oops-log`'s `system=` level, which gates every oops_log_debug. */
+    oops_log_init(NULL);
     oops_klog("STUX", "entry");
 
     /*

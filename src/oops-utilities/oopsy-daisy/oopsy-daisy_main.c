@@ -56,7 +56,16 @@
 #endif
 #endif
 
+#include "oops/pkg.h"
 #include "oopsy-daisy.h"
+
+#include <stdint.h>
+
+/* Where a title's file manifest is recorded at install, one path per line, named <TITLE_ID>.list.
+ * A title's own directory cannot be listed on this system (the firmware refuses getdents/
+ * getdirentries even escaped), so uninstall replays this manifest to delete the files instead of
+ * walking the directory. Kept outside /data/homebrew so it is not mistaken for a title. */
+#define OOPSY_STATE_DIR "/data/oopsy"
 
 /* The rolling build. Its assets are the source of truth for what can be installed, and
  * matching the web index (project-oops.github.io/oops-apps), so there is one catalogue,
@@ -190,6 +199,98 @@ static void on_dl_progress(uint64_t downloaded, uint64_t total, void *ud) {
     }
 }
 
+/* Little-endian readers for the zip central directory, mirroring the SDK extractor's own. */
+static uint16_t oopsy_rd_u16(const uint8_t *p) {
+    return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
+}
+static uint32_t oopsy_rd_u32(const uint8_t *p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[3] << 24);
+}
+
+/* Record, one path per line, every member of the archive just extracted, to
+ * OOPSY_STATE_DIR/<TITLE_ID>.list. The title id is the first path component of the first entry (a
+ * title zip carries a top-level `<TITLE_ID>/`). This is what uninstall replays to delete the files,
+ * since the firmware will not let us list the installed directory. Best-effort: on any parse or
+ * write failure it just does not leave a manifest, and uninstall falls back to the platform
+ * installer. Reads the same central-directory records the SDK extractor reads, so it sees exactly
+ * the set of files that landed on disk. */
+static void oopsy_write_manifest(const void *zip_data, size_t zip_size) {
+    if (!zip_data || zip_size < 22) {
+        return;
+    }
+    const uint8_t *data = (const uint8_t *)zip_data;
+    size_t max_search = (zip_size > 65557) ? 65557 : zip_size;
+    const uint8_t *eocd = NULL;
+    for (size_t i = 22; i <= max_search; i++) {
+        const uint8_t *p = data + zip_size - i;
+        if (oopsy_rd_u32(p) == 0x06054b50) {
+            eocd = p;
+            break;
+        }
+    }
+    if (!eocd) {
+        return;
+    }
+    uint16_t total = oopsy_rd_u16(eocd + 10);
+    uint32_t cd_size = oopsy_rd_u32(eocd + 12);
+    uint32_t cd_off = oopsy_rd_u32(eocd + 16);
+    if ((size_t)cd_off + (size_t)cd_size > zip_size) {
+        return;
+    }
+    const uint8_t *cd = data + cd_off;
+    char id[16];
+    int fd = -1;
+    for (uint16_t e = 0; e < total; e++) {
+        if (cd + 46 > data + zip_size || oopsy_rd_u32(cd) != 0x02014b50) {
+            break;
+        }
+        uint16_t fn = oopsy_rd_u16(cd + 28);
+        uint16_t ex = oopsy_rd_u16(cd + 30);
+        uint16_t cm = oopsy_rd_u16(cd + 32);
+        if (cd + 46 + (size_t)fn + ex + cm > data + zip_size) {
+            break;
+        }
+        const char *name = (const char *)(cd + 46);
+        if (fd < 0) {
+            int k = 0;
+            while (k < fn && k < 15 && name[k] != '/' && name[k] != '\\') {
+                id[k] = name[k];
+                k++;
+            }
+            id[k] = '\0';
+            if (k < 4) {
+                return; /* not a `<TITLE_ID>/...` layout - leave no manifest */
+            }
+            (void)oops_fs_mkdir(OOPSY_STATE_DIR, 0777);
+            char mp[64];
+            int j = 0;
+            for (const char *c = OOPSY_STATE_DIR "/"; *c; c++) {
+                mp[j++] = *c;
+            }
+            for (int i = 0; id[i]; i++) {
+                mp[j++] = id[i];
+            }
+            for (const char *c = ".list"; *c; c++) {
+                mp[j++] = *c;
+            }
+            mp[j] = '\0';
+            fd = oops_fs_open(mp, OOPS_O_WRONLY | OOPS_O_CREAT | OOPS_O_TRUNC, 0644);
+            if (fd < 0) {
+                return;
+            }
+        }
+        (void)oops_fs_write(fd, name, fn);
+        (void)oops_fs_write(fd, "\n", 1);
+        cd += 46 + (size_t)fn + ex + cm;
+    }
+    if (fd >= 0) {
+        oops_fs_close(fd);
+        oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "install: wrote manifest for %s (%u entries)",
+                           id, (unsigned)total);
+    }
+}
+
 /* Work one job to completion: download the .zip with a live bar, then unpack it into
  * the homebrew folder (a title zip carries a top-level `<TITLE_ID>/`). Sets the job's
  * final state; a failure here stops only this job. `repaint`/`rctx` are how the calling
@@ -271,7 +372,6 @@ static void process_job(oopsy_job_t *job, oopsy_repaint_fn repaint, void *rctx) 
     (void)oops_fs_mkdir(HOMEBREW_ROOT, 0777);
 
     rc = oops_zip_extract_mem(zip_data, zip_size, HOMEBREW_ROOT);
-    oops_fs_free_data(zip_data);
     oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "install: %s unzip rc=%d", job->name,
                        rc);
     if (rc != OOPS_ZIP_OK) {
@@ -279,10 +379,13 @@ static void process_job(oopsy_job_t *job, oopsy_repaint_fn repaint, void *rctx) 
         job->error = "Unpack failed.";
         log_error("install: unpack failed");
     } else {
+        /* Record what landed, from the archive still in RAM, so it can be removed later. */
+        oopsy_write_manifest(zip_data, zip_size);
         job->state = OOPSY_JOB_DONE;
         job->done = job->total;
         oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "install: %s installed", job->name);
     }
+    oops_fs_free_data(zip_data);
     if (repaint)
         repaint(rctx);
 }
@@ -538,45 +641,137 @@ static int valid_title_id(const char *id) {
     return id[9] == '\0';
 }
 
-/* __oopsy_installed() -> a JSON array of the title ids present under /data/homebrew, scanned
- * live. The page badges a card as installed when its title_id is in this list, and offers to
- * remove it. Title ids are [A-Z0-9], so the names need no JSON escaping. */
-static char g_installed_json[4096];
+/* __oopsy_installed(csv) -> of the comma-separated title ids the page passes, a JSON array of the
+ * ones installed under /data/homebrew. The firmware refuses to enumerate that directory (every
+ * getdents/getdirentries variant returns -1, even escaped), but opening a known child works, so we
+ * test each id by existence rather than by listing. Title ids are [A-Z0-9], so no JSON escaping. */
+static char g_installed_json[8192];
 static oops_js_value_t cb_installed(oops_js_t *js, int argc, oops_js_value_t *argv, void *ud) {
-    (void)argc;
-    (void)argv;
     (void)ud;
     int p = 0;
     g_installed_json[p++] = '[';
-    oops_dir_t *dir = oops_fs_opendir(HOMEBREW_ROOT);
-    if (dir) {
-        oops_dirent_t ent;
-        int first = 1;
-        while (oops_fs_readdir(dir, &ent) == 1) {
-            if (!ent.is_directory || ent.name[0] == '.')
+    int first = 1;
+    if (argc >= 1 && argv[0].type == OOPS_JS_TYPE_STRING && argv[0].u.string) {
+        const char *s = argv[0].u.string;
+        while (*s) {
+            char id[16];
+            int k = 0;
+            while (*s && *s != ',') {
+                if (k < 15)
+                    id[k++] = *s;
+                s++;
+            }
+            id[k] = '\0';
+            if (*s == ',')
+                s++;
+            if (k != 9 || !valid_title_id(id))
                 continue;
-            if (!first && p < (int)sizeof g_installed_json - 1)
-                g_installed_json[p++] = ',';
-            first = 0;
-            if (p < (int)sizeof g_installed_json - 1)
-                g_installed_json[p++] = '"';
-            for (const char *c = ent.name; *c && p < (int)sizeof g_installed_json - 2; c++)
-                g_installed_json[p++] = *c;
-            if (p < (int)sizeof g_installed_json - 1)
-                g_installed_json[p++] = '"';
+            char path[64];
+            int j = 0;
+            for (const char *c = HOMEBREW_ROOT "/"; *c; c++)
+                path[j++] = *c;
+            for (int i = 0; i < 9; i++)
+                path[j++] = id[i];
+            path[j] = '\0';
+            if (oops_fs_exists(path)) {
+                if (!first && p < (int)sizeof g_installed_json - 1)
+                    g_installed_json[p++] = ',';
+                first = 0;
+                if (p < (int)sizeof g_installed_json - 1)
+                    g_installed_json[p++] = '"';
+                for (int i = 0; i < 9 && p < (int)sizeof g_installed_json - 2; i++)
+                    g_installed_json[p++] = id[i];
+                if (p < (int)sizeof g_installed_json - 1)
+                    g_installed_json[p++] = '"';
+            }
         }
-        oops_fs_closedir(dir);
     }
     if (p < (int)sizeof g_installed_json - 1)
         g_installed_json[p++] = ']';
     g_installed_json[p] = '\0';
-    oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "installed: %s", g_installed_json);
+    oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "installed: escaped=%d -> %s", g_escaped,
+                       g_installed_json);
     return oops_js_make_string(js, g_installed_json);
 }
 
-/* __oopsy_uninstall(title_id) -> remove an installed title: its files under /data/homebrew and
- * its registration under /user/appmeta, so both the payload and the home-screen bubble go.
- * Returns true when the title's own directory is gone. */
+/* Build OOPSY_STATE_DIR/<id>.list (the manifest path) into buf. `id` is a validated 9-char id. */
+static void oopsy_manifest_path(char *buf, const char *id) {
+    int j = 0;
+    for (const char *c = OOPSY_STATE_DIR "/"; *c; c++)
+        buf[j++] = *c;
+    for (int i = 0; i < 9; i++)
+        buf[j++] = id[i];
+    for (const char *c = ".list"; *c; c++)
+        buf[j++] = *c;
+    buf[j] = '\0';
+}
+
+/* Build HOMEBREW_ROOT/<rel[0..n)> into buf. */
+static void oopsy_hb_path(char *buf, size_t cap, const char *rel, size_t n) {
+    size_t j = 0;
+    for (const char *c = HOMEBREW_ROOT "/"; *c && j + 1 < cap; c++)
+        buf[j++] = *c;
+    for (size_t i = 0; i < n && j + 1 < cap; i++)
+        buf[j++] = rel[i];
+    buf[j] = '\0';
+}
+
+/* Replay a title's install manifest to delete it: unlink every listed file, then remove the
+ * directories those paths imply, deepest first (rmdir needs an empty directory, and the firmware
+ * will not enumerate one for us). Returns 1 if a manifest was found and processed, 0 if none. */
+static int oopsy_delete_by_manifest(const char *id) {
+    char mp[64];
+    oopsy_manifest_path(mp, id);
+    char *buf = NULL;
+    size_t sz = 0;
+    if (oops_fs_read_all(mp, (void **)&buf, &sz) != 0 || !buf || sz == 0) {
+        if (buf)
+            oops_fs_free_data(buf);
+        return 0;
+    }
+    char fp[512];
+    /* Pass 1: unlink files. Directory entries (a trailing '/') and blank lines are left to below. */
+    for (size_t i = 0; i < sz;) {
+        size_t s = i;
+        while (i < sz && buf[i] != '\n')
+            i++;
+        size_t len = i - s;
+        if (i < sz)
+            i++;
+        if (len == 0 || buf[s + len - 1] == '/')
+            continue;
+        oopsy_hb_path(fp, sizeof fp, buf + s, len);
+        (void)oops_fs_unlink(fp);
+    }
+    /* Passes: rmdir every ancestor directory of each path. Repeated so a directory emptied in one
+     * pass lets its parent go in the next; title trees are shallow, so 8 passes is ample. */
+    for (int pass = 0; pass < 8; pass++) {
+        for (size_t i = 0; i < sz;) {
+            size_t s = i;
+            while (i < sz && buf[i] != '\n')
+                i++;
+            size_t len = i - s;
+            if (i < sz)
+                i++;
+            for (size_t k = 0; k < len; k++) {
+                if (buf[s + k] == '/') {
+                    oopsy_hb_path(fp, sizeof fp, buf + s, k);
+                    (void)oops_fs_rmdir(fp);
+                }
+            }
+        }
+    }
+    oops_fs_free_data(buf);
+    (void)oops_fs_unlink(mp); /* the manifest has served its purpose */
+    return 1;
+}
+
+/* __oopsy_uninstall(title_id) -> remove an installed title. Three layers, since two kinds of title
+ * reach this console by two paths: the platform installer (sceAppInstUtil) owns a *registered*
+ * title's files and its home-screen entry, and a replay of our own install manifest removes a title
+ * we extracted into /data/homebrew (whose directory the firmware will not let us list). Success is
+ * the title's /data/homebrew directory being gone afterward. Logs each layer so a failure says
+ * which path was expected to remove it. */
 static oops_js_value_t cb_uninstall(oops_js_t *js, int argc, oops_js_value_t *argv, void *ud) {
     (void)js;
     (void)ud;
@@ -600,11 +795,37 @@ static oops_js_value_t cb_uninstall(oops_js_t *js, int argc, oops_js_value_t *ar
     for (int i = 0; i < 9; i++)
         am[k++] = id[i];
     am[k] = '\0';
-    int rc_data = oops_fs_rmtree(hb);
-    int rc_meta = oops_fs_rmtree(am);
-    oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "uninstall: %s data_rc=%d meta_rc=%d", id,
-                       rc_data, rc_meta);
-    return oops_js_make_bool(rc_data == 0);
+
+    /* 1. The payload we extracted: replay its manifest (the proven, self-contained path), then sweep
+     * any leftover with a tree walk (which only helps where the firmware relents on enumeration) and
+     * a final rmdir of the root. Done first so a title we installed is gone no matter what follows. */
+    int had_manifest = oopsy_delete_by_manifest(id);
+    int rc_data = oops_fs_exists(hb) ? oops_fs_rmtree(hb) : 0;
+    (void)oops_fs_rmdir(hb);
+    int gone = !oops_fs_exists(hb);
+
+    /* 2. The platform installer: the clean path for a *registered* title (files + home-screen
+     * entry), a no-op for a zip-only one. Only invoked for a title the service says it knows, so a
+     * plain daisy install never reaches an untested service call. Its result is logged either way. */
+    bool app_before = false, app_after = false;
+    int rc_exist = oops_app_exists(id, &app_before);
+    int rc_app = -999; /* not attempted */
+    if (rc_exist == 0 && app_before) {
+        rc_app = oops_app_uninstall(id);
+        (void)oops_app_exists(id, &app_after);
+        if (!oops_fs_exists(hb))
+            gone = 1;
+    }
+
+    /* 3. The home-screen registration under /user/appmeta, best-effort. */
+    int rc_meta = oops_fs_exists(am) ? oops_fs_rmtree(am) : 0;
+
+    oops_kprintf_level(OOPS_LOG_INFO, "OOPSY",
+                       "uninstall: %s manifest=%d data_rc=%d appExists rc=%d before=%d after=%d "
+                       "appUninstall rc=%d meta_rc=%d gone=%d",
+                       id, had_manifest, rc_data, rc_exist, (int)app_before, (int)app_after, rc_app,
+                       rc_meta, gone);
+    return oops_js_make_bool(gone);
 }
 
 /* A JS number arrives as either an int or a float tag depending on its value; take
