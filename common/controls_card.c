@@ -209,6 +209,19 @@ void oops_controls_card_show(const char *title, const char *table, size_t table_
  * no loader header; the title's entry takes the same single pointer.
  */
 #ifdef OOPS_CONTROLS_NEXT
+
+/* `app.mk` defines all three for every application build; the fallbacks are so this
+ * file still compiles on its own, as `app_ui.h` does the same for the version. */
+#ifndef OOPS_APP_NAME
+#define OOPS_APP_NAME "app"
+#endif
+#ifndef OOPS_APP_ID
+#define OOPS_APP_ID "?"
+#endif
+#ifndef OOPS_APP_VERSION
+#define OOPS_APP_VERSION "dev"
+#endif
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wc23-extensions"
 static const unsigned char s_table[] = {
@@ -223,6 +236,22 @@ int OOPS_CONTROLS_NEXT(const void *args);
 int oops_controls_entry(const void *args);
 
 __attribute__((visibility("default"))) int oops_controls_entry(const void *args) {
+    /*
+     * Which build this is, first thing, before anything can fail.
+     *
+     * `app.mk` stamps `BUILD_VERSION` from the clock, so the payload's bytes move
+     * every minute whether the sources changed or not - which makes "is the console
+     * running the build I just made?" a question no hash can answer. Comparing the
+     * deployed eboot against the local one is not merely unreliable, it is wrong: a
+     * restore that worked correctly still leaves the two differing.
+     *
+     * A line in the log answers it outright, for every title, at no cost. It goes in
+     * the shim rather than in any one title's entry so that nothing has to remember
+     * to add it - and it is first, so a payload that dies during start-up has still
+     * said which payload it was.
+     */
+    oops_log_info("APP", "%s %s, built %s", OOPS_APP_NAME, OOPS_APP_ID,
+                  OOPS_APP_VERSION);
     oops_controls_card_show(OOPS_CONTROLS_TITLE, (const char *)s_table,
                             sizeof(s_table) - 1u, s_png, sizeof(s_png));
     return OOPS_CONTROLS_NEXT(args);
