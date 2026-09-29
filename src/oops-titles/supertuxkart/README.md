@@ -18,7 +18,46 @@ data are free, so the package is complete and the player supplies nothing. It si
 - **Fetched, not vendored** - only the port's own `shim/` and `patches/` live here.
 - **OpenGL 3.3** - SuperTuxKart 1.x has no GL 2 renderer, so this title draws through
   [oops-mesa](../../oops-mesa/).
-- **One archive for the data** - 4,279 files ship as a single archive and unpack at first run.
+- **One archive for the data** - 4,279 files ship as a single archive and unpack at first run,
+  behind a loading screen.
+
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshot1-race.png" alt="A race on the hardware" width="600">
+</p>
+<p align="center">
+  <img src="assets/screenshot2-first-start.png" alt="The first start unpacking the game data" width="600">
+</p>
+
+[A clip of a race](assets/demo.webm), captured from the hardware.
+
+## Controls
+
+| Action | Button |
+|---|---|
+| Accelerate | R2 |
+| Brake / reverse | L2 |
+| Steer | Left stick |
+| Use powerup | Cross |
+| Nitro | Square |
+| Skid | R1 |
+| Look back | Circle |
+| Rescue | Create |
+| Pause | Options |
+
+In menus, Cross selects and Circle goes back. The same card is in the game under Help, Controls,
+and it reads the pad's live bindings, so a rebind in Options, Controls shows there too.
+
+## Hardware additions
+
+- **Triggers drive** (`patches/0001`) - upstream puts accelerate on the top face button; here a
+  pad with triggers gets the layout above, and bindings are named as this pad names its buttons.
+- **A controls card** (`patches/0002`) - help page 7, with the shared controller drawing from
+  `common/assets/controls`.
+- **The system keyboard** - a text field, such as the player name on first start, opens the
+  console's on-screen keyboard through the SDL backend.
+- **Online** - news, add-ons and servers resolve through the collection's hosted `getaddrinfo`.
 
 ## Building
 
