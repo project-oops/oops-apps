@@ -1,0 +1,106 @@
+Report ENet's first socket failure of each kind.
+
+`enet_host_service` returns -1 when a send, receive or poll fails, and
+`ConnectToServer::tryConnect` loops while the result is non-zero - so on a platform whose
+socket calls refuse something, the connect screen waits forever and nothing is logged.
+Each failure path in `lib/enet/unix.c` now says once, on stderr, which call failed and
+its errno: sendmsg, recvmsg, a truncated datagram, a sender address of the wrong family,
+and poll. Guarded by `OOPS_TARGET`; the behaviour is unchanged.
+
+diff --git a/lib/enet/unix.c b/lib/enet/unix.c
+index c10a3d9..7b18ea0 100644
+--- a/lib/enet/unix.c
++++ b/lib/enet/unix.c
+@@ -14,6 +14,23 @@
+ #include <string.h>
+ #include <errno.h>
+ #include <time.h>
++#ifdef OOPS_TARGET
++#include <stdio.h>
++/* A socket call's failure, once per kind: `enet_host_service` returns -1 on any of
++   these and ConnectToServer loops on a non-zero result, so a failing call is otherwise
++   a connect screen that waits forever and says nothing. */
++#define OOPS_ENET_REPORT(kind, value)                                          \
++    do {                                                                       \
++        static int oops_said;                                                  \
++        if (!oops_said) {                                                      \
++            oops_said = 1;                                                     \
++            fprintf (stderr, "enet: %s (%d, errno %d)\n", kind, (int) (value), \
++                     errno);                                                   \
++        }                                                                      \
++    } while (0)
++#else
++#define OOPS_ENET_REPORT(kind, value) do { } while (0)
++#endif
+ 
+ #define ENET_BUILDING_LIB 1
+ #include "enet/enet.h"
+@@ -523,12 +540,13 @@ enet_socket_send (ENetSocket socket,
+     msgHdr.msg_iovlen = bufferCount;
+ 
+     sentLength = sendmsg (socket, & msgHdr, MSG_NOSIGNAL);
+-    
++
+     if (sentLength == -1)
+     {
+        if (errno == EWOULDBLOCK)
+          return 0;
+ 
++       OOPS_ENET_REPORT ("sendmsg failed", sentLength);
+        return -1;
+     }
+ 
+@@ -564,12 +582,16 @@ enet_socket_receive (ENetSocket socket,
+        if (errno == EWOULDBLOCK)
+          return 0;
+ 
++       OOPS_ENET_REPORT ("recvmsg failed", recvLength);
+        return -1;
+     }
+ 
+ #ifdef HAS_MSGHDR_FLAGS
+     if (msgHdr.msg_flags & MSG_TRUNC)
++    {
++      OOPS_ENET_REPORT ("recvmsg truncated a datagram", msgHdr.msg_flags);
+       return -1;
++    }
+ #endif
+ 
+     if (address != NULL)
+@@ -579,20 +601,27 @@ enet_socket_receive (ENetSocket socket,
+         case AF_INET:
+             // Should not happen if dual stack is working
+             if (isIPv6Socket() == 1)
++            {
++                OOPS_ENET_REPORT ("recvmsg: IPv4 sender on an IPv6 socket", 0);
+                 return -1;
++            }
+             struct sockaddr_in * v4 = (struct sockaddr_in *) & sin;
+             address -> host.p0 = (enet_uint32) v4 -> sin_addr.s_addr;
+             address -> port = ENET_NET_TO_HOST_16 (v4->sin_port);
+             break;
+         case AF_INET6:
+             if (isIPv6Socket() != 1)
+-            return -1;
++            {
++                OOPS_ENET_REPORT ("recvmsg: IPv6 sender on an IPv4 socket", 0);
++                return -1;
++            }
+             struct sockaddr_in6 * v6 = (struct sockaddr_in6 *) & sin;
+             memcpy (& address -> host.p0, v6 -> sin6_addr.s6_addr, 16);
+             address -> host.p4 = v6 -> sin6_scope_id;
+             address -> port = ENET_NET_TO_HOST_16 (v6 -> sin6_port);
+             break;
+         default:
++            OOPS_ENET_REPORT ("recvmsg: sender family not IPv4 or IPv6", sin.ss_family);
+             return -1;
+         }
+     }
+@@ -638,6 +667,7 @@ enet_socket_wait (ENetSocket socket, enet_uint32 * condition, enet_uint32 timeou
+             return 0;
+         }
+ 
++        OOPS_ENET_REPORT ("poll failed", pollCount);
+         return -1;
+     }
+ 
