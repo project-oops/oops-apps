@@ -223,7 +223,10 @@ HL_ENGINE_LIB := $(HL_BUILD)/libxash.a
 HL_ENGINE_OBJS := $(HL_public_OBJS) $(HL_engine_OBJS) $(HL_thirdparty_OBJS)
 $(HL_ENGINE_LIB): $(HL_ENGINE_OBJS)
 	@rm -f $@
-	@a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $(HL_ENGINE_OBJS)
+	@# A response file (`common/deps.mk`): the object list exceeds Windows' command line.
+	@:$(call oops_rsp,$@.rsp,$(HL_ENGINE_OBJS))
+	@a=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar || command -v ar); \
+	 "$$a" rcs $@ @$@.rsp
 	@echo "half-life: $@ ($(words $(HL_ENGINE_OBJS)) objects)"
 
 # The five libraries the engine loads, each as upstream's static build makes them

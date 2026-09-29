@@ -146,7 +146,10 @@ MNCL_LIB := $(MNCL_BUILD)/libluanti.a
 MNCL_OBJS := $(foreach s,$(CENSUS_SETS),$(MNCL_$(s)_OBJS))
 $(MNCL_LIB): $(MNCL_OBJS)
 	@rm -f $@
-	@a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $(MNCL_OBJS)
+	@# A response file (`common/deps.mk`): the object list exceeds Windows' command line.
+	@:$(call oops_rsp,$@.rsp,$(MNCL_OBJS))
+	@a=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar || command -v ar); \
+	 "$$a" rcs $@ @$@.rsp
 	@echo "mineclonia: $@ ($(words $(MNCL_OBJS)) objects)"
 
 # The entry shim is C++ (Luanti's `main` is), and brings the C++ runtime with it.
