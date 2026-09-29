@@ -74,8 +74,26 @@ endif
 # crossed a minute boundary stopped with the two timestamps quoted at it.
 OOPS_CXX_APP_DEFINES = -DOOPS_APP_ID=\"$(TITLE_ID)\" -DOOPS_APP_NAME=\"$(APP_NAME)\"
 
+# `-ftls-model=initial-exec`, and it has to be here rather than inherited: these flags are
+# built from scratch, not from `TARGET_CFLAGS`, so `app.mk`'s copy of it reaches the C half
+# alone - and C++ is where the `thread_local`s are.
+#
+# Under `-fPIC` clang's default for a `thread_local` with external linkage is general
+# dynamic, which emits `R_X86_64_TLSGD` and a call to `__tls_get_addr`. libkernel exports
+# that function, so it links and loads; what it does not do is populate a DTV for a thread
+# it did not create the TLS block for. `__tls_get_addr` begins `dtv[ti->ti_module]`, so on
+# the first thread a payload creates, a null DTV indexed at module 1 reads address 8 and
+# faults - signal 11, trap 12, faulting address 0x8, `rip` inside libkernel, measured on
+# Ship of Harkinian. Initial exec emits `R_X86_64_GOTTPOFF` instead, resolved against
+# `%fs:0` at load, and neither the DTV nor `__tls_get_addr` is reached at all.
+#
+# One `thread_local` anywhere in the C++ is enough: `ZAPDTR/ZAPD/OutputFormatter.h:30`'s
+# `static thread_local OutputFormatter* Instance` is a class static, so external linkage,
+# so exactly the case that picks general dynamic. `supertuxkart/Makefile` carried this flag
+# privately for the same reason before it was understood; a title should not have to know.
 OOPS_CXX_FLAGS = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
                  -nostdinc++ $(OOPS_CXX_EH_FLAGS) -fPIC -fno-stack-protector \
+                 -ftls-model=initial-exec \
                  -std=$(OOPS_CXX_STD) -O2 -w \
                  $(OOPS_CXX_APP_DEFINES) \
                  $(OOPS_SDK_INCLUDE) \
