@@ -45,7 +45,12 @@ The host build is done in a container, and the specifics matter:
   next configure reads it out of the cache and cannot find it.
 
 Then `cmake --build <build> --target GenerateSohOtr`, and copy the result to
-`build/soh.o2r`, which is where `make package` looks.
+`prebuilt/soh.o2r`, which is where `make package` looks.
+
+`prebuilt/` and not `build/`, because make owns `build/` and clears it whenever the build
+roots move between the Docker and WSL runners. An archive that took an hour of host ZAPD to
+produce was deleted that way once, by a build that had nothing to do with it. `build/` is
+for what the build can reproduce; this is the one thing here that it cannot.
 
 ## Targets
 

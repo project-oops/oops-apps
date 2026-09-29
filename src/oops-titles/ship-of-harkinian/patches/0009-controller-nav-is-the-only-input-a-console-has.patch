@@ -1,0 +1,71 @@
+Controller navigation is the only input a console has
+
+`ImGuiConfigFlags_NavEnableGamepad` is set only when `CVAR_IMGUI_CONTROLLER_NAV` is on
+*and* the menu or menubar is visible, and cleared every frame otherwise. On a desktop
+that is a sensible default: the pad drives the menu when asked to, and anything else is
+answered with a mouse.
+
+There is no mouse here, and both conditions fail for reasons unrelated to intent. The
+CVar defaults to 0. And the first thing a player meets is not the menubar - it is
+`InitOTR`'s "No O2R files found. Generate one now?", a popup, so
+`GetMenuOrMenubarVisible()` is false. The `else` branch then clears the flag on every
+frame the dialog is up.
+
+What that produced was a title that looked finished and was not: the prompt on screen
+with Yes and No, a software cursor that does not move, and no way to reach either
+button - while the pad was connected and SDL was reporting it as joystick 0. There is
+nothing to fall back to, so on this platform the flag is simply on.
+
+Both places are patched, and the second is the one that matters: the first is set once
+at init, the per-frame copy in the draw path is what was undoing it.
+
+diff --git a/libultraship/src/ship/window/gui/Gui.cpp b/libultraship/src/ship/window/gui/Gui.cpp
+index 426a965..d7c2cf4 100644
+--- a/libultraship/src/ship/window/gui/Gui.cpp
++++ b/libultraship/src/ship/window/gui/Gui.cpp
+@@ -129,12 +129,25 @@ void Gui::Init(GuiWindowInitData windowImpl) {
+         mImGuiIo->ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+     }
+ 
++#ifdef __PROSPERO__
++    // A console has no mouse, so controller navigation is not a preference here - it is the
++    // only way anything on screen can be answered. Both conditions below fail on this
++    // platform for reasons that have nothing to do with intent: the CVar defaults to 0, and
++    // the first thing a player meets is a popup rather than the menubar, so
++    // `GetMenuOrMenubarVisible()` is false. The `else` then clears the flag every frame.
++    //
++    // What that looked like: "No O2R files found. Generate one now?" with Yes and No, a
++    // cursor that does not move, and no way to reach either button - while the pad was
++    // connected and SDL was reporting it.
++    mImGuiIo->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
++#else
+     if (Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(CVAR_IMGUI_CONTROLLER_NAV, 0) &&
+         GetMenuOrMenubarVisible()) {
+         mImGuiIo->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+     } else {
+         mImGuiIo->ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
+     }
++#endif
+ 
+     GetGuiWindow("Stats")->Init();
+     GetGuiWindow("Input Editor")->Init();
+@@ -544,12 +557,19 @@ void Gui::DrawMenu() {
+             GetMenuBar()->ToggleVisibility();
+         }
+         Ship::Context::GetInstance()->GetWindow()->GetMouseStateManager()->UpdateMouseCapture();
++#ifdef __PROSPERO__
++        /* Kept on for the reason given where it is first set: there is no mouse here, so
++         * clearing this leaves nothing that can reach a button. This is the per-frame copy,
++         * and it is the one that was undoing it. */
++        mImGuiIo->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
++#else
+         if (Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(CVAR_IMGUI_CONTROLLER_NAV, 0) &&
+             GetMenuOrMenubarVisible()) {
+             mImGuiIo->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+         } else {
+             mImGuiIo->ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
+         }
++#endif
+     }
+ 
+     // Mac interprets this as cmd+r when io.ConfigMacOSXBehavior is on (on by default)

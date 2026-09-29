@@ -457,10 +457,6 @@ SOH_WARNINGS := -Wno-deprecated-non-prototype -Wno-strict-prototypes -Wno-missin
 # `$(OOPS_POSIX_INCLUDE)` leads for the same reason it does in `SOH_CXXFLAGS`, and because the
 # shim sources compiled alongside the payload read their own `<dirent.h>` and `<pwd.h>` from it.
 EXTRA_TARGET_CFLAGS += $(OOPS_POSIX_INCLUDE) $(SOH_INCLUDE) $(SOH_GEN_INCLUDE)
-# `__tls_get_addr` is libkernel's, which `common/symbols.txt:391` records, so the loader resolves it.
-# It arrives through `BS::thread_pool`'s `this_thread`, which libultraship's resource loader uses; it
-# is the one import this title adds to the set `UNDEF_ALLOW` already covers.
-EXTRA_UNDEF_ALLOW := ^__tls_get_addr$$
 
 # libultraship's Fast3D backend makes the GL calls, not this title, and it compiles shaders, so the
 # GL 2.0 surface. `dialog` is for SDL's message box, which the console draws through
