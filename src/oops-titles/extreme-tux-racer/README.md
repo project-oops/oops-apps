@@ -23,21 +23,28 @@ Extreme Tux Racer uses C++ as a better C, with no `throw` and no `dynamic_cast`,
 
 GPL v2; the upstream data is not committed here (fetched via `upstream.lock`).
 
-## Screenshot
+## Screenshots
 
 <p align="center">
-  <img src="../../../common/assets/no-screenshot.svg" alt="No screenshot yet" width="600">
+  <img src="assets/demo.gif" alt="Tux sliding down a course on the hardware, race clock and herring count on the HUD" width="600">
 </p>
+<p align="center">
+  <img src="assets/screenshot-menu.png" alt="The main menu on the console: Enter an event, Practice, Configuration, Highscore list, Help, Credits, Quit" width="600">
+</p>
+
+[The clip as a video](assets/demo.webm). Everything here is captured from the hardware.
 
 ## Hardware additions
 
 Five things this port adds that upstream has no reason to. Each is a patch only where it has to
 be, because a patch is rebased onto every upstream revision.
 
-- **The pad drives everything** - `0002`. Every menu registers a keyboard handler and NULL for
-  the joystick, so one translation in `winsys.cpp` covers every screen: a pad press arrives at
-  the handler the same key would. `racing.cpp` charges a jump on space, tricks on `t` and pauses
-  on `p`; Options, L1 and R1 send those.
+- **The pad drives everything** - `0002` and `0006`. Every menu registers a keyboard handler and
+  NULL for the joystick, so one translation in `winsys.cpp` covers every screen: a pad press
+  arrives at the handler the same key would. The race is the exception, because it registers a
+  joystick handler of its own and the translation steps aside for it, so `racing.cpp` maps the
+  buttons itself: Cross and R1 charge and jump, L1 holds a trick, Options pauses and Circle
+  quits.
 - **A controls reference card** - `0005`, on the `HELP` screen upstream has. The wireframe is the
   shared one from [`common/assets/controls/`](../../../common/assets/controls/), loaded straight
   to a GL id rather than added to upstream's texture list, and it ships in the packaged data.
