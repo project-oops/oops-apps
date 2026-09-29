@@ -1,0 +1,254 @@
+Make help page 7 a pad reference card.
+
+Nothing on screen says what the buttons do, and a pad has no labels under the player's
+fingers. The help screen already exists and is reachable from the main menu, so the card
+is its last page rather than a new screen: the shared controller drawing from
+`common/assets/controls` (packaged as `data/gui/oops-controller.png` by this title's
+`package` rule, so upstream's `data/` stays as it ships), with the bindings beside it.
+
+The bindings are read from the pad's own configuration when the page opens
+(`help_screen_7.cpp`), so the card cannot disagree with the game and follows a rebind.
+It is read-only; rebinding stays in Options, Controls.
+
+The page it replaces was "Multiplayer": how to join an online server, and how to set up
+several local input devices. The tab is renamed "Controls" on all seven help layouts,
+because each one repeats the tab bar.
+
+diff --git a/data/gui/screens/help/help1.stkgui b/data/gui/screens/help/help1.stkgui
+index 4bced16..eec6ee5 100644
+--- a/data/gui/screens/help/help1.stkgui
++++ b/data/gui/screens/help/help1.stkgui
+@@ -21,7 +21,7 @@
+                 <icon-button id="page6" width="128" height="128" icon="gui/icons/mass.png"
+                         I18N="Tab in help menu" text="Kart classes"/>
+                 <icon-button id="page7" width="128" height="128" icon="gui/icons/options_input.png"
+-                        I18N="Tab in help menu" text="Multiplayer"/>
++                        I18N="Tab in help menu" text="Controls"/>
+             </vertical-tabs>
+ 
+             <spacer width="2%" height="100%"/>
+diff --git a/data/gui/screens/help/help2.stkgui b/data/gui/screens/help/help2.stkgui
+index 60839fd..756bd9d 100644
+--- a/data/gui/screens/help/help2.stkgui
++++ b/data/gui/screens/help/help2.stkgui
+@@ -21,7 +21,7 @@
+                 <icon-button id="page6" width="128" height="128" icon="gui/icons/mass.png"
+                         I18N="Tab in help menu" text="Kart classes"/>
+                 <icon-button id="page7" width="128" height="128" icon="gui/icons/options_input.png"
+-                        I18N="Tab in help menu" text="Multiplayer"/>
++                        I18N="Tab in help menu" text="Controls"/>
+             </vertical-tabs>
+ 
+             <spacer width="2%" height="100%"/>
+diff --git a/data/gui/screens/help/help3.stkgui b/data/gui/screens/help/help3.stkgui
+index d96a472..6c665ef 100644
+--- a/data/gui/screens/help/help3.stkgui
++++ b/data/gui/screens/help/help3.stkgui
+@@ -21,7 +21,7 @@
+                 <icon-button id="page6" width="128" height="128" icon="gui/icons/mass.png"
+                         I18N="Tab in help menu" text="Kart classes"/>
+                 <icon-button id="page7" width="128" height="128" icon="gui/icons/options_input.png"
+-                        I18N="Tab in help menu" text="Multiplayer"/>
++                        I18N="Tab in help menu" text="Controls"/>
+             </vertical-tabs>
+ 
+             <spacer width="2%" height="100%"/>
+diff --git a/data/gui/screens/help/help4.stkgui b/data/gui/screens/help/help4.stkgui
+index a783500..af589ba 100644
+--- a/data/gui/screens/help/help4.stkgui
++++ b/data/gui/screens/help/help4.stkgui
+@@ -21,7 +21,7 @@
+                 <icon-button id="page6" width="128" height="128" icon="gui/icons/mass.png"
+                         I18N="Tab in help menu" text="Kart classes"/>
+                 <icon-button id="page7" width="128" height="128" icon="gui/icons/options_input.png"
+-                        I18N="Tab in help menu" text="Multiplayer"/>
++                        I18N="Tab in help menu" text="Controls"/>
+             </vertical-tabs>
+ 
+             <spacer width="2%" height="100%"/>
+diff --git a/data/gui/screens/help/help5.stkgui b/data/gui/screens/help/help5.stkgui
+index 2907349..80bebff 100644
+--- a/data/gui/screens/help/help5.stkgui
++++ b/data/gui/screens/help/help5.stkgui
+@@ -21,7 +21,7 @@
+                 <icon-button id="page6" width="128" height="128" icon="gui/icons/mass.png"
+                         I18N="Tab in help menu" text="Kart classes"/>
+                 <icon-button id="page7" width="128" height="128" icon="gui/icons/options_input.png"
+-                        I18N="Tab in help menu" text="Multiplayer"/>
++                        I18N="Tab in help menu" text="Controls"/>
+             </vertical-tabs>
+ 
+             <spacer width="2%" height="100%"/>
+diff --git a/data/gui/screens/help/help6.stkgui b/data/gui/screens/help/help6.stkgui
+index 0c4976d..502b3b4 100644
+--- a/data/gui/screens/help/help6.stkgui
++++ b/data/gui/screens/help/help6.stkgui
+@@ -21,7 +21,7 @@
+                 <icon-button id="page6" width="128" height="128" icon="gui/icons/mass.png"
+                         I18N="Tab in help menu" text="Kart classes"/>
+                 <icon-button id="page7" width="128" height="128" icon="gui/icons/options_input.png"
+-                        I18N="Tab in help menu" text="Multiplayer"/>
++                        I18N="Tab in help menu" text="Controls"/>
+             </vertical-tabs>
+ 
+             <spacer width="2%" height="100%"/>
+diff --git a/data/gui/screens/help/help7.stkgui b/data/gui/screens/help/help7.stkgui
+index 5424642..57e791d 100644
+--- a/data/gui/screens/help/help7.stkgui
++++ b/data/gui/screens/help/help7.stkgui
+@@ -21,47 +21,59 @@
+                 <icon-button id="page6" width="128" height="128" icon="gui/icons/mass.png"
+                         I18N="Tab in help menu" text="Kart classes"/>
+                 <icon-button id="page7" width="128" height="128" icon="gui/icons/options_input.png"
+-                        I18N="Tab in help menu" text="Multiplayer"/>
++                        I18N="Tab in help menu" text="Controls"/>
+             </vertical-tabs>
+ 
+             <spacer width="2%" height="100%"/>
+ 
++            <!-- The pad reference card: the bindings are filled in from the pad's own
++                 configuration by help_screen_7.cpp, so the card cannot disagree with it. -->
+             <box width="78%" height="100%" layout="vertical-row">
+-                <label align="center" I18N="In the help menu" text="SuperTuxKart can be played in multiplayer mode online...:"/>
+-                <div width="100%" proportion="2" layout="horizontal-row">
+-                    <icon align="center" width="8%" height="100%" icon="gui/icons/networking_icon.png"/>
++                <div width="100%" proportion="1" layout="horizontal-row">
++                    <icon align="center" width="46%" height="100%" icon="gui/oops-controller.png"/>
+                     <spacer width="3%" height="100%"/>
+-                    <bubble proportion="1" height="100%"
+-                            I18N="In the help menu"
+-                            text="First, select the 'online' icon in the main menu. Choose either local networking, or global networking (requires internet to be enabled in the options). Then, you can either create your own server with custom options, or search among a list of existing servers to join. Some of them are recommended servers with optionally ranked races."/>
++                    <div proportion="1" height="100%" layout="vertical-row">
++                        <div width="100%" proportion="1" layout="horizontal-row">
++                            <label proportion="1" height="100%" text="Accelerate"/>
++                            <label id="b_accel" proportion="1" height="100%" text=""/>
++                        </div>
++                        <div width="100%" proportion="1" layout="horizontal-row">
++                            <label proportion="1" height="100%" text="Brake / reverse"/>
++                            <label id="b_brake" proportion="1" height="100%" text=""/>
++                        </div>
++                        <div width="100%" proportion="1" layout="horizontal-row">
++                            <label proportion="1" height="100%" text="Steer"/>
++                            <label id="b_steer" proportion="1" height="100%" text=""/>
++                        </div>
++                        <div width="100%" proportion="1" layout="horizontal-row">
++                            <label proportion="1" height="100%" text="Use powerup"/>
++                            <label id="b_fire" proportion="1" height="100%" text=""/>
++                        </div>
++                        <div width="100%" proportion="1" layout="horizontal-row">
++                            <label proportion="1" height="100%" text="Nitro"/>
++                            <label id="b_nitro" proportion="1" height="100%" text=""/>
++                        </div>
++                        <div width="100%" proportion="1" layout="horizontal-row">
++                            <label proportion="1" height="100%" text="Skid"/>
++                            <label id="b_drift" proportion="1" height="100%" text=""/>
++                        </div>
++                        <div width="100%" proportion="1" layout="horizontal-row">
++                            <label proportion="1" height="100%" text="Look back"/>
++                            <label id="b_look" proportion="1" height="100%" text=""/>
++                        </div>
++                        <div width="100%" proportion="1" layout="horizontal-row">
++                            <label proportion="1" height="100%" text="Rescue"/>
++                            <label id="b_rescue" proportion="1" height="100%" text=""/>
++                        </div>
++                        <div width="100%" proportion="1" layout="horizontal-row">
++                            <label proportion="1" height="100%" text="Pause"/>
++                            <label id="b_pause" proportion="1" height="100%" text=""/>
++                        </div>
++                    </div>
+                 </div>
+-
+-                <div width="100%" proportion="2" layout="horizontal-row">
+-                    <icon align="center" width="8%" height="100%" icon="gui/icons/crown.png"/>
+-                    <spacer width="3%" height="100%"/>
+-                    <bubble proportion="1" height="100%"
+-                            I18N="In the help menu"
+-                            text="Once in a server, a race will begin once its owner (symbolized with the crown) decides so. Official servers may auto-start races only when there are enough players. Then, you can choose your kart and vote for the next track to race on. An addon track is allowed only if it exists on all joined players and the server."/>
+-                </div>
+-
+-                <label align="center" I18N="In the help menu" text="... or on the same device:"/>
+-
+-                <div width="100%" proportion="2" layout="horizontal-row">
+-                    <icon align="center" width="8%" height="100%" icon="gui/icons/options_input.png"/>
+-                    <spacer width="3%" height="100%"/>
+-                    <bubble proportion="1" height="100%"
+-                            I18N="In the help menu"
+-                            text="First, you will need several input devices. Use the input configuration screen to set them up. Multiple gamepads or joysticks are ideal: on keyboard(s), each player will need a different set of keys, and most keyboards are not appropriate for multiplayer because they don't support multiple simultaneous keypresses."/>
+-                </div>
+-
+-                <div width="100%" proportion="2" layout="horizontal-row">
+-                    <icon align="center" width="8%" height="100%" icon="gui/icons/random_kart.png"/>
+-                    <spacer width="3%" height="100%"/>
+-                    <bubble proportion="1" height="100%"
+-                            I18N="In the help menu"
+-                            text="When input devices are configured, select the 'Splitscreen Multiplayer' icon in the main menu. Each player can press the 'fire' key of their gamepad or keyboard to join the game, and use their input device to select their kart. The game continues when everyone selected their kart. Note that the mouse may not be used for this operation."/>
+-                </div>
+-                <spacer width="50" height="25" />
++                <label width="100%" align="center" text_align="center" word_wrap="true"
++                       text="Rebind them in Options, Controls. Menus: Cross selects, Circle goes back."/>
++                <spacer width="50" height="2%" />
+             </box>
+ 
+         </div>
+diff --git a/src/states_screens/help/help_screen_7.cpp b/src/states_screens/help/help_screen_7.cpp
+index a369528..88ae096 100644
+--- a/src/states_screens/help/help_screen_7.cpp
++++ b/src/states_screens/help/help_screen_7.cpp
+@@ -17,6 +17,11 @@
+ 
+ // Manages includes common to all help screens
+ #include "states_screens/help/help_common.hpp"
++#include "guiengine/widgets/label_widget.hpp"
++#include "input/device_manager.hpp"
++#include "input/gamepad_config.hpp"
++#include "input/gamepad_device.hpp"
++#include "input/input_manager.hpp"
+ 
+ using namespace GUIEngine;
+ 
+@@ -62,6 +67,45 @@ void HelpScreen7::init()
+         w->setFocusForPlayer(PLAYER_ID_GAME_MASTER);
+         w->select( "page7", PLAYER_ID_GAME_MASTER );
+     }
++
++    // The card reads the connected pad's configuration, or the first gamepad
++    // configuration when no pad is connected yet.
++    DeviceManager* dm = input_manager->getDeviceManager();
++    DeviceConfig* config = NULL;
++    if (dm->getGamePadAmount() > 0 && dm->getGamePad(0) != NULL)
++        config = dm->getGamePad(0)->getConfiguration();
++    else if (dm->getGamePadConfigAmount() > 0)
++        config = dm->getGamepadConfig(0);
++
++    const struct { const char* id; PlayerAction action; } rows[] =
++    {
++        { "b_accel", PA_ACCEL },     { "b_brake", PA_BRAKE },
++        { "b_fire", PA_FIRE },       { "b_nitro", PA_NITRO },
++        { "b_drift", PA_DRIFT },     { "b_look", PA_LOOK_BACK },
++        { "b_rescue", PA_RESCUE },   { "b_pause", PA_PAUSE_RACE },
++    };
++    for (const auto& r : rows)
++    {
++        LabelWidget* l = getWidget<LabelWidget>(r.id);
++        if (l == NULL)
++            continue;
++        l->setText(config ? config->getBindingAsString(r.action)
++                          : irr::core::stringw(L"-"), false);
++        l->setColor(irr::video::SColor(255, 255, 210, 60));
++    }
++    LabelWidget* steer = getWidget<LabelWidget>("b_steer");
++    if (steer != NULL)
++    {
++        irr::core::stringw s = L"-";
++        if (config)
++        {
++            s = config->getBindingAsString(PA_STEER_LEFT);
++            s += L" / ";
++            s += config->getBindingAsString(PA_STEER_RIGHT);
++        }
++        steer->setText(s, false);
++        steer->setColor(irr::video::SColor(255, 255, 210, 60));
++    }
+ }   // init
+ 
+ // -----------------------------------------------------------------------------

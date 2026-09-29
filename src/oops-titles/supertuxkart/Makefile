@@ -172,9 +172,13 @@ $(foreach s,$(CENSUS_SETS),$(eval $(call stkt_objs,$(s))))
 
 STKT_LIB := $(STKT_BUILD)/libsupertuxkart.a
 STKT_OBJS := $(foreach s,$(CENSUS_SETS),$(STKT_$(s)_OBJS))
+# The object list goes to `ar` in a response file (`common/deps.mk`): 813 paths on one
+# command line exceed Windows' limit, and the archive step failed with error 87.
 $(STKT_LIB): $(STKT_OBJS)
 	@rm -f $@
-	@a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $(STKT_OBJS)
+	@:$(call oops_rsp,$@.rsp,$(STKT_OBJS))
+	@a=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar || command -v ar); \
+	 "$$a" rcs $@ @$@.rsp
 	@echo "supertuxkart: $@ ($(words $(STKT_OBJS)) objects)"
 # The generated header views, before anything includes them.
 $(STKT_OBJS): $(OOPS_SDL_PREFIX_STAMP) $(OOPS_HB_PREFIX_STAMP)
@@ -244,10 +248,14 @@ census: $(OOPS_SDL_PREFIX_STAMP) $(OOPS_HB_PREFIX_STAMP)
 #
 # stk-code's own `data/` (1,307 files: GUI, shaders, fonts, translations) and the release's
 # assets (4,279 files: karts, tracks, textures, music), as one tar the entry shim unpacks on
-# first start into `/app0/data` and `/app0/assets` - `pros restore` costs per file.
+# first start into `/app0/data` and `/app0/assets` - `pros restore` costs per file. The shared
+# controller drawing (`common/assets/controls`) joins them as `data/gui/oops-controller.png`,
+# for the controls card on help page 7 (patches/0002), so upstream's tree stays as it ships.
 STKT_PKG = build/title/$(TITLE_ID)
 .PHONY: package
 package: title
 	@tar --format=gnu -cf $(STKT_PKG)/stk-data.tar --transform 's,^upstream-assets,assets,' \
-	    -C upstream data -C .. upstream-assets
+	    --transform 's,^controller\.png$$,data/gui/oops-controller.png,' \
+	    -C upstream data -C .. upstream-assets \
+	    -C $(OOPS_APPS_ROOT)/common/assets/controls controller.png
 	@echo "supertuxkart: package is $(STKT_PKG) ($$(du -sh $(STKT_PKG) | cut -f1))"

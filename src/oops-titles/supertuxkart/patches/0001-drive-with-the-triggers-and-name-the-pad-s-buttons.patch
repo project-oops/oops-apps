@@ -1,0 +1,74 @@
+Drive with the triggers, and name the pad's buttons as the pad does.
+
+Upstream's default for a pad with shoulder buttons puts accelerate on the top face
+button and brake on the left one (`src/input/gamepad_config.cpp`, the non-Switch
+branch). On this pad that is Triangle and Square, which is not where a player reaches
+first. Racing games on this console drive with the triggers, so under `OOPS_TARGET` a
+pad that reports both triggers gets:
+
+    R2 accelerate, L2 brake/reverse, left stick steer,
+    Cross fire, Square nitro, R1 skid, Circle look back,
+    Create rescue, Options pause; Cross selects and Circle goes back in menus.
+
+A pad without triggers keeps upstream's layout. This is a default only: a profile
+already saved in `input.xml` keeps its bindings until it is reset in Options.
+
+The names STK shows for a binding - in Options, Controls and on the help page's card
+(patch 0002) - are the Xbox letters upstream ships. Under `OOPS_TARGET` they are this
+pad's own: Cross, Circle, Square, Triangle, Create, Options, L1/R1, L2/R2, L3/R3.
+
+diff --git a/src/input/gamepad_config.cpp b/src/input/gamepad_config.cpp
+index 4733cff..f7bfc6d 100644
+--- a/src/input/gamepad_config.cpp
++++ b/src/input/gamepad_config.cpp
+@@ -199,6 +199,23 @@ core::stringw GamepadConfig::getBindingAsString(const PlayerAction action) const
+         { SDL_CONTROLLER_AXIS_TRIGGERRIGHT_UP, _("Right trigger") }
+     }};
+ 
++#ifdef OOPS_TARGET
++    // The console pad's own names, rather than another pad's letters.
++    readable[SDL_CONTROLLER_BUTTON_A] = "Cross";
++    readable[SDL_CONTROLLER_BUTTON_B] = "Circle";
++    readable[SDL_CONTROLLER_BUTTON_X] = "Square";
++    readable[SDL_CONTROLLER_BUTTON_Y] = "Triangle";
++    readable[SDL_CONTROLLER_BUTTON_BACK] = "Create";
++    readable[SDL_CONTROLLER_BUTTON_GUIDE] = "PS";
++    readable[SDL_CONTROLLER_BUTTON_START] = "Options";
++    readable[SDL_CONTROLLER_BUTTON_LEFTSTICK] = "L3";
++    readable[SDL_CONTROLLER_BUTTON_RIGHTSTICK] = "R3";
++    readable[SDL_CONTROLLER_BUTTON_LEFTSHOULDER] = "L1";
++    readable[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER] = "R1";
++    readable[SDL_CONTROLLER_AXIS_TRIGGERLEFT_UP] = "L2";
++    readable[SDL_CONTROLLER_AXIS_TRIGGERRIGHT_UP] = "R2";
++#endif
++
+     const Binding &b = getBinding(action);
+     int id = b.getId();
+     Input::AxisDirection ad = b.getDirection();
+@@ -527,6 +544,26 @@ void GamepadConfig::initSDLMapping()
+         goto fallback;
+     // If shoulder buttons are found change acceleration handling because some
+     // stick may not handle acceleration and steering good together
++#ifdef OOPS_TARGET
++    // The console pad: the triggers drive, as racing games on it do, and the face
++    // buttons are left for the kart.
++    if (actions_map.find(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) != actions_map.end() &&
++        actions_map.find(SDL_CONTROLLER_AXIS_TRIGGERLEFT_UP) != actions_map.end() &&
++        actions_map.find(SDL_CONTROLLER_AXIS_TRIGGERRIGHT_UP) != actions_map.end())
++    {
++        setBindingFromTuple(PA_ACCEL, actions_map.at(SDL_CONTROLLER_AXIS_TRIGGERRIGHT_UP));
++        setBindingFromTuple(PA_BRAKE, actions_map.at(SDL_CONTROLLER_AXIS_TRIGGERLEFT_UP));
++        setBindingFromTuple(PA_FIRE, actions_map.at(SDL_CONTROLLER_BUTTON_A));
++        setBindingFromTuple(PA_NITRO, actions_map.at(SDL_CONTROLLER_BUTTON_X));
++        setBindingFromTuple(PA_DRIFT, actions_map.at(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER));
++        setBindingFromTuple(PA_LOOK_BACK, actions_map.at(SDL_CONTROLLER_BUTTON_B));
++        setBindingFromTuple(PA_RESCUE, actions_map.at(SDL_CONTROLLER_BUTTON_BACK));
++        setBindingFromTuple(PA_PAUSE_RACE, actions_map.at(SDL_CONTROLLER_BUTTON_START));
++        setBindingFromTuple(PA_MENU_SELECT, actions_map.at(SDL_CONTROLLER_BUTTON_A));
++        setBindingFromTuple(PA_MENU_CANCEL, actions_map.at(SDL_CONTROLLER_BUTTON_B));
++        return;
++    }
++#endif
+     if (actions_map.find(SDL_CONTROLLER_BUTTON_LEFTSHOULDER) != actions_map.end() &&
+         actions_map.find(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) != actions_map.end())
+     {

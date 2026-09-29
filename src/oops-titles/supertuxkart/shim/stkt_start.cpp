@@ -19,6 +19,9 @@
 #include <cstdlib>
 
 extern "C" void oops_crashtrace_install(void);
+/* `SDL_bool SDL_SetHint(...)` (`SDL_hints.h`), declared here because the shim does not
+ * compile against SDL's headers. */
+extern "C" int SDL_SetHint(const char *name, const char *value);
 /* oops-mesa's `.init_array` walk, which also runs Mesa's own dynamic initialisers. It
  * is guarded, so Mesa calling it again is harmless; the SDK's `oops_run_init_array` is
  * not guarded against this one and would construct everything twice. */
@@ -64,6 +67,11 @@ supertuxkart_start(const payload_args_t *args) {
         oops_log_error("STKT", "the environment could not be set; the data will not be "
                                "found");
     }
+
+    /* The edit box calls `SDL_StartTextInput` on focus; with this the SDL backend
+       answers it with the system keyboard (`oops-deps/sdl2`). A hint rather than the
+       environment, because this SDL keeps its own. */
+    (void)SDL_SetHint("SDL_ENABLE_SCREEN_KEYBOARD", "1");
 
     /* `exit`, not `return`: the loader called this and has nowhere to return to. */
     exit(stkt_upstream_main(1, argv));
