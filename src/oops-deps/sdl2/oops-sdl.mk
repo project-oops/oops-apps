@@ -133,13 +133,31 @@ $(OOPS_SDL_LIB): $(OOPS_SDL_C_SRCS) $(OOPS_SDL_DIR)/include/SDL_config_prospero.
                  $(OOPS_SDL_DIR)/oops-sdl.mk
 	@mkdir -p $(OOPS_SDL_BUILD)
 	@rm -f $@
-	@n=0; objs=""; for src in $(OOPS_SDL_C_SRCS); do \
+	@# The source list goes to a file, not into the recipe.
+	@#
+	@# Expanded inline, `$(OOPS_SDL_C_SRCS)` makes this one recipe line longer than a
+	@# Windows command line, and it arrives at the shell truncated: "syntax error:
+	@# unexpected end of file from `for' command on line 1", which names neither the
+	@# length nor the list. Reading the names instead keeps the recipe a fixed size
+	@# whatever SDL2 grows to, and costs nothing anywhere else.
+	@:$(call oops_rsp,$(OOPS_SDL_BUILD)/sources.list,$(OOPS_SDL_C_SRCS))
+	@# Stripped of carriage returns first: make's file-writing function emits the
+	@# platform's line ending, so on Windows every name arrives with a trailing CR that
+	@# `read` keeps and the compiler then reports as a missing file whose name looks
+	@# exactly right. `clang` and `llvm-ar` treat CR as whitespace, which is why a
+	@# response file passed to a tool needs no such care - only a shell reading one does.
+	@# Stripped into a second file rather than through a pipe, so the loop stays in this
+	@# shell and its counter survives.
+	@tr -d '\r' < $(OOPS_SDL_BUILD)/sources.list > $(OOPS_SDL_BUILD)/sources.txt; \
+	n=0; while IFS= read -r src; do \
+	    [ -n "$$src" ] || continue; \
 	    n=$$((n+1)); o=$(OOPS_SDL_BUILD)/sdl$$n.o; \
-	    $(TARGET_CC) $(OOPS_SDL_CFLAGS) -c -o "$$o" "$$src" || exit 1; objs="$$objs $$o"; \
-	done; \
+	    $(TARGET_CC) $(OOPS_SDL_CFLAGS) -c -o "$$o" "$$src" || exit 1; \
+	done < $(OOPS_SDL_BUILD)/sources.txt; \
 	echo "oops-sdl: compiled $$n sources"; \
 	ar_tool=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
-	"$$ar_tool" rcs $@ $$objs
+	ls $(OOPS_SDL_BUILD)/sdl*.o > $(OOPS_SDL_BUILD)/objects.list; \
+	"$$ar_tool" rcs $@ @$(OOPS_SDL_BUILD)/objects.list
 	@echo "oops-sdl: $@"
 
 .PHONY: sdl2-clean

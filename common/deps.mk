@@ -87,6 +87,11 @@ oops_obj_rules = $(foreach s,$(sort $(4)),$(eval $(call oops_obj_rule_one,$(1),$
 # It makes the file's directory first. make expands a recipe whole before running any of its
 # lines, so a `mkdir -p` line above this one has not run yet when the file is opened: on a clean
 # checkout (CI's) that was `open: build/cxx/libcxxtitle.a.rsp: No such file or directory`.
+# A shell reading one of these must strip carriage returns first. `$(file ...)` writes the
+# platform's line ending, so on Windows every word arrives with a trailing CR. `clang`,
+# `ld.lld` and `llvm-ar` treat CR as whitespace and need no care, which is why a response
+# file passed to a tool works untouched; `read` keeps it, and the result is a compiler
+# reporting a missing file whose name looks exactly right.
 oops_rsp = $(shell mkdir -p $(dir $(1)))$(file >$(1))$(foreach w,$(2),$(file >>$(1),$(w)))
 
 # $(call oops_ar_check,<objects>)

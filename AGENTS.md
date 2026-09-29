@@ -80,8 +80,27 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "<OOPS>:/w" \
 - Builds are parallel by default through `./bin/oops-apps`, which asks `common/jobs.sh` for
   a job count that fits in free memory and adds a load limit so a second build gets its
   share. Calling `make` directly gets none of that: pass `$(common/jobs.sh)` yourself.
+- **One app, one runner, and never two at once.** Each runner writes depfiles naming the
+  tree the way it sees it - a drive-letter path natively, `/oops/...` in the container,
+  `/mnt/c/...` under WSL - and each poisons the others. `common/app.mk` stamps the roots in
+  `$(BUILD)` and clears it when they move, which handles *switching* runners; it cannot
+  handle two building at the same time, because the stamp matches and the check never
+  fires. The symptoms are a missing file whose path is from somebody else's runner, or a
+  PCH that is fatally stale mid-build. If you find another build already running in an
+  app's `build/`, wait for it rather than starting a second.
+- A build failing on paths under `/mnt/c/...` or `/oops/...` is stale dependency output
+  from another runner: `rm -rf build` in that app and rebuild.
 - `MSYS_NO_PATHCONV=1` stops Git Bash rewriting `/w` into a Windows path.
-- A build failing on paths under `/mnt/c/...` is stale dependency output from a WSL build:
-  `rm -rf build` in that app and rebuild.
+- Native builds need `clang`, `ld.lld`, `llvm-ar`, `llvm-nm`, `llvm-readelf`, a
+  **Windows-native** `make` (an MSYS one reports `$(CURDIR)` as `/c/...`, which `clang.exe`
+  cannot open) and a `python3` that is not the Windows Store stub. They are unpacked
+  portably on this machine; put their `bin` directories on `PATH` for the shell you build
+  in. Three things a native build needs that a Linux one does not are already handled and
+  should not be re-discovered: argument lists go through `common/deps.mk`'s `oops_rsp`
+  because a command line caps at 32,767 characters and the payload link is three times
+  that; a shell reading one of those files must strip carriage returns, because make writes
+  the platform's line ending while `clang` and `llvm-ar` do not care; and a recipe's `#`
+  comments are expanded by make before the shell sees them, so a `$(...)` written inside
+  one is a function call, not text.
 - `./bin/oops-apps list | build | check | dist` reach every app the way CI does.
 - `./bin/oops-apps check` is the gate. There is no root `make check`.
