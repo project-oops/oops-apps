@@ -1,0 +1,25 @@
+The Options screen lists the pad controls.
+
+Neverputt has no help screen, so nothing in the game says that the left stick both
+aims and sets the power, or that holding Square slows both down for a fine putt. The
+Options screen is the one a player opens to find out how the game works, so the
+bindings go at its foot: `putt/st_all.c`'s, with the pad indices `patches/0003` sets.
+
+--- a/putt/st_conf.c
++++ b/putt/st_conf.c
+@@ -170,6 +170,15 @@
+             gui_label(jd, _("Language"),  GUI_SML, 0, 0);
+         }
+ 
++        /* The pad's controls. Neverputt has no help screen, and this is the one screen a
++           player opens to find out how the game works. The bindings are `st_all.c`'s with
++           the pad indices `patches/0003` sets. */
++        gui_space(id);
++        gui_multi(id, _("Left stick: aim left and right, set the power up and down\\"
++                        "Cross: putt    Hold Square: fine aim    Options: pause\\"
++                        "Menus: Cross selects, Circle goes back"),
++                  GUI_SML, gui_wht, gui_wht);
++
+         gui_layout(id, 0, 0);
+     }
+ 

@@ -1,0 +1,20 @@
+This console's pad is a PlayStation pad.
+
+RSDKv5 picks a pad's diagrams and button icons by matching its SDL name for "Xbox",
+"PS4", "Switch" and so on, and falls back to Xbox. The SDL backend names this pad
+"OOPS Controller", so Options, Controls showed an Xbox pad and the in-game prompts
+Xbox letters. The name now selects the PS4 set, which is the one with this pad's
+face-button shapes.
+
+--- a/dependencies/RSDKv5/RSDKv5/RSDK/Input/SDL2/SDL2InputDevice.cpp
++++ b/dependencies/RSDKv5/RSDKv5/RSDK/Input/SDL2/SDL2InputDevice.cpp
+@@ -207,7 +207,8 @@
+     if (name != NULL) {
+         if (strstr(name, "Xbox"))
+             controllerType = DEVICE_XBOX;
+-        else if (strstr(name, "Playstation") || strstr(name, "PS3") || strstr(name, "PS4") || strstr(name, "PS5"))
++        else if (strstr(name, "Playstation") || strstr(name, "PS3") || strstr(name, "PS4") || strstr(name, "PS5")
++                 || strstr(name, "OOPS Controller"))
+             controllerType = DEVICE_PS4;
+         else if (strstr(name, "Switch") || strstr(name, "Wii U")) {
+             controllerType   = DEVICE_SWITCH_PRO;

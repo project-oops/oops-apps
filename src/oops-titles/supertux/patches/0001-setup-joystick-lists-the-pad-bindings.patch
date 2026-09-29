@@ -1,0 +1,26 @@
+Setup Joystick lists the pad bindings.
+
+In SDL GameController mode - the default, and this port's - SuperTux fixes the pad's
+bindings in `src/control/game_controller_manager.cpp`, and Options, Setup Joystick
+shows only the "Manual Configuration" toggle: nothing on any screen says which button
+runs or looks around. Under `OOPS_TARGET` the screen lists them, read-only, in this
+pad's button names.
+
+--- a/src/supertux/menu/joystick_menu.cpp
++++ b/src/supertux/menu/joystick_menu.cpp
+@@ -59,6 +59,15 @@
+   if (m_input_manager.use_game_controller())
+   {
+     m_joysticks_available = false;
++#ifdef OOPS_TARGET
++    // The console pad's bindings, read-only: `game_controller_manager.cpp` fixes them in
++    // this mode, and this screen otherwise showed nothing but the toggle above.
++    add_hl();
++    add_inactive(_("Left stick / D-pad: walk, duck, climb, enter doors"));
++    add_inactive(_("Cross: jump    Square: run, grab, fire"));
++    add_inactive(_("Right stick, L1 / R1: look around"));
++    add_inactive(_("Options: pause    Circle: back in menus"));
++#endif
+   }
+   else
+   {

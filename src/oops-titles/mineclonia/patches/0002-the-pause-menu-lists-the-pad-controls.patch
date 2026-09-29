@@ -1,0 +1,32 @@
+The pause menu lists the pad controls.
+
+Luanti's pause menu has a "Controls:" panel, filled only in touchscreen mode
+(`src/client/game_formspec.cpp`, `showPauseMenu`). Under `OOPS_TARGET` it lists the
+pad's bindings instead: Luanti's gamepad defaults (`src/defaultsettings.cpp`), which
+Mineclonia's own settings do not change, in this pad's button names.
+
+--- a/src/client/game_formspec.cpp
++++ b/src/client/game_formspec.cpp
+@@ -374,6 +374,22 @@
+ 			" --> place single item to slot\n"
+ 			);
+ 	}
++#ifdef OOPS_TARGET
++	// The console pad: the defaults in `defaultsettings.cpp`, in the pad's own names.
++	else {
++		control_text = "Controls:\n"
++			"- left stick: walk\n"
++			"- right stick: look\n"
++			"- Cross: jump / Circle: sneak\n"
++			"- Square: sprint\n"
++			"- Triangle: inventory\n"
++			"- R2: dig / L2: place or use\n"
++			"- L1 / R1: hotbar slot\n"
++			"- D-pad: zoom / drop / fly\n"
++			"- Create: minimap\n"
++			"- Options: pause\n";
++	}
++#endif
+ 
+ 	auto simple_singleplayer_mode = m_client->m_simple_singleplayer_mode;
+ 

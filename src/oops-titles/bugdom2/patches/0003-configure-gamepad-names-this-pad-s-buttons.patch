@@ -1,0 +1,43 @@
+Configure Gamepad names this pad's buttons.
+
+Settings, Configure Gamepad lists every binding, which makes it the in-game controls
+card - but it names them with Xbox glyphs (Ⓐ Ⓑ Ⓧ Ⓨ, LB/RB, LT/RT) from
+`GetPadBindingName`, and on this console Ⓐ is Cross and Ⓨ is Triangle. Under
+`OOPS_TARGET` the buttons read as the pad prints them: Cross, Circle, Square,
+Triangle, L1/R1, L2/R2, L3/R3, Create, Options.
+
+--- a/Source/System/Menu.c
++++ b/Source/System/Menu.c
+@@ -159,6 +159,32 @@
+ {
+ 	InputBinding* kb = GetBindingAtRow(row);
+ 
++#ifdef OOPS_TARGET
++	// This console's pad names, in place of the Xbox letters and LB/RB/LT/RT below.
++	if (kb->pad[col].type == kInputTypeButton)
++	{
++		switch (kb->pad[col].id)
++		{
++			case SDL_CONTROLLER_BUTTON_A:				return "Cross";
++			case SDL_CONTROLLER_BUTTON_B:				return "Circle";
++			case SDL_CONTROLLER_BUTTON_X:				return "Square";
++			case SDL_CONTROLLER_BUTTON_Y:				return "Triangle";
++			case SDL_CONTROLLER_BUTTON_BACK:			return "Create";
++			case SDL_CONTROLLER_BUTTON_START:			return "Options";
++			case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:	return "L1";
++			case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:	return "R1";
++			case SDL_CONTROLLER_BUTTON_LEFTSTICK:		return "L3";
++			case SDL_CONTROLLER_BUTTON_RIGHTSTICK:		return "R3";
++			default:									break;
++		}
++	}
++	else if (kb->pad[col].type == kInputTypeAxisPlus || kb->pad[col].type == kInputTypeAxisMinus)
++	{
++		if (kb->pad[col].id == SDL_CONTROLLER_AXIS_TRIGGERLEFT)		return "L2";
++		if (kb->pad[col].id == SDL_CONTROLLER_AXIS_TRIGGERRIGHT)	return "R2";
++	}
++#endif
++
+ 	switch (kb->pad[col].type)
+ 	{
+ 		case kInputTypeUnbound:
