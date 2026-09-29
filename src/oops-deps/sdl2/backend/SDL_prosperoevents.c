@@ -200,6 +200,7 @@ void PROSPERO_PumpEvents(_THIS) {
     if (data->mouse_ready) {
         PROSPERO_PumpMouse(data);
     }
+    PROSPERO_PumpScreenKeyboard(_this);
 }
 
 #endif /* SDL_VIDEO_DRIVER_PROSPERO */

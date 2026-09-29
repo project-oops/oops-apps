@@ -26,8 +26,12 @@ typedef struct {
     int swap_interval;
     int keyboard_ready;
     int mouse_ready;
+    int ime_shown; /* the system keyboard is open and polled by the pump */
 } PROSPERO_VideoData;
 
 extern VideoBootStrap PROSPERO_bootstrap;
+
+/* Polls the system keyboard while it is open and delivers its text as SDL_TEXTINPUT. */
+extern void PROSPERO_PumpScreenKeyboard(_THIS);
 
 #endif /* SDL_prosperovideo_h_ */

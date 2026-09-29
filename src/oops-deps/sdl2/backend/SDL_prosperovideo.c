@@ -12,6 +12,7 @@
 #ifdef SDL_VIDEO_DRIVER_PROSPERO
 
 #include "SDL_video.h"
+#include "SDL_hints.h" /* the screen-keyboard opt-in */
 #include "video/SDL_sysvideo.h"
 #include "video/SDL_pixels_c.h"
 #include "events/SDL_events_c.h"
@@ -53,6 +54,93 @@ static int prospero_the_context;
  */
 static void PROSPERO_WarpMouse(SDL_Window *window, int x, int y) {
     SDL_SendMouseMotion(window, 0, 0 /* absolute */, x, y);
+}
+
+/* ---------------------------------------------------------- screen keyboard */
+
+/*
+ * The system keyboard (oops/dialog.h), behind `SDL_StartTextInput`. Weak, like the
+ * message dialog below, so `dialog` stays off the capability list of titles that never
+ * enter text.
+ *
+ * Opt-in: the title sets `SDL_ENABLE_SCREEN_KEYBOARD=1`. SDL's own default for that
+ * hint is on, and plenty of ports call `SDL_StartTextInput` once at start to receive
+ * typed characters from a USB keyboard; a keyboard popping over their first frame would
+ * be wrong for every one of them. A title opting in is one whose text fields call it on
+ * focus - SuperTuxKart's edit box does.
+ *
+ * What the player confirms arrives as one SDL_TEXTINPUT at the field's cursor. A cancel
+ * delivers nothing.
+ */
+#pragma weak oops_dialog_ime_open
+#pragma weak oops_dialog_ime_poll
+#pragma weak oops_dialog_ime_get_result
+#pragma weak oops_dialog_ime_abort
+#pragma weak oops_dialog_ime_close
+
+static int PROSPERO_ImeAvailable(void) {
+    return &oops_dialog_ime_open && &oops_dialog_ime_poll &&
+           &oops_dialog_ime_get_result && &oops_dialog_ime_abort &&
+           &oops_dialog_ime_close;
+}
+
+static SDL_bool PROSPERO_ImeOptedIn(void) {
+    return SDL_GetHintBoolean(SDL_HINT_ENABLE_SCREEN_KEYBOARD, SDL_FALSE);
+}
+
+static void PROSPERO_ShowScreenKeyboard(_THIS, SDL_Window *window) {
+    PROSPERO_VideoData *data = (PROSPERO_VideoData *)_this->driverdata;
+    (void)window;
+    if (data->ime_shown || !PROSPERO_ImeOptedIn() || !PROSPERO_ImeAvailable()) {
+        return;
+    }
+    oops_ime_param_t param;
+    SDL_zero(param);
+    param.user_id = -1;
+    param.type = OOPS_IME_TYPE_DEFAULT;
+    param.max_text_len = 255;
+    const int rc = oops_dialog_ime_open(&param);
+    if (rc == 0) {
+        data->ime_shown = 1;
+    } else {
+        oops_log_warn("SDL", "the system keyboard did not open (rc=0x%x)", rc);
+    }
+}
+
+static void PROSPERO_HideScreenKeyboard(_THIS, SDL_Window *window) {
+    PROSPERO_VideoData *data = (PROSPERO_VideoData *)_this->driverdata;
+    (void)window;
+    if (data->ime_shown) {
+        oops_dialog_ime_abort();
+        oops_dialog_ime_close();
+        data->ime_shown = 0;
+    }
+}
+
+static SDL_bool PROSPERO_IsScreenKeyboardShown(_THIS, SDL_Window *window) {
+    PROSPERO_VideoData *data = (PROSPERO_VideoData *)_this->driverdata;
+    (void)window;
+    return data->ime_shown ? SDL_TRUE : SDL_FALSE;
+}
+
+void PROSPERO_PumpScreenKeyboard(_THIS) {
+    PROSPERO_VideoData *data = (PROSPERO_VideoData *)_this->driverdata;
+    if (!data->ime_shown) {
+        return;
+    }
+    const oops_ime_status_t status = oops_dialog_ime_poll();
+    if (status == OOPS_IME_STATUS_RUNNING) {
+        return;
+    }
+    char text[1024];
+    oops_ime_result_t result = OOPS_IME_RESULT_ABORTED;
+    if (status == OOPS_IME_STATUS_FINISHED &&
+        oops_dialog_ime_get_result(text, sizeof text, &result) == 0 &&
+        result == OOPS_IME_RESULT_OK && text[0] != '\0') {
+        (void)SDL_SendKeyboardText(text);
+    }
+    oops_dialog_ime_close();
+    data->ime_shown = 0;
 }
 
 static int PROSPERO_VideoInit(_THIS) {
@@ -118,6 +206,7 @@ static int PROSPERO_VideoInit(_THIS) {
 static void PROSPERO_VideoQuit(_THIS) {
     PROSPERO_VideoData *data = (PROSPERO_VideoData *)_this->driverdata;
 
+    PROSPERO_HideScreenKeyboard(_this, data->window);
     if (data->mouse_ready) {
         oops_mouse_close();
         data->mouse_ready = 0;
@@ -460,6 +549,10 @@ static SDL_VideoDevice *PROSPERO_CreateDevice(void) {
     device->GL_GetSwapInterval = PROSPERO_GL_GetSwapInterval;
     device->GL_SwapWindow = PROSPERO_GL_SwapWindow;
     device->GL_DeleteContext = PROSPERO_GL_DeleteContext;
+
+    device->ShowScreenKeyboard = PROSPERO_ShowScreenKeyboard;
+    device->HideScreenKeyboard = PROSPERO_HideScreenKeyboard;
+    device->IsScreenKeyboardShown = PROSPERO_IsScreenKeyboardShown;
 
     device->free = PROSPERO_DeleteDevice;
 
