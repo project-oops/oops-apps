@@ -147,7 +147,29 @@ static int PROSPERO_JoystickInit(void) {
 static int PROSPERO_JoystickGetCount(void) {
     static int told = 0;
     oops_pad_state_t st;
-    const int rc = oops_input_poll(PROSPERO_PAD_PORT, &st);
+    int rc;
+
+    /*
+     * Open the pad here, not only in the driver's `Init`.
+     *
+     * SDL consults this driver for a count without always having run its `Init` first -
+     * measured on Ship of Harkinian, where this logged its answer and "SDL joystick
+     * driver initialised" never appeared. `Init` is the only other place that opens the
+     * pad, so the poll below answered -1, SDL reported no controllers, and the title had
+     * no input for the rest of the run.
+     *
+     * That mattered more than it sounds: libultraship raises its "No O2R files found.
+     * Generate one now?" dialog from `InitOTR`, while `SDL_Init(SDL_INIT_GAMECONTROLLER)`
+     * lives in `osContInit`, which the game reaches much later. On a desktop the gap is
+     * invisible because the dialog is answered with a mouse. On a console there is no
+     * mouse, so the first thing a player sees is a prompt that cannot be answered, with a
+     * cursor that does not move.
+     *
+     * `oops_input_init` returns silently when the pad is already open, so asking again on
+     * every count costs nothing and removes the ordering from the question entirely.
+     */
+    (void)oops_input_init();
+    rc = oops_input_poll(PROSPERO_PAD_PORT, &st);
     const int count = (rc == 0 && st.connected) ? 1 : 0;
 
     if (!told) {
