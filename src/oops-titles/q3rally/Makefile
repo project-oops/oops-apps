@@ -32,7 +32,7 @@ include $(OOPS_APPS_ROOT)/common/upstream.mk
 #     USE_RENDERER_DLOPEN=0 BUILD_RENDERER_OPENGL1=1 BUILD_RENDERER_OPENGL2=0 \
 #     BUILD_CLIENT=1 BUILD_SERVER=0 BUILD_GAME_SO=0 BUILD_GAME_QVM=0 BUILD_BASEGAME=0 \
 #     USE_CURL=0 USE_OPENAL=0 USE_MUMBLE=0 USE_VOIP=0 USE_FREETYPE=0 \
-#     USE_CODEC_VORBIS=0 USE_CODEC_OPUS=0 USE_CODEC_THEORA=0 \
+#     USE_CODEC_VORBIS=1 USE_CODEC_OPUS=0 USE_CODEC_THEORA=0 \
 #     USE_INTERNAL_ZLIB=0 USE_INTERNAL_JPEG=0 \
 #   | grep -oE 'code/[A-Za-z0-9_/.-]+\.c\b' | sort -u
 #
@@ -41,8 +41,9 @@ include $(OOPS_APPS_ROOT)/common/upstream.mk
 # USE_RENDERER_DLOPEN=0 links the renderer in.
 # USE_INTERNAL_ZLIB=0 and USE_INTERNAL_JPEG=0 use `oops-deps/zlib` and
 # `oops-deps/libjpeg-turbo`: two copies of `inflate` in one link resolve silently to one.
-# USE_CURL, OPENAL, MUMBLE, VOIP, FREETYPE and USE_CODEC_* are off: single-player, no HTTP,
-# no voice, no music.
+# USE_CURL, OPENAL, MUMBLE, VOIP, FREETYPE, Opus and Theora are off: single-player, no HTTP,
+# no voice, no video. Vorbis is on, from `oops-deps/libvorbis`: every sound the game ships is
+# `.ogg` (see the dependencies below).
 #
 # `con_passive.c` replaces `con_tty.c`: there is no terminal, and it is upstream's own
 # console for that case. `sys_autoupdater.c` compiles to nothing (`#ifdef USE_AUTOUPDATER`)
@@ -191,6 +192,11 @@ OOPS_JPEG ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libjpeg-turbo)
 include $(OOPS_JPEG)/oops-libjpeg.mk
 OOPS_SDL ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/sdl2)
 include $(OOPS_SDL)/oops-sdl.mk
+# Every sound q3rally ships is `.ogg`, and the engine finds `x.ogg` for a `x.wav` it is asked
+# for only through the Vorbis codec (`snd_codec.c`). Without it a map start drops back to
+# the menu on `sound/misc/silence.wav has length 0`, and the menus are silent.
+OOPS_VORBIS ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libvorbis)
+include $(OOPS_VORBIS)/oops-libvorbis.mk
 
 # ioquake3 includes its own headers by bare name from several directories at once.
 #
@@ -203,9 +209,10 @@ include $(OOPS_SDL)/oops-sdl.mk
 Q3_CFLAGS := -I$(Q3_UP)/code/qcommon -I$(Q3_UP)/code/client -I$(Q3_UP)/code/server \
              -I$(Q3_UP)/code/renderercommon -I$(Q3_UP)/code/renderergl1 \
              -I$(Q3_UP)/code/botlib -I$(Q3_UP)/code/sys -I$(Q3_UP)/code/sdl \
-             -DNO_VM_COMPILED -DSTANDALONE -DBOTLIB \
+             -DNO_VM_COMPILED -DSTANDALONE -DBOTLIB -DUSE_CODEC_VORBIS \
              -DOOPS_POSIX_HOME=\"/app0\" \
-             $(OOPS_POSIX_INCLUDE) $(OOPS_ZLIB_INCLUDE) $(OOPS_JPEG_INCLUDE) $(OOPS_SDL_INCLUDE)
+             $(OOPS_POSIX_INCLUDE) $(OOPS_ZLIB_INCLUDE) $(OOPS_JPEG_INCLUDE) $(OOPS_SDL_INCLUDE) \
+             $(OOPS_VORBIS_INCLUDE)
 
 # Upstream's code under upstream's warnings. `common/app.mk` compiles at `-Werror` with a set
 # upstream does not meet; these are switched off rather than patched away.
@@ -230,8 +237,10 @@ PAYLOAD_SRCS := $(Q3_SHIM_SRCS) $(Q3_SRCS) $(OOPS_POSIX_SRCS)
 OOPS_FEATURES := display input keyboard mouse audio suspend thread draw net dialog
 
 # The vendored archives, replacing the copies ioquake3 bundles (see USE_INTERNAL_* above).
-EXTRA_TARGET_LDFLAGS += $(OOPS_SDL_LDFLAGS) $(OOPS_ZLIB_LDFLAGS) $(OOPS_JPEG_LDFLAGS)
-PAYLOAD_EXTRA_DEPS   += $(OOPS_SDL_LIB) $(OOPS_ZLIB_LIB) $(OOPS_JPEG_LIB)
+EXTRA_TARGET_LDFLAGS += $(OOPS_SDL_LDFLAGS) $(OOPS_ZLIB_LDFLAGS) $(OOPS_JPEG_LDFLAGS) \
+                        $(OOPS_VORBIS_LDFLAGS)
+PAYLOAD_EXTRA_DEPS   += $(OOPS_SDL_LIB) $(OOPS_ZLIB_LIB) $(OOPS_JPEG_LIB) $(OOPS_VORBIS_LIB) \
+                        $(OOPS_OGG_LIB)
 
 include $(OOPS_APPS_ROOT)/common/app.mk
 

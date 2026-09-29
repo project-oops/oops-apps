@@ -32,7 +32,7 @@ keyboard over the first frame.
  
  	mouseAvailable = ( in_mouse->value != 0 );
  	IN_DeactivateMouse( qtrue );
-@@ -1449,8 +1452,26 @@
+@@ -1449,8 +1452,27 @@
  IN_Shutdown
  ===============
  */
@@ -48,6 +48,7 @@ keyboard over the first frame.
 +*/
 +static void IN_ScreenKeyboard_f( void )
 +{
++	Com_Printf( "in_screenkeyboard: asking for the on-screen keyboard\n" );
 +	SDL_SetHint( SDL_HINT_ENABLE_SCREEN_KEYBOARD, "1" );
 +	SDL_StartTextInput( );
 +	SDL_SetHint( SDL_HINT_ENABLE_SCREEN_KEYBOARD, "0" );
