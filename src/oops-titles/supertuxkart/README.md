@@ -29,8 +29,14 @@ data are free, so the package is complete and the player supplies nothing. It si
 <p align="center">
   <img src="assets/screenshot2-first-start.png" alt="The first start unpacking the game data" width="600">
 </p>
+<p align="center">
+  <img src="assets/screenshot3-race-results.png" alt="Race results with a new highscore" width="600">
+</p>
+<p align="center">
+  <img src="assets/screenshot4-online-lobby.png" alt="An online lobby on a public server" width="600">
+</p>
 
-[A clip of a race](assets/demo.webm), captured from the hardware.
+[A clip of a race](assets/demo.webm). Everything here is captured from the hardware.
 
 ## Controls
 
@@ -56,8 +62,11 @@ and it reads the pad's live bindings, so a rebind in Options, Controls shows the
 - **A controls card** (`patches/0002`) - help page 7, with the shared controller drawing from
   `common/assets/controls`.
 - **The system keyboard** - a text field, such as the player name on first start, opens the
-  console's on-screen keyboard through the SDL backend.
-- **Online** - news, add-ons and servers resolve through the collection's hosted `getaddrinfo`.
+  console's on-screen keyboard through the SDL backend. A password field masks its entry, and
+  nothing typed is learned into the system dictionary (`patches/0003`).
+- **Online** - log in, join a public server, chat and race. Names resolve through the
+  collection's hosted `getaddrinfo`, and game sockets go non-blocking through the platform's
+  socket option rather than `fcntl`, which it refuses.
 
 ## Building
 
