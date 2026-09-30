@@ -6,9 +6,9 @@
  * stub table generated from `gl_and_es_API.xml`, so its coverage is the whole dispatch
  * rather than the subset `libGL.so` exports as linkable symbols.
  *
- * A name it does not know resolves to a stub that throws `tcu::NotSupportedError`, which
- * dEQP records as a case that did not run. Returning null instead puts address zero in a
- * function table, and the caller does not check.
+ * A name it does not know resolves to a stub that throws `tcu::NotSupportedError`,
+ * which dEQP records as a case that did not run. Returning null instead puts address
+ * zero in a function table, and the caller does not check.
  */
 #include "glwDefs.hpp"
 #include "glwFunctionLoader.hpp"

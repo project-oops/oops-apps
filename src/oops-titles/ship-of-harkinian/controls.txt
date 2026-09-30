@@ -8,5 +8,7 @@ L2 = Target (Z)
 Right stick = Items / first person (C)
 L1 = L
 Options = Pause (Start)
-Create = Port menu
+Create / Touchpad / L3+R3 = Port menu
+> Menus: the left stick moves the pointer, Cross clicks, Options/Create closes.
+> Save states: L1+Up saves, L1+Down loads, L1+Left/Right selects slot.
 > Rebind in the port menu: Settings, Controls.

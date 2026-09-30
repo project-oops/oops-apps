@@ -1,11 +1,63 @@
 # Ship of Harkinian
 
+<p align="center">
+  <img src="assets/icon0.png" alt="Ship of Harkinian" width="200">
+</p>
+
 A native port of *The Legend of Zelda: Ocarina of Time*, built on the `zeldaret/oot`
 decompilation - [upstream](https://github.com/HarbourMasters/Shipwright), pinned at `9.2.3`.
+
+> **Status: Playable** (with graphical glitches). The game runs at full speed with audio,
+> DualSense controller support and save states, but players will encounter visual artifacts,
+> occasional missing geometry or sprite clipping quirks while shader rasterization continues
+> to mature.
 
 **It plays from the player's own copy of the game, which they provide on the hardware, at run
 time.** That property is explained below, because it is a policy question as much as a technical
 one.
+
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshot1-title.png" alt="The Legend of Zelda: Ocarina of Time title screen captured on the hardware" width="760">
+</p>
+
+<p align="center">
+  <img src="assets/demo.gif" alt="Link in Kokiri Forest on the hardware" width="600">
+</p>
+
+<p align="center">
+  <img src="assets/screenshot2-ingame.png" alt="In-game Kokiri Forest rendering on the hardware" width="760">
+</p>
+
+<p align="center">
+  <img src="assets/screenshot3-extraction.png" alt="First-run on-device ROM extraction progress dialog captured on the hardware" width="760">
+</p>
+
+[The clip as a video](assets/demo.webm). Everything here is captured directly from the hardware via HDMI capture.
+
+## Controls
+
+The game is controlled with a DualSense pad:
+
+| Pad | Action |
+|---|---|
+| Left stick | Move Link |
+| Right stick | C buttons (items / camera) |
+| Cross | Action (A) |
+| Square | Sword (B) |
+| Circle | C-Right |
+| Triangle | C-Up |
+| R2 | Shield (R) |
+| L2 | Target (Z) |
+| L1 | L button |
+| Options | Pause (Start) |
+| Touchpad click / Create / L3+R3 | Open / close port menu (settings, enhancements) |
+| L1 + D-Pad Up | Quick save state |
+| L1 + D-Pad Down | Quick load state |
+| L1 + D-Pad Left / Right | Select save state slot (0–5) |
+
+Menus can also be navigated with a connected USB keyboard (arrows, Enter, Space, Escape).
 
 `make compile-survey` compiles the tree with the build's own flags. It uses `-fsyntax-only` and
 does not link, and a payload link does not report an unresolved symbol, so a clean survey is not

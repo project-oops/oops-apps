@@ -259,8 +259,7 @@ __attribute__((visibility("default"))) int oops_controls_entry(const void *args)
      * to add it - and it is first, so a payload that dies during start-up has still
      * said which payload it was.
      */
-    oops_log_info("APP", "%s %s, built %s", OOPS_APP_NAME, OOPS_APP_ID,
-                  OOPS_APP_BUILT);
+    oops_log_info("APP", "%s %s, built %s", OOPS_APP_NAME, OOPS_APP_ID, OOPS_APP_BUILT);
     oops_controls_card_show(OOPS_CONTROLS_TITLE, (const char *)s_table,
                             sizeof(s_table) - 1u, s_png, sizeof(s_png));
     return OOPS_CONTROLS_NEXT(args);

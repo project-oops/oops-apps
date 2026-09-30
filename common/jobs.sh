@@ -44,7 +44,8 @@ if [ -n "${OOPS_JOBS:-}" ]; then
 fi
 
 cores=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
-jobs=$cores
+jobs=$((cores * 2 / 3))
+[ "$jobs" -lt 1 ] && jobs=1
 
 # `MemAvailable` rather than `MemFree`: the kernel's own estimate of what can be had
 # without swapping, which is what a compile actually needs. Absent (macOS, Git Bash), the

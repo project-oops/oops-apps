@@ -1,0 +1,80 @@
+The menu takes focus when it opens, and says what ImGui sees of the pad
+
+With the game rendering and the menu drawn over it, the pad did not move the
+menu. The driver's log showed every d-pad press arriving and releasing, so the
+break is somewhere past SDL - and three different faults look identical from
+the couch: gamepad navigation off, ImGui never receiving the pad as gamepad
+keys, or navigation belonging to some other window.
+
+Focus is the likeliest. On a desktop the player clicks the menu; here nothing
+can, and the Yes/No prompt that did navigate was a modal, which takes focus by
+itself. So the menu asks for focus on the frame it opens - once, not every
+frame, so a popup it opens keeps its own.
+
+And whether or not that is the fault, the menu logs what ImGui itself sees
+whenever it changes: which window navigation belongs to, the nav id, whether
+gamepad navigation is on, whether the backend reports a gamepad, and which of
+the d-pad, Cross and Circle ImGui has down. One run then says which of the
+three it is, rather than another guess.
+
+diff --git a/soh/soh/SohGui/Menu.cpp b/soh/soh/SohGui/Menu.cpp
+index 0147d75..c5ea18b 100644
+--- a/soh/soh/SohGui/Menu.cpp
++++ b/soh/soh/SohGui/Menu.cpp
+@@ -621,6 +621,14 @@ void Menu::DrawElement() {
+     ImGui::PushStyleColor(ImGuiCol_WindowBg,
+                           ImVec4(0, 0, 0, CVarGetFloat(CVAR_SETTING("Menu.BackgroundOpacity"), 0.85f)));
+ 
++#ifdef __PROSPERO__
++    /* Focus on opening. On a desktop the player clicks the menu; here nothing can, and a
++     * menu without navigation focus ignores the pad. So it takes focus the frame it
++     * opens - once, not every frame, so a popup it opens keeps its own. */
++    if (freshOpen) {
++        ImGui::SetNextWindowFocus();
++    }
++#endif
+     if (!ImGui::Begin("Main Menu", NULL, windowFlags)) {
+         if (!popout) {
+             ImGui::PopStyleVar();
+@@ -633,6 +641,41 @@ void Menu::DrawElement() {
+ 
+     ImGui::PopStyleColor();
+ 
++#ifdef __PROSPERO__
++    /* What ImGui itself sees, whenever it changes - since that, not the pad driver, is
++     * what decides whether the menu moves. The driver's log shows the presses arriving;
++     * this shows whether they reach ImGui as gamepad keys, whether gamepad navigation is
++     * on, and which window navigation belongs to. Each of those failing looks the same
++     * from the couch: a menu that does not move. */
++    {
++        ImGuiContext& ctx = *ImGui::GetCurrentContext();
++        const ImGuiIO& io = ImGui::GetIO();
++        const char* nav = ctx.NavWindow ? ctx.NavWindow->Name : "(none)";
++        const int keys = (ImGui::IsKeyDown(ImGuiKey_GamepadDpadUp) ? 1 : 0) |
++                         (ImGui::IsKeyDown(ImGuiKey_GamepadDpadDown) ? 2 : 0) |
++                         (ImGui::IsKeyDown(ImGuiKey_GamepadDpadLeft) ? 4 : 0) |
++                         (ImGui::IsKeyDown(ImGuiKey_GamepadDpadRight) ? 8 : 0) |
++                         (ImGui::IsKeyDown(ImGuiKey_GamepadFaceDown) ? 16 : 0) |
++                         (ImGui::IsKeyDown(ImGuiKey_GamepadFaceRight) ? 32 : 0);
++        const int flags = ((io.ConfigFlags & ImGuiConfigFlags_NavEnableGamepad) ? 1 : 0) |
++                          ((io.BackendFlags & ImGuiBackendFlags_HasGamepad) ? 2 : 0);
++        static std::string lastNav;
++        static int lastKeys = -1, lastFlags = -1;
++        if (lastNav != nav || lastKeys != keys || lastFlags != flags) {
++            SPDLOG_INFO("menu nav: window '{}', nav id {:#x}, gamepad nav {}, backend "
++                        "gamepad {}, imgui keys{}{}{}{}{}{}",
++                        nav, (unsigned)ctx.NavId, (flags & 1) ? "on" : "OFF",
++                        (flags & 2) ? "yes" : "NO", (keys & 1) ? " up" : "",
++                        (keys & 2) ? " down" : "", (keys & 4) ? " left" : "",
++                        (keys & 8) ? " right" : "", (keys & 16) ? " cross" : "",
++                        (keys & 32) ? " circle" : "");
++            lastNav = nav;
++            lastKeys = keys;
++            lastFlags = flags;
++        }
++    }
++#endif
++
+     if (popped != popout) {
+         if (!popout) {
+             ImGui::PopStyleVar();

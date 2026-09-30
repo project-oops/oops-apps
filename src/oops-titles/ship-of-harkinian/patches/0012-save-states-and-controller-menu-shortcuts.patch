@@ -1,0 +1,108 @@
+Save states and controller shortcuts for opening menu and quick saving
+
+Map DualSense shortcuts:
+- Touchpad Click, Create, or L3+R3 toggles the Ship of Harkinian menu without
+  requiring controller nav to be enabled first.
+- L1 + D-Pad Up: Quick Save to current slot
+- L1 + D-Pad Down: Quick Load from current slot
+- L1 + D-Pad Left/Right: Cycle Save slot (0-5)
+- Enable SaveStates and skip long intro cutscene by default on OOPS_TARGET.
+
+diff --git a/soh/soh/Enhancements/bootcommands.c b/soh/soh/Enhancements/bootcommands.c
+--- a/soh/soh/Enhancements/bootcommands.c
++++ b/soh/soh/Enhancements/bootcommands.c
+@@ -13,5 +13,8 @@ void BootCommands_Init() {
+     CVarClear(CVAR_GENERAL("BetterDebugWarpScreenMQModeScene"));
+ #if defined(__SWITCH__) || defined(__WIIU__) || defined(OOPS_TARGET)
+     CVarRegisterInteger(CVAR_IMGUI_CONTROLLER_NAV, 1); // always enable controller nav on switch/wii u
++    CVarRegisterInteger(CVAR_CHEAT("SaveStatesEnabled"), 1);
++    CVarRegisterInteger(CVAR_CHEAT("SaveStatePromise"), 1);
++    CVarRegisterInteger(CVAR_ENHANCEMENT("TimeSavers.SkipCutscene.Intro"), 1);
+ #endif
+ }
+ 
+diff --git a/libultraship/src/ship/window/gui/Gui.cpp b/libultraship/src/ship/window/gui/Gui.cpp
+--- a/libultraship/src/ship/window/gui/Gui.cpp
++++ b/libultraship/src/ship/window/gui/Gui.cpp
+@@ -549,11 +549,11 @@ void Gui::DrawMenu() {
+     ImGui::DockSpace(dockId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None | ImGuiDockNodeFlags_NoDockingInCentralNode);
+ 
+-    if (ImGui::IsKeyPressed(TOGGLE_BTN, false) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+-        (ImGui::IsKeyPressed(TOGGLE_PAD_BTN, false) &&
+-         Ship::Context::GetInstance()->GetConsoleVariables()->GetInteger(CVAR_IMGUI_CONTROLLER_NAV, 0))) {
+-        if ((ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(TOGGLE_PAD_BTN, false)) && GetMenu()) {
++    const bool togglePad = ImGui::IsKeyPressed(TOGGLE_PAD_BTN, false) ||
++                           (ImGui::IsKeyDown(ImGuiKey_GamepadL3) && ImGui::IsKeyDown(ImGuiKey_GamepadR3));
++    if (ImGui::IsKeyPressed(TOGGLE_BTN, false) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) || togglePad) {
++        if ((ImGui::IsKeyPressed(ImGuiKey_Escape, false) || togglePad) && GetMenu()) {
+             GetMenu()->ToggleVisibility();
+-        } else if ((ImGui::IsKeyPressed(TOGGLE_BTN, false) || ImGui::IsKeyPressed(TOGGLE_PAD_BTN, false)) &&
++        } else if ((ImGui::IsKeyPressed(TOGGLE_BTN, false) || togglePad) &&
+                    GetMenuBar()) {
+             GetMenuBar()->ToggleVisibility();
+         }
+ 
+diff --git a/soh/soh/OTRGlobals.cpp b/soh/soh/OTRGlobals.cpp
+--- a/soh/soh/OTRGlobals.cpp
++++ b/soh/soh/OTRGlobals.cpp
+@@ -1722,5 +1722,59 @@ extern "C" void Graph_StartFrame() {
+             break;
+         }
+     }
++
++    auto gui = Ship::Context::GetInstance()->GetWindow()->GetGui();
++    if (gui && !gui->GetMenuOrMenubarVisible() && CVarGetInteger(CVAR_CHEAT("SaveStatesEnabled"), 0) != 0) {
++        if (ImGui::IsKeyDown(ImGuiKey_GamepadL1)) {
++            auto overlay = gui->GetGameOverlay();
++            if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadUp, false)) {
++                const unsigned int slot = OTRGlobals::Instance->gSaveStateMgr->GetCurrentSlot();
++                const SaveStateReturn ret = OTRGlobals::Instance->gSaveStateMgr->AddRequest({ slot, RequestType::SAVE });
++                if (overlay) {
++                    if (ret == SaveStateReturn::SUCCESS) {
++                        char msg[64];
++                        snprintf(msg, sizeof(msg), "State saved to slot %u", slot);
++                        overlay->TextDrawNotification(3.0f, true, msg);
++                    } else {
++                        overlay->TextDrawNotification(3.0f, true, "Cannot save outside GamePlay");
++                    }
++                }
++            } else if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, false)) {
++                const unsigned int slot = OTRGlobals::Instance->gSaveStateMgr->GetCurrentSlot();
++                const SaveStateReturn ret = OTRGlobals::Instance->gSaveStateMgr->AddRequest({ slot, RequestType::LOAD });
++                if (overlay) {
++                    if (ret == SaveStateReturn::SUCCESS) {
++                        char msg[64];
++                        snprintf(msg, sizeof(msg), "State loaded from slot %u", slot);
++                        overlay->TextDrawNotification(3.0f, true, msg);
++                    } else if (ret == SaveStateReturn::FAIL_STATE_EMPTY) {
++                        char msg[64];
++                        snprintf(msg, sizeof(msg), "State slot %u is empty", slot);
++                        overlay->TextDrawNotification(3.0f, true, msg);
++                    } else {
++                        overlay->TextDrawNotification(3.0f, true, "Cannot load outside GamePlay");
++                    }
++                }
++            } else if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, false)) {
++                unsigned int slot = OTRGlobals::Instance->gSaveStateMgr->GetCurrentSlot();
++                slot = (slot >= 5) ? 0 : slot + 1;
++                OTRGlobals::Instance->gSaveStateMgr->SetCurrentSlot(slot);
++                if (overlay) {
++                    char msg[64];
++                    snprintf(msg, sizeof(msg), "Save state slot: %u", slot);
++                    overlay->TextDrawNotification(3.0f, true, msg);
++                }
++            } else if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, false)) {
++                unsigned int slot = OTRGlobals::Instance->gSaveStateMgr->GetCurrentSlot();
++                slot = (slot == 0) ? 5 : slot - 1;
++                OTRGlobals::Instance->gSaveStateMgr->SetCurrentSlot(slot);
++                if (overlay) {
++                    char msg[64];
++                    snprintf(msg, sizeof(msg), "Save state slot: %u", slot);
++                    overlay->TextDrawNotification(3.0f, true, msg);
++                }
++            }
++        }
++    }
+ #endif
+ }
+

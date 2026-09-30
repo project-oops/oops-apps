@@ -385,7 +385,7 @@ OOPS_CXX_STD        = c++20
 # instead, now that ZAPD is in the payload for it to call. It finds the ROM, validates
 # and byteswaps it, and runs the conversion - all of which the shim could only report
 # not doing.
-OOPS_CXX_SRCS = $(SOH_CXX_ALL) $(SOH_ZAPD_ALL) $(CURDIR)/shim/zapd_stubs.cpp
+OOPS_CXX_SRCS = $(SOH_CXX_ALL) $(SOH_ZAPD_ALL) $(CURDIR)/shim/zapd_stubs.cpp $(CURDIR)/shim/consolevar_bridge.cpp
 # Object names collide across the port's trees - ControlDeck, Controller, Menu and more appear in
 # both soh and libultraship - so the objects go on the link line rather than into an archive that
 # would keep one of each. Set before the include, which is where `oops_ar_check` runs.

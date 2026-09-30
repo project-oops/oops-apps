@@ -58,11 +58,11 @@ OOPS_STORMLIB_C_SRCS := \
 
 # The crypto pair, for `SFileVerify`. `TOMCRYPT_FILES` and the libtomcrypt files in `SRC_FILES`
 # together are every `.c` under the tree, so the glob is their union.
-OOPS_STORMLIB_TOMCRYPT_SRCS := $(shell find $(OOPS_STORMLIB_UPSTREAM)/src/libtomcrypt -name '*.c')
-OOPS_STORMLIB_TOMMATH_SRCS  := $(shell find $(OOPS_STORMLIB_UPSTREAM)/src/libtommath -name '*.c')
+OOPS_STORMLIB_TOMCRYPT_SRCS := $(shell find $(OOPS_STORMLIB_UPSTREAM)/src/libtomcrypt -name '*.c' 2>/dev/null)
+OOPS_STORMLIB_TOMMATH_SRCS  := $(shell find $(OOPS_STORMLIB_UPSTREAM)/src/libtommath -name '*.c' 2>/dev/null)
 # Bundled bzip2: MPQ compression method 0x10 is bzip2, dispatched from a table in
 # `SCompression.cpp`, so any archive can reach it.
-OOPS_STORMLIB_BZIP2_SRCS    := $(shell find $(OOPS_STORMLIB_UPSTREAM)/src/bzip2 -name '*.c')
+OOPS_STORMLIB_BZIP2_SRCS    := $(shell find $(OOPS_STORMLIB_UPSTREAM)/src/bzip2 -name '*.c' 2>/dev/null)
 OOPS_STORMLIB_C_SRCS += $(OOPS_STORMLIB_TOMCRYPT_SRCS) $(OOPS_STORMLIB_TOMMATH_SRCS) \
                         $(OOPS_STORMLIB_BZIP2_SRCS)
 
@@ -85,9 +85,11 @@ $(foreach e,$(OOPS_STORMLIB_EXPECT),\
 # `StormPort.h:309`, so it is set for every source.
 #
 # `BZ_STRICT_ANSI` is upstream's `add_definitions`; it keeps bzip2's command-line file handling out.
+include $(OOPS_STORMLIB_DIR)/../../../common/deps.mk
+
 OOPS_STORMLIB_DEFS := -D__SYS_ZLIB -D_7ZIP_ST -DBZ_STRICT_ANSI -D__PROSPERO__=1
 OOPS_STORMLIB_TARGET = -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib \
-                       -fPIC -O2 -w
+                       -ftls-model=initial-exec -fPIC -O2 -w
 OOPS_STORMLIB_OWN    = $(OOPS_STORMLIB_INCLUDE) $(OOPS_STORMLIB_DEFS) $(OOPS_ZLIB_INCLUDE)
 OOPS_STORMLIB_CFLAGS = $(OOPS_STORMLIB_TARGET) -nostdlibinc -std=gnu11 $(OOPS_STORMLIB_OWN) \
                        $(OOPS_POSIX_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
@@ -99,16 +101,29 @@ OOPS_STORMLIB_CXXFLAGS = $(OOPS_STORMLIB_TARGET) -std=c++17 $(OOPS_STORMLIB_OWN)
 
 # Objects are named by a counter rather than by basename, so sources with the same basename in
 # different directories cannot overwrite each other in the flat build directory.
+# Source lists go to a response file rather than expanding in the recipe to avoid Windows command limits.
 $(OOPS_STORMLIB_LIB): $(OOPS_STORMLIB_C_SRCS) $(OOPS_STORMLIB_CXX_SRCS) $(lastword $(MAKEFILE_LIST))
 	@mkdir -p $(OOPS_STORMLIB_BUILD)
-	@rm -f $@
-	@n=0; objs=""; \
-	 for s in $(OOPS_STORMLIB_C_SRCS); do n=$$((n+1)); o=$(OOPS_STORMLIB_BUILD)/s$$n.o; \
-	   $(TARGET_CC) $(OOPS_STORMLIB_CFLAGS) -c -o "$$o" "$$s" || exit 1; objs="$$objs $$o"; done; \
-	 for s in $(OOPS_STORMLIB_CXX_SRCS); do n=$$((n+1)); o=$(OOPS_STORMLIB_BUILD)/s$$n.o; \
-	   $(TARGET_CXX) $(OOPS_STORMLIB_CXXFLAGS) -c -o "$$o" "$$s" || exit 1; objs="$$objs $$o"; done; \
+	@rm -f $@ $(OOPS_STORMLIB_BUILD)/s*.o
+	@:$(call oops_rsp,$(OOPS_STORMLIB_BUILD)/c_sources.list,$(OOPS_STORMLIB_C_SRCS))
+	@:$(call oops_rsp,$(OOPS_STORMLIB_BUILD)/cxx_sources.list,$(OOPS_STORMLIB_CXX_SRCS))
+	@tr -d '\r' < $(OOPS_STORMLIB_BUILD)/c_sources.list > $(OOPS_STORMLIB_BUILD)/c_sources.txt; \
+	 tr -d '\r' < $(OOPS_STORMLIB_BUILD)/cxx_sources.list > $(OOPS_STORMLIB_BUILD)/cxx_sources.txt; \
+	 n=0; \
+	 while IFS= read -r src; do \
+	   [ -n "$$src" ] || continue; \
+	   n=$$((n+1)); o=$(OOPS_STORMLIB_BUILD)/s$$n.o; \
+	   $(TARGET_CC) $(OOPS_STORMLIB_CFLAGS) -c -o "$$o" "$$src" || exit 1; \
+	 done < $(OOPS_STORMLIB_BUILD)/c_sources.txt; \
+	 while IFS= read -r src; do \
+	   [ -n "$$src" ] || continue; \
+	   n=$$((n+1)); o=$(OOPS_STORMLIB_BUILD)/s$$n.o; \
+	   $(TARGET_CXX) $(OOPS_STORMLIB_CXXFLAGS) -c -o "$$o" "$$src" || exit 1; \
+	 done < $(OOPS_STORMLIB_BUILD)/cxx_sources.txt; \
 	 echo "StormLib: compiled $$n sources"; \
-	 a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $$objs
+	 ar_tool=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
+	 ls $(OOPS_STORMLIB_BUILD)/s*.o > $(OOPS_STORMLIB_BUILD)/objects.list; \
+	 "$$ar_tool" rcs $@ @$(OOPS_STORMLIB_BUILD)/objects.list
 	@echo "StormLib: $@"
 
 .PHONY: stormlib-clean

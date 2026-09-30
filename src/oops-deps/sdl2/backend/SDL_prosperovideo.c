@@ -97,9 +97,17 @@ static SDL_bool PROSPERO_ImeOptedIn(void) {
 static void PROSPERO_ShowScreenKeyboard(_THIS, SDL_Window *window) {
     PROSPERO_VideoData *data = (PROSPERO_VideoData *)_this->driverdata;
     (void)window;
+    /* Every reason not to open is said, since each one looks the same from the couch.
+     */
     if (data->ime_shown || !PROSPERO_ImeOptedIn() || !PROSPERO_ImeAvailable()) {
+        oops_log_info("SDL",
+                      "screen keyboard asked for: not opening (shown=%d opted-in=%d "
+                      "dialog-linked=%d)",
+                      data->ime_shown, (int)PROSPERO_ImeOptedIn(),
+                      PROSPERO_ImeAvailable());
         return;
     }
+    oops_log_info("SDL", "screen keyboard asked for: opening the system keyboard");
     oops_ime_param_t param;
     SDL_zero(param);
     param.user_id = -1;

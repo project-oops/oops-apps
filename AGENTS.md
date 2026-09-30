@@ -62,19 +62,18 @@ is "this code", it belongs in the SDK or `common/`.
 `<OOPS>` is the collection checkout.
 
 **With a local clang 21 on `PATH`, just build** - it is the first choice in CONVENTIONS
-section 8 and much the fastest, because a container and WSL both reach these sources across
-a filesystem boundary that costs about 10ms per file open against about 1ms locally. A build
-of a libultraship title opens hundreds of thousands of files, so that is the build time:
+section 8 and much the fastest.
+
+Build an individual app and its package targets:
 
 ```bash
-cd <OOPS>/oops-apps/src/<category>/<app> && make all
+./bin/oops-apps make src/<category>/<app>
 ```
 
-Otherwise the pinned container, which is what defines the version:
+Or restore it to hardware via Prosperous:
 
 ```bash
-MSYS_NO_PATHCONV=1 docker run --rm -v "<OOPS>:/w" \
-    -w /w/oops-apps/src/<category>/<app> silkeh/clang:21 make all
+./bin/oops-apps restore src/<category>/<app>
 ```
 
 - Builds are parallel by default through `./bin/oops-apps`, which asks `common/jobs.sh` for
@@ -85,31 +84,20 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "<OOPS>:/w" \
   Two things are not fine, and only the second is ours:
   - Two builds of the *same* app at once. Two `make` processes writing the same objects in
     the same directory collide, here as anywhere; wait rather than starting a second.
-  - The same app built from a *different runner* than last time. An app's `build/` is tied
-    to how the tree was addressed when it was filled: depfiles record absolute paths, and
-    the container sees `/oops/...`, WSL `/mnt/c/...`, a native build a drive path. So the
-    runner is part of the build directory's identity. `common/app.mk` stamps the roots and
-    clears `$(BUILD)` when they change, which makes switching correct at the cost of a full
-    rebuild - so pick one runner per app and stay on it.
-
-  Those two combine into the failure worth recognising: another session building the *same*
-  app from a *different* runner at the same time. The roots check only runs as a build
-  starts, so neither build can see the other arriving. The symptoms are a missing file
-  whose path belongs to a runner you are not using, or a precompiled header that goes
-  fatally stale partway through.
-- A build failing on paths under `/mnt/c/...` or `/oops/...` is stale dependency output
-  from another runner: `rm -rf build` in that app and rebuild.
-- `MSYS_NO_PATHCONV=1` stops Git Bash rewriting `/w` into a Windows path.
+  - The same app built from a different path than last time. An app's `build/` is tied
+    to how the tree was addressed when it was filled: depfiles record absolute paths.
+    `common/app.mk` stamps the roots and clears `$(BUILD)` when they change, which makes
+    switching paths correct at the cost of a full rebuild.
 - Native builds need `clang`, `ld.lld`, `llvm-ar`, `llvm-nm`, `llvm-readelf`, a
   **Windows-native** `make` (an MSYS one reports `$(CURDIR)` as `/c/...`, which `clang.exe`
-  cannot open) and a `python3` that is not the Windows Store stub. They are unpacked
-  portably on this machine; put their `bin` directories on `PATH` for the shell you build
-  in. Three things a native build needs that a Linux one does not are already handled and
+  cannot open) and a `python3` that is not the Windows Store stub. Put their `bin`
+  directories on `PATH` (or run `./bin/oops-apps`, which auto-detects `X:\toolchains`).
+  Three things a native build needs that a Linux one does not are already handled and
   should not be re-discovered: argument lists go through `common/deps.mk`'s `oops_rsp`
   because a command line caps at 32,767 characters and the payload link is three times
   that; a shell reading one of those files must strip carriage returns, because make writes
   the platform's line ending while `clang` and `llvm-ar` do not care; and a recipe's `#`
   comments are expanded by make before the shell sees them, so a `$(...)` written inside
   one is a function call, not text.
-- `./bin/oops-apps list | build | check | dist` reach every app the way CI does.
+- `./bin/oops-apps list | build | make | restore | check | dist` reach apps and individual targets.
 - `./bin/oops-apps check` is the gate. There is no root `make check`.

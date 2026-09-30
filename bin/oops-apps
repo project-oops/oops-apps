@@ -6,6 +6,8 @@
 #
 #   ./bin/oops-apps list              # the apps here
 #   ./bin/oops-apps build [app...]    # build each (default: all)
+#   ./bin/oops-apps make <app> [args] # build an app's targets (default: package/title)
+#   ./bin/oops-apps restore <app>     # restore an app's title directory to hardware via pros
 #   ./bin/oops-apps check [app...]    # formatting, then each app's own gate (default: all)
 #   ./bin/oops-apps fmt [--check]     # clang-format first-party C and C++ in place
 #   ./bin/oops-apps dist [app...]     # stage each app's shippable artifacts under <app>/dist/
@@ -19,6 +21,18 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 HERE="$PWD"
 
+# On Windows, if X:\toolchains is present, prepend toolchains to PATH
+if [ -d "/x/toolchains" ] || [ -d "X:/toolchains" ] || [ -d "X:\\toolchains" ]; then
+    tc_root=""
+    [ -d "/x/toolchains" ] && tc_root="/x/toolchains"
+    [ -z "$tc_root" ] && [ -d "X:/toolchains" ] && tc_root="X:/toolchains"
+    if [ -n "$tc_root" ]; then
+        [ -d "$tc_root/Python314" ] && export PATH="$tc_root/Python314:$PATH"
+        [ -d "$tc_root/llvm21/bin" ] && export PATH="$tc_root/llvm21/bin:$PATH"
+        [ -d "$tc_root/make/bin" ] && export PATH="$tc_root/make/bin:$PATH"
+    fi
+fi
+
 # Build with the machine rather than one file at a time. `common/jobs.sh` works out how
 # many compiles fit in the memory that is free and adds a load limit so a build running
 # beside this one gets its share; `OOPS_JOBS` overrides it and `OOPS_JOBS=0` turns it off.
@@ -26,6 +40,14 @@ HERE="$PWD"
 # the budget down to sub-makes, which is why this does not go in a makefile.
 JOBS="$(sh "$HERE/common/jobs.sh")"
 # shellcheck disable=SC2086  # deliberately word-split: it is two flags or none
+
+# Normalize Windows backslashes and relative prefixes.
+normalize_path() {
+    local p="${1//\\//}"
+    p="${p%/}"
+    p="${p#./}"
+    printf '%s' "$p"
+}
 
 # Every app under src/<category>/, one per line, as a bare name. The name carries no
 # category, so CI artifact names and verbs do not change when an app moves category.
@@ -53,6 +75,37 @@ app_path() {
     [ -n "$found" ] && printf '%s\n' "$found"
 }
 
+# Resolve an app argument to its directory under oops-apps (or an absolute path).
+resolve_app_dir() {
+    local raw="$1"
+    local p
+    p="$(normalize_path "$raw")"
+    p="${p#oops-apps/}"
+
+    if [ -f "$p/Makefile" ]; then
+        (cd "$p" && pwd)
+        return 0
+    fi
+    if [ -f "$HERE/$p/Makefile" ]; then
+        (cd "$HERE/$p" && pwd)
+        return 0
+    fi
+    if [ -f "$HERE/src/$p/Makefile" ]; then
+        (cd "$HERE/src/$p" && pwd)
+        return 0
+    fi
+
+    local base="${p##*/}"
+    local found
+    found="$(app_path "$base")"
+    if [ -n "$found" ] && [ -f "$found/Makefile" ]; then
+        (cd "$found" && pwd)
+        return 0
+    fi
+
+    return 1
+}
+
 # The apps to act on: the ones named, or all of them. A name with no Makefile is an error.
 resolve() {
     if [ "$#" -eq 0 ]; then
@@ -60,8 +113,8 @@ resolve() {
         return
     fi
     for name in "$@"; do
-        if [ -n "$(app_path "$name")" ] || [ -f "$HERE/$name/Makefile" ]; then
-            printf '%s\n' "$name"
+        if dir="$(resolve_app_dir "$name")"; then
+            basename "$dir"
         else
             echo "oops-apps: no app '$name' (a directory with a Makefile under src/<category>/)" >&2
             exit 2
@@ -96,8 +149,7 @@ over() {
     local any=0
     for app in $(resolve "$@"); do
         any=1
-        app_dir="$(app_path "$app")"
-        [ -n "$app_dir" ] || app_dir="$HERE/$app"
+        app_dir="$(resolve_app_dir "$app")"
         if reason="$(ci_skip_reason "$app_dir")"; then
             printf '=== %s: skipped (%s) ===\n' "$app" "$reason"
             continue
@@ -132,8 +184,7 @@ distribute() {
     local any=0 shipped=0 failed=0
     for app in $(resolve "$@"); do
         any=1
-        app_dir="$(app_path "$app")"
-        [ -n "$app_dir" ] || app_dir="$HERE/$app"
+        app_dir="$(resolve_app_dir "$app")"
 
         if reason="$(ci_skip_reason "$app_dir")"; then
             printf '=== %s: skipped (%s) ===\n' "$app" "$reason"
@@ -222,8 +273,158 @@ format() {
     fi
 }
 
+make_app() {
+    local target_app="${1:-}"
+    [ -n "$target_app" ] || {
+        echo "oops-apps: 'make' needs an app (e.g. ./bin/oops-apps make src/oops-titles/ship-of-harkinian)" >&2
+        exit 1
+    }
+    shift
+
+    local app_dir
+    app_dir="$(resolve_app_dir "$target_app")" || {
+        echo "oops-apps: no app '$target_app' (a directory with a Makefile under src/<category>/)" >&2
+        exit 2
+    }
+
+    local app_name
+    app_name="$(basename "$app_dir")"
+
+    local -a make_args=()
+    if [ "$#" -gt 0 ]; then
+        make_args=("$@")
+    else
+        local default_target="all"
+        if grep -qE '^[[:space:]]*package:' "$app_dir/Makefile" 2>/dev/null; then
+            default_target="package"
+        elif grep -qE '^[[:space:]]*title:' "$app_dir/Makefile" 2>/dev/null; then
+            default_target="title"
+        elif grep -qE '^[[:space:]]*FORMATS[[:space:]]*=.*title' "$app_dir/app.env" 2>/dev/null; then
+            default_target="title"
+        fi
+
+        if grep -q 'SOH_ARMED' "$app_dir/Makefile" 2>/dev/null; then
+            make_args+=("SOH_ARMED=1")
+        elif grep -q 'SPGK_ARMED' "$app_dir/Makefile" 2>/dev/null; then
+            make_args+=("SPGK_ARMED=1")
+        fi
+
+        make_args+=("$default_target")
+    fi
+
+    printf '=== %s: make %s ===\n' "$app_name" "${make_args[*]}"
+    make $JOBS -C "$app_dir" "${make_args[@]}"
+}
+
+find_pros() {
+    if command -v pros >/dev/null 2>&1; then
+        command -v pros
+        return 0
+    fi
+    if command -v pros.exe >/dev/null 2>&1; then
+        command -v pros.exe
+        return 0
+    fi
+    local root="$HERE/.."
+    for candidate in \
+        "$root/prosperous/target/release/pros" \
+        "$root/prosperous/target/release/pros.exe" \
+        "$root/prosperous/target/debug/pros" \
+        "$root/prosperous/target/debug/pros.exe"; do
+        if [ -x "$candidate" ] || [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+get_title_id() {
+    local dir="$1"
+    local id=""
+    if [ -f "$dir/app.env" ]; then
+        id="$(grep -E '^[[:space:]]*TITLE_ID[[:space:]]*=' "$dir/app.env" 2>/dev/null | head -1 | cut -d= -f2 | tr -d ' "\r\n')"
+    fi
+    if [ -z "$id" ] && [ -d "$dir/build/title" ]; then
+        for sub in "$dir/build/title"/*; do
+            if [ -d "$sub" ] && [ -f "$sub/eboot.bin" ]; then
+                id="$(basename "$sub")"
+                break
+            fi
+        done
+    fi
+    printf '%s' "$id"
+}
+
+to_host_path() {
+    local target="$1"
+    (cd "$target" 2>/dev/null && (pwd -W 2>/dev/null || pwd))
+}
+
+restore_app() {
+    local target_app="${1:-}"
+    [ -n "$target_app" ] || {
+        echo "oops-apps: 'restore' needs an app (e.g. ./bin/oops-apps restore src/oops-titles/ship-of-harkinian)" >&2
+        exit 1
+    }
+    shift
+
+    local app_dir
+    app_dir="$(resolve_app_dir "$target_app")" || {
+        echo "oops-apps: no app '$target_app' (a directory with a Makefile under src/<category>/)" >&2
+        exit 2
+    }
+
+    local app_name
+    app_name="$(basename "$app_dir")"
+
+    local title_id
+    title_id="$(get_title_id "$app_dir")"
+    if [ -z "$title_id" ]; then
+        echo "oops-apps: could not determine TITLE_ID for '$app_name'" >&2
+        exit 1
+    fi
+
+    local title_dir="$app_dir/build/title/$title_id"
+    if [ ! -f "$title_dir/eboot.bin" ]; then
+        printf 'oops-apps: %s title not built yet (no %s/eboot.bin) - building first...\n' "$app_name" "$title_dir"
+        make_app "$target_app"
+    fi
+
+    if [ ! -d "$title_dir" ] || [ ! -f "$title_dir/eboot.bin" ]; then
+        echo "oops-apps: missing title directory at $title_dir" >&2
+        exit 1
+    fi
+
+    local pros_bin
+    pros_bin="$(find_pros)" || {
+        echo "oops-apps: 'pros' not found on PATH or in prosperous/target/release/." >&2
+        echo "Build it with: cargo build --release --manifest-path prosperous/Cargo.toml" >&2
+        exit 1
+    }
+
+    local -a pros_args=()
+    local has_yes=0
+    for arg in "$@"; do
+        if [ "$arg" = "-y" ] || [ "$arg" = "--yes" ]; then
+            has_yes=1
+        fi
+        pros_args+=("$arg")
+    done
+    if [ "$has_yes" -eq 0 ]; then
+        pros_args=("-y" "${pros_args[@]}")
+    fi
+
+    local host_title_dir
+    host_title_dir="$(to_host_path "$title_dir")"
+
+    printf '=== %s: restoring %s to /data/homebrew/%s ===\n' "$app_name" "$host_title_dir" "$title_id"
+    export MSYS_NO_PATHCONV=1
+    "$pros_bin" restore "$host_title_dir" "/data/homebrew/$title_id" "${pros_args[@]}"
+}
+
 usage() {
-    sed -n '2,13p' "$0" | sed 's|^# \{0,1\}||'
+    sed -n '2,15p' "$0" | sed 's|^# \{0,1\}||'
     exit "${1:-0}"
 }
 
@@ -232,6 +433,8 @@ shift || true
 case "$cmd" in
     list) apps ;;
     build) over all "$@" ;;
+    make) make_app "$@" ;;
+    restore) restore_app "$@" ;;
     check)
         format --check
         over check "$@"

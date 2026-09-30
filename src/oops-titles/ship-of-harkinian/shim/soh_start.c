@@ -109,9 +109,9 @@ static int soh_have_rom(void) {
  * unpack must not look like a finished one, and only the extractor's return value knows
  * the difference.
  *
- * `OTRGlobals.cpp:433` tests `installPath + "/assets"` and puts up "Extractor assets not
- * found" when it is missing, so this has to happen before `main`, not on the way into a
- * conversion.
+ * `OTRGlobals.cpp:433` tests `installPath + "/assets"` and puts up "Extractor assets
+ * not found" when it is missing, so this has to happen before `main`, not on the way
+ * into a conversion.
  */
 static void soh_ensure_assets(void) {
     char marker[256];
@@ -147,9 +147,11 @@ static void soh_ensure_assets(void) {
         return;
     }
     /* The stamp, now that the extractor has said it finished. Its presence is the only
-     * thing that makes the next run skip this, so it is written last and never earlier. */
+     * thing that makes the next run skip this, so it is written last and never earlier.
+     */
     {
-        int fd = oops_fs_open(marker, OOPS_O_WRONLY | OOPS_O_CREAT | OOPS_O_TRUNC, 0644);
+        int fd =
+            oops_fs_open(marker, OOPS_O_WRONLY | OOPS_O_CREAT | OOPS_O_TRUNC, 0644);
         if (fd < 0) {
             oops_log_warn("SOH",
                           "unpacked, but could not write %s - the next launch will "
@@ -287,22 +289,24 @@ ship_of_harkinian_start(const payload_args_t *args) {
      * libultraship initialises it in `osContInit`, which is the *game's* controller
      * set-up and runs long after `InitOTR` - and `InitOTR` is where the extraction
      * prompt ("No O2R files found. Generate one now?") is raised. On a desktop that gap
-     * is invisible, because the prompt is answered with a mouse. Here it meant the first
-     * thing a player saw could not be answered at all.
+     * is invisible, because the prompt is answered with a mouse. Here it meant the
+     * first thing a player saw could not be answered at all.
      *
-     * Three separate symptoms all came from this one gap, which is why it is worth doing
-     * rather than patching each: SDL never ran the pad driver's `Init`, so the pad's
-     * game-controller mapping was never registered and ImGui - which reads
-     * `SDL_CONTROLLER_*` only - saw nothing; `oops_input_set_keyboard_as_pad(0)` lives in
-     * that same `Init`, so the keyboard stayed folded into port 0 and a phantom key held
-     * `OOPS_BUTTON_LEFT` down for the life of the process; and the subsystem was never
-     * marked live, so `SDL_PumpEvents` never polled the driver after the first call.
+     * Three separate symptoms all came from this one gap, which is why it is worth
+     * doing rather than patching each: SDL never ran the pad driver's `Init`, so the
+     * pad's game-controller mapping was never registered and ImGui - which reads
+     * `SDL_CONTROLLER_*` only - saw nothing; `oops_input_set_keyboard_as_pad(0)` lives
+     * in that same `Init`, so the keyboard stayed folded into port 0 and a phantom key
+     * held `OOPS_BUTTON_LEFT` down for the life of the process; and the subsystem was
+     * never marked live, so `SDL_PumpEvents` never polled the driver after the first
+     * call.
      *
      * Asking for it here runs that `Init` once, early, and costs nothing when upstream
      * asks again later - `SDL_InitSubSystem` reference-counts.
      */
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0) {
-        oops_log_error("SOH", "SDL game controllers would not start: %s", SDL_GetError());
+        oops_log_error("SOH", "SDL game controllers would not start: %s",
+                       SDL_GetError());
     } else {
         oops_log_info("SOH", "SDL game controllers up before main: %d joystick(s)",
                       SDL_NumJoysticks());

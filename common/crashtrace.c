@@ -88,15 +88,15 @@
  *
  * The three indices above are spaced exactly as FreeBSD's `mcontext` spaces those
  * registers: `mc_rbp` to `mc_rip` is eleven words there and 17 to 28 here, `mc_rip` to
- * `mc_rsp` is three and 28 to 31 here. Three measured values agreeing with one layout at
- * a uniform offset of eight words is a stronger statement than any one of them, and it
- * puts `mc_trapno` at 24 and `mc_addr` at 25.
+ * `mc_rsp` is three and 28 to 31 here. Three measured values agreeing with one layout
+ * at a uniform offset of eight words is a stronger statement than any one of them, and
+ * it puts `mc_trapno` at 24 and `mc_addr` at 25.
  *
  * They are printed together because each checks the other, and because this file warns
  * above that a drifted index gives a plausible address rather than an obvious error. A
- * page fault is trap 12 on this architecture: a `trap` that reads 12 alongside an `addr`
- * that explains the signal is two independent confirmations, and a `trap` that reads
- * anything else says to believe neither.
+ * page fault is trap 12 on this architecture: a `trap` that reads 12 alongside an
+ * `addr` that explains the signal is two independent confirmations, and a `trap` that
+ * reads anything else says to believe neither.
  */
 #define OOPS_CRASHTRACE_CTX_TRAPNO 24u
 #define OOPS_CRASHTRACE_CTX_ADDR 25u
@@ -136,18 +136,19 @@ static void crashtrace_handler(int signum, void *arg1, void *arg2) {
     /*
      * Which signal, and the second argument.
      *
-     * The number was being formatted here and then thrown away - the next `crashtrace_hex`
-     * overwrote the buffer with `rip` before anything printed it. Every report this handler
-     * has produced was therefore silent about the one thing that separates a bad
-     * dereference (11) from a bad instruction (4), which is the difference between "a
-     * pointer was null" and "execution reached a guard that should be unreachable". A day
-     * went into guessing between those two readings from `rip` alone.
+     * The number was being formatted here and then thrown away - the next
+     * `crashtrace_hex` overwrote the buffer with `rip` before anything printed it.
+     * Every report this handler has produced was therefore silent about the one thing
+     * that separates a bad dereference (11) from a bad instruction (4), which is the
+     * difference between "a pointer was null" and "execution reached a guard that
+     * should be unreachable". A day went into guessing between those two readings from
+     * `rip` alone.
      *
-     * `arg2` is printed as the value it is, not read through. `oops/thread.h` records the
-     * handler as receiving (signum, arg1, arg2) and only arg1 is known to be the context,
-     * so this says what arrived and leaves interpreting it to whoever reads the log with
-     * the platform's headers to hand. A pointer that looks like an address is a lead; one
-     * that looks like a small integer is a code.
+     * `arg2` is printed as the value it is, not read through. `oops/thread.h` records
+     * the handler as receiving (signum, arg1, arg2) and only arg1 is known to be the
+     * context, so this says what arrived and leaves interpreting it to whoever reads
+     * the log with the platform's headers to hand. A pointer that looks like an address
+     * is a lead; one that looks like a small integer is a code.
      */
     crashtrace_hex(hex, (uint64_t)(unsigned int)signum);
     oops_klog("crash", "  signal:");
@@ -273,9 +274,9 @@ void oops_crashtrace_install(void) {
      * `abort` is how a C++ program ends when an exception escapes a thread, when
      * `std::terminate` runs, and when an assert fires. None of those raise any of the
      * other three, so a worker dying that way produced a title that simply stopped: no
-     * trace, no message, and a log whose last line was whatever it had been doing. Ship of
-     * Harkinian writing its archive stopped exactly like that, and the absence of a trace
-     * was read as "still running, just slow" for longer than it should have been.
+     * trace, no message, and a log whose last line was whatever it had been doing. Ship
+     * of Harkinian writing its archive stopped exactly like that, and the absence of a
+     * trace was read as "still running, just slow" for longer than it should have been.
      */
     static const int signals[] = {11, 10, 4, 6};
     for (unsigned i = 0; i < sizeof(signals) / sizeof(signals[0]); i++) {

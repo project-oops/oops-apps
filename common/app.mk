@@ -3,6 +3,17 @@
 #   OOPS_APPS_ROOT ?= $(abspath ../..)
 #   include $(OOPS_APPS_ROOT)/common/app.mk
 
+# Parallelism: if no -j flag was passed, default to two thirds of the host's logical cores
+# (minimum 1) so builds run in parallel without manual -j flags.
+ifeq ($(filter -j%,$(MAKEFLAGS)),)
+  OOPS_NPROCS ?= $(or $(NUMBER_OF_PROCESSORS),$(shell nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2))
+  OOPS_JOBS   ?= $(shell expr $(OOPS_NPROCS) \* 2 / 3 2>/dev/null || echo 1)
+  ifeq ($(filter-out 0,$(OOPS_JOBS)),)
+    OOPS_JOBS := 1
+  endif
+  MAKEFLAGS   += -j$(OOPS_JOBS)
+endif
+
 OOPS_APPS_ROOT ?= $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
 OOPS_SDK ?= $(abspath $(OOPS_APPS_ROOT)/../oops-sdk)
 SELFISH ?= $(abspath $(OOPS_APPS_ROOT)/../selfish)
@@ -574,6 +585,8 @@ title-zip:
 	    ( cd $(BUILD)/title && zip -qr "$$ZIP_OUT" $(TITLE_ID) ); \
 	elif python3 -c 'import zipfile' >/dev/null 2>&1; then \
 	    ( cd $(BUILD)/title && python3 -m zipfile -c "$$ZIP_OUT" $(TITLE_ID) ); \
+	elif python -c 'import zipfile' >/dev/null 2>&1; then \
+	    ( cd $(BUILD)/title && python -m zipfile -c "$$ZIP_OUT" $(TITLE_ID) ); \
 	elif tar --version 2>/dev/null | grep -qiE 'bsdtar|libarchive'; then \
 	    ( cd $(BUILD)/title && tar -a -cf "$$ZIP_OUT" $(TITLE_ID) ); \
 	else \

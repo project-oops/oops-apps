@@ -42,8 +42,8 @@ for f in "$@"; do
 done
 
 # The `add_compile_definitions` blocks are read a second time in the END rule, so awk is handed the
-# list as a colon-joined string as well as reading the files for their set() lines.
-deflists=$(printf '%s:' "$@" | sed 's/:$//')
+# list as a pipe-joined string as well as reading the files for their set() lines.
+deflists=$(printf '%s|' "$@" | sed 's/|$//')
 
 tmp="$OUT.tmp"
 mkdir -p "$(dirname "$OUT")"
@@ -81,7 +81,7 @@ awk -v deflists="$deflists" '
         # superproject names the prefixes its own sources use, libultraship names its settings.
         # A name in two files is emitted once.
         n = 0
-        nfiles = split(deflists, deffile, ":")
+        nfiles = split(deflists, deffile, "|")
         for (fi = 1; fi <= nfiles; fi++) {
             inblock = 0
             while ((getline dline < deffile[fi]) > 0) {
@@ -146,7 +146,7 @@ fi
 # object, so rewriting it identically would rebuild the whole payload; a caller can therefore run
 # this on every make invocation, which is how a header nothing can list as a prerequisite gets made
 # before the first compile.
-if [ -f "$OUT" ] && cmp -s "$tmp" "$OUT"; then
+if [ -f "$OUT" ] && diff -q "$tmp" "$OUT" > /dev/null 2>&1; then
     rm -f "$tmp" "$tmp.log"
     exit 0
 fi

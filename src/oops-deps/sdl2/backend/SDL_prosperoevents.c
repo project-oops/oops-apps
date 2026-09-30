@@ -20,6 +20,7 @@
 #include "oops/keyboard.h"
 #include "oops/mouse.h"
 #include "oops/system.h"
+#include "oops/time.h" /* oops_time_get_ms, for the pump rate */
 
 /*
  * The character a key press types, for `SDL_TEXTINPUT`. `SDL_SendKeyboardText` posts
@@ -201,6 +202,25 @@ void PROSPERO_PumpEvents(_THIS) {
         PROSPERO_PumpMouse(data);
     }
     PROSPERO_PumpScreenKeyboard(_this);
+
+    /* The pump rate, every ten seconds. A title pumps once a frame, so this is its
+     * frame rate - and input is read here, so a slow pump is laggy keys and missed
+     * presses. */
+    static uint64_t s_rate_start_ms;
+    static unsigned s_pumps;
+    const uint64_t now_ms = oops_time_get_ms();
+    s_pumps++;
+    if (s_rate_start_ms == 0u) {
+        s_rate_start_ms = now_ms;
+    } else if (now_ms - s_rate_start_ms >= 10000u) {
+        const uint64_t tenths = (uint64_t)s_pumps * 10000u / (now_ms - s_rate_start_ms);
+        oops_log_info("SDL", "%u event pumps in %llu ms (%llu.%llu a second)", s_pumps,
+                      (unsigned long long)(now_ms - s_rate_start_ms),
+                      (unsigned long long)(tenths / 10u),
+                      (unsigned long long)(tenths % 10u));
+        s_rate_start_ms = now_ms;
+        s_pumps = 0u;
+    }
 }
 
 #endif /* SDL_VIDEO_DRIVER_PROSPERO */

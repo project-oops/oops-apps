@@ -119,9 +119,9 @@ static int PROSPERO_JoystickInit(void) {
      *
      * The triggers are `+a4`/`+a5`, half axes, as `GetGamepadMapping` below declares
      * them. A bare `a4` is read as the full signed range (`SDL_gamecontroller.c`,
-     * `SDL_PrivateGameControllerParseElement`), so a released trigger - 0 here - came out
-     * at half travel: a title saw R2 held from the moment the pad opened and never saw
-     * it pressed. This string wins over that function, being matched by GUID first.
+     * `SDL_PrivateGameControllerParseElement`), so a released trigger - 0 here - came
+     * out at half travel: a title saw R2 held from the moment the pad opened and never
+     * saw it pressed. This string wins over that function, being matched by GUID first.
      */
     {
         SDL_JoystickGUID guid = SDL_CreateJoystickGUIDForName(PROSPERO_JOYSTICK_NAME);
@@ -170,15 +170,15 @@ static int PROSPERO_JoystickGetCount(void) {
      * SDL consults this driver for a count without always having run its `Init` first -
      * measured on Ship of Harkinian, where this logged its answer and "SDL joystick
      * driver initialised" never appeared. `Init` is the only other place that opens the
-     * pad, so the poll below answered -1, SDL reported no controllers, and the title had
-     * no input for the rest of the run.
+     * pad, so the poll below answered -1, SDL reported no controllers, and the title
+     * had no input for the rest of the run.
      *
      * That mattered more than it sounds: libultraship raises its "No O2R files found.
-     * Generate one now?" dialog from `InitOTR`, while `SDL_Init(SDL_INIT_GAMECONTROLLER)`
-     * lives in `osContInit`, which the game reaches much later. On a desktop the gap is
-     * invisible because the dialog is answered with a mouse. On a console there is no
-     * mouse, so the first thing a player sees is a prompt that cannot be answered, with a
-     * cursor that does not move.
+     * Generate one now?" dialog from `InitOTR`, while
+     * `SDL_Init(SDL_INIT_GAMECONTROLLER)` lives in `osContInit`, which the game reaches
+     * much later. On a desktop the gap is invisible because the dialog is answered with
+     * a mouse. On a console there is no mouse, so the first thing a player sees is a
+     * prompt that cannot be answered, with a cursor that does not move.
      *
      * Only the pad is opened here, and deliberately nothing else. SDL calls this from
      * inside its joystick subsystem with the joystick lock held, so anything that takes
@@ -193,13 +193,13 @@ static int PROSPERO_JoystickGetCount(void) {
      * And stop the keyboard being folded into this pad, here, for the same reason.
      *
      * `oops_input_read_state` folds the keyboard into port 0 by default, and `Init` is
-     * where that is turned off - so when SDL never calls `Init`, it is never turned off.
-     * Measured: `pad buttons 0x00000000 -> 0x00000080` and then nothing ever again, which
-     * is `OOPS_BUTTON_LEFT` held down for the life of the process. ImGui reads that as
-     * navigation held left, so a menu selection slides to the leftmost item and stays
-     * there, and every real press afterwards is fighting it. Two keyboard handles are
-     * opened on this console whether or not a keyboard is attached, and one of them
-     * supplies that phantom key.
+     * where that is turned off - so when SDL never calls `Init`, it is never turned
+     * off. Measured: `pad buttons 0x00000000 -> 0x00000080` and then nothing ever
+     * again, which is `OOPS_BUTTON_LEFT` held down for the life of the process. ImGui
+     * reads that as navigation held left, so a menu selection slides to the leftmost
+     * item and stays there, and every real press afterwards is fighting it. Two
+     * keyboard handles are opened on this console whether or not a keyboard is
+     * attached, and one of them supplies that phantom key.
      *
      * This is an SDK call and takes no SDL lock, so unlike the controller mapping it is
      * safe from here.
@@ -245,11 +245,11 @@ static void PROSPERO_JoystickDetect(void) {
      * The game-controller mapping, registered here because here is safe.
      *
      * SDL decides whether a joystick is a *game controller* by looking its GUID up in a
-     * mapping table. Without that registration a title reading `SDL_CONTROLLER_*` - which
-     * is what ImGui's gamepad navigation reads - sees nothing at all, however well the raw
-     * axes report; the comment in `Init` records Bugdom's menu ignoring a stick the log
-     * showed reaching 127, for exactly this reason. `Init` registers it, and SDL does not
-     * always call `Init` before asking this driver for a count.
+     * mapping table. Without that registration a title reading `SDL_CONTROLLER_*` -
+     * which is what ImGui's gamepad navigation reads - sees nothing at all, however
+     * well the raw axes report; the comment in `Init` records Bugdom's menu ignoring a
+     * stick the log showed reaching 127, for exactly this reason. `Init` registers it,
+     * and SDL does not always call `Init` before asking this driver for a count.
      *
      * It cannot go in `GetCount`: SDL calls that with the joystick lock held, and
      * `SDL_GameControllerAddMapping` takes the same lock. `Detect` is called from
@@ -429,8 +429,9 @@ static void PROSPERO_JoystickUpdate(SDL_Joystick *joystick) {
     if (rc != 0) {
         if (!poll_failed) {
             poll_failed = 1;
-            oops_log_warn("INPUT", "pad poll failed while open (rc=%d) - no buttons "
-                                   "will reach this title",
+            oops_log_warn("INPUT",
+                          "pad poll failed while open (rc=%d) - no buttons "
+                          "will reach this title",
                           rc);
         }
         return;
@@ -443,8 +444,9 @@ static void PROSPERO_JoystickUpdate(SDL_Joystick *joystick) {
      *
      * Change alone is not enough: a button that sticks down prints one line and then
      * nothing ever again, which reads exactly like a driver that is not being polled at
-     * all. Those are opposite faults and they looked identical for a whole round of this.
-     * The heartbeat makes "still polling, still 0x80" a statement rather than a silence.
+     * all. Those are opposite faults and they looked identical for a whole round of
+     * this. The heartbeat makes "still polling, still 0x80" a statement rather than a
+     * silence.
      */
     polls++;
     if (b != last_buttons) {
@@ -476,12 +478,13 @@ static void PROSPERO_JoystickUpdate(SDL_Joystick *joystick) {
     /*
      * What the sticks actually report, raw and converted, once.
      *
-     * `oops/input.h` declares these `int8_t` and documents -128..127 with 0 at rest, and
-     * `prospero_stick_axis` is correct for that. A pad that reports 0..255 with 128 at rest
-     * would arrive here as -128 and convert to -32768 - a stick held hard over, at rest,
-     * which ImGui reads as navigation held down and the menu selection never settles. The
-     * two readings look identical from outside, so print them rather than reason about
-     * them: at rest, raw near 0 is right and raw near -128 is the other case.
+     * `oops/input.h` declares these `int8_t` and documents -128..127 with 0 at rest,
+     * and `prospero_stick_axis` is correct for that. A pad that reports 0..255 with 128
+     * at rest would arrive here as -128 and convert to -32768 - a stick held hard over,
+     * at rest, which ImGui reads as navigation held down and the menu selection never
+     * settles. The two readings look identical from outside, so print them rather than
+     * reason about them: at rest, raw near 0 is right and raw near -128 is the other
+     * case.
      */
     /*
      * And again whenever a stick actually moves, so a selection that changes on its own
