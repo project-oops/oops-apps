@@ -1,62 +1,28 @@
 name: check
 
-# Checks out the collection, this repository inside it, and bootstraps oops-sdk (see the
-# collection's docs/BUILDING.md). There is no job-level working-directory, because
-# `OOPS/bin/oops` resolves from the checkout root.
+# Checks out the collection, this repository inside it, and runs the gate:
+# formatting check, then each app's own gate (host selftests).
+# Cross-compilation and packaging are handled by the parallel release matrix.
 
 on:
   push:
     branches: [main]
   pull_request:
-  workflow_dispatch:
-    inputs:
-      rebuild_all:
-        description: "Rebuild all apps (ignore git diff)"
-        type: boolean
-        default: false
-      apps:
-        description: "Specific apps to check (space-separated, blank for auto)"
-        type: string
-        default: ""
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    name: every app builds
+  check:
+    name: gate
     runs-on: ubuntu-latest
-    # The clang 21 pin from `toolchain.mk`; Ubuntu's own `clang` package is an older major.
     container: silkeh/clang:21
     steps:
-      # Before `actions/checkout`, which without git falls back to a download with no
-      # submodules. `curl` and `unzip` fetch a dependency pinned as an archive
-      # (`UPSTREAM_KIND=archive`, `common/upstream-fetch.sh`).
       - name: Tools the container does not ship
         run: |
           apt-get update -qq
-          apt-get install -y -qq git zip unzip curl jq ca-certificates lld ccache
-
-      - name: Cache ccache
-        uses: actions/cache@v4
-        with:
-          path: .ccache
-          key: ccache-check-${{ github.sha }}
-          restore-keys: |
-            ccache-check-
-            ccache-
-
-      - name: Configure ccache
-        run: |
-          mkdir -p /usr/local/ccache/bin
-          ln -sf "$(command -v ccache)" /usr/local/ccache/bin/clang
-          ln -sf "$(command -v ccache)" /usr/local/ccache/bin/clang++
-          echo "/usr/local/ccache/bin" >> "$GITHUB_PATH"
-          echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache" >> "$GITHUB_ENV"
-          echo "CCACHE_COMPRESS=1" >> "$GITHUB_ENV"
-          echo "CCACHE_COMPRESSLEVEL=6" >> "$GITHUB_ENV"
-          echo "CCACHE_MAXSIZE=2G" >> "$GITHUB_ENV"
-          echo "CCACHE_SLOPPINESS=pch_defines,time_macros" >> "$GITHUB_ENV"
+          apt-get install -y -qq git ca-certificates
+          git config --global --add safe.directory '*'
 
       - uses: actions/checkout@v4
         with:
@@ -70,95 +36,12 @@ jobs:
       - name: The compiler this build is pinned to
         run: clang --version | head -1
 
-      # First, so a layout diff fails in seconds; `check` below runs it again.
-      - name: Formatting
-        run: ./bin/oops-apps fmt --check
-        working-directory: OOPS/oops-apps
-
-      # The vendored dependency trees; `common/upstream.mk` fetches only a title's own
-      # upstream.
-      - name: The dependency trees this build is pinned to
-        run: ./common/deps-fetch.sh
-        working-directory: OOPS/oops-apps
-
       - name: Siblings this build needs
         run: OOPS/bin/oops bootstrap oops-apps
         env:
-          # Empty unless the org secret exists.
           OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
 
-      - name: Identify changed apps
-        id: changes
-        shell: bash
-        run: |
-          if [ "${{ inputs.rebuild_all }}" = "true" ]; then
-            changed=$(./bin/oops-apps list)
-          elif [ -n "${{ inputs.apps }}" ]; then
-            changed=$(./bin/oops-apps changed --apps ${{ inputs.apps }})
-          else
-            base=""
-            if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
-              base="${{ github.event.pull_request.base.sha }}"
-            elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${{ github.event.before }}^{commit}" 2>/dev/null; then
-              base="${{ github.event.before }}"
-            fi
-            if [ -n "$base" ]; then
-              changed=$(./bin/oops-apps changed "$base")
-            else
-              changed=$(./bin/oops-apps changed)
-            fi
-          fi
-          apps_line=$(echo $changed | tr '\n' ' ')
-          count=$(echo "$changed" | grep -c . || true)
-          echo "apps=$apps_line" >> "$GITHUB_OUTPUT"
-          echo "count=$count" >> "$GITHUB_OUTPUT"
-          echo "Apps to check ($count): $apps_line"
-        working-directory: OOPS/oops-apps
-
-      # `build` builds changed apps; `check` runs each app's own gate (the host self-tests).
-      - name: Build changed apps
-        if: steps.changes.outputs.count != '0'
-        run: |
-          ./bin/oops-apps build ${{ steps.changes.outputs.apps }}
-          ccache -s || true
-        working-directory: OOPS/oops-apps
-      - name: Each app's own gate
-        if: steps.changes.outputs.count != '0'
-        run: ./bin/oops-apps check ${{ steps.changes.outputs.apps }}
-        working-directory: OOPS/oops-apps
-      - name: Stage changed apps and verify naming conventions
-        if: steps.changes.outputs.count != '0'
-        # bash for `shopt`; the container's default `sh` is dash.
-        shell: bash
-        run: |
-          ./bin/oops-apps dist ${{ steps.changes.outputs.apps }}
-          shopt -s nullglob
-          for app in ${{ steps.changes.outputs.apps }}; do
-            for d in src/*/"$app"/dist; do
-              [ -d "$d" ] || continue
-              for f in "$d"/*; do
-                [ -e "$f" ] || continue
-                if [ -d "$f" ]; then
-                  echo "::error file=$f::Directory in staged artifacts for $app; titles must be packaged as .zip" >&2
-                  exit 1
-                fi
-                fname=$(basename "$f")
-                case "$fname" in
-                  "$app"-*)
-                    case "$fname" in
-                      *-orbis*|*-neo*|*-prospero*|*-trinity*) ;;
-                      *)
-                        echo "::error file=$f::Artifact $fname does not encode a target generation per CONVENTIONS.md section 2" >&2
-                        exit 1
-                        ;;
-                    esac
-                    ;;
-                  *)
-                    echo "::error file=$f::Artifact $fname in $app does not begin with the app name '$app-'" >&2
-                    exit 1
-                    ;;
-                esac
-              done
-            done
-          done
+      # The same gate a person runs: `./bin/oops-apps check` (formatting, then host selftests)
+      - name: Gate
+        run: ./bin/oops-apps check
         working-directory: OOPS/oops-apps
