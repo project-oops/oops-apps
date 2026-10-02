@@ -78,7 +78,8 @@ SPGK_LUS_CXX_SRCS := $(sort $(shell find $(SPGK_LUS)/src -name '*.cpp'))
 # `SPGK_DEPS` is checked by `make survey` against `src/oops-deps`, so the list stays honest rather
 # than going stale in a comment. `prism` is vendored as `prism-processor`, which is why it is named
 # that way here.
-SPGK_DEPS := sdl2 sdl2-net zlib libzip stb nlohmann-json thread-pool tinyxml2 spdlog \
+# SDL2_net is found only under USE_NETWORKING, which upstream disables.
+SPGK_DEPS := sdl2 zlib libzip stb nlohmann-json thread-pool tinyxml2 spdlog \
              imgui prism-processor libgfxd tomlplusplus semver libogg libvorbis dr-libs
 
 include $(OOPS_APPS_ROOT)/common/posix.mk
@@ -253,6 +254,8 @@ include $(OOPS_LIBCXX)/oops-libcxxabi.mk
 # libc++ owns new/delete for any title linking the full archive - see bugdom/docs/PORTING.md.
 EXTRA_TARGET_CFLAGS += -DOOPS_CXX_EXTERNAL_NEW_DELETE
 
+# Armed by default: the payload links with nothing unresolved.
+SPGK_ARMED ?= 1
 ifeq ($(SPGK_ARMED),1)
 OOPS_CXX_SRCS := $(SPGK_CXX_SRCS) $(SPGK_LUS_CXX_SRCS) \
                  $(CURDIR)/shim/GameExtractor.cpp $(CURDIR)/shim/spgk_start.cpp
