@@ -44,7 +44,11 @@ if [ -n "${OOPS_JOBS:-}" ]; then
 fi
 
 cores=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
-jobs=$((cores * 2 / 3))
+if [ "$cores" -le 2 ]; then
+    jobs=$cores
+else
+    jobs=$((cores * 2 / 3))
+fi
 [ "$jobs" -lt 1 ] && jobs=1
 
 # `MemAvailable` rather than `MemFree`: the kernel's own estimate of what can be had

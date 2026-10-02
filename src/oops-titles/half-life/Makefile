@@ -124,7 +124,7 @@ HL_SERVER_SRCS := $(filter-out %/mpstubb.cpp %/stats.cpp %/Wxdebug.cpp, \
 # `strlcat`, which `public/crtlib.c` then supplies itself. `alloca` is the builtin
 # `<stdlib.h>` defines.
 HL_BASE := -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -nostdlibinc \
-           -fPIC -O2 -w -fcommon -DXASH_STATIC_LIBS=1 -DXASH_SDL=2 -DXASH_GAMEDIR=\"valve\" \
+           -fPIC -ftls-model=initial-exec -O2 -w -fcommon -DXASH_STATIC_LIBS=1 -DXASH_SDL=2 -DXASH_GAMEDIR=\"valve\" \
            -DXASH_REF_GL_ENABLED=1 -DMINIZ_NO_TIME=1 -DOOPS -D_GNU_SOURCE=1 \
            -DHAVE_STRCASECMP=1 -DHAVE_STRNCASECMP=1 -DHAVE_STRNLEN=1 '-DALLOCA_H=<stdlib.h>'
 HL_SYS  = $(OOPS_POSIX_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)

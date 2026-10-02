@@ -85,7 +85,7 @@ MNCL_LIB_C_SRCS := $(LUANTI)/lib/gmp/mini-gmp.c $(LUANTI)/lib/lstrpack/lstrpack.
 
 # --- flags ------------------------------------------------------------------------------
 MNCL_BASE := -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -nostdlibinc \
-             -fPIC -O2 -w
+             -fPIC -ftls-model=initial-exec -O2 -w
 MNCL_SYS   = $(OOPS_POSIX_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
 MNCL_DEPS_INC = $(OOPS_ZSTD_INCLUDE) $(OOPS_SQLITE_INCLUDE) $(OOPS_FT_INCLUDE) $(OOPS_PNG_INCLUDE) \
                 $(OOPS_JPEG_INCLUDE) $(OOPS_VORBIS_INCLUDE) $(OOPS_OPENAL_INCLUDE) \

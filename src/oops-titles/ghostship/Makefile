@@ -208,7 +208,7 @@ GHST_INCLUDE = $(OOPS_POSIX_INCLUDE) \
 # which this clang rejects by default and the desktop compilers upstream targets warn about;
 # `../spaghetti-kart` turns the same three off.
 GHST_BASE := -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -nostdlibinc \
-             -fPIC -w
+             -fPIC -ftls-model=initial-exec -w
 GHST_SYS   = $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
 GHST_C     = $(GHST_BASE) -O1 -fno-strict-aliasing -std=gnu11 -Wno-int-conversion \
              -Wno-incompatible-pointer-types -Wno-incompatible-function-pointer-types \

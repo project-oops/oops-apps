@@ -86,7 +86,7 @@ BLTR_LIB_C_SRCS := $(filter-out $(BLTR_LIB_EXCL), \
 # `PHYSFS_NO_CDROM_SUPPORT` is PhysFS's own switch (`physfs_platform_unix.c:26`): its CD-ROM
 # discovery walks the mounted filesystems through `<sys/mount.h>`, and there are no discs to find.
 BLTR_BASE := -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -nostdlibinc \
-             -fPIC -O2 -w -DLOVE_NOMPG123 -DHAS_SOCKLEN_T -DPHYSFS_NO_CDROM_SUPPORT=1
+             -fPIC -ftls-model=initial-exec -O2 -w -DLOVE_NOMPG123 -DHAS_SOCKLEN_T -DPHYSFS_NO_CDROM_SUPPORT=1
 BLTR_SYS   = $(OOPS_POSIX_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
 BLTR_INC   = -I$(LOVE) -I$(LOVE)/libraries -I$(LOVE)/modules \
              -I$(LOVE)/libraries/enet/libenet/include $(OOPS_LUAJIT_INCLUDE) $(OOPS_FT_INCLUDE) \

@@ -161,7 +161,7 @@ STRF_INCLUDE = $(OOPS_POSIX_INCLUDE) \
     -DOOPS_POSIX_HOME=\"/app0\"
 
 STRF_BASE := -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -nostdlibinc \
-             -fPIC -O2 -w
+             -fPIC -ftls-model=initial-exec -O2 -w
 STRF_SYS   = $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
 # The decompiled C passes pointers as integers and back, which this clang rejects by default;
 # `../spaghetti-kart` turns the same three off.

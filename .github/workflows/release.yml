@@ -81,6 +81,17 @@ jobs:
           OOPS_CI_TOKEN: ${{ secrets.OOPS_CI_TOKEN }}
       - name: Rust
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            OOPS/selfish/target
+            OOPS/obscene/tool/target
+          key: cargo-packaging-tools-${{ hashFiles('OOPS/selfish/Cargo.lock', 'OOPS/obscene/tool/Cargo.lock') }}
+          restore-keys: cargo-packaging-tools-
       - name: Build selfish and obscene-tool
         run: |
           set -euo pipefail
@@ -113,7 +124,29 @@ jobs:
       - name: Tools the container does not ship
         run: |
           apt-get update -qq
-          apt-get install -y -qq git zip unzip curl jq ca-certificates lld
+          apt-get install -y -qq git zip unzip curl jq ca-certificates lld ccache
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-${{ matrix.app }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ matrix.app }}-
+            ccache-
+
+      - name: Configure ccache
+        run: |
+          mkdir -p /usr/local/ccache/bin
+          ln -sf "$(command -v ccache)" /usr/local/ccache/bin/clang
+          ln -sf "$(command -v ccache)" /usr/local/ccache/bin/clang++
+          echo "/usr/local/ccache/bin" >> "$GITHUB_PATH"
+          echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_COMPRESS=1" >> "$GITHUB_ENV"
+          echo "CCACHE_COMPRESSLEVEL=6" >> "$GITHUB_ENV"
+          echo "CCACHE_MAXSIZE=1G" >> "$GITHUB_ENV"
+          echo "CCACHE_SLOPPINESS=pch_defines,time_macros" >> "$GITHUB_ENV"
+
       # The collection, then this repository inside it; no job-level working-directory.
       - uses: actions/checkout@v4
         with:
@@ -153,6 +186,7 @@ jobs:
       - name: Stage ${{ matrix.app }}
         run: |
           ./bin/oops-apps dist ${{ matrix.app }}
+          ccache -s || true
           mkdir -p staging
           for d in src/*/${{ matrix.app }}/dist; do
             if [ -d "$d" ]; then

@@ -70,7 +70,7 @@ SMNA_GAME_SRCS := $(MANIA)/Game.c $(MANIA)/Objects/All.c
 # does not build, and the game runs without mods. The game's are CMakeLists.txt:82, for the last
 # Steam release (`GAME_VERSION=6`, Plus).
 SMNA_BASE := -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -nostdlibinc \
-             -fPIC -O2 -w -DRETRO_REVISION=3 -DRETRO_USE_MOD_LOADER=0 -DRETRO_MOD_LOADER_VER=2
+             -fPIC -ftls-model=initial-exec -O2 -w -DRETRO_REVISION=3 -DRETRO_USE_MOD_LOADER=0 -DRETRO_MOD_LOADER_VER=2
 SMNA_SYS   = $(OOPS_POSIX_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)
 # `MINIZ_NO_TIME` keeps the bundled miniz from setting file times through `utime`, which it
 # does only when extracting to disk.

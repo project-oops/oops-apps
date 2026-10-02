@@ -150,7 +150,7 @@ $(foreach i,$(NSRF_FB_IMAGES),$(eval $(call nsrf_fb_image,$(firstword $(subst :,
 # `_ALIGNED` and `STMTEXPR` are what the bundle's `buildsystem/makefiles/Makefile.clang` gives
 # every library: without the first, `libcss`'s `} _ALIGNED;` declares a variable in each file.
 NSRF_BASE := -target x86_64-unknown-freebsd -ffreestanding -fno-builtin -nostdlib -nostdlibinc \
-             -fPIC -O2 -w -std=gnu99 -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 \
+             -fPIC -ftls-model=initial-exec -O2 -w -std=gnu99 -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 \
              -D_BSD_SOURCE -D_DEFAULT_SOURCE -D__PROSPERO__=1 \
              '-D_ALIGNED=__attribute__((aligned))' -DSTMTEXPR=1
 NSRF_SYS = $(OOPS_POSIX_INCLUDE) $(OOPS_SDK_INCLUDE) $(OOPS_SDK_LIBC_INCLUDE)

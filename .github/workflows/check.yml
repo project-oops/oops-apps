@@ -25,7 +25,28 @@ jobs:
       - name: Tools the container does not ship
         run: |
           apt-get update -qq
-          apt-get install -y -qq git zip unzip curl jq ca-certificates lld
+          apt-get install -y -qq git zip unzip curl jq ca-certificates lld ccache
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-check-${{ github.sha }}
+          restore-keys: |
+            ccache-check-
+            ccache-
+
+      - name: Configure ccache
+        run: |
+          mkdir -p /usr/local/ccache/bin
+          ln -sf "$(command -v ccache)" /usr/local/ccache/bin/clang
+          ln -sf "$(command -v ccache)" /usr/local/ccache/bin/clang++
+          echo "/usr/local/ccache/bin" >> "$GITHUB_PATH"
+          echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache" >> "$GITHUB_ENV"
+          echo "CCACHE_COMPRESS=1" >> "$GITHUB_ENV"
+          echo "CCACHE_COMPRESSLEVEL=6" >> "$GITHUB_ENV"
+          echo "CCACHE_MAXSIZE=2G" >> "$GITHUB_ENV"
+          echo "CCACHE_SLOPPINESS=pch_defines,time_macros" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v4
         with:
@@ -57,7 +78,9 @@ jobs:
 
       # `build` builds every app; `check` runs each app's own gate (the host self-tests).
       - name: Build every app
-        run: ./bin/oops-apps build
+        run: |
+          ./bin/oops-apps build
+          ccache -s || true
         working-directory: OOPS/oops-apps
       - name: Each app's own gate
         run: ./bin/oops-apps check
