@@ -402,6 +402,9 @@ endif
 
 # Freestanding target skeleton compilation (object only).
 skeleton: | $(BUILD)
+ifdef OOPS_SDL_PREFIX_STAMP
+skeleton: | $(OOPS_SDL_PREFIX_STAMP)
+endif
 ifneq ($(strip $(PAYLOAD_SRCS)),)
 	$(TARGET_CC) $(TARGET_CFLAGS) -c -o $(BUILD)/$(APP_NAME).o $(firstword $(PAYLOAD_SRCS))
 	@echo "$(APP_NAME) skeleton: compiles freestanding for the target (object only)"
