@@ -475,6 +475,9 @@ include $(OOPS_APPS_ROOT)/common/app.mk
 # the C declarations already in place and leaves `std::__math` empty.
 TARGET_CFLAGS += $(SOH_WARNINGS)
 
+$(OOPS_PAYLOAD_OBJS): | $(OOPS_SDL_PREFIX_STAMP)
+$(OOPS_CXX_OBJS): | $(OOPS_SDL_PREFIX_STAMP)
+
 # ---------------------------------------------------------------------------
 # `make package`: the title with the port's own archive beside it
 #

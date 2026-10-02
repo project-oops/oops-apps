@@ -147,6 +147,9 @@ ifeq ($(OOPS_CXX_PCH),1)
 # from separate rules accumulate.
 $(OOPS_CXX_OBJS): $(OOPS_CXX_PCH_OUT)
 endif
+ifdef OOPS_SDL_PREFIX_STAMP
+$(OOPS_CXX_OBJS): | $(OOPS_SDL_PREFIX_STAMP)
+endif
 
 # OOPS_CXX_LINK_OBJECTS = 1 links the objects directly, for a title whose sources share
 # file names (see `oops_ar_check` in `common/deps.mk`). The archive is whole-archive, so

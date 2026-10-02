@@ -436,6 +436,9 @@ ifneq ($(strip $(PAYLOAD_SRCS)),)
 OOPS_PAYLOAD_OBJS := $(call oops_objs,$(BUILD)/obj,$(PAYLOAD_SRCS) $(TARGET_SYS_SRCS))
 -include $(OOPS_PAYLOAD_OBJS:.o=.d)
 $(call oops_obj_rules,$(BUILD)/obj,TARGET_CC,TARGET_CFLAGS,$(PAYLOAD_SRCS) $(TARGET_SYS_SRCS))
+ifdef OOPS_SDL_PREFIX_STAMP
+$(OOPS_PAYLOAD_OBJS): | $(OOPS_SDL_PREFIX_STAMP)
+endif
 
 $(BUILD)/$(APP_NAME).elf: $(OOPS_PAYLOAD_OBJS) $(PAYLOAD_EXTRA_DEPS) \
                           $(oops_makefiles) | $(BUILD)
