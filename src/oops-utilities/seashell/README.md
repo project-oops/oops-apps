@@ -28,6 +28,16 @@ system dialogs (virtual keyboard, progress, confirmation, error) - and launches 
   <img src="assets/screenshot.png" alt="SeaShell running on the hardware" width="600">
 </p>
 
+## Requirements
+
+Scanning `/user/appmeta` and `/data/homebrew` for installed titles and homebrew requires
+filesystem access outside the application sandbox namespace. This requires either:
+
+- **sandbox-daemon** running on loopback port 9069, or
+- **etaHEN** with app unsandboxing / auto-jailbreak enabled.
+
+Without sandbox escaping, SeaShell continues in restricted mode and cannot discover installed homebrew.
+
 ## Docs
 
 - [Architecture](docs/ARCHITECTURE.md) - the model/host split, persistence, and build outputs.

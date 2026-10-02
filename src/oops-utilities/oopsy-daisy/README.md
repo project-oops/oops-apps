@@ -51,6 +51,17 @@ catalogue in the SDK webview, downloads a title's `.zip` on a background thread 
 progress, unpacks it into `/data/homebrew` with the execute bit set, and launches. Titles already
 installed are badged and can be uninstalled from the same screen.
 
+## Requirements
+
+Installing and uninstalling titles writes to `/data/homebrew` and `/user/appmeta` outside the
+application sandbox. This requires either:
+
+- **sandbox-daemon** running as a background service on the console (listening on loopback port 9069), or
+- **etaHEN** with app unsandboxing / auto-jailbreak enabled.
+
+If neither is detected, OOPSy-DAISY warns at startup:
+`OOPSy-DAISY requires sandbox escaping to work correctly, please install sandbox-daemon or use etaHEN`
+
 ## Build & run
 
 ```bash

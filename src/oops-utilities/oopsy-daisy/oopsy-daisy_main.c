@@ -361,7 +361,7 @@ static void process_job(oopsy_job_t *job, oopsy_repaint_fn repaint, void *rctx) 
         if (esc_rc != 0) {
             oops_fs_free_data(zip_data);
             job->state = OOPSY_JOB_FAILED;
-            job->error = "Sandbox escape failed.";
+            job->error = "Sandbox escape failed (sandbox-daemon not running).";
             log_error("install: sandbox escape failed");
             if (repaint)
                 repaint(rctx);
@@ -613,6 +613,11 @@ static oops_js_value_t cb_install(oops_js_t *js, int argc, oops_js_value_t *argv
                                   void *ud) {
     (void)js;
     oopsy_bridge_t *b = (oopsy_bridge_t *)ud;
+    if (!oops_system_can_escape_sandbox()) {
+        oops_kprintf_level(OOPS_LOG_ERROR, "OOPSY",
+                           "install: refused - sandbox escape unavailable");
+        return oops_js_make_bool(0);
+    }
     if (argc < 1 || argv[0].type != OOPS_JS_TYPE_STRING || !argv[0].u.string)
         return oops_js_make_bool(0);
     const char *name = argv[0].u.string;
@@ -783,6 +788,11 @@ static oops_js_value_t cb_uninstall(oops_js_t *js, int argc, oops_js_value_t *ar
         oops_kprintf_level(OOPS_LOG_ERROR, "OOPSY", "uninstall: bad id '%s'", id);
         return oops_js_make_bool(0);
     }
+    if (!oops_system_can_escape_sandbox()) {
+        oops_kprintf_level(OOPS_LOG_ERROR, "OOPSY",
+                           "uninstall: %s refused - sandbox escape unavailable", id);
+        return oops_js_make_bool(0);
+    }
     char hb[64], am[64];
     int k = 0;
     for (const char *c = HOMEBREW_ROOT "/"; *c; c++)
@@ -911,15 +921,22 @@ static int wv_eval_bool(oops_webview_t *wv, const char *code) {
     return val;
 }
 
-/* oopsyError('msg') - show a banner. The message is one of the app's fixed strings,
- * but any quote or newline is turned to a space so the composed statement is always
- * well-formed. */
-static void wv_error(oops_webview_t *wv, const char *msg) {
-    char code[320];
+/* oopsyAlert('title', 'msg') - show a modal banner. Quotes and newlines are sanitized. */
+static void wv_alert(oops_webview_t *wv, const char *title, const char *msg) {
+    char code[512];
     int p = 0;
-    const char *pre = "oopsyError('";
+    const char *pre = "oopsyAlert('";
     for (int k = 0; pre[k] && p < (int)sizeof code - 4; k++)
         code[p++] = pre[k];
+    for (int k = 0; title && title[k] && p < (int)sizeof code - 8; k++) {
+        char ch = title[k];
+        if (ch == '\'' || ch == '\\' || ch == '\n' || ch == '\r')
+            ch = ' ';
+        code[p++] = ch;
+    }
+    const char *mid = "','";
+    for (int k = 0; mid[k] && p < (int)sizeof code - 4; k++)
+        code[p++] = mid[k];
     for (int k = 0; msg && msg[k] && p < (int)sizeof code - 4; k++) {
         char ch = msg[k];
         if (ch == '\'' || ch == '\\' || ch == '\n' || ch == '\r')
@@ -931,6 +948,10 @@ static void wv_error(oops_webview_t *wv, const char *msg) {
         code[p++] = post[k];
     code[p] = '\0';
     wv_eval(wv, code);
+}
+
+static void wv_error(oops_webview_t *wv, const char *msg) {
+    wv_alert(wv, "Notice", msg);
 }
 
 /* Pull the next queued title and run its download+unpack off the UI thread. Passing
@@ -956,7 +977,8 @@ static void *download_worker(void *arg) {
 }
 
 static int run_webview_ui(oops_display_t *disp, oopsy_catalog_t *cat,
-                          oopsy_queue_t *queue, const char *load_msg) {
+                          oopsy_queue_t *queue, const char *load_msg,
+                          const char *alert_title) {
     /* Size the webview to the actual scanout surface, not a fixed 1280x720 - the
      * display backend hands back 1920x1080 here, and a smaller webview would lay
      * the page out in one corner. */
@@ -999,7 +1021,7 @@ static int run_webview_ui(oops_display_t *disp, oopsy_catalog_t *cat,
         oops_webview_pump(wv); /* let scripts + first layout settle */
     wv_eval(wv, "oopsyInit();");
     if (load_msg)
-        wv_error(wv, load_msg);
+        wv_alert(wv, alert_title ? alert_title : "Notice", load_msg);
 
     log_info("webview: initialised");
 
@@ -1019,7 +1041,7 @@ static int run_webview_ui(oops_display_t *disp, oopsy_catalog_t *cat,
     if (!dl_worker)
         oops_kprintf_level(OOPS_LOG_ERROR, "OOPSY", "download worker would not start");
 
-    int on_queue = 0, running = 1;
+    int on_queue = (load_msg != NULL), running = 1;
     uint32_t last = 0;
     while (running) {
         if (oops_system_close_requested())
@@ -1033,14 +1055,17 @@ static int run_webview_ui(oops_display_t *disp, oopsy_catalog_t *cat,
         last = buttons;
 
         if (on_queue) {
-            /* A modal is up - the downloads view, or a confirm dialog. O closes it back to the
-             * grid; X confirms whatever the dialog is asking (the uninstall). */
+            /* A modal is up - the downloads view, a confirm dialog, or an alert banner.
+             * O closes it back to the grid; X confirms or dismisses the alert. */
             if (pressed & OOPS_BUTTON_CIRCLE) {
                 on_queue = 0;
                 wv_eval(wv, "oopsyBack();");
             }
-            if (pressed & OOPS_BUTTON_CROSS)
+            if (pressed & OOPS_BUTTON_CROSS) {
                 wv_eval(wv, "oopsyConfirm();");
+                if (!wv_eval_bool(wv, "(__screen==='queue'||__screen==='confirm'||__err!=='')"))
+                    on_queue = 0;
+            }
         } else {
             /* The page owns the filtered grid and the highlight; the controller
              * forwards intents. Install is by name: oopsyEnter() calls back
@@ -1151,18 +1176,33 @@ int oopsy_daisy_start(const payload_args_t *args) {
     const char *msg = 0;
     int ok = load_catalog(&cat, &msg);
 
+    static const char *s_sandbox_req_msg =
+        "OOPSy-DAISY requires sandbox escaping to work correctly, please install "
+        "sandbox-daemon or use etaHEN";
+
+    int can_esc = oops_system_can_escape_sandbox();
+    if (!can_esc) {
+        log_error("sandbox escape unavailable: neither etaHEN nor sandbox-daemon detected");
+    } else if (oops_fs_exists("/data")) {
+        g_escaped = 1;
+        log_info("already unsandboxed (etaHEN / pre-escaped namespace)");
+    }
+
+    const char *ui_msg = ok ? (can_esc ? 0 : s_sandbox_req_msg) : msg;
+    const char *ui_title = (!can_esc) ? "Sandbox Escape Required" : "Notice";
+
 #ifdef OOPSY_HAVE_WEBVIEW
     log_info("ui: webview (oops-apps index page)");
-    run_webview_ui(disp, &cat, &queue, ok ? 0 : msg);
+    run_webview_ui(disp, &cat, &queue, ui_msg, ui_title);
 #else
     log_info("ui: native canvas (webview not in this SDK)");
     oopsy_view_t view;
     view.cat = &cat;
     view.queue = &queue;
     view.selected = 0;
-    view.phase = ok ? OOPSY_BROWSE : OOPSY_FAILED;
+    view.phase = (ok && can_esc) ? OOPSY_BROWSE : OOPSY_FAILED;
     view.screen = OOPSY_SCREEN_BROWSE;
-    view.message = ok ? 0 : msg;
+    view.message = ui_msg;
     run_native_ui(disp, &cat, &queue, &view);
 #endif
 
