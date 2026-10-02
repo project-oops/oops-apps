@@ -312,6 +312,12 @@ jobs:
         run: |
           install -Dm755 tools-bin/selfish OOPS/selfish/target/release/selfish
           install -Dm755 tools-bin/obscene-tool OOPS/obscene/tool/target/release/obscene-tool
+      - name: Pre-fetch ${{ matrix.app }} upstream
+        run: |
+          d=$(find OOPS/oops-apps/src -maxdepth 3 -name Makefile -path "*/${{ matrix.app }}/Makefile" -exec dirname {} \;)
+          if [ -n "$d" ] && [ -f "$d/Makefile" ]; then
+            make -C "$d" -n || true
+          fi
       - name: Package ${{ matrix.app }}
         run: |
           image=$(sed -n 's/^TOOLCHAIN_IMAGE *:= *//p' OOPS/oops-mesa/dependencies.mk)

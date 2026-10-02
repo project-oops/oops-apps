@@ -108,12 +108,31 @@ archive)
     echo "upstream: $URL @ $REV"
     DOWNLOAD="$DIR.download"
     rm -f "$DOWNLOAD"
-    curl -fL --retry 3 -s -o "$DOWNLOAD" "$URL" || {
+    if command -v curl >/dev/null 2>&1; then
+        curl -fL --retry 3 -s -o "$DOWNLOAD" "$URL"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -O "$DOWNLOAD" "$URL"
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c "import urllib.request, sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" "$URL" "$DOWNLOAD"
+    elif command -v python >/dev/null 2>&1; then
+        python -c "import urllib.request, sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" "$URL" "$DOWNLOAD"
+    else
+        echo "upstream-fetch: need curl, wget or python3 to download $URL" >&2
+        exit 1
+    fi || {
         echo "upstream-fetch: download failed: $URL" >&2
         rm -f "$DOWNLOAD"
         exit 1
     }
-    GOT="sha256:$(sha256sum "$DOWNLOAD" | cut -d' ' -f1)"
+    if command -v sha256sum >/dev/null 2>&1; then
+        GOT="sha256:$(sha256sum "$DOWNLOAD" | cut -d' ' -f1)"
+    elif command -v shasum >/dev/null 2>&1; then
+        GOT="sha256:$(shasum -a 256 "$DOWNLOAD" | cut -d' ' -f1)"
+    elif command -v python3 >/dev/null 2>&1; then
+        GOT="sha256:$(python3 -c "import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], 'rb').read()).hexdigest())" "$DOWNLOAD")"
+    else
+        GOT="sha256:$(sha256sum "$DOWNLOAD" | cut -d' ' -f1)"
+    fi
     if [ "$GOT" != "$REV" ]; then
         echo "upstream-fetch: asked for $REV and got $GOT" >&2
         rm -f "$DOWNLOAD"
@@ -127,7 +146,18 @@ archive)
     # tar makes a link by copying the target, which fails for those; `winsymlinks:sys` makes it
     # write the link itself instead. The setting means nothing on a platform with real links.
     case "$URL" in
-        *.zip) unzip -q "$DOWNLOAD" -d "$DIR" ;;
+        *.zip)
+            if command -v unzip >/dev/null 2>&1; then
+                unzip -q "$DOWNLOAD" -d "$DIR"
+            elif command -v python3 >/dev/null 2>&1; then
+                python3 -m zipfile -e "$DOWNLOAD" "$DIR"
+            elif command -v python >/dev/null 2>&1; then
+                python -m zipfile -e "$DOWNLOAD" "$DIR"
+            else
+                echo "upstream-fetch: need unzip or python3 to unpack $DOWNLOAD" >&2
+                exit 1
+            fi
+            ;;
         *) MSYS="${MSYS:+$MSYS }winsymlinks:sys" tar -xf "$DOWNLOAD" -C "$DIR" ;;
     esac || {
         echo "upstream-fetch: $DOWNLOAD did not unpack" >&2
