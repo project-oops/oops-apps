@@ -5,6 +5,7 @@
 # with a Makefile, and each verb reaches the app through that Makefile:
 #
 #   ./bin/oops-apps list              # the apps here
+#   ./bin/oops-apps changed [ref]     # the apps changed since git ref (or HEAD~1); all if shared code changed
 #   ./bin/oops-apps build [app...]    # build each (default: all)
 #   ./bin/oops-apps make <app> [args] # build an app's targets (default: package/title)
 #   ./bin/oops-apps restore <app>     # restore an app's title directory to hardware via pros
@@ -120,6 +121,92 @@ resolve() {
             exit 2
         fi
     done
+}
+
+# Apps touched since a git ref (or HEAD~1); prints all apps if shared code changed.
+changed_apps() {
+    local base="${1:-}"
+    local head="${2:-HEAD}"
+    local range=""
+
+    if [ "$base" = "--all" ]; then
+        apps
+        return 0
+    fi
+
+    if [ "$base" = "--apps" ]; then
+        shift
+        resolve "$@"
+        return 0
+    fi
+
+    if [ -n "$base" ]; then
+        if [[ "$base" == *".."* ]]; then
+            range="$base"
+        elif [ "$base" = "HEAD" ]; then
+            range="HEAD"
+        else
+            range="$base..$head"
+        fi
+    else
+        if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+            range="HEAD~1..HEAD"
+        else
+            apps
+            return 0
+        fi
+    fi
+
+    local files=""
+    if ! files="$(git -c core.autocrlf=false diff --name-only "$range" 2>/dev/null)"; then
+        apps
+        return 0
+    fi
+
+    if [ -z "$files" ]; then
+        return 0
+    fi
+
+    local touched_apps=()
+    local file
+
+    while IFS= read -r file; do
+        [ -z "$file" ] && continue
+
+        # Non-build files: docs, root markdown, git attributes, licenses, data
+        if [[ "$file" =~ ^docs/ ]] || [[ "$file" =~ \.md$ ]] || [[ "$file" =~ ^LICENSE ]] || \
+           [[ "$file" =~ ^\.git ]] || [[ "$file" =~ ^data/ ]] || [[ "$file" =~ ^\.editorconfig ]]; then
+            continue
+        fi
+
+        # Shared infrastructure / dependencies / workflows / build files: trigger all apps
+        if [[ "$file" =~ ^common/ ]] || [[ "$file" =~ ^src/oops-deps/ ]] || \
+           [[ "$file" =~ ^bin/ ]] || [[ "$file" =~ ^\.github/ ]] || \
+           [[ "$file" =~ ^Makefile$ ]] || [[ "$file" =~ ^toolchain\.mk$ ]] || \
+           [[ "$file" =~ ^app\.env$ ]]; then
+            apps
+            return 0
+        fi
+
+        # App files: src/<category>/<app>/...
+        if [[ "$file" =~ ^src/[^/]+/([^/]+)/ ]]; then
+            local app="${BASH_REMATCH[1]}"
+            if resolve_app_dir "$app" >/dev/null 2>&1; then
+                touched_apps+=("$app")
+                continue
+            fi
+        fi
+
+        # Any unrecognized file change outside of the above rules: fall back to all apps
+        apps
+        return 0
+    done <<< "$files"
+
+    if [ "${#touched_apps[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    printf '%s\n' "${touched_apps[@]}" | sort -u
 }
 
 # Prints why an app is skipped and returns 0, or returns 1 to build it. Skipped: `CI_SKIP=1`,
@@ -429,7 +516,7 @@ restore_app() {
 }
 
 usage() {
-    sed -n '2,15p' "$0" | sed 's|^# \{0,1\}||'
+    sed -n '2,16p' "$0" | sed 's|^# \{0,1\}||'
     exit "${1:-0}"
 }
 
@@ -437,6 +524,7 @@ cmd="${1:-list}"
 shift || true
 case "$cmd" in
     list) apps ;;
+    changed) changed_apps "$@" ;;
     build) over all "$@" ;;
     make) make_app "$@" ;;
     restore) restore_app "$@" ;;

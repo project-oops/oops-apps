@@ -10,6 +10,15 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      rebuild_all:
+        description: "Rebuild all apps (ignore git diff)"
+        type: boolean
+        default: false
+      apps:
+        description: "Specific apps to build (space-separated, blank for auto)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -31,6 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: OOPS/oops-apps
+          fetch-depth: 0
       - name: Siblings this build needs
         run: OOPS/bin/oops bootstrap oops-apps
         env:
@@ -40,11 +50,26 @@ jobs:
       # so it goes to `build-mesa` rather than the plain matrix.
       - id: list
         run: |
+          if [ "${{ inputs.rebuild_all }}" = "true" ]; then
+            candidates=$(./bin/oops-apps list)
+          elif [ -n "${{ inputs.apps }}" ]; then
+            candidates=$(./bin/oops-apps changed --apps ${{ inputs.apps }})
+          else
+            before="${{ github.event.before }}"
+            if [ -n "$before" ] && [ "$before" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$before^{commit}" 2>/dev/null; then
+              candidates=$(./bin/oops-apps changed "$before")
+            else
+              candidates=$(./bin/oops-apps changed)
+            fi
+          fi
+
           is_mesa() { grep -qE 'OOPS_RENDERER[[:space:]]*[:?]?=[[:space:]]*mesa|USE_MESA[[:space:]]*[:?]?=[[:space:]]*1' "$1/Makefile" "$1/app.env" 2>/dev/null; }
           plain=(); mesa=()
-          for a in $(./bin/oops-apps list); do
+          for a in $candidates; do
             d=$(find src -maxdepth 3 -name Makefile -path "*/$a/Makefile" -exec dirname {} \;)
-            if is_mesa "$d"; then mesa+=("$a"); else plain+=("$a"); fi
+            if [ -n "$d" ]; then
+              if is_mesa "$d"; then mesa+=("$a"); else plain+=("$a"); fi
+            fi
           done
           apps=$(printf '%s\n' "${plain[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
           mesa_apps=$(printf '%s\n' "${mesa[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
@@ -60,6 +85,7 @@ jobs:
   tools:
     name: build packaging tools
     needs: discover
+    if: (needs.discover.outputs.apps != '[]' && needs.discover.outputs.apps != '') || (needs.discover.outputs.mesa_apps != '[]' && needs.discover.outputs.mesa_apps != '')
     runs-on: ubuntu-latest
     container: silkeh/clang:21
     steps:
@@ -110,6 +136,7 @@ jobs:
   build:
     name: "stage: ${{ matrix.app }}"
     needs: [discover, tools]
+    if: needs.discover.outputs.apps != '[]' && needs.discover.outputs.apps != ''
     runs-on: ubuntu-latest
     # The clang 21 pin from `toolchain.mk`; Ubuntu's own `clang` package is an older major.
     container: silkeh/clang:21
@@ -207,6 +234,7 @@ jobs:
   mesa:
     name: build oops-mesa
     needs: discover
+    if: needs.discover.outputs.mesa_apps != '[]' && needs.discover.outputs.mesa_apps != ''
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -261,6 +289,7 @@ jobs:
   build-mesa:
     name: "mesa title: ${{ matrix.app }}"
     needs: [discover, tools, mesa]
+    if: needs.discover.outputs.mesa_apps != '[]' && needs.discover.outputs.mesa_apps != ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -334,14 +363,18 @@ jobs:
           path: staging/*
           if-no-files-found: ignore
 
-  # Collect every app's staged files and replace the rolling `latest-main` prerelease. Runs
+  # Collect every app's staged files and update the rolling `latest-main` prerelease. Runs
   # only on a push to main (or manual dispatch); a pull request builds the apps but publishes nothing.
   release:
     name: publish latest-main
     needs: [discover, build, build-mesa]
     # `always()`, so the apps that staged publish even when another cell failed; the run is
     # still marked failed and names the apps that did not build.
-    if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    if: |
+      always() && !cancelled() &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main' &&
+      (needs.discover.outputs.apps != '[]' || needs.discover.outputs.mesa_apps != '[]')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -395,31 +428,29 @@ jobs:
             echo "any=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # Only when something staged, so the release is never replaced by an empty one.
-      - name: Replace the previous latest-main
+      # Upload staged artifacts to latest-main without deleting previous assets.
+      - name: Publish to latest-main
         if: steps.collect.outputs.any == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release delete latest-main --yes --cleanup-tag --repo "${{ github.repository }}" || true
-
-      - uses: softprops/action-gh-release@v2
-        if: steps.collect.outputs.any == 'true'
-        with:
-          tag_name: latest-main
-          name: "Latest main build"
-          prerelease: true
-          make_latest: "false"
-          draft: false
-          target_commitish: ${{ github.sha }}
-          files: dist/*
-          body: |
-            Auto-built from `main` at `${{ github.sha }}`.
-
-            Every app here is built on [oops-sdk](https://github.com/project-oops/oops-sdk) and
-            ships whatever its own Makefile's `dist` target produces - a plain `.elf` payload
-            for a homebrew loader, a `.zip` title directory, a package. The filename is
-            prefixed with the app it came from.
-
-            **These are ordinary homebrew.** They need no vendor toolchain to build and carry
-            nothing from one. An app is present here only once its Makefile declares what it
-            ships; an app still in development is built and checked but publishes nothing.
+        run: |
+          if ! gh release view latest-main --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create latest-main \
+              --repo "${{ github.repository }}" \
+              --title "Latest main build" \
+              --prerelease \
+              --target "${{ github.sha }}"
+          fi
+          gh release upload latest-main dist/* --clobber --repo "${{ github.repository }}"
+          notes=$(printf '%s\n' \
+            "Auto-built from \`main\` at \`${{ github.sha }}\`." \
+            "" \
+            "Every app here is built on [oops-sdk](https://github.com/project-oops/oops-sdk) and" \
+            "ships whatever its own Makefile's \`dist\` target produces - a plain \`.elf\` payload" \
+            "for a homebrew loader, a \`.zip\` title directory, a package. The filename is" \
+            "prefixed with the app it came from." \
+            "" \
+            "**These are ordinary homebrew.** They need no vendor toolchain to build and carry" \
+            "nothing from one. An app is present here only once its Makefile declares what it" \
+            "ships; an app still in development is built and checked but publishes nothing.")
+          printf '%s\n' "$notes" | gh release edit latest-main --repo "${{ github.repository }}" --target "${{ github.sha }}" --notes-file -
