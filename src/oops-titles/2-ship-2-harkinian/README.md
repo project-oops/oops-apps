@@ -7,12 +7,27 @@
 A native port of *The Legend of Zelda: Majora's Mask*, built on the `zeldaret/mm`
 decompilation - [upstream](https://github.com/2ship2harkinian/2ship2harkinian), pinned at `5.0.1`.
 
-> **Status: Playable** (with graphical glitches). The game runs at full speed with audio,
-> DualSense controller support and on-device ROM extraction, while shader rasterization
-> continues to mature.
+> **Status: Playable**. The game runs at full speed with audio, DualSense controller support,
+> and on-device ROM extraction.
 
 **It plays from the player's own copy of the game, which they provide on the hardware, at run
 time.**
+
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshot1-title.png" alt="The Legend of Zelda: Majora's Mask title screen captured on the hardware" width="760">
+</p>
+
+<p align="center">
+  <img src="assets/demo.gif" alt="Link in Majora's Mask running on the hardware" width="600">
+</p>
+
+<p align="center">
+  <img src="assets/screenshot2-menu.png" alt="In-game settings menu captured on the hardware" width="760">
+</p>
+
+[The clip as a video](assets/demo.webm). Everything here is captured directly from the hardware via HDMI capture.
 
 ## Controls
 

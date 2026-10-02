@@ -88,9 +88,9 @@ static int two_ship_have_rom(void) {
  * Put the asset definitions on disk, once, before anything looks for them.
  *
  * ZAPD does not read a cartridge and work out what is in it: it reads XML saying what
- * lives at which offset, per ROM version. They ship as `assets.zip` because `pros restore`
- * costs per file rather than per byte and the console has no use for thousands of files
- * it reads once - see the `make package` section of the Makefile.
+ * lives at which offset, per ROM version. They ship as `assets.zip` because `pros
+ * restore` costs per file rather than per byte and the console has no use for thousands
+ * of files it reads once - see the `make package` section of the Makefile.
  */
 static void two_ship_ensure_assets(void) {
     char marker[256];
