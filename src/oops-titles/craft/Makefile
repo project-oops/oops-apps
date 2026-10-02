@@ -39,7 +39,8 @@ include $(OOPS_APPS_ROOT)/common/sqlite.mk
 # GLFW and GLEW are not compiled: `shim/` answers every `glfw*` and GLEW entry point
 # Craft's own sources call, over oops-sdk's display, input and clock. `shim/include`
 # goes first on the include path so that `#include <GLFW/glfw3.h>` finds the shim.
-CRAFT_SHIM_SRCS := shim/glfw_shim.c shim/craft_offline.c shim/craft_start.c $(OOPS_SQLITE_SRCS)
+CRAFT_SHIM_SRCS := shim/glfw_shim.c shim/craft_offline.c shim/craft_start.c \
+                   $(OOPS_APPS_ROOT)/common/crashtrace.c $(OOPS_SQLITE_SRCS)
 
 # Craft's own sources except the multiplayer half: `auth.c` is the HTTPS login and the
 # only user of libcurl, and `client.c` talks to a server over BSD sockets, which

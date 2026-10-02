@@ -377,6 +377,7 @@ static void process_job(oopsy_job_t *job, oopsy_repaint_fn repaint, void *rctx) 
         escaped = 1;
     }
     (void)oops_fs_mkdir(HOMEBREW_ROOT, 0777);
+    (void)oops_fs_chmod(HOMEBREW_ROOT, 0777);
 
     rc = oops_zip_extract_mem(zip_data, zip_size, HOMEBREW_ROOT);
     oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "install: %s unzip rc=%d", job->name,

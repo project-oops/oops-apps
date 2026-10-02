@@ -66,7 +66,8 @@ static void tar_make_parents(char *path) {
     for (char *p = path + 1; *p; p++) {
         if (*p == '/') {
             *p = '\0';
-            (void)oops_fs_mkdir(path, 0755);
+            (void)oops_fs_mkdir(path, 0777);
+            (void)oops_fs_chmod(path, 0777);
             *p = '/';
         }
     }
@@ -78,7 +79,7 @@ static int tar_skip(int fd, uint64_t n) {
 
 static int tar_copy_out(int in, const char *path, uint64_t size) {
     const int out =
-        oops_fs_open(path, OOPS_O_WRONLY | OOPS_O_CREAT | OOPS_O_TRUNC, 0644);
+        oops_fs_open(path, OOPS_O_WRONLY | OOPS_O_CREAT | OOPS_O_TRUNC, 0666);
     uint64_t left = size;
 
     if (out < 0) {
@@ -96,6 +97,7 @@ static int tar_copy_out(int in, const char *path, uint64_t size) {
         left -= n;
     }
     (void)oops_fs_close(out);
+    (void)oops_fs_chmod(path, 0666);
     return tar_skip(in, tar_padded(size) - size);
 }
 
@@ -119,7 +121,8 @@ int oops_tar_unpack_once(const char *archive, const char *dest, const char *mark
         return -1;
     }
     oops_log_info("TAR", "unpacking %s into %s", archive, dest);
-    (void)oops_fs_mkdir(dest, 0755);
+    (void)oops_fs_mkdir(dest, 0777);
+    (void)oops_fs_chmod(dest, 0777);
     {
         const int64_t total = oops_fs_file_size(archive);
         state.bytes_total = total > 0 ? (uint64_t)total : 0u;
@@ -188,7 +191,8 @@ int oops_tar_unpack_once(const char *archive, const char *dest, const char *mark
 
         if (type == '5') {
             tar_make_parents(full);
-            (void)oops_fs_mkdir(full, 0755);
+            (void)oops_fs_mkdir(full, 0777);
+            (void)oops_fs_chmod(full, 0777);
             if (tar_skip(fd, tar_padded(size)) != 0)
                 break;
         } else if (type == '0' || type == '\0') {
@@ -217,13 +221,14 @@ int oops_tar_unpack_once(const char *archive, const char *dest, const char *mark
 
     {
         const int m =
-            oops_fs_open(marker, OOPS_O_WRONLY | OOPS_O_CREAT | OOPS_O_TRUNC, 0644);
+            oops_fs_open(marker, OOPS_O_WRONLY | OOPS_O_CREAT | OOPS_O_TRUNC, 0666);
         if (m < 0) {
             oops_log_error("TAR", "unpacked %zu files but cannot write %s", files,
                            marker);
             return -1;
         }
         (void)oops_fs_close(m);
+        (void)oops_fs_chmod(marker, 0666);
     }
     oops_log_info("TAR", "unpacked %zu files from %s", files, archive);
     return 0;

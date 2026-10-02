@@ -13,6 +13,10 @@
 
 #include "oops_sqlite.h"
 #include "sqlite3.h"
+#include <stdlib.h>
+
+/* `common/crashtrace.c`: logs the backtrace if a fatal signal arrives. */
+void oops_crashtrace_install(void);
 
 int main(int argc, char **argv);
 
@@ -40,6 +44,7 @@ __attribute__((visibility("default"))) int craft_start(const payload_args_t *arg
     /* Applies `system=` from `/app0/oops-log`, so a run can be turned up without a
      * rebuild. */
     oops_log_init(OOPS_APP_ID);
+    oops_crashtrace_install();
 
     oops_log_info("CRFT", "entry");
 
@@ -59,8 +64,8 @@ __attribute__((visibility("default"))) int craft_start(const payload_args_t *arg
         oops_log_error(
             "CRFT", "oops_sqlite_init failed (%d); refusing to run with unsafe mutexes",
             rc);
-        return rc;
+        exit(rc);
     }
 
-    return main(1, argv);
+    exit(main(1, argv));
 }
