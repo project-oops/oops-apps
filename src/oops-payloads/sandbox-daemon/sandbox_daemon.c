@@ -350,7 +350,7 @@ static int sandbox_elevate_process(pid_t target_pid, uintptr_t rootvnode,
         }
 
         if (ucred != 0) {
-            uintptr_t kproc1 = krw_get_proc(1);
+            uintptr_t kproc1 = sandbox_find_proc_by_pid(1);
             if (kproc1 != 0) {
                 uintptr_t ucred1 = 0;
                 if (krw_copyout(kproc1 + 0x40, &ucred1, sizeof(ucred1)) == 0 &&
@@ -487,6 +487,12 @@ int sandbox_daemon_start(const payload_args_t *args) {
     /* Resolve rootvnode from PID 1 / self */
     uintptr_t rootvnode = sandbox_resolve_rootvnode();
     sandbox_log_hex("daemon started: rootvnode = ", rootvnode);
+
+    /* Elevate daemon self (break out of elfldr/NPXS40112 sandbox, borrow prison0) */
+    pid_t mypid = (pid_t)sys_call(SYS_getpid, 0, 0, 0, 0, 0, 0);
+    sandbox_log("elevating daemon self (PID %d)...", (int)mypid);
+    int self_rc = sandbox_elevate_process(mypid, rootvnode, 1);
+    sandbox_log("daemon self elevation returned %d", self_rc);
 
     /* Test directory reading syscalls on /data/homebrew */
     int test_dfd = (int)sys_call(SYS_open, (long)"/data/homebrew", 0, 0, 0, 0, 0);
