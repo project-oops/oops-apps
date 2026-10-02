@@ -950,10 +950,6 @@ static void wv_alert(oops_webview_t *wv, const char *title, const char *msg) {
     wv_eval(wv, code);
 }
 
-static void wv_error(oops_webview_t *wv, const char *msg) {
-    wv_alert(wv, "Notice", msg);
-}
-
 /* Pull the next queued title and run its download+unpack off the UI thread. Passing
  * NULL for the repaint keeps this thread away from the webview - the UI thread
  * reads the job state and repaints. */
