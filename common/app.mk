@@ -491,6 +491,11 @@ endif
 # Tag the target ELF with module metadata via obscene-tool mkmodule. An absent tool is skipped;
 # an absent symbols file is fatal, because an untagged ELF has no `PT_SCE_DYNLIBDATA` and the
 # loader refuses it with "found illegal segment header".
+# Payloads (KIND=payload) for elfldr / pldmgr remain standard freestanding ET_DYN ELFs.
+ifeq ($(KIND),payload)
+$(BUILD)/.mkmodule-fixed.stamp: $(BUILD)/$(APP_NAME).elf
+	@touch $@
+else
 $(BUILD)/.mkmodule-fixed.stamp: $(BUILD)/$(APP_NAME).elf $(SYMBOLS_FILE)
 	@if [ -n "$(MKMODULE_BIN)" ] && $(MKMODULE_BIN) --help >/dev/null 2>&1; then \
 	    if [ ! -f "$(SYMBOLS_FILE)" ]; then \
@@ -504,6 +509,7 @@ $(BUILD)/.mkmodule-fixed.stamp: $(BUILD)/$(APP_NAME).elf $(SYMBOLS_FILE)
 	    $(MKMODULE_BIN) mkmodule --symbols "$$SYM" --generation $(MKMODULE_GEN) --table $(MKMODULE_TABLE) --kind $(MKMODULE_KIND) "$$IN"; \
 	fi
 	@touch $@
+endif
 
 # Wrap the target ELF into a signed executable container (eboot.bin) via selfish.
 eboot: $(BUILD)/$(APP_NAME).elf $(BUILD)/.mkmodule-fixed.stamp
