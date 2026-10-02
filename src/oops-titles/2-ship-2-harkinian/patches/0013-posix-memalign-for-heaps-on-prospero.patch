@@ -1,0 +1,46 @@
+Allocate audio and system heaps with posix_memalign on this target
+
+`upstream/mm/src/buffers/heaps.c` allocates the audio and system heaps with `mmap`
+on Unix. The platform has no memory mapping and posix shim's `<sys/mman.h>` deliberately
+omits `mmap` and `munmap`. Allocate the heaps with `posix_memalign` and release them
+with `free`, as was done in Ship of Harkinian.
+---
+diff --git a/mm/src/buffers/heaps.c b/mm/src/buffers/heaps.c
+index c87312e..8ff15df 100644
+--- a/mm/src/buffers/heaps.c
++++ b/mm/src/buffers/heaps.c
+@@ -2,7 +2,7 @@
+ #include "z64.h"
+ #include <assert.h>
+ #include <stdlib.h>
+-#if defined(__unix__) || defined(__APPLE__)
++#if (defined(__unix__) || defined(__APPLE__)) && !defined(__PROSPERO__)
+ #include <sys/mman.h>
+ #endif
+ 
+@@ -10,7 +10,12 @@ u8* gAudioHeap;
+ u8* gSystemHeap;
+ 
+ void Heaps_Alloc(void) {
+-#ifdef _MSC_VER
++#if defined(__PROSPERO__)
++    if (posix_memalign((void**)&gAudioHeap, 0x10, AUDIO_HEAP_SIZE) != 0)
++        gAudioHeap = NULL;
++    if (posix_memalign((void**)&gSystemHeap, 0x10, SYSTEM_HEAP_SIZE) != 0)
++        gSystemHeap = NULL;
++#elif defined(_MSC_VER)
+     gAudioHeap = (u8*)_aligned_malloc(AUDIO_HEAP_SIZE, 0x10);
+     gSystemHeap = (u8*)_aligned_malloc(SYSTEM_HEAP_SIZE, 0x10);
+ #elif defined(__unix__) || defined(__APPLE__)
+@@ -28,7 +33,10 @@ void Heaps_Alloc(void) {
+ }
+ 
+ void Heaps_Free(void) {
+-#ifdef _MSC_VER
++#if defined(__PROSPERO__)
++    free(gAudioHeap);
++    free(gSystemHeap);
++#elif defined(_MSC_VER)
+     _aligned_free(gAudioHeap);
+     _aligned_free(gSystemHeap);
+ #elif defined(__unix__) || defined(__APPLE__)

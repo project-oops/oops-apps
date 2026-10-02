@@ -1,0 +1,63 @@
+Drop duplicate osVi stubs in stubs.c that collide with libultraship os_vi.cpp
+
+`libultraship/libultra/os_vi.cpp` defines `osViSwapBuffer`, `osViSetMode`, `osViSetSpecialFeatures`,
+`osViSetYScale`, `osViSetXScale`, `osViGetCurrentFramebuffer`, `osViGetNextFramebuffer`, and
+`osViBlack` alongside `osCreateViManager` and `osViSetEvent`. `stubs.c` duplicates these eight
+empty stubs, causing duplicate symbol errors when linking with `OOPS_CXX_LINK_OBJECTS = 1`.
+Guard the duplicates in `stubs.c` so `os_vi.cpp`'s definitions win.
+---
+diff --git a/mm/src/code/stubs.c b/mm/src/code/stubs.c
+index 4425cf7..5dfc8da 100644
+--- a/mm/src/code/stubs.c
++++ b/mm/src/code/stubs.c
+@@ -330,12 +330,14 @@ void osContGetQuery(OSContStatus* data) {
+ }
+ void osStartThread(OSThread* thread) {
+ }
++#if 0
+ void osViSwapBuffer(void* vaddr) {
+ }
+ void osViSetMode(OSViMode* mode) {
+ }
+ void osViSetSpecialFeatures(u32 func) {
+ }
++#endif
+ void __osInitialize_common(void) {
+ }
+ void __osInitialize_autodetect(void) {
+@@ -348,14 +350,18 @@ void osDestroyThread(OSThread* thread) {
+ }
+ s32 osContSetCh(u8 ch) {
+ }
++#if 0
+ void osViSetYScale(f32 scale) {
+ }
+ void osViSetXScale(f32 value) {
+ }
++#endif
+ void osSpTaskYield(void) {
+ }
++#if 0
+ void* osViGetCurrentFramebuffer(void) {
+ }
++#endif
+ OSPiHandle* osFlashInit(void) {
+ }
+ void osFlashReadId(u32* t, u32* v) {
+@@ -404,12 +410,16 @@ void guS2DInitBg(uObjBg* bg) {
+         bg->b.tmemLoadTH = bg->b.tmemH - 1;
+     }
+ }
++#if 0
+ void* osViGetNextFramebuffer() {
+ }
++#endif
+ OSYieldResult osSpTaskYielded(OSTask* task) {
+ }
++#if 0
+ void osViBlack(u8 active) {
+ }
++#endif
+ static s16 sintable[0x400] = {
+     0x0000, 0x0032, 0x0064, 0x0096, 0x00C9, 0x00FB, 0x012D, 0x0160, 0x0192, 0x01C4, 0x01F7, 0x0229, 0x025B, 0x028E,
+     0x02C0, 0x02F2, 0x0324, 0x0357, 0x0389, 0x03BB, 0x03EE, 0x0420, 0x0452, 0x0484, 0x04B7, 0x04E9, 0x051B, 0x054E,

@@ -1,0 +1,126 @@
+Controller and keyboard navigation are enabled on this console
+
+ImGuiConfigFlags_NavEnableGamepad is set only when CVAR_IMGUI_CONTROLLER_NAV is on
+and the menu or menubar is visible, and cleared every frame otherwise. On a desktop
+that is a sensible default: the pad drives the menu when asked to, and anything else is
+answered with a mouse.
+
+There is no mouse here, and both conditions fail for reasons unrelated to intent. The
+CVar defaults to 0. And the first thing a player meets is not the menubar - it is
+InitOTR's "No O2R files found. Generate one now?", a popup, so
+GetMenuOrMenubarVisible() is false. The else branch then clears the flag on every
+frame the dialog is up.
+
+What that produced was a title that looked finished and was not: the prompt on screen
+with Yes and No, a software cursor that does not move, and no way to reach either
+button - while the pad was connected and SDL was reporting it as joystick 0. There is
+nothing to fall back to, so on this platform the flag is simply on.
+
+In addition, ImGuiConfigFlags_NavEnableKeyboard is set so that a connected USB keyboard
+can navigate menus and dialogs with arrow keys, Tab, Enter, Space and Escape.
+
+Touchpad Click, Create, or L3+R3 toggles the 2S2H menu without requiring controller
+nav to be enabled first.
+---
+diff --git a/libultraship/src/ship/window/gui/Gui.cpp b/libultraship/src/ship/window/gui/Gui.cpp
+index 1f9279b..96b1979 100644
+--- a/libultraship/src/ship/window/gui/Gui.cpp
++++ b/libultraship/src/ship/window/gui/Gui.cpp
+@@ -94,12 +94,26 @@ void Gui::Init() {
+         mImGuiIo->ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+     }
+ 
++#ifdef __PROSPERO__
++    // A console has no mouse, so controller navigation is not a preference here - it is the
++    // only way anything on screen can be answered. Both conditions below fail on this
++    // platform for reasons that have nothing to do with intent: the CVar defaults to 0, and
++    // the first thing a player meets is a popup rather than the menubar, so
++    // `GetMenuOrMenubarVisible()` is false. The `else` then clears the flag every frame.
++    //
++    // What that looked like: "No O2R files found. Generate one now?" with Yes and No, a
++    // cursor that does not move, and no way to reach either button - while the pad was
++    // connected and SDL was reporting it.
++    mImGuiIo->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
++    mImGuiIo->ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
++#else
+     if (Ship::Context::GetRawInstance()->GetConsoleVariables()->GetInteger(CVAR_IMGUI_CONTROLLER_NAV, 0) &&
+         GetMenuOrMenubarVisible()) {
+         mImGuiIo->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+     } else {
+         mImGuiIo->ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
+     }
++#endif
+ 
+     GetGuiWindow("Stats")->Init();
+     GetGuiWindow("Console")->Init();
+@@ -145,10 +159,15 @@ void Gui::BlockGamepadNavigation() {
+ }
+ 
+ void Gui::UnblockGamepadNavigation() {
++#ifdef __PROSPERO__
++    mImGuiIo->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
++    mImGuiIo->ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
++#else
+     if (Ship::Context::GetRawInstance()->GetConsoleVariables()->GetInteger(CVAR_IMGUI_CONTROLLER_NAV, 0) &&
+         GetMenuOrMenubarVisible()) {
+         mImGuiIo->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+     }
++#endif
+ }
+ 
+ ImGuiID Gui::GetMainGameWindowID() {
+@@ -174,6 +193,13 @@ void Gui::RefreshImGuiGamepads() {
+ }
+ 
+ void Gui::UpdateGamepadNavigation() {
++#ifdef __PROSPERO__
++    /* Kept on for the reason given where it is first set: there is no mouse here, so
++     * clearing this leaves nothing that can reach a button. This is the per-frame copy,
++     * and it is the one that was undoing it. */
++    mImGuiIo->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
++    mImGuiIo->ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
++#else
+     const bool navWanted = Context::GetRawInstance()->GetConsoleVariables()->GetInteger(CVAR_IMGUI_CONTROLLER_NAV, 0) &&
+                            (GetMenuOrMenubarVisible() ||
+                             ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel));
+@@ -182,6 +208,7 @@ void Gui::UpdateGamepadNavigation() {
+     } else {
+         mImGuiIo->ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
+     }
++#endif
+ }
+ 
+ void Gui::DrawMenu() {
+@@ -226,22 +253,27 @@ void Gui::DrawMenu() {
+ 
+     ImGui::DockSpace(dockId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None | ImGuiDockNodeFlags_NoDockingInCentralNode);
+ 
+-    if (ImGui::IsKeyPressed(TOGGLE_BTN, false) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+-        (ImGui::IsKeyPressed(TOGGLE_PAD_BTN, false) &&
+-         Ship::Context::GetRawInstance()->GetConsoleVariables()->GetInteger(CVAR_IMGUI_CONTROLLER_NAV, 0))) {
+-        if ((ImGui::IsKeyPressed(ImGuiKey_Escape, false) || ImGui::IsKeyPressed(TOGGLE_PAD_BTN, false)) && GetMenu()) {
++    const bool togglePad = ImGui::IsKeyPressed(TOGGLE_PAD_BTN, false) ||
++                           (ImGui::IsKeyDown(ImGuiKey_GamepadL3) && ImGui::IsKeyDown(ImGuiKey_GamepadR3));
++    if (ImGui::IsKeyPressed(TOGGLE_BTN, false) || ImGui::IsKeyPressed(ImGuiKey_Escape, false) || togglePad) {
++        if ((ImGui::IsKeyPressed(ImGuiKey_Escape, false) || togglePad) && GetMenu()) {
+             GetMenu()->ToggleVisibility();
+-        } else if ((ImGui::IsKeyPressed(TOGGLE_BTN, false) || ImGui::IsKeyPressed(TOGGLE_PAD_BTN, false)) &&
++        } else if ((ImGui::IsKeyPressed(TOGGLE_BTN, false) || togglePad) &&
+                    GetMenuBar()) {
+             GetMenuBar()->ToggleVisibility();
+         }
+         Ship::Context::GetRawInstance()->GetWindow()->GetMouseStateManager()->UpdateMouseCapture();
++#ifdef __PROSPERO__
++        mImGuiIo->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
++        mImGuiIo->ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
++#else
+         if (Ship::Context::GetRawInstance()->GetConsoleVariables()->GetInteger(CVAR_IMGUI_CONTROLLER_NAV, 0) &&
+             GetMenuOrMenubarVisible()) {
+             mImGuiIo->ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+         } else {
+             mImGuiIo->ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;
+         }
++#endif
+     }
+ 
+     // Mac interprets this as cmd+r when io.ConfigMacOSXBehavior is on (on by default)

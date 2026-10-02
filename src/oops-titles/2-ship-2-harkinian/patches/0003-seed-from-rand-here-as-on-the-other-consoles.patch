@@ -1,0 +1,73 @@
+Seed from rand() here, as on the other consoles
+
+`std::random_device` needs an entropy source this platform does not have, so
+`oops-deps/libcxx` is built with `_LIBCPP_HAS_RANDOM_DEVICE 0` and the type does not exist.
+Upstream already falls back to `rand()` on Switch and Wii U for the same reason; this adds
+this console to that list rather than introducing a third path.
+
+`rand()` with no `srand` is a fixed sequence, so the entry point seeds it from the clock.
+That is outside upstream's tree, in `shim/2s2h_start.c`.
+---
+diff --git a/mm/2s2h/BenGui/UIWidgets.cpp b/mm/2s2h/BenGui/UIWidgets.cpp
+index d13fdbc..eac241e 100644
+--- a/mm/2s2h/BenGui/UIWidgets.cpp
++++ b/mm/2s2h/BenGui/UIWidgets.cpp
+@@ -1401,7 +1401,7 @@ bool CVarBtnSelector(const char* label, const char* cvarName, const BtnSelectorO
+ } // namespace UIWidgets
+ 
+ ImVec4 GetRandomValue() {
+-#if !defined(__SWITCH__) && !defined(__WIIU__)
++#if !defined(__SWITCH__) && !defined(__WIIU__) && !defined(__PROSPERO__)
+     std::random_device rd;
+     std::mt19937 rng(rd());
+ #else
+diff --git a/mm/2s2h/Enhancements/Audio/AudioEditor.cpp b/mm/2s2h/Enhancements/Audio/AudioEditor.cpp
+index 985740a..facd628 100644
+--- a/mm/2s2h/Enhancements/Audio/AudioEditor.cpp
++++ b/mm/2s2h/Enhancements/Audio/AudioEditor.cpp
+@@ -216,8 +216,12 @@ void RandomizeGroup(SeqType type) {
+         return;
+     }
+ 
++#if !defined(__SWITCH__) && !defined(__WIIU__) && !defined(__PROSPERO__)
+     std::random_device rd;
+     std::mt19937 g(rd());
++#else
++    std::mt19937 g(rand());
++#endif
+     std::shuffle(uncategorized.begin(), uncategorized.end(), g);
+ 
+     std::map<int, std::vector<std::shared_ptr<SequenceReplacement>>> seqPools = {};
+diff --git a/mm/2s2h/Extractor/Extract.cpp b/mm/2s2h/Extractor/Extract.cpp
+index e6ec380..5fdfea9 100644
+--- a/mm/2s2h/Extractor/Extract.cpp
++++ b/mm/2s2h/Extractor/Extract.cpp
+@@ -551,8 +551,12 @@ std::string Extractor::Mkdtemp() {
+ 
+     // create 6 random alphanumeric characters
+     static const char charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
++#if !defined(__SWITCH__) && !defined(__WIIU__) && !defined(__PROSPERO__)
+     std::random_device rd;
+     std::mt19937 gen(rd());
++#else
++    std::mt19937 gen(rand());
++#endif
+     std::uniform_int_distribution<> dist(0, sizeof(charset) - 1);
+ 
+     char randchr[7];
+diff --git a/mm/2s2h/ShipUtils.cpp b/mm/2s2h/ShipUtils.cpp
+index 1703c0f..370224a 100644
+--- a/mm/2s2h/ShipUtils.cpp
++++ b/mm/2s2h/ShipUtils.cpp
+@@ -312,7 +312,11 @@ extern "C" void Ship_Random_Seed(u64 seed) {
+ 
+ uint32_t next32() {
+     if (!seeded) {
++#if !defined(__SWITCH__) && !defined(__WIIU__) && !defined(__PROSPERO__)
+         uint64_t seed = static_cast<uint64_t>(std::random_device{}());
++#else
++        uint64_t seed = static_cast<uint64_t>(rand());
++#endif
+         Ship_Random_Seed(seed);
+     }
+     state = state * multiplier + increment;

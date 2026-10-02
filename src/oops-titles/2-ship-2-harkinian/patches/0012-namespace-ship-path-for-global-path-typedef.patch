@@ -1,0 +1,76 @@
+Namespace libultraship Path to avoid colliding with z64scene Path typedef
+
+`libultraship/include/ship/utils/filesystemtools/Path.h` defines `class Path` in the
+global namespace. `mm/include/z64scene.h:499` defines `typedef struct ... Path;` also
+in the global namespace. When precompiled headers include `z64.h`, translation units
+including `DiskFile.h` (such as `ConsoleVariable.cpp`) fail because `Path` cannot be both
+a class and a typedef of the same name in the global namespace.
+
+Putting `class Path` into `namespace Ship` keeps it scoped to libultraship and allows both
+definitions to coexist.
+---
+diff --git a/libultraship/include/ship/utils/filesystemtools/DiskFile.h b/libultraship/include/ship/utils/filesystemtools/DiskFile.h
+index 03b75bb..18a1dbb 100644
+--- a/libultraship/include/ship/utils/filesystemtools/DiskFile.h
++++ b/libultraship/include/ship/utils/filesystemtools/DiskFile.h
+@@ -84,8 +84,8 @@ class DiskFile {
+      * @param data     Bytes to write.
+      */
+     static void WriteAllBytes(const fs::path& filePath, const std::vector<uint8_t>& data) {
+-        if (!Directory::Exists(Path::GetDirectoryName(filePath))) {
+-            Directory::MakeDirectory(Path::GetDirectoryName(filePath).string());
++        if (!Directory::Exists(Ship::Path::GetDirectoryName(filePath))) {
++            Directory::MakeDirectory(Ship::Path::GetDirectoryName(filePath).string());
+         }
+         std::ofstream file(filePath, std::ios::binary);
+         file.write((char*)data.data(), data.size());
+@@ -98,8 +98,8 @@ class DiskFile {
+      * @param data     Characters to write.
+      */
+     static void WriteAllBytes(const std::string& filePath, const std::vector<char>& data) {
+-        if (!Directory::Exists(Path::GetDirectoryName(filePath))) {
+-            Directory::MakeDirectory(Path::GetDirectoryName(filePath).string());
++        if (!Directory::Exists(Ship::Path::GetDirectoryName(filePath))) {
++            Directory::MakeDirectory(Ship::Path::GetDirectoryName(filePath).string());
+         }
+ 
+         std::ofstream file(filePath, std::ios::binary);
+@@ -114,8 +114,8 @@ class DiskFile {
+      * @param dataSize Number of bytes to write.
+      */
+     static void WriteAllBytes(const std::string& filePath, const char* data, int dataSize) {
+-        if (!Directory::Exists(Path::GetDirectoryName(filePath))) {
+-            Directory::MakeDirectory(Path::GetDirectoryName(filePath).string());
++        if (!Directory::Exists(Ship::Path::GetDirectoryName(filePath))) {
++            Directory::MakeDirectory(Ship::Path::GetDirectoryName(filePath).string());
+         }
+         std::ofstream file(filePath, std::ios::binary);
+         file.write((char*)data, dataSize);
+@@ -127,8 +127,8 @@ class DiskFile {
+      * @param text     String to write.
+      */
+     static void WriteAllText(const fs::path& filePath, const std::string& text) {
+-        if (!Directory::Exists(Path::GetDirectoryName(filePath))) {
+-            Directory::MakeDirectory(Path::GetDirectoryName(filePath).string());
++        if (!Directory::Exists(Ship::Path::GetDirectoryName(filePath))) {
++            Directory::MakeDirectory(Ship::Path::GetDirectoryName(filePath).string());
+         }
+         std::ofstream file(filePath, std::ios::out | std::ios::binary);
+         file.write(text.c_str(), text.size());
+diff --git a/libultraship/include/ship/utils/filesystemtools/Path.h b/libultraship/include/ship/utils/filesystemtools/Path.h
+index 9e7e31b..e44d071 100644
+--- a/libultraship/include/ship/utils/filesystemtools/Path.h
++++ b/libultraship/include/ship/utils/filesystemtools/Path.h
+@@ -16,6 +16,7 @@ namespace fs = std::experimental::filesystem;
+ /**
+  * @brief Utility class providing static helpers for extracting components from filesystem paths.
+  */
++namespace Ship {
+ class Path {
+   public:
+     /**
+@@ -78,3 +79,4 @@ class Path {
+         return path.parent_path();
+     };
+ };
++} // namespace Ship

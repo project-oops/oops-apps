@@ -1,0 +1,179 @@
+Say what the archive write is doing, and clear up after an interrupted one
+
+Two faults with one cause: the longest step of a conversion reported nothing.
+
+Extraction reports file N of total and finishes in well under a minute. Writing the
+archive then takes minutes - a zip of several thousand entries onto console
+storage - and said nothing at all. The dialog read "Done. Finishing up." with the bar
+pinned at 100%, and the log was silent. That is indistinguishable from a hang, to a
+player and to anyone reading a log afterwards, and it was taken for one repeatedly:
+the write was killed four times on the assumption it had died, which is also how three
+part-files came to be left behind.
+
+libzip already measures this and only needed asking. The callback publishes a fraction
+through `gOtrArchiveProgress`, which the extraction dialog shows on the same bar - the
+write gets the bar to itself once extraction is done, labelled for what it is - and
+logs it every ten percent so a run captured without a screen is still readable.
+
+The second half is the mess. libzip writes to `<name>.XXXXXX.part` and renames it into
+place when the archive closes, so a run interrupted during that write leaves the
+temporary behind and nothing ever collects it. Two of them, 29MB between them, had
+accumulated before anyone looked. `CreateArchive` now clears any temporary for the
+target it is about to write, which is the moment they are known to be dead. Failures
+there are ignored on purpose: not being able to tidy up is not a reason to refuse to
+convert a ROM.
+---
+diff --git a/OTRExporter/OTRExporter/ExporterArchiveO2R.cpp b/OTRExporter/OTRExporter/ExporterArchiveO2R.cpp
+index aca45e4..6a66090 100644
+--- a/OTRExporter/OTRExporter/ExporterArchiveO2R.cpp
++++ b/OTRExporter/OTRExporter/ExporterArchiveO2R.cpp
+@@ -1,9 +1,21 @@
+ #include "ExporterArchiveO2R.h"
+ #include "Utils/StringHelper.h"
+ #include <ship/utils/StrHash64.h>
++#include <atomic>
+ #include <filesystem>
+ #include <spdlog/spdlog.h>
+ 
++/*
++ * How far through writing the archive we are, 0 to 1, for whoever is drawing a progress
++ * bar. Defined here because this is where it is known and set; `OTRGlobals` declares it
++ * `extern` and reads it.
++ *
++ * Atomic because the write runs on the extraction worker and the bar is drawn on the
++ * frame thread. A plain double would be read torn on some architectures and is not worth
++ * the argument.
++ */
++std::atomic<double> gOtrArchiveProgress{0.0};
++
+ ExporterArchiveO2R::ExporterArchiveO2R(const std::string& path, bool enableWriting) {
+     mPath = path;
+     mZip = nullptr;
+@@ -52,7 +64,42 @@ bool ExporterArchiveO2R::Unload() {
+ int ExporterArchiveO2R::CreateArchive([[maybe_unused]] size_t fileCapacity) {
+     int openErr;
+     zip_t* zip;
+-    
++
++    /*
++     * Clear any temporary archive left by a run that did not finish.
++     *
++     * libzip writes to `<name>.XXXXXX.part` and renames it into place when the archive
++     * closes. A run interrupted during that write - and it is the longest step, minutes of
++     * it - leaves the part file behind, and nothing ever collects it. Two of them, 29MB
++     * between them, accumulated here from two interrupted attempts before anybody noticed.
++     *
++     * This is the right moment: the archive is about to be written afresh, so any earlier
++     * temporary for the same target is known to be dead. Failures are ignored on purpose -
++     * not being able to tidy up is not a reason to refuse to convert a ROM.
++     */
++    try {
++        const std::filesystem::path target(mPath);
++        const std::filesystem::path dir =
++            target.has_parent_path() ? target.parent_path() : std::filesystem::path(".");
++        const std::string prefix = target.filename().string() + ".";
++
++        for (const auto& entry : std::filesystem::directory_iterator(dir)) {
++            if (!entry.is_regular_file()) {
++                continue;
++            }
++            const std::string name = entry.path().filename().string();
++            if (name.size() > prefix.size() && name.compare(0, prefix.size(), prefix) == 0 &&
++                name.size() >= 5 && name.compare(name.size() - 5, 5, ".part") == 0) {
++                std::error_code ec;
++                std::filesystem::remove(entry.path(), ec);
++                SPDLOG_INFO("Removed a leftover archive temporary: {}{}", name,
++                            ec ? " (failed)" : "");
++            }
++        }
++    } catch (const std::exception& e) {
++        SPDLOG_WARN("Could not look for leftover archive temporaries: {}", e.what());
++    }
++
+     {
+         const std::lock_guard<std::mutex> lock(mMutex);
+         zip = zip_open(mPath.c_str(), ZIP_CREATE, &openErr);
+@@ -66,6 +113,35 @@ int ExporterArchiveO2R::CreateArchive([[maybe_unused]] size_t fileCapacity) {
+         return -1;
+     }
+     mZip = zip;
++
++    /*
++     * Say how the archive write is going, because it is the slowest step and said nothing.
++     *
++     * Extraction reports file N of 547 and finishes in well under a minute. Writing the
++     * archive then takes minutes - a 15MB zip of several thousand entries onto console
++     * storage - and until now reported nothing at all: the dialog sat at "Done. Finishing
++     * up." and the log was silent. That is indistinguishable from a hang, to a player and
++     * to anyone reading a log, and it was taken for one more than once.
++     *
++     * libzip already measures this; it just needs asking. The callback publishes a
++     * fraction that `OTRGlobals` shows on the same progress bar the extraction used, so
++     * the bar keeps moving through the step that takes the longest.
++     */
++    zip_register_progress_callback_with_state(
++        zip, 0.01,
++        [](zip_t*, double progress, void*) {
++            gOtrArchiveProgress = progress;
++            /* Also to the log, at every ten percent: a run captured without a screen is
++             * still worth being able to read. */
++            static int last_tenth = -1;
++            const int tenth = (int)(progress * 10.0);
++            if (tenth != last_tenth) {
++                last_tenth = tenth;
++                SPDLOG_INFO("Writing archive: {:.0f}%", progress * 100.0);
++            }
++        },
++        nullptr, nullptr);
++
+     SPDLOG_INFO("Loaded ZIP (O2R) archive: {}", mPath.c_str());
+     return 0;
+ }
+diff --git a/mm/2s2h/BenPort.cpp b/mm/2s2h/BenPort.cpp
+index 653de66..03aede6 100644
+--- a/mm/2s2h/BenPort.cpp
++++ b/mm/2s2h/BenPort.cpp
+@@ -293,6 +293,11 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
+     bool romsFromSearch = false;
+     std::atomic<size_t> extractCount = 0, totalExtract = 0;
+ 
++    /* Set by `ExporterArchiveO2R` from libzip's progress callback while the archive is
++     * written - the step after extraction, which takes longer and used to report nothing.
++     * See the progress dialog below. */
++    extern std::atomic<double> gOtrArchiveProgress;
++
+     std::string installPath = std::filesystem::absolute(Ship::Context::GetAppBundlePath()).string();
+     std::string dataPath = std::filesystem::absolute(Ship::Context::GetAppDirectoryPath(appShortName)).string();
+     std::string file;
+@@ -587,9 +592,28 @@ void OTRGlobals::RunExtract(int argc, char* argv[]) {
+                                                ImGuiWindowFlags_NoSavedSettings)) {
+                     float progress = (totalExtract > 0.0f ? (float)extractCount / (float)totalExtract : 0) * 100.0f;
+                     auto filename = std::filesystem::path(file).filename().string();
+-                    ImGui::Text("Extracting %s...%s", filename.c_str(),
+-                                roundf(progress) == 100.0f ? " Done. Finishing up." : "");
+-                    std::string overlay = extractCount > 0 ? fmt::format("{:.0f}%", progress) : "Starting Up";
++
++                    /*
++                     * Two phases, one bar.
++                     *
++                     * Reading the ROM is `extractCount` of `totalExtract` and finishes in
++                     * under a minute. Writing the archive then takes several minutes and
++                     * had nothing to report: this said "Done. Finishing up." and the bar
++                     * stopped at 100%, which is indistinguishable from a hang and was
++                     * taken for one. `gOtrArchiveProgress` is what libzip reports while it
++                     * writes, so the second phase gets the bar to itself and says so.
++                     */
++                    const bool writing = roundf(progress) == 100.0f;
++                    const float archive = (float)gOtrArchiveProgress.load() * 100.0f;
++                    if (writing) {
++                        progress = archive;
++                    }
++
++                    ImGui::Text("%s %s...", writing ? "Writing archive for" : "Extracting",
++                                filename.c_str());
++                    std::string overlay = writing ? fmt::format("Writing archive {:.0f}%", archive)
++                                          : extractCount > 0 ? fmt::format("{:.0f}%", progress)
++                                                             : "Starting Up";
+                     ImGui::ProgressBar(progress / 100.0f, ImVec2(600.0f, 50.0f), overlay.c_str());
+                     ImGui::EndPopup();
+                 }

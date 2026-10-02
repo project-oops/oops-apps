@@ -1,0 +1,85 @@
+One directory, named once, so the ROM scan finds it
+
+`GetAppBundlePath` and `GetAppDirectoryPath` both fall through to `"."` here: none
+of the platform branches match, and `NON_PORTABLE` is not set. That answer is not
+wrong - a payload's one directory really is where it is running from - but it is
+the worst spelling of it. Every path built from it carries a `.` component through
+`std::filesystem`, and those reach the kernel, which resolves nothing. `/app0/./
+2ship.o2r` is how that looked the first time: the archive sitting there, reported
+missing.
+
+`OOPS_POSIX_HOME` is the build's name for the mount, and `common/posix/posix.c`
+resolves relative paths against the same place, so naming it here keeps the two in
+step instead of leaving `.` to be undone further down.
+
+Saying it twice has one consequence worth handling. The extractor scans the bundle
+path and then the app directory looking for a ROM to convert, and those are now
+visibly the same directory - so a single ROM was listed twice and offered for
+conversion a second time the moment the first conversion finished. `GetRoms` keeps
+a set. Every caller wants one; on the platforms where the two paths differ this
+changes nothing.
+---
+diff --git a/libultraship/src/ship/Context.cpp b/libultraship/src/ship/Context.cpp
+index d65ef12..c505d92 100644
+--- a/libultraship/src/ship/Context.cpp
++++ b/libultraship/src/ship/Context.cpp
+@@ -474,6 +474,18 @@ std::string Context::GetShortName() const {
+ }
+ 
+ std::string Context::GetAppBundlePath() {
++#if defined(__PROSPERO__)
++    // One directory, and it is known without asking. A payload is mounted at /app0 and
++    // has nothing above it and no working directory it can move, so the install, the
++    // save data and the archives are all here. `OOPS_POSIX_HOME` is the build's name for
++    // it; `common/posix/posix.c` resolves relative paths against the same place.
++    //
++    // Answering "." instead, as the fallback below does, is not wrong but is worse: it
++    // makes every path built from this one carry a `.` component through
++    // `std::filesystem`, and those reach the kernel, which does not resolve them.
++    return OOPS_POSIX_HOME;
++#endif
++
+ #if defined(__ANDROID__)
+     const char* externaldir = SDL_AndroidGetExternalStoragePath();
+     if (externaldir != NULL) {
+@@ -537,6 +549,12 @@ std::string Context::GetAppBundlePath() {
+ }
+ 
+ std::string Context::GetAppDirectoryPath(const std::string& appName) {
++#if defined(__PROSPERO__)
++    // The same place as the bundle, for the reason given there: there is only one.
++    (void)appName;
++    return OOPS_POSIX_HOME;
++#endif
++
+ #if defined(__ANDROID__)
+     const char* externaldir = SDL_AndroidGetExternalStoragePath();
+     if (externaldir != NULL) {
+diff --git a/mm/2s2h/Extractor/Extract.cpp b/mm/2s2h/Extractor/Extract.cpp
+index 0c2fdb1..287c80d 100644
+--- a/mm/2s2h/Extractor/Extract.cpp
++++ b/mm/2s2h/Extractor/Extract.cpp
+@@ -43,6 +43,7 @@
+ 
+ #include <SDL2/SDL_messagebox.h>
+ 
++#include <algorithm>
+ #include <array>
+ #include <fstream>
+ #include <filesystem>
+@@ -240,7 +241,14 @@ void Extractor::GetRoms(std::vector<std::string>& roms) {
+             continue;
+         if ((file.path().extension() == ".n64") || (file.path().extension() == ".z64") ||
+             (file.path().extension() == ".v64")) {
+-            roms.push_back((file.path()));
++            // Not twice. The extractor scans the bundle path and then the app directory,
++            // and on a platform whose payload has a single directory those are the same
++            // place - so a ROM listed once per scan is offered for conversion again the
++            // moment the first conversion finishes. Every caller wants a set here.
++            const std::string found = file.path().string();
++            if (std::find(roms.begin(), roms.end(), found) == roms.end()) {
++                roms.push_back(found);
++            }
+         }
+     }
+ #endif
