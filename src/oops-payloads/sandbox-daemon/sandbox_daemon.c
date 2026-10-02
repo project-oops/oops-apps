@@ -281,7 +281,8 @@ static uintptr_t sandbox_resolve_rootvnode(void) {
  *
  * Returns 0 on success, -1 on failure.
  */
-static int sandbox_elevate_process(pid_t target_pid, uintptr_t rootvnode) {
+static int sandbox_elevate_process(pid_t target_pid, uintptr_t rootvnode,
+                                   int force_masquerade) {
     /* Step 1: Find the target proc */
     uintptr_t kproc = sandbox_find_proc_by_pid(target_pid);
     if (kproc == 0) {
@@ -310,7 +311,7 @@ static int sandbox_elevate_process(pid_t target_pid, uintptr_t rootvnode) {
         sandbox_log("rootvnode unavailable for PID %d", (int)target_pid);
     }
 
-    /* Step 3: Elevate credentials */
+    /* Step 3: Elevate credentials (uid/ruid = 0 for filesystem access) */
     uintptr_t ucred = krw_get_ucred(target_pid);
     if (ucred != 0) {
         uint32_t zeros[2] = {0, 0};
@@ -318,39 +319,49 @@ static int sandbox_elevate_process(pid_t target_pid, uintptr_t rootvnode) {
         sandbox_log("set cr_uid=0, cr_ruid=0 for PID %d", (int)target_pid);
     }
 
-    /* Set cr_sceauthid */
-    (void)krw_set_ucred_authid(target_pid, SANDBOX_AUTHID);
-    sandbox_log("set cr_sceauthid=0x%llx for PID %d",
-                (unsigned long long)SANDBOX_AUTHID, (int)target_pid);
+    /* Step 4: Check if process is an Application (Big App / Title) */
+    uint64_t current_authid = krw_get_ucred_authid(target_pid);
+    /* Sony Application/Title auth IDs carry prefix 0x3800... (e.g. 0x3800000000000001
+     * or registered title ID). Any non-zero auth ID that is not SANDBOX_AUTHID
+     * represents a legitimate Sony Application context. */
+    int is_app = (current_authid != 0 && current_authid != SANDBOX_AUTHID);
 
-    /* Set cr_scecaps = all ones */
-    uint8_t all_caps[16];
-    for (int i = 0; i < 16; i++) {
-        all_caps[i] = 0xFF;
-    }
-    (void)krw_set_ucred_caps(target_pid, all_caps);
-    sandbox_log("set cr_scecaps=all-ones for PID %d", (int)target_pid);
+    if (is_app && !force_masquerade) {
+        sandbox_log("PID %d is an Application (authid=0x%llx) - preserving app "
+                    "identity & prison",
+                    (int)target_pid, (unsigned long long)current_authid);
+    } else {
+        /* Full system-daemon masquerade for standalone payloads or explicit override */
+        (void)krw_set_ucred_authid(target_pid, SANDBOX_AUTHID);
+        sandbox_log("set cr_sceauthid=0x%llx for PID %d",
+                    (unsigned long long)SANDBOX_AUTHID, (int)target_pid);
 
-    /* Set cr_sceattrs byte 3 (attribute flag) */
-    uint8_t attrs[32];
-    if (krw_get_ucred_attrs(target_pid, attrs) == 0) {
-        attrs[3] |= 0x80;
-        (void)krw_set_ucred_attrs(target_pid, attrs);
-    }
+        uint8_t all_caps[16];
+        for (int i = 0; i < 16; i++) {
+            all_caps[i] = 0xFF;
+        }
+        (void)krw_set_ucred_caps(target_pid, all_caps);
+        sandbox_log("set cr_scecaps=all-ones for PID %d", (int)target_pid);
 
-    /* Step 4: Borrow cr_prison from PID 1 (prison0) */
-    if (ucred != 0) {
-        uintptr_t kproc1 = krw_get_proc(1);
-        if (kproc1 != 0) {
-            uintptr_t ucred1 = 0;
-            if (krw_copyout(kproc1 + 0x40, &ucred1, sizeof(ucred1)) == 0 &&
-                ucred1 != 0) {
-                uintptr_t prison1 = 0;
-                if (krw_copyout(ucred1 + 0x30, &prison1, sizeof(prison1)) == 0 &&
-                    prison1 != 0) {
-                    (void)krw_copyin(&prison1, ucred + 0x30, sizeof(prison1));
-                    sandbox_log("borrowed cr_prison from PID 1 for PID %d",
-                                (int)target_pid);
+        uint8_t attrs[32];
+        if (krw_get_ucred_attrs(target_pid, attrs) == 0) {
+            attrs[3] |= 0x80;
+            (void)krw_set_ucred_attrs(target_pid, attrs);
+        }
+
+        if (ucred != 0) {
+            uintptr_t kproc1 = krw_get_proc(1);
+            if (kproc1 != 0) {
+                uintptr_t ucred1 = 0;
+                if (krw_copyout(kproc1 + 0x40, &ucred1, sizeof(ucred1)) == 0 &&
+                    ucred1 != 0) {
+                    uintptr_t prison1 = 0;
+                    if (krw_copyout(ucred1 + 0x30, &prison1, sizeof(prison1)) == 0 &&
+                        prison1 != 0) {
+                        (void)krw_copyin(&prison1, ucred + 0x30, sizeof(prison1));
+                        sandbox_log("borrowed cr_prison from PID 1 for PID %d",
+                                    (int)target_pid);
+                    }
                 }
             }
         }
@@ -396,19 +407,31 @@ static int sandbox_fill_sockaddr(char *buf, uint32_t addr, uint16_t port) {
  * Handle a single client connection: read PID, elevate, send status.
  */
 static void sandbox_handle_client(int client_fd, uintptr_t rootvnode) {
-    /* Read 4-byte PID */
-    pid_t client_pid = 0;
-    long nread = sys_call(SYS_read, client_fd, (long)&client_pid, 4, 0, 0, 0);
-    if (nread != 4) {
-        sandbox_log("client read failed (n=%ld), closing", nread);
+    /* Read 4-byte PID.
+     * Positive PID: standard elevation (preserve app identity if app; elevate if raw
+     * payload). Negative PID (-pid): explicit forced full masquerade (forces prison0
+     * and SANDBOX_AUTHID).
+     */
+    int32_t raw_pid = 0;
+    long nread = sys_call(SYS_read, client_fd, (long)&raw_pid, 4, 0, 0, 0);
+    if (nread != 4 || raw_pid == 0) {
+        sandbox_log("client read failed (n=%ld, pid=%d), closing", nread, (int)raw_pid);
         sys_call(SYS_close, client_fd, 0, 0, 0, 0, 0);
         return;
     }
 
-    sandbox_log("handshake accepted for PID %d", (int)client_pid);
+    int force_masquerade = 0;
+    pid_t client_pid = (pid_t)raw_pid;
+    if (raw_pid < 0) {
+        client_pid = (pid_t)(-raw_pid);
+        force_masquerade = 1;
+    }
+
+    sandbox_log("handshake accepted for PID %d (force_masquerade=%d)", (int)client_pid,
+                force_masquerade);
 
     /* Perform namespace elevation */
-    int result = sandbox_elevate_process(client_pid, rootvnode);
+    int result = sandbox_elevate_process(client_pid, rootvnode, force_masquerade);
 
     /* Send status code back */
     int32_t status = (int32_t)result;
