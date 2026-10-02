@@ -1,0 +1,43 @@
+One directory, named once, so the ROM scan and archive paths resolve
+
+`GetAppBundlePath` and `GetAppDirectoryPath` both fall through to `"."` on
+Prospero because neither `__APPLE__`, `__linux__`, nor `_WIN32` branches
+match, and `NON_PORTABLE` is not set.
+
+While a payload really does run from its single directory, returning `"."` causes
+every path constructed by `Ship::Context::GetPathRelativeToAppDirectory(...)` to
+carry a leading `./` (`./sf64.o2r`, `./starship.o2r`, `./mods`). When passed to the
+kernel filesystem calls without normalisation, those relative path segments can fail
+resolution.
+
+`OOPS_POSIX_HOME` (/app0) is the canonical mount point for the payload, and
+`common/posix/posix.c` resolves paths against the same directory. Returning
+`OOPS_POSIX_HOME` directly keeps libultraship path resolution clean and consistent.
+
+diff --git a/libultraship/src/Context.cpp b/libultraship/src/Context.cpp
+index dcb19c8..ef73091 100644
+--- a/libultraship/src/Context.cpp
++++ b/libultraship/src/Context.cpp
+@@ -398,6 +398,10 @@ std::string Context::GetShortName() {
+ }
+ 
+ std::string Context::GetAppBundlePath() {
++#if defined(__PROSPERO__)
++    return OOPS_POSIX_HOME;
++#endif
++
+ #if defined(__ANDROID__)
+     const char* externaldir = SDL_AndroidGetExternalStoragePath();
+     if (externaldir != NULL) {
+@@ -456,6 +460,11 @@ std::string Context::GetAppBundlePath() {
+ }
+ 
+ std::string Context::GetAppDirectoryPath(std::string appName) {
++#if defined(__PROSPERO__)
++    (void)appName;
++    return OOPS_POSIX_HOME;
++#endif
++
+ #if defined(__ANDROID__)
+     const char* externaldir = SDL_AndroidGetExternalStoragePath();
+     if (externaldir != NULL) {

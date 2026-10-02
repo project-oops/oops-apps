@@ -11,9 +11,8 @@
  * `starship.o2r` is the port's own assets and ships with the build. `sf64.o2r` is the
  * game's, converted from a Star Fox 64 ROM the player supplies, on the console, by the
  * Torch converter upstream links from `src/port/extractor` - the same converter
- * `../spaghetti-kart` carries. So the player's part is the ROM file alone, named as
- * upstream's non-desktop path reads it (`patches/0002`): `baserom.us.rev1.z64`,
- * whichever supported version it is.
+ * `../spaghetti-kart` carries. So the player's part is the ROM file alone (`.z64`,
+ * `.n64` or `.v64`, under `baserom.us.rev1.z64` or any supported ROM filename).
  */
 #include "oops/freestd.h"
 #include "oops/fs.h"
@@ -25,11 +24,40 @@
 extern "C" void oops_crashtrace_install(void);
 
 #include <cstdlib>
+#include <dirent.h>
 
 int main(int argc, char **argv);
 
 /* app.mk derives the entry symbol from the app name; lld only warns on a mismatch. */
 extern "C" int starship_start(const payload_args_t *args);
+
+static bool strf_have_rom(void) {
+    static const char *const suffixes[] = {".z64", ".n64", ".v64"};
+    DIR *dir = opendir(OOPS_POSIX_HOME);
+    if (!dir) {
+        return false;
+    }
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        const char *name = entry->d_name;
+        size_t len = 0;
+        while (name[len]) {
+            len++;
+        }
+        for (size_t s = 0; s < sizeof(suffixes) / sizeof(suffixes[0]); s++) {
+            const char *suf = suffixes[s];
+            if (len >= 4 && name[len - 4] == suf[0] && name[len - 3] == suf[1] &&
+                name[len - 2] == suf[2] && name[len - 1] == suf[3]) {
+                oops_log_info("STRF", "found ROM to convert: %s/%s", OOPS_POSIX_HOME,
+                              name);
+                closedir(dir);
+                return true;
+            }
+        }
+    }
+    closedir(dir);
+    return false;
+}
 
 __attribute__((visibility("default"))) extern "C" int
 starship_start(const payload_args_t *args) {
@@ -45,14 +73,16 @@ starship_start(const payload_args_t *args) {
     oops_log_info("STRF", "entry");
     oops_crashtrace_install();
 
-    /* An archive already converted is enough; otherwise the ROM it is converted from.
-     */
+    /* An archive already converted is enough; otherwise a ROM to convert from. */
     if (oops_snprintf(path, sizeof(path), "%s/%s", OOPS_POSIX_HOME, "sf64.o2r") <= 0 ||
         !oops_fs_exists(path)) {
-        oops_require_player_data("baserom.us.rev1.z64", "baserom.us.rev1.z64",
-                                 "Starship plays from your own Star Fox 64 ROM (.z64, "
-                                 "under this name whichever version it is), converted "
-                                 "on the console the first time it starts.");
+        if (!strf_have_rom()) {
+            oops_require_player_data(
+                "baserom.us.rev1.z64", "baserom.us.rev1.z64",
+                "Starship plays from your own Star Fox 64 ROM (.z64, "
+                ".n64 or .v64), converted on the console the first "
+                "time it starts.");
+        }
     }
 
     /* libultraship resolves its config and save paths through HOME, and the environment

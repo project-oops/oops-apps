@@ -19,16 +19,16 @@ converter, Torch.
 
 ## Your ROM
 
-The build carries no game assets. Copy a Star Fox 64 ROM (big-endian `.z64`, any version
-upstream's `config.yml` lists) beside `eboot.bin`, under the name upstream's non-desktop path
-reads:
+The build carries no game assets. Copy a Star Fox 64 ROM (big-endian `.z64`, `.n64`,
+or `.v64`, any version upstream's `config.yml` lists) beside `eboot.bin`, such as:
 
 ```
 /data/homebrew/STRF00001/baserom.us.rev1.z64
 ```
 
-The first start converts it to `sf64.o2r` on the console, with Torch. Without the ROM or a
-converted archive the title says exactly this on screen and stops.
+Any supported ROM name will do. The first start converts it to `sf64.o2r` on the console
+with Torch. Without the ROM or a converted archive the title says exactly this on screen
+and stops.
 
 ## Building
 

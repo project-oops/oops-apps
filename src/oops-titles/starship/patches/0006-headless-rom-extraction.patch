@@ -1,0 +1,93 @@
+Headless ROM extraction and fallback scanning for console
+
+On a console without desktop UI facilities:
+1. `GameEngine::GameEngine()` must not block on interactive yes/no dialog boxes
+   to prompt for extraction or prompt a second time for voice replacement ROMs.
+   If `sf64.o2r` does not exist, `GenAssetFile(false)` is invoked directly.
+2. `ShowMessage` and `ShowYesNoBox` fail safe under `__PROSPERO__` by logging to
+   spdlog rather than invoking `SDL_ShowSimpleMessageBox` during early initialization.
+3. `GameExtractor::SelectGameFromUI` searches for any `.z64`, `.n64`, or `.v64` file in
+   the app directory if `baserom.us.rev1.z64` is not present, and safely returns false
+   if the ROM cannot be opened or is empty.
+
+diff --git a/src/port/Engine.cpp b/src/port/Engine.cpp
+index 496206b..daf1731 100644
+--- a/src/port/Engine.cpp
++++ b/src/port/Engine.cpp
+@@ -88,6 +88,14 @@ GameEngine::GameEngine() {
+     if (std::filesystem::exists(main_path)) {
+         archiveFiles.push_back(main_path);
+     } else {
++#if defined(__PROSPERO__)
++        if (!GenAssetFile(false)) {
++            ShowMessage("Error", "An error occured, no O2R file was generated.\n\nExiting...");
++            exit(1);
++        } else {
++            archiveFiles.push_back(main_path);
++        }
++#else
+         if (ShowYesNoBox("Starship - Asset Extraction", "Please provide a Starfox 64 ROM.\n\nSupported Versions:\nUS 1.0\nUS 1.1\n\nAssets will be extracted into an O2R file.") == IDYES) {
+             if(!GenAssetFile()){
+                 ShowMessage("Error", "An error occured, no O2R file was generated.\n\nExiting...");
+@@ -104,6 +112,7 @@ GameEngine::GameEngine() {
+         } else {
+             exit(1);
+         }
++#endif
+     }
+ 
+     if (std::filesystem::exists(assets_path)) {
+@@ -562,7 +571,7 @@ extern "C" uint32_t GameEngine_GetInterpolationFrameCount() {
+ }
+ 
+ void GameEngine::ShowMessage(const char* title, const char* message, SDL_MessageBoxFlags type) {
+-#if defined(__SWITCH__)
++#if defined(__SWITCH__) || defined(__PROSPERO__)
+     SPDLOG_ERROR(message);
+ #else
+     SDL_ShowSimpleMessageBox(type, title, message, nullptr);
+@@ -574,7 +583,7 @@ int GameEngine::ShowYesNoBox(const char* title, const char* box) {
+     int ret;
+ #ifdef _WIN32
+     ret = MessageBoxA(nullptr, box, title, MB_YESNO | MB_ICONQUESTION);
+-#elif defined(__SWITCH__)
++#elif defined(__SWITCH__) || defined(__PROSPERO__)
+     SPDLOG_ERROR(box);
+     return IDYES;
+ #else
+diff --git a/src/port/extractor/GameExtractor.cpp b/src/port/extractor/GameExtractor.cpp
+index 023fd09..51bfdfb 100644
+--- a/src/port/extractor/GameExtractor.cpp
++++ b/src/port/extractor/GameExtractor.cpp
+@@ -33,12 +33,30 @@ bool GameExtractor::SelectGameFromUI() {
+     this->mGamePath = selection[0];
+ #else
+     this->mGamePath = Ship::Context::GetPathRelativeToAppDirectory("baserom.us.rev1.z64");
++    if (!std::filesystem::exists(this->mGamePath)) {
++        const std::string dir = Ship::Context::GetAppDirectoryPath();
++        if (std::filesystem::exists(dir) && std::filesystem::is_directory(dir)) {
++            for (const auto& entry : std::filesystem::directory_iterator(dir)) {
++                if (!entry.is_regular_file()) {
++                    continue;
++                }
++                const auto ext = entry.path().extension().string();
++                if (ext == ".z64" || ext == ".n64" || ext == ".v64") {
++                    this->mGamePath = entry.path().string();
++                    break;
++                }
++            }
++        }
++    }
+ #endif
+ 
+     std::ifstream file(this->mGamePath, std::ios::binary);
++    if (!file.is_open()) {
++        return false;
++    }
+     this->mGameData = std::vector<uint8_t>( std::istreambuf_iterator( file ), {} );
+     file.close();
+-    return true;
++    return !this->mGameData.empty();
+ }
+ 
+ std::optional<std::string> GameExtractor::ValidateChecksum() const {
