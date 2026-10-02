@@ -268,6 +268,55 @@ static uintptr_t sandbox_resolve_rootvnode(void) {
 /* Credential elevation                                               */
 /* ------------------------------------------------------------------ */
 
+#define SANDBOX_CMD_ESCAPE 1
+#define SANDBOX_CMD_RESTORE 2
+#define SANDBOX_CMD_MASQUERADE 3
+#define SANDBOX_CMD_EXIT 4
+
+typedef struct {
+    pid_t pid;
+    uintptr_t rdir;
+    uintptr_t jdir;
+    uintptr_t cdir;
+    uint32_t uids[2];
+    uint64_t authid;
+    uintptr_t prison;
+    uint8_t caps[16];
+    uint8_t attrs[32];
+    int valid;
+} sandbox_saved_proc_t;
+
+#define MAX_SAVED_PROCS 16
+static sandbox_saved_proc_t s_saved_procs[MAX_SAVED_PROCS];
+
+static sandbox_saved_proc_t *sandbox_find_saved(pid_t target_pid) {
+    for (int i = 0; i < MAX_SAVED_PROCS; i++) {
+        if (s_saved_procs[i].valid && s_saved_procs[i].pid == target_pid) {
+            return &s_saved_procs[i];
+        }
+    }
+    return NULL;
+}
+
+static sandbox_saved_proc_t *sandbox_alloc_saved(pid_t target_pid) {
+    sandbox_saved_proc_t *existing = sandbox_find_saved(target_pid);
+    if (existing != NULL) {
+        return existing;
+    }
+    for (int i = 0; i < MAX_SAVED_PROCS; i++) {
+        if (!s_saved_procs[i].valid) {
+            s_saved_procs[i].pid = target_pid;
+            s_saved_procs[i].valid = 1;
+            s_saved_procs[i].rdir = 0;
+            return &s_saved_procs[i];
+        }
+    }
+    s_saved_procs[0].pid = target_pid;
+    s_saved_procs[0].valid = 1;
+    s_saved_procs[0].rdir = 0;
+    return &s_saved_procs[0];
+}
+
 /**
  * Apply full namespace elevation and credential escalation to a target proc.
  *
@@ -292,6 +341,28 @@ static int sandbox_elevate_process(pid_t target_pid, uintptr_t rootvnode,
 
     sandbox_log("found proc for PID %d at 0x%lx", (int)target_pid,
                 (unsigned long)kproc);
+
+    /* Snapshot original pre-escape state before first modification */
+    sandbox_saved_proc_t *saved = sandbox_alloc_saved(target_pid);
+    if (saved != NULL && saved->valid && saved->rdir == 0) {
+        uintptr_t fd = 0;
+        if (krw_copyout(kproc + 0x48, &fd, sizeof(fd)) == 0 && fd != 0) {
+            (void)krw_copyout(fd + 0x08, &saved->cdir, sizeof(saved->cdir));
+            (void)krw_copyout(fd + 0x10, &saved->rdir, sizeof(saved->rdir));
+            (void)krw_copyout(fd + 0x18, &saved->jdir, sizeof(saved->jdir));
+        }
+        uintptr_t ucred = 0;
+        if (krw_copyout(kproc + 0x40, &ucred, sizeof(ucred)) == 0 && ucred != 0) {
+            (void)krw_copyout(ucred + 0x04, saved->uids, sizeof(saved->uids));
+            saved->authid = krw_get_ucred_authid(target_pid);
+            (void)krw_copyout(ucred + 0x30, &saved->prison, sizeof(saved->prison));
+            (void)krw_get_ucred_caps(target_pid, saved->caps);
+            (void)krw_get_ucred_attrs(target_pid, saved->attrs);
+        }
+        sandbox_log("saved initial state for PID %d: rdir=0x%lx, uid=%u, authid=0x%llx",
+                    (int)target_pid, (unsigned long)saved->rdir,
+                    (unsigned int)saved->uids[0], (unsigned long long)saved->authid);
+    }
 
     /* Step 2: Repoint fd_rdir, fd_jdir, and fd_cdir to rootvnode */
     if (rootvnode != 0) {
@@ -370,6 +441,54 @@ static int sandbox_elevate_process(pid_t target_pid, uintptr_t rootvnode,
     return 0;
 }
 
+/**
+ * Restore a process's original directory vnodes and credentials.
+ */
+static int sandbox_restore_process(pid_t target_pid) {
+    sandbox_saved_proc_t *saved = sandbox_find_saved(target_pid);
+    if (saved == NULL || !saved->valid) {
+        sandbox_log("restore requested for PID %d but no saved state found",
+                    (int)target_pid);
+        return 0;
+    }
+
+    uintptr_t kproc = sandbox_find_proc_by_pid(target_pid);
+    if (kproc == 0) {
+        sandbox_log("restore proc not found for PID %d", (int)target_pid);
+        saved->valid = 0;
+        return -1;
+    }
+
+    /* 1. Restore directories */
+    if (saved->rdir != 0) {
+        (void)krw_set_proc_rootdir(target_pid, saved->rdir);
+        (void)krw_set_proc_jaildir(target_pid, saved->jdir);
+        (void)krw_set_proc_cdir(target_pid, saved->cdir);
+        sandbox_log("restored dirs for PID %d: rdir=0x%lx, jdir=0x%lx, cdir=0x%lx",
+                    (int)target_pid, (unsigned long)saved->rdir,
+                    (unsigned long)saved->jdir, (unsigned long)saved->cdir);
+    }
+
+    /* 2. Restore credentials */
+    uintptr_t ucred = 0;
+    if (krw_copyout(kproc + 0x40, &ucred, sizeof(ucred)) == 0 && ucred != 0) {
+        (void)krw_copyin(saved->uids, ucred + 0x04, sizeof(saved->uids));
+        (void)krw_set_ucred_authid(target_pid, saved->authid);
+        (void)krw_set_ucred_caps(target_pid, saved->caps);
+        (void)krw_set_ucred_attrs(target_pid, saved->attrs);
+        if (saved->prison != 0) {
+            (void)krw_copyin(&saved->prison, ucred + 0x30, sizeof(saved->prison));
+        }
+        sandbox_log("restored creds for PID %d: uid=%u, ruid=%u, authid=0x%llx",
+                    (int)target_pid, (unsigned int)saved->uids[0],
+                    (unsigned int)saved->uids[1], (unsigned long long)saved->authid);
+    }
+
+    saved->valid = 0;
+    saved->rdir = 0;
+    return 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* Socket helpers                                                       */
 /* ------------------------------------------------------------------ */
@@ -404,34 +523,61 @@ static int sandbox_fill_sockaddr(char *buf, uint32_t addr, uint16_t port) {
 /* ------------------------------------------------------------------ */
 
 /**
- * Handle a single client connection: read PID, elevate, send status.
+ * Handle a single client connection: read PID or command envelope, elevate or restore,
+ * send status.
  */
 static void sandbox_handle_client(int client_fd, uintptr_t rootvnode) {
-    /* Read 4-byte PID.
-     * Positive PID: standard elevation (preserve app identity if app; elevate if raw
-     * payload). Negative PID (-pid): explicit forced full masquerade (forces prison0
-     * and SANDBOX_AUTHID).
-     */
-    int32_t raw_pid = 0;
-    long nread = sys_call(SYS_read, client_fd, (long)&raw_pid, 4, 0, 0, 0);
-    if (nread != 4 || raw_pid == 0) {
-        sandbox_log("client read failed (n=%ld, pid=%d), closing", nread, (int)raw_pid);
+    /* Read up to 8 bytes: [cmd, pid] or 4-byte legacy PID */
+    int32_t words[2] = {0, 0};
+    long nread = sys_call(SYS_read, client_fd, (long)words, sizeof(words), 0, 0, 0);
+    if (nread < 4) {
+        sandbox_log("client read failed (n=%ld), closing", nread);
         sys_call(SYS_close, client_fd, 0, 0, 0, 0, 0);
         return;
     }
 
+    int cmd = SANDBOX_CMD_ESCAPE;
+    pid_t client_pid = 0;
     int force_masquerade = 0;
-    pid_t client_pid = (pid_t)raw_pid;
-    if (raw_pid < 0) {
-        client_pid = (pid_t)(-raw_pid);
-        force_masquerade = 1;
+
+    if (nread >= 8) {
+        cmd = (int)words[0];
+        client_pid = (pid_t)words[1];
+        if (cmd == SANDBOX_CMD_MASQUERADE) {
+            force_masquerade = 1;
+        }
+    } else {
+        int32_t raw_pid = words[0];
+        if (raw_pid < 0) {
+            client_pid = (pid_t)(-raw_pid);
+            force_masquerade = 1;
+        } else {
+            client_pid = (pid_t)raw_pid;
+        }
     }
 
-    sandbox_log("handshake accepted for PID %d (force_masquerade=%d)", (int)client_pid,
-                force_masquerade);
+    if (client_pid <= 0) {
+        sandbox_log("invalid client pid %d, closing", (int)client_pid);
+        sys_call(SYS_close, client_fd, 0, 0, 0, 0, 0);
+        return;
+    }
 
-    /* Perform namespace elevation */
-    int result = sandbox_elevate_process(client_pid, rootvnode, force_masquerade);
+    sandbox_log("handshake accepted for PID %d (cmd=%d, force_masquerade=%d)",
+                (int)client_pid, cmd, force_masquerade);
+
+    int result = 0;
+    if (cmd == SANDBOX_CMD_RESTORE) {
+        result = sandbox_restore_process(client_pid);
+    } else if (cmd == SANDBOX_CMD_EXIT) {
+        sandbox_log("exit requested by PID %d, terminating daemon", (int)client_pid);
+        int32_t status = 0;
+        sys_call(SYS_write, client_fd, (long)&status, 4, 0, 0, 0);
+        sys_call(SYS_close, client_fd, 0, 0, 0, 0, 0);
+        sys_call(SYS_exit, 0, 0, 0, 0, 0, 0);
+        return;
+    } else {
+        result = sandbox_elevate_process(client_pid, rootvnode, force_masquerade);
+    }
 
     /* Send status code back */
     int32_t status = (int32_t)result;
@@ -439,10 +585,12 @@ static void sandbox_handle_client(int client_fd, uintptr_t rootvnode) {
     sys_call(SYS_close, client_fd, 0, 0, 0, 0, 0);
 
     if (result == 0) {
-        sandbox_log("namespace elevated for PID %d", (int)client_pid);
+        sandbox_log("namespace %s for PID %d",
+                    (cmd == SANDBOX_CMD_RESTORE) ? "restored" : "elevated",
+                    (int)client_pid);
     } else {
-        sandbox_log("namespace elevation failed for PID %d (rc=%d)", (int)client_pid,
-                    result);
+        sandbox_log("namespace operation failed for PID %d (cmd=%d, rc=%d)",
+                    (int)client_pid, cmd, result);
     }
 }
 
@@ -536,6 +684,29 @@ int sandbox_daemon_start(const payload_args_t *args) {
     } else {
         sandbox_log("open(/data/homebrew) failed rc=%d", test_dfd);
     }
+
+    /* If a previous daemon instance is running, tell it to exit */
+    int probe_sock = (int)sys_call(SYS_socket, SANDBOX_AF_INET, 1 /* SOCK_STREAM */,
+                                   6 /* IPPROTO_TCP */, 0, 0, 0);
+    if (probe_sock >= 0) {
+        char probe_addr[16];
+        sandbox_fill_sockaddr(probe_addr, SANDBOX_INADDR_LOOPBACK, SANDBOX_TCP_PORT);
+        if (sys_call(SYS_connect, probe_sock, (long)probe_addr, 16, 0, 0, 0) == 0) {
+            sandbox_log("previous daemon detected on port %d, requesting exit",
+                        SANDBOX_TCP_PORT);
+            int32_t exit_req[2] = {SANDBOX_CMD_EXIT, (int32_t)mypid};
+            (void)sys_call(SYS_write, probe_sock, (long)exit_req, sizeof(exit_req), 0,
+                           0, 0);
+            int32_t resp = 0;
+            (void)sys_call(SYS_read, probe_sock, (long)&resp, 4, 0, 0, 0);
+        }
+        sys_call(SYS_close, probe_sock, 0, 0, 0, 0, 0);
+    }
+    /* If the legacy unkillable PID 234 from previous boot is running, terminate it */
+    if (mypid != 234) {
+        sys_call(SYS_kill, 234, 9, 0, 0, 0, 0);
+    }
+    sandbox_sleep_us(200000u); /* 200ms grace period */
 
     /* Create TCP listener on 127.0.0.1:9069 */
     int sock = (int)sys_call(SYS_socket, SANDBOX_AF_INET, 1 /* SOCK_STREAM */,
