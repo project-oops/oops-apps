@@ -3,6 +3,8 @@
  * The console pipeline (HTTPS + unzip) is the hardware half and is not exercised here.
  */
 
+#define _CRT_SECURE_NO_WARNINGS 1
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,7 +24,12 @@ char *obs_strncpy(char *dest, const char *src, size_t n);
 size_t obs_strlen(const char *s) { return strlen(s); }
 char *obs_strstr(const char *haystack, const char *needle) { return strstr(haystack, needle); }
 int obs_strcmp(const char *a, const char *b) { return strcmp(a, b); }
-char *obs_strncpy(char *dest, const char *src, size_t n) { return strncpy(dest, src, n); }
+char *obs_strncpy(char *dest, const char *src, size_t n) {
+    size_t i = 0;
+    for (; i < n && src[i]; i++) dest[i] = src[i];
+    for (; i < n; i++) dest[i] = '\0';
+    return dest;
+}
 
 #define W 1280
 #define H 720

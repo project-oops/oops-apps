@@ -15,19 +15,8 @@
 # oops-apps catalogue page, litehtml-friendly (flex, no CSS grid) and bridged to the native install
 # queue. That path is compiled in only when -DOOPSY_USE_WEBVIEW is set; without it the app builds
 # the native canvas menu, which needs only the C features listed here and always links.
-#
-# **The webview is not wired on by default, on purpose.** It is C++ (litehtml + the DOM bridge)
-# over a freestanding libc++, and the html feature also carries gumbo, third-party C that the
-# strict payload C flags (-Werror -Wconversion) reject. Turning it on therefore needs the build to
-# learn to compile the `html`/`webview` features as C++/relaxed-C and to link
-# libc++/libc++abi/libunwind with the eh-frame placement cxx-throw pins down (oops-apps#D005) -
-# an app.mk/SDK change, tracked separately. Once that lands the switch is a one-liner:
-#
-#   EXTRA_TARGET_CFLAGS += -DOOPSY_USE_WEBVIEW
-#   OOPS_FEATURES       += js html webview      # once app.mk compiles C++ features
-#   ...libc++/libc++abi/libunwind + cxx.mk wiring, as in cxx-throw's Makefile...
-#
-# The self-test proves the page and the bridge JSON regardless, so the UI logic is under test now.
+# The webview UI is enabled by default (OOPSY_WEBVIEW=1). Set OOPSY_WEBVIEW=0 to
+# build the pure-C native canvas fallback menu.
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 OOPS_SDK       ?= $(abspath $(OOPS_APPS_ROOT)/../oops-sdk)
@@ -41,20 +30,13 @@ PAYLOAD_SRCS = oopsy-daisy.c oopsy-daisy_main.c oopsy-daisy_page.c
 ENTRY_POINT := oopsy_daisy_start
 
 # ---------------------------------------------------------------------------
-# Webview UI (opt-in): build the SDK web stack into the payload.
+# Webview UI: build the SDK web stack into the payload (default: 1).
 #
-#   make OOPSY_WEBVIEW=1 elf
+#   make title               # webview UI (default)
+#   make OOPSY_WEBVIEW=0 ... # fall back to native canvas menu
 #
-# The `html`/`webview` features are C++ (litehtml + the DOM bridge) and `js` is QuickJS; litehtml
-# also carries gumbo. None of that survives the strict payload C flags, so this does the split the
-# OOPS_FEATURES consumer cannot yet do:
-#   - litehtml + our html/webview glue (C++) -> the cxx.mk archive, at -std=c++14 (litehtml needs
-#     deduced return types) with exceptions on (litehtml throws), against the pinned freestanding
-#     libc++/libc++abi/libunwind (prebuilt under oops-deps/libcxx).
-#   - QuickJS + gumbo (third-party C) -> a relaxed-C archive (-w, no -Werror), since they will not
-#     pass -Werror -Wconversion.
-# -DOOPSY_USE_WEBVIEW then compiles oopsy-daisy_main.c's webview path in. Everything is
-# --whole-archive because app.mk puts LDFLAGS before the payload objects on the link line.
+OOPSY_WEBVIEW ?= 1
+
 ifeq ($(OOPSY_WEBVIEW),1)
 OOPS_LIBCXX ?= $(abspath $(OOPS_APPS_ROOT)/src/oops-deps/libcxx)
 
@@ -75,10 +57,7 @@ include $(OOPS_APPS_ROOT)/common/posix.mk
 EXTRA_TARGET_CFLAGS += $(OOPS_POSIX_INCLUDE) -DOOPS_POSIX_HOME=\"/data/oopsy-daisy\"
 PAYLOAD_SRCS        += $(OOPS_POSIX_SRCS)
 
-# A separate build tree from the native default, so toggling OOPSY_WEBVIEW does not read objects
-# compiled under the other setting (the flag is not a make prerequisite, so a shared tree would
-# silently reuse stale objects). The C++/relaxed-C sub-archives live under it too.
-BUILD          := build-webview
+BUILD          ?= build
 OOPS_CXX_BUILD := $(BUILD)/cxx
 
 OOPS_CXX_STD        := c++20

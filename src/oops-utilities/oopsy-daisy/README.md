@@ -55,7 +55,7 @@ installed are badged and can be uninstalled from the same screen.
 
 ```bash
 make check              # host self-test
-make OOPSY_WEBVIEW=1 title   # the console title (eboot + webview UI)
+make title              # the console title (eboot + webview UI)
 ```
 
 The title deploys to `/data/homebrew/OPSY00001` with [Prosperous](../../../../prosperous/), like

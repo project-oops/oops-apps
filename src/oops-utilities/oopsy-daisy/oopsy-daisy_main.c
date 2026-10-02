@@ -82,9 +82,9 @@
 
 #define HOMEBREW_ROOT "/data/homebrew"
 
-/* Set once the process has left its sandbox (see the main loop). The escape is per-process and
- * one-way, so both the installed-titles scan and the install worker read the real /data/homebrew
- * after it, and neither escapes again. */
+/* Set once the process has left its sandbox. The escape is per-process and one-way,
+ * and breaks subsequent HTTPS downloads via libSceHttp on Prospero, so it is deferred
+ * until the first extraction or uninstall actually requires writing outside /app0. */
 static volatile int g_escaped;
 
 static const char *get_download_tmp(void) {
@@ -352,9 +352,9 @@ static void process_job(oopsy_job_t *job, oopsy_repaint_fn repaint, void *rctx) 
     if (repaint)
         repaint(rctx);
 
-    /* The main loop escapes the sandbox at startup so the installed-titles scan can read
-     * /data/homebrew; escape here only if that has not happened. Either way the write below lands
-     * in the real /data. */
+    /* Escape the sandbox to write to /data/homebrew. Downloads complete inside the
+     * sandbox first, because the escape unmounts /app0 and on Prospero the kernel
+     * network subsystem refuses sceHttpSendRequest from escaped credentials. */
     if (!g_escaped) {
         int esc_rc = oops_system_escape_sandbox();
         oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "install: sandbox escape rc=%d", esc_rc);
@@ -672,8 +672,9 @@ static oops_js_value_t cb_installed(oops_js_t *js, int argc, oops_js_value_t *ar
                 path[j++] = *c;
             for (int i = 0; i < 9; i++)
                 path[j++] = id[i];
-            path[j] = '\0';
-            if (oops_fs_exists(path)) {
+            bool registered = false;
+            int rc_reg = oops_app_exists(id, &registered);
+            if (oops_fs_exists(path) || (rc_reg == 0 && registered)) {
                 if (!first && p < (int)sizeof g_installed_json - 1)
                     g_installed_json[p++] = ',';
                 first = 0;
@@ -795,6 +796,14 @@ static oops_js_value_t cb_uninstall(oops_js_t *js, int argc, oops_js_value_t *ar
     for (int i = 0; i < 9; i++)
         am[k++] = id[i];
     am[k] = '\0';
+
+    /* Uninstallation requires access to /data/homebrew and /user/appmeta outside the sandbox. */
+    if (!g_escaped) {
+        int esc_rc = oops_system_escape_sandbox();
+        oops_kprintf_level(OOPS_LOG_INFO, "OOPSY", "uninstall: sandbox escape rc=%d", esc_rc);
+        if (esc_rc == 0)
+            g_escaped = 1;
+    }
 
     /* 1. The payload we extracted: replay its manifest (the proven, self-contained path), then sweep
      * any leftover with a tree walk (which only helps where the firmware relents on enumeration) and
@@ -1000,19 +1009,6 @@ static int run_webview_ui(oops_display_t *disp, oopsy_catalog_t *cat,
     webview_paint(&wc); /* a second frame so a first-paint relayout is settled */
     wv_eval(wv, "oLayoutDump();"); /* now geometry is computed - dump grid/card rects */
 
-    /* Leave the sandbox now that a frame is on screen - the display, input and webview modules are
-     * resident, and the escape itself pins net/ssl/http. It is one-way and takes /app0 with it, so
-     * it waits for the UI to be up and happens exactly once. With the real /data/homebrew now
-     * reachable, rescan for installed titles (the in-sandbox scan at init saw none) and repaint the
-     * badges. */
-    if (oops_system_escape_sandbox() == 0) {
-        g_escaped = 1;
-        log_info("sandbox: escaped; rescanning installed titles");
-        wv_eval(wv, "oopsyRescan();");
-        webview_paint(&wc);
-    } else {
-        log_error("sandbox: escape failed; installed-title badges unavailable");
-    }
 
     /* Start the background download worker now that the queue and bridges are live.
      */
