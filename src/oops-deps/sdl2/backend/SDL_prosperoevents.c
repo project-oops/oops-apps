@@ -103,6 +103,10 @@ static void PROSPERO_PumpKeyboard(PROSPERO_VideoData *data) {
             continue;
         }
         scancode = (SDL_Scancode)events[i].usage;
+        oops_log_debug("SDL", "key event: scancode=%d (%s) transition=%s mods=0x%x",
+                       (int)scancode, SDL_GetScancodeName(scancode),
+                       events[i].transition == OOPS_KEY_DOWN ? "DOWN" : "UP",
+                       (unsigned int)events[i].modifiers);
         SDL_SendKeyboardKey(events[i].transition == OOPS_KEY_DOWN ? SDL_PRESSED
                                                                   : SDL_RELEASED,
                             scancode);
@@ -195,6 +199,11 @@ void PROSPERO_PumpEvents(_THIS) {
         oops_system_prepare_for_suspend();
     }
 
+    static int s_keyboard_attempted = 0;
+    if (!data->keyboard_ready && !s_keyboard_attempted && oops_keyboard_available()) {
+        s_keyboard_attempted = 1;
+        data->keyboard_ready = (oops_keyboard_init() == 0);
+    }
     if (data->keyboard_ready) {
         PROSPERO_PumpKeyboard(data);
     }

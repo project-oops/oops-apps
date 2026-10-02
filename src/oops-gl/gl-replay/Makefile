@@ -8,7 +8,7 @@
 # `PAYLOAD_SRCS` and no `app.env`; `common/app.mk` builds only the self-test binary when a
 # Makefile lists `HOST_TEST_SRCS` and nothing else.
 OOPS_APPS_ROOT ?= $(abspath ../../..)
-EXTRA_CFLAGS += -I$(OOPS_APPS_ROOT)/common
+EXTRA_CFLAGS += -I$(OOPS_APPS_ROOT)/common -D_CRT_SECURE_NO_WARNINGS
 
 APP_NAME = gl-replay
 

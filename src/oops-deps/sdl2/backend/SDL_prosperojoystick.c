@@ -90,11 +90,11 @@ static int PROSPERO_JoystickInit(void) {
     (void)oops_input_init();
 
     /*
-     * `oops_input_read_state` folds the keyboard into port 0 by default. Under SDL the
-     * keyboard arrives through `PROSPERO_PumpKeyboard`, so folding it into the pad
-     * would deliver each key press twice.
+     * Enable keyboard folding into pad port 0. This provides a robust fallback so
+     * keyboard navigation can drive controller buttons directly even if a title's
+     * keyboard event translation table or ImGui capture blocks raw keyboard events.
      */
-    oops_input_set_keyboard_as_pad(0);
+    oops_input_set_keyboard_as_pad(1);
 
     /*
      * The game-controller mapping for this pad, declared by the driver that defines the
@@ -190,21 +190,9 @@ static int PROSPERO_JoystickGetCount(void) {
     (void)oops_input_init();
 
     /*
-     * And stop the keyboard being folded into this pad, here, for the same reason.
-     *
-     * `oops_input_read_state` folds the keyboard into port 0 by default, and `Init` is
-     * where that is turned off - so when SDL never calls `Init`, it is never turned
-     * off. Measured: `pad buttons 0x00000000 -> 0x00000080` and then nothing ever
-     * again, which is `OOPS_BUTTON_LEFT` held down for the life of the process. ImGui
-     * reads that as navigation held left, so a menu selection slides to the leftmost
-     * item and stays there, and every real press afterwards is fighting it. Two
-     * keyboard handles are opened on this console whether or not a keyboard is
-     * attached, and one of them supplies that phantom key.
-     *
-     * This is an SDK call and takes no SDL lock, so unlike the controller mapping it is
-     * safe from here.
+     * Enable keyboard folding into pad port 0.
      */
-    oops_input_set_keyboard_as_pad(0);
+    oops_input_set_keyboard_as_pad(1);
 
     rc = oops_input_poll(PROSPERO_PAD_PORT, &st);
     const int count = (rc == 0 && st.connected) ? 1 : 0;

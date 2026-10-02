@@ -317,14 +317,6 @@ make_app() {
 }
 
 find_pros() {
-    if command -v pros >/dev/null 2>&1; then
-        command -v pros
-        return 0
-    fi
-    if command -v pros.exe >/dev/null 2>&1; then
-        command -v pros.exe
-        return 0
-    fi
     local root="$HERE/.."
     for candidate in \
         "$root/prosperous/target/release/pros" \
@@ -336,6 +328,14 @@ find_pros() {
             return 0
         fi
     done
+    if command -v pros >/dev/null 2>&1; then
+        command -v pros
+        return 0
+    fi
+    if command -v pros.exe >/dev/null 2>&1; then
+        command -v pros.exe
+        return 0
+    fi
     return 1
 }
 
@@ -358,6 +358,11 @@ get_title_id() {
 
 to_host_path() {
     local target="$1"
+    if command -v wslpath >/dev/null 2>&1; then
+        local abs_target
+        abs_target="$(cd "$target" 2>/dev/null && pwd)"
+        wslpath -w "$abs_target" 2>/dev/null && return 0
+    fi
     (cd "$target" 2>/dev/null && (pwd -W 2>/dev/null || pwd))
 }
 
