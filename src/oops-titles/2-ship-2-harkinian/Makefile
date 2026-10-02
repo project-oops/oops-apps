@@ -352,6 +352,7 @@ SOH_C_ALL   = $(shell find $(CURDIR)/upstream/mm/src $(CURDIR)/upstream/mm/2s2h 
                         $(CURDIR)/upstream/libultraship/src \
                         -name '*.c' 2>/dev/null | grep -vE '$(SOH_EXCLUDE_RE)' | sort)
 
+SOH_ARMED ?= 1
 ifeq ($(SOH_ARMED),1)
 OOPS_CXX_STD        = c++20
 OOPS_CXX_SRCS = $(SOH_CXX_ALL) $(SOH_ZAPD_ALL) $(CURDIR)/shim/zapd_stubs.cpp

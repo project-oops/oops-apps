@@ -51,6 +51,8 @@ prebuilt/
 # that disagrees with `UPSTREAM_REF`.
 !src/oops-titles/ship-of-harkinian/prebuilt/
 !src/oops-titles/ship-of-harkinian/prebuilt/soh.o2r
+!src/oops-titles/2-ship-2-harkinian/prebuilt/
+!src/oops-titles/2-ship-2-harkinian/prebuilt/2ship.o2r
 
 # Host-side build output. Same reason as `build/`, a newer directory name that the
 # rule above did not cover - 451 files of object code were sitting untracked behind it.

@@ -379,6 +379,7 @@ SOH_C_ALL   = $(shell find $(CURDIR)/upstream/soh/src $(CURDIR)/upstream/soh/soh
                         -name '*.c' 2>/dev/null | grep -vE '$(SOH_EXCLUDE_RE)' | sort) \
               $(CURDIR)/upstream/soh/src/libultra/libc/sprintf.c
 
+SOH_ARMED ?= 1
 ifeq ($(SOH_ARMED),1)
 OOPS_CXX_STD        = c++20
 # `shim/Extract.cpp` is gone: upstream's own `soh/Extractor/Extract.cpp` is compiled
