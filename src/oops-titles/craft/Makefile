@@ -2,7 +2,7 @@
 #
 #   make check               compile every shader Craft ships, then run the census
 #   make elf                 build the payload
-#   make title stage-data    package the title with its textures and shaders
+#   make package             package the title with its textures and shaders
 
 OOPS_APPS_ROOT ?= $(abspath ../../..)
 
@@ -21,7 +21,6 @@ OOPS_RENDERER = mesa
 # guarded, so `common/app.mk`'s own include of it costs nothing.
 include $(OOPS_APPS_ROOT)/common/upstream.mk
 
-FORMATS = elf
 
 # No `common/posix.mk` here. That layer stands in for a libc a freestanding payload has
 # not got; `OOPS_RENDERER = mesa` is a hosted build with oops-mesa's sysroot, which has
@@ -128,29 +127,26 @@ imports: $(BUILD)/$(APP_NAME).elf
 	  bash $(OOPS_MESA)/tools/generate-imports.sh $< $(SYMBOLS_FILE)
 
 # ---------------------------------------------------------------------------
-# `make stage-data`: the assets, into the packaged title
+# `make package`: the assets, into the packaged title
 #
-#   make title stage-data
+#   make package
 #
 # Craft does not start without these: `main` loads four textures and four shader pairs
-# before drawing, and `load_png_texture` calls `exit(1)` when one is missing. A separate
-# target because `title` belongs to `common/app.mk` and has no post-staging hook.
+# before drawing, and `load_png_texture` calls `exit(1)` when one is missing.
 # ---------------------------------------------------------------------------
 CRAFT_TITLE_DIR = $(BUILD)/title/$(TITLE_ID)
 
-.PHONY: stage-data
-stage-data:
-	@test -d $(CRAFT_TITLE_DIR) || { \
-	    echo "stage-data: no packaged title at $(CRAFT_TITLE_DIR) - run 'make title' first"; \
-	    exit 1; \
-	}
+.PHONY: package stage-data
+package: title
 	@mkdir -p $(CRAFT_TITLE_DIR)/textures $(CRAFT_TITLE_DIR)/shaders
 	@cp upstream/textures/*.png $(CRAFT_TITLE_DIR)/textures/
 	@cp upstream/shaders/*.glsl $(CRAFT_TITLE_DIR)/shaders/
 	@t=$$(ls $(CRAFT_TITLE_DIR)/textures | wc -l); s=$$(ls $(CRAFT_TITLE_DIR)/shaders | wc -l); \
-	 printf 'stage-data: %s textures, %s shaders -> %s\n' "$$t" "$$s" "$(CRAFT_TITLE_DIR)"; \
-	 test "$$t" -eq 4 || { echo "stage-data: expected 4 textures"; exit 1; }; \
-	 test "$$s" -eq 8 || { echo "stage-data: expected 8 shaders"; exit 1; }
+	 printf 'craft: %s textures, %s shaders -> %s\n' "$$t" "$$s" "$(CRAFT_TITLE_DIR)"; \
+	 test "$$t" -eq 4 || { echo "craft: expected 4 textures"; exit 1; }; \
+	 test "$$s" -eq 8 || { echo "craft: expected 8 shaders"; exit 1; }
+
+stage-data: package
 
 # ---------------------------------------------------------------------------
 # `make census`: which of this title's sources compile for the target
