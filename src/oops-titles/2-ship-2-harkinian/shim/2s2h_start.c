@@ -92,13 +92,15 @@ struct two_ship_unpack_ctx {
     uint64_t last_flip_ms;
 };
 
-static void two_ship_unpack_draw_centered(oops_surface_t *surf, int y, const char *text,
-                                          oops_color_t color, int scale) {
+static void two_ship_unpack_draw_centered(oops_surface_t *surf, int y,
+                                          const char *text, oops_color_t color,
+                                          int scale) {
     int w = oops_draw_text_width(text, scale);
     (void)oops_draw_text(surf, ((int)surf->width - w) / 2, y, text, color, scale);
 }
 
-static void two_ship_unpack_progress(uint32_t current, uint32_t total, void *userdata) {
+static void two_ship_unpack_progress(uint32_t current, uint32_t total,
+                                     void *userdata) {
     struct two_ship_unpack_ctx *ctx = (struct two_ship_unpack_ctx *)userdata;
     uint64_t now;
     oops_surface_t surf;
@@ -146,7 +148,8 @@ static void two_ship_unpack_progress(uint32_t current, uint32_t total, void *use
                         "Unpacking assets: %u / %u (%u%%)", (unsigned)current,
                         (unsigned)total, pct);
     two_ship_unpack_draw_centered(&surf, 590, count_str, 0xFF8A94A3u, 2);
-    two_ship_unpack_draw_centered(&surf, 650, "This happens once on first launch",
+    two_ship_unpack_draw_centered(&surf, 650,
+                                  "This happens once on first launch",
                                   0xFF5A6473u, 2);
 
     (void)oops_display_flip(ctx->disp);
@@ -161,8 +164,8 @@ static void two_ship_unpack_progress(uint32_t current, uint32_t total, void *use
  * restore` costs per file rather than per byte and the console has no use for thousands
  * of files it reads once - see the `make package` section of the Makefile.
  *
- * An on-screen progress bar is displayed during extraction so the user receives
- * continuous visual feedback rather than an unresponsive black screen.
+ * An on-screen progress bar is displayed during extraction so the user receives continuous
+ * visual feedback rather than an unresponsive black screen.
  */
 static void two_ship_ensure_assets(void) {
     char marker[256];

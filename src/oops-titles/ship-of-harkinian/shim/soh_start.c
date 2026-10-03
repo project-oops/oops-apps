@@ -132,8 +132,8 @@ static void soh_unpack_progress(uint32_t current, uint32_t total, void *userdata
 
     oops_draw_clear(&surf, 0xFF0E1116u);
     soh_unpack_draw_centered(&surf, 380, ctx->title, 0xFFE8ECF1u, 4);
-    soh_unpack_draw_centered(&surf, 450, "Preparing asset definitions...", 0xFF8A94A3u,
-                             3);
+    soh_unpack_draw_centered(&surf, 450, "Preparing asset definitions...",
+                             0xFF8A94A3u, 3);
 
     oops_draw_rect(&surf, bar_x - 2, bar_y - 2, bar_w + 4, bar_h + 4, 0xFF2E3440u);
     oops_draw_rect(&surf, bar_x, bar_y, bar_w, bar_h, 0xFF14181Fu);
@@ -167,8 +167,8 @@ static void soh_unpack_progress(uint32_t current, uint32_t total, void *userdata
  * console has no use for 7,700 files it reads once - see the `make package` section of
  * the Makefile.
  *
- * An on-screen progress bar is displayed during extraction so the user receives
- * continuous visual feedback rather than an unresponsive black screen.
+ * An on-screen progress bar is displayed during extraction so the user receives continuous
+ * visual feedback rather than an unresponsive black screen.
  *
  * The marker is a stamp written *after* the extract returns, not the destination
  * directory. Using `assets/xml` for it was wrong in the way that matters: a run that
@@ -189,8 +189,8 @@ static void soh_ensure_assets(void) {
     uint64_t started;
     int rc;
 
-    if (oops_snprintf(marker, sizeof(marker), "%s/assets/.unpacked", OOPS_POSIX_HOME) <=
-            0 ||
+    if (oops_snprintf(marker, sizeof(marker), "%s/assets/.unpacked",
+                      OOPS_POSIX_HOME) <= 0 ||
         oops_snprintf(archive, sizeof(archive), "%s/assets.zip", OOPS_POSIX_HOME) <=
             0) {
         return;
@@ -233,8 +233,7 @@ static void soh_ensure_assets(void) {
      * thing that makes the next run skip this, so it is written last and never earlier.
      */
     {
-        int fd =
-            oops_fs_open(marker, OOPS_O_WRONLY | OOPS_O_CREAT | OOPS_O_TRUNC, 0644);
+        int fd = oops_fs_open(marker, OOPS_O_WRONLY | OOPS_O_CREAT | OOPS_O_TRUNC, 0644);
         if (fd < 0) {
             oops_log_warn("SOH",
                           "unpacked, but could not write %s - the next launch will "
