@@ -20,6 +20,7 @@ Extreme Tux Racer uses C++ as a better C, with no `throw` and no `dynamic_cast`,
   SDL2, SDL2_image, SDL2_mixer, freetype, libpng and zlib are pinned beside it. `make package`
   builds the runnable title: the payload plus ETR's content, which goes inside the package
   because upstream reads it from `argv[0]`'s directory.
+- **First boot** - on initial launch, the title unpacks assets and exits; subsequent launches load directly and run normally.
 
 GPL v2; the upstream data is not committed here (fetched via `upstream.lock`).
 

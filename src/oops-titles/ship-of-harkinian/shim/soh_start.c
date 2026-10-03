@@ -7,6 +7,8 @@
  * report and keeps argc > 0 for its option parsing; the ROM and archives are found by
  * path, not from argv.
  */
+#include "oops/display.h"
+#include "oops/draw.h"
 #include "oops/freestd.h"
 #include "oops/fs.h"
 #include "oops/syscall.h"
@@ -71,12 +73,9 @@ static int soh_have_rom(void) {
     }
     while (!found && (entry = readdir(dir)) != NULL) {
         const char *name = entry->d_name;
-        size_t len = 0;
+        size_t len = obs_strlen(name);
         size_t s;
 
-        while (name[len]) {
-            len++;
-        }
         for (s = 0; s < sizeof(suffixes) / sizeof(suffixes[0]); s++) {
             const char *suf = suffixes[s];
             if (len >= 4u && name[len - 4] == suf[0] && name[len - 3] == suf[1] &&
@@ -92,6 +91,73 @@ static int soh_have_rom(void) {
     return found;
 }
 
+struct soh_unpack_ctx {
+    oops_display_t *disp;
+    const char *title;
+    uint64_t last_flip_ms;
+};
+
+static void soh_unpack_draw_centered(oops_surface_t *surf, int y, const char *text,
+                                     oops_color_t color, int scale) {
+    int w = oops_draw_text_width(text, scale);
+    (void)oops_draw_text(surf, ((int)surf->width - w) / 2, y, text, color, scale);
+}
+
+static void soh_unpack_progress(uint32_t current, uint32_t total, void *userdata) {
+    struct soh_unpack_ctx *ctx = (struct soh_unpack_ctx *)userdata;
+    uint64_t now;
+    oops_surface_t surf;
+    const int bar_x = 560;
+    const int bar_y = 530;
+    const int bar_w = 800;
+    const int bar_h = 24;
+    int filled_w;
+    unsigned int pct;
+    char count_str[64];
+
+    if (!ctx || !ctx->disp) {
+        return;
+    }
+
+    now = oops_time_get_ms();
+    if (current != 0 && current != total && (now - ctx->last_flip_ms) < 33) {
+        return;
+    }
+    ctx->last_flip_ms = now;
+
+    surf = oops_display_get_surface(ctx->disp);
+    if (!surf.pixels) {
+        return;
+    }
+
+    oops_draw_clear(&surf, 0xFF0E1116u);
+    soh_unpack_draw_centered(&surf, 380, ctx->title, 0xFFE8ECF1u, 4);
+    soh_unpack_draw_centered(&surf, 450, "Preparing asset definitions...", 0xFF8A94A3u,
+                             3);
+
+    oops_draw_rect(&surf, bar_x - 2, bar_y - 2, bar_w + 4, bar_h + 4, 0xFF2E3440u);
+    oops_draw_rect(&surf, bar_x, bar_y, bar_w, bar_h, 0xFF14181Fu);
+
+    filled_w = (total > 0) ? (int)((uint64_t)current * (uint64_t)bar_w / total) : 0;
+    if (filled_w > bar_w) {
+        filled_w = bar_w;
+    }
+    if (filled_w > 0) {
+        oops_draw_rect(&surf, bar_x, bar_y, filled_w, bar_h, 0xFFFFD23Cu);
+    }
+
+    pct = (total > 0) ? (unsigned int)((uint64_t)current * 100u / total) : 0;
+    (void)oops_snprintf(count_str, sizeof(count_str),
+                        "Unpacking assets: %u / %u (%u%%)", (unsigned)current,
+                        (unsigned)total, pct);
+    soh_unpack_draw_centered(&surf, 590, count_str, 0xFF8A94A3u, 2);
+    soh_unpack_draw_centered(&surf, 650, "This happens once on first launch",
+                             0xFF5A6473u, 2);
+
+    (void)oops_display_flip(ctx->disp);
+    (void)oops_system_pump_events();
+}
+
 /*
  * Put the asset definitions on disk, once, before anything looks for them.
  *
@@ -100,6 +166,9 @@ static int soh_have_rom(void) {
  * as `assets.zip` because `pros restore` costs per file rather than per byte and the
  * console has no use for 7,700 files it reads once - see the `make package` section of
  * the Makefile.
+ *
+ * An on-screen progress bar is displayed during extraction so the user receives
+ * continuous visual feedback rather than an unresponsive black screen.
  *
  * The marker is a stamp written *after* the extract returns, not the destination
  * directory. Using `assets/xml` for it was wrong in the way that matters: a run that
@@ -116,6 +185,7 @@ static int soh_have_rom(void) {
 static void soh_ensure_assets(void) {
     char marker[256];
     char archive[256];
+    struct soh_unpack_ctx ctx = {0};
     uint64_t started;
     int rc;
 
@@ -136,9 +206,22 @@ static void soh_ensure_assets(void) {
         return;
     }
 
-    oops_log_info("SOH", "unpacking the asset definitions - this happens once");
+    if (!oops_display_any_open()) {
+        ctx.disp = oops_display_open(OOPS_DISPLAY_BACKEND_AUTO, 1920, 1080);
+    }
+    ctx.title = "Ship of Harkinian";
+    ctx.last_flip_ms = 0;
+
+    oops_log_info("SOH", "unpacking asset definitions - this happens once");
     started = oops_time_get_ms();
-    rc = oops_zip_extract(archive, OOPS_POSIX_HOME);
+    rc = oops_zip_extract_filter_progress(archive, OOPS_POSIX_HOME, NULL,
+                                          soh_unpack_progress, &ctx);
+
+    if (ctx.disp != NULL) {
+        oops_display_close(ctx.disp);
+        ctx.disp = NULL;
+    }
+
     if (rc != OOPS_ZIP_OK) {
         oops_log_error("SOH",
                        "could not unpack %s (%d); a ROM cannot be converted "
