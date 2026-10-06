@@ -1,4 +1,4 @@
-# Arguments for the CTS run, one per line. Staged to /app0 by `make stage-args`.
+# Arguments for the CTS run, one per line, read from /app0/cts-args.txt.
 #
 # The case subset is chosen here at run time: editing this file and restoring it changes what
 # executes without rebuilding. `shim/gl_cts_entry.c` reads it before anything touches /data,

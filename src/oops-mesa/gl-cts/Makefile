@@ -43,12 +43,13 @@ CTS_CXX_ALL := $(wildcard $(UP)/delibs/decpp/*.cpp) \
                $(wildcard $(UP)/opengl/simplereference/*.cpp) \
                $(wildcard $(UP)/referencerenderer/*.cpp) \
                $(wildcard $(UP)/randomshaders/*.cpp) \
-               $(wildcard $(UP)/xexml/*.cpp) \
-               $(UP)/platform/tcuMain.cpp
+               $(wildcard $(UP)/xexml/*.cpp)
 
 # Left out of the framework:
-#   standalone_test.c, rsgTest.cpp - self-test programs with their own `main()`; `tcuMain.cpp`
-#     is the entry point. `randomshaders/` is built because `modules/glshared` includes it.
+#   standalone_test.c, rsgTest.cpp - self-test programs with their own `main()`.
+#     `randomshaders/` is built because `modules/glshared` includes it.
+#   platform/tcuMain.cpp - replaced by `shim/gl_cts_main.cpp`, the same loop plus a status
+#     file written through `oops_fs`, since the `.qpa` goes through libc `open`.
 #   tcuImageIO.cpp - needs libpng, which is not ported; tests wanting a reference image miss it.
 #   deSocket.c, deSocket.cpp - need `<netinet6/in6.h>`, absent from the sysroot; the C++ file
 #     wraps the C one.
@@ -115,9 +116,9 @@ CTS_DEFINES := -D_XOPEN_SOURCE=600 -DDEQP_TARGET_NAME=\"OOPS\"
 # `<stdlib.h>`; force-including it leaves `<stdlib.h>` unshadowed.
 CTS_C_EXTRA := -include malloc_np.h
 
-# The platform layer, and the GL lookup over Mesa's own dispatch.
-CTS_SHIM_CXX := shim/tcuOopsPlatform.cpp shim/gl_loader.cpp shim/gl_cts_gaps.cpp \
-                shim/gl_cts_registry.cpp shim/gl_cts_spirv_stub.cpp
+# The run loop, the platform layer, and the GL lookup over Mesa's own dispatch.
+CTS_SHIM_CXX := shim/gl_cts_main.cpp shim/tcuOopsPlatform.cpp shim/gl_loader.cpp \
+                shim/gl_cts_gaps.cpp shim/gl_cts_registry.cpp shim/gl_cts_spirv_stub.cpp
 
 # Upstream's C builds into an archive under `-w`, so the repository's `-Werror -Wconversion`
 # set still holds for `shim/`. `common/cxx.mk` already compiles C++ with `-w`.
@@ -142,7 +143,8 @@ OOPS_CXX_EXCEPTIONS = 1
 OOPS_CXX_STD = c++17
 OOPS_CXX_SRCS       = $(CTS_CXX_SRCS) $(CTS_SHIM_CXX)
 
-OOPS_FEATURES := display thread
+# `net` because `common/posix/hosted.c`'s resolver calls oops-sdk's DNS and address helpers.
+OOPS_FEATURES := display thread net
 
 PAYLOAD_SRCS        = shim/gl_cts_entry.c \
                       $(OOPS_POSIX_HOSTED_SRCS)
@@ -182,7 +184,10 @@ EXTRA_TARGET_LDFLAGS := $(filter-out -loopsmesa_cxx,$(EXTRA_TARGET_LDFLAGS))
 
 # Upstream's flags: `-w`, and the sysroot the hosted build uses. `$(OOPS_MESA_INCLUDE)` carries
 # `--sysroot=`, which is what makes this a hosted compile rather than a freestanding one.
+# `-ftls-model=initial-exec` as every other compile here: `deThreadTest.c`'s thread-local
+# otherwise compiles to the dynamic model, which the platform loader cannot serve.
 OOPS_CTS_CFLAGS = -target x86_64-unknown-freebsd -fPIC -fno-stack-protector -O2 -w -std=c11 \
+                  -ftls-model=initial-exec \
                   $(OOPS_MESA_INCLUDE) $(OOPS_SDK_INCLUDE) \
                   $(CTS_INCLUDES) $(CTS_DEFINES) $(CTS_C_EXTRA)
 

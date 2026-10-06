@@ -12,6 +12,11 @@ this project expected, and the worth of a CTS result is that the tests are someb
 - **No patches.** If upstream needs changing to run here, that is a finding about the port.
 - **The subset is chosen at run time**, through `--deqp-case`, never by compiling a reduced
   binary: a suite pruned at compile time is a curated one.
+- **Results come from `/app0/cts-status.txt`**, which `shim/gl_cts_main.cpp` writes through
+  `oops_fs`: `state=starting`, then `running` with the counts so far, then `done` (or `error`
+  with a `detail=` line) with the final executed, passed, failed and not-supported counts. The
+  `.qpa` goes through libc `open`, which can report success and store nothing, so it is not the
+  record.
 
 `build/gl-cts.elf` carries the dEQP framework, the test sources under
 `external/openglcts/modules`, dEQP's `modules/glshared` and `framework/randomshaders`, the

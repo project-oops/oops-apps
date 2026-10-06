@@ -17,10 +17,7 @@
 #include "oops/system.h"
 #include "oops/time.h"
 
-/*
- * Under `-ffreestanding` upstream's `main` is mangled (`_Z4mainiPPc`), so
- * `shim/tcuOopsPlatform.cpp` exports this C wrapper for it.
- */
+/* `shim/gl_cts_main.cpp`: upstream's `tcuMain.cpp` loop, plus `/app0/cts-status.txt`. */
 int oops_cts_run_main(int argc, char **argv);
 
 void gl_cts_start(void);

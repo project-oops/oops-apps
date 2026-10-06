@@ -137,19 +137,8 @@ class Platform : public tcu::Platform {
 
 /*
  * dEQP's entry point into the platform, declared by `tcuMain.cpp` and by every platform
- * directory upstream ships.
+ * directory upstream ships; `shim/gl_cts_main.cpp` calls it.
  */
 tcu::Platform *createPlatform(void) {
     return new oops::Platform();
-}
-
-/*
- * A C-callable way into `tcuMain.cpp`'s `main`. Under `-ffreestanding`
- * (`common/cxx.mk`) `main` is an ordinary C++ function mangled as `_Z4mainiPPc`, which
- * `shim/gl_cts_entry.c` cannot name; compiled as C++, this wrapper can.
- */
-int main(int argc, char **argv); /* upstream's, in tcuMain.cpp */
-
-extern "C" int oops_cts_run_main(int argc, char **argv) {
-    return main(argc, argv);
 }
