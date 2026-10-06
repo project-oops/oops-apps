@@ -43,10 +43,18 @@ $(OOPS_CURL_LIB): $(OOPS_CURL_SRCS) $(OOPS_CURL_DIR)/include/curl_config.h \
                   $(OOPS_CURL_DIR)/oops-curl.mk
 	@mkdir -p $(OOPS_CURL_BUILD)
 	@rm -f $@
-	@n=0; objs=""; for s in $(OOPS_CURL_SRCS); do n=$$((n+1)); o=$(OOPS_CURL_BUILD)/cu$$n.o; \
-	   $(TARGET_CC) $(OOPS_CURL_CFLAGS) -c -o "$$o" "$$s" || exit 1; objs="$$objs $$o"; done; \
+	@# The source list is read from a file: expanded inline it passes Windows' command-line
+	@# limit and the shell gets a script cut off mid-`for` (`src/oops-deps/sdl2/oops-sdl.mk`
+	@# says more). CRs are stripped because `read` keeps them.
+	@:$(call oops_rsp,$(OOPS_CURL_BUILD)/sources.list,$(OOPS_CURL_SRCS))
+	@tr -d '\r' < $(OOPS_CURL_BUILD)/sources.list > $(OOPS_CURL_BUILD)/sources.txt; \
+	 : > $(OOPS_CURL_BUILD)/objects.list; \
+	 n=0; while IFS= read -r s; do [ -n "$$s" ] || continue; n=$$((n+1)); o=$(OOPS_CURL_BUILD)/cu$$n.o; \
+	   $(TARGET_CC) $(OOPS_CURL_CFLAGS) -c -o "$$o" "$$s" || exit 1; \
+	   echo "$$o" >> $(OOPS_CURL_BUILD)/objects.list; \
+	 done < $(OOPS_CURL_BUILD)/sources.txt; \
 	 echo "curl: compiled $$n sources"; \
-	 a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $$objs
+	 a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ @$(OOPS_CURL_BUILD)/objects.list
 	@echo "curl: $@"
 
 .PHONY: curl-clean

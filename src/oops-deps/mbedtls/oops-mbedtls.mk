@@ -39,10 +39,18 @@ $(OOPS_MBEDTLS_LIB): $(OOPS_MBEDTLS_SRCS) $(OOPS_MBEDTLS_DIR)/oops_config.h \
                      $(OOPS_MBEDTLS_DIR)/oops-mbedtls.mk
 	@mkdir -p $(OOPS_MBEDTLS_BUILD)
 	@rm -f $@
-	@n=0; objs=""; for s in $(OOPS_MBEDTLS_SRCS); do n=$$((n+1)); o=$(OOPS_MBEDTLS_BUILD)/mt$$n.o; \
-	   $(TARGET_CC) $(OOPS_MBEDTLS_CFLAGS) -c -o "$$o" "$$s" || exit 1; objs="$$objs $$o"; done; \
+	@# The source list is read from a file: expanded inline it passes Windows' command-line
+	@# limit and the shell gets a script cut off mid-`for` (`src/oops-deps/sdl2/oops-sdl.mk`
+	@# says more). CRs are stripped because `read` keeps them.
+	@:$(call oops_rsp,$(OOPS_MBEDTLS_BUILD)/sources.list,$(OOPS_MBEDTLS_SRCS))
+	@tr -d '\r' < $(OOPS_MBEDTLS_BUILD)/sources.list > $(OOPS_MBEDTLS_BUILD)/sources.txt; \
+	 : > $(OOPS_MBEDTLS_BUILD)/objects.list; \
+	 n=0; while IFS= read -r s; do [ -n "$$s" ] || continue; n=$$((n+1)); o=$(OOPS_MBEDTLS_BUILD)/mt$$n.o; \
+	   $(TARGET_CC) $(OOPS_MBEDTLS_CFLAGS) -c -o "$$o" "$$s" || exit 1; \
+	   echo "$$o" >> $(OOPS_MBEDTLS_BUILD)/objects.list; \
+	 done < $(OOPS_MBEDTLS_BUILD)/sources.txt; \
 	 echo "mbedtls: compiled $$n sources"; \
-	 a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ $$objs
+	 a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ @$(OOPS_MBEDTLS_BUILD)/objects.list
 	@echo "mbedtls: $@"
 
 .PHONY: mbedtls-clean
