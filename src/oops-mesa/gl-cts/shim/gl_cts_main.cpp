@@ -57,12 +57,8 @@ const uint64_t kProgressIntervalMs = 1000;
 
 uint64_t s_startMs;
 
-void writeStatus(const char *state, const tcu::TestRunStatus *status,
-                 const char *detail) {
+void writeStatus(const char *state, const tcu::TestRunStatus &s, const char *detail) {
     char buf[512];
-    const tcu::TestRunStatus none;
-    const tcu::TestRunStatus &s = status != nullptr ? *status : none;
-
     int len = snprintf(
         buf, sizeof buf,
         "state=%s\nexecuted=%d\npassed=%d\nfailed=%d\nnot_supported=%d\n"
@@ -95,7 +91,7 @@ extern "C" int oops_cts_run_main(int argc, char **argv) {
     int exitStatus = EXIT_SUCCESS;
 
     s_startMs = oops_time_get_ms();
-    writeStatus("starting", nullptr, nullptr);
+    writeStatus("starting", tcu::TestRunStatus(), nullptr);
 
     setvbuf(stdout, nullptr, _IOLBF, 4 * 1024);
 
@@ -121,7 +117,7 @@ extern "C" int oops_cts_run_main(int argc, char **argv) {
                 if (cmdLine.getRunMode() == tcu::RUNMODE_EXECUTE &&
                     (!result.isComplete || result.numFailed))
                     exitStatus = EXIT_FAILURE;
-                writeStatus("done", &result, nullptr);
+                writeStatus("done", result, nullptr);
                 oops_log("gl-cts: %d executed, %d passed, %d failed, %d not supported, "
                          "%d warnings, %d waived%s",
                          result.numExecuted, result.numPassed, result.numFailed,
@@ -130,16 +126,17 @@ extern "C" int oops_cts_run_main(int argc, char **argv) {
                 break;
             }
 
+            if (result.numExecuted == lastExecuted)
+                continue;
             const uint64_t now = oops_time_get_ms();
-            if (result.numExecuted != lastExecuted &&
-                now - lastWriteMs >= kProgressIntervalMs) {
-                writeStatus("running", &result, nullptr);
+            if (now - lastWriteMs >= kProgressIntervalMs) {
+                writeStatus("running", result, nullptr);
                 lastExecuted = result.numExecuted;
                 lastWriteMs = now;
             }
         }
     } catch (const std::exception &e) {
-        writeStatus("error", nullptr, e.what());
+        writeStatus("error", tcu::TestRunStatus(), e.what());
         tcu::die("%s", e.what());
     }
 

@@ -1247,8 +1247,6 @@ porthole_status porthole_run(void) {
                         if (porthole_ctl_decode(input_buf, &ctl) == PORTHOLE_OK) {
                             (void)porthole_ctl_apply(&ctl);
                         } else {
-                            /* A bad version, dirty reserved bytes, an unknown op or a codec
-                             * other than H.264: the host asked for something not served. */
                             klog_write("porthole: PCTL record rejected (version/reserved/op/codec)");
                         }
                     }

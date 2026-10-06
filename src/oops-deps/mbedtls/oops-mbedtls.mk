@@ -20,6 +20,7 @@ OOPS_MBEDTLS_MK := 1
 ifndef OOPS_MBEDTLS_DIR
 OOPS_MBEDTLS_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
+include $(OOPS_MBEDTLS_DIR)/../../../common/deps.mk
 include $(OOPS_MBEDTLS_DIR)/../../../common/dep-sys.mk
 OOPS_MBEDTLS_UPSTREAM ?= $(OOPS_MBEDTLS_DIR)/upstream
 OOPS_MBEDTLS_BUILD ?= $(OOPS_MBEDTLS_DIR)/build$(OOPS_DEP_BUILD_SUFFIX)
@@ -34,24 +35,20 @@ OOPS_MBEDTLS_CFLAGS = -target x86_64-unknown-freebsd -nostdlib -fPIC -O2 -w \
                       -I$(OOPS_MBEDTLS_UPSTREAM)/library $(OOPS_MBEDTLS_INCLUDE) \
                       $(OOPS_DEP_SYS)
 
-# The objects are numbered by position and `ar` is handed the list (see `common/deps.mk`).
-$(OOPS_MBEDTLS_LIB): $(OOPS_MBEDTLS_SRCS) $(OOPS_MBEDTLS_DIR)/oops_config.h \
-                     $(OOPS_MBEDTLS_DIR)/oops-mbedtls.mk
-	@mkdir -p $(OOPS_MBEDTLS_BUILD)
+# One rule per object (`common/deps.mk`), so `make -j` compiles them in parallel and a change
+# to `oops_config.h` rebuilds through the depfiles; `ar` reads the list from a file, which a
+# long list of absolute paths needs on Windows.
+OOPS_MBEDTLS_OBJS := $(call oops_objs,$(OOPS_MBEDTLS_BUILD)/obj,$(OOPS_MBEDTLS_SRCS))
+$(call oops_ar_check,$(OOPS_MBEDTLS_OBJS))
+-include $(OOPS_MBEDTLS_OBJS:.o=.d)
+$(call oops_obj_rules,$(OOPS_MBEDTLS_BUILD)/obj,TARGET_CC,OOPS_MBEDTLS_CFLAGS,$(OOPS_MBEDTLS_SRCS))
+
+$(OOPS_MBEDTLS_LIB): $(OOPS_MBEDTLS_OBJS)
 	@rm -f $@
-	@# The source list is read from a file: expanded inline it passes Windows' command-line
-	@# limit and the shell gets a script cut off mid-`for` (`src/oops-deps/sdl2/oops-sdl.mk`
-	@# says more). CRs are stripped because `read` keeps them.
-	@:$(call oops_rsp,$(OOPS_MBEDTLS_BUILD)/sources.list,$(OOPS_MBEDTLS_SRCS))
-	@tr -d '\r' < $(OOPS_MBEDTLS_BUILD)/sources.list > $(OOPS_MBEDTLS_BUILD)/sources.txt; \
-	 : > $(OOPS_MBEDTLS_BUILD)/objects.list; \
-	 n=0; while IFS= read -r s; do [ -n "$$s" ] || continue; n=$$((n+1)); o=$(OOPS_MBEDTLS_BUILD)/mt$$n.o; \
-	   $(TARGET_CC) $(OOPS_MBEDTLS_CFLAGS) -c -o "$$o" "$$s" || exit 1; \
-	   echo "$$o" >> $(OOPS_MBEDTLS_BUILD)/objects.list; \
-	 done < $(OOPS_MBEDTLS_BUILD)/sources.txt; \
-	 echo "mbedtls: compiled $$n sources"; \
-	 a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ @$(OOPS_MBEDTLS_BUILD)/objects.list
-	@echo "mbedtls: $@"
+	@:$(call oops_rsp,$@.rsp,$(OOPS_MBEDTLS_OBJS))
+	@a=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
+	 "$$a" rcs $@ @$@.rsp
+	@echo "mbedtls: $@ ($(words $(OOPS_MBEDTLS_OBJS)) objects)"
 
 .PHONY: mbedtls-clean
 mbedtls-clean:

@@ -1,23 +1,19 @@
 /*
- * The console entry point: builds the argument vector a shell would give upstream's
- * unmodified `tcuMain.cpp` and runs it.
+ * The console entry point: builds the argument vector a shell would give dEQP and runs
+ * the loop in `shim/gl_cts_main.cpp`.
  *
  * Arguments come from `/app0/cts-args.txt`, one per line, so the case subset is a
  * run-time choice, never compiled in. With no file it runs `KHR-GL30.info.*`.
  *
  * A big-app cannot exit; it logs a last line and idles.
  */
-#include <errno.h>
-#include <fcntl.h> /* the raw open/write arm of the write probe */
 #include <stddef.h>
 #include <stdio.h>
-#include <unistd.h> /* write, fsync, read, close - same */
 
-#include "oops/fs.h"
 #include "oops/system.h"
 #include "oops/time.h"
 
-/* `shim/gl_cts_main.cpp`: upstream's `tcuMain.cpp` loop, plus `/app0/cts-status.txt`. */
+/* `shim/gl_cts_main.cpp`: dEQP's run loop, plus `/app0/cts-status.txt`. */
 int oops_cts_run_main(int argc, char **argv);
 
 void gl_cts_start(void);

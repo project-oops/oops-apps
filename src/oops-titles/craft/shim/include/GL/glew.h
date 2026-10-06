@@ -25,11 +25,6 @@ int glewInit(void);
 /* GLEW's error string, for Craft's `glewInit` failure branch. */
 const char *glewGetErrorString(int error);
 
-/* `glUniform1f`, which also logs once what the block program's `fog_distance` received
- * and what GL reads back after it (`glfw_shim.c`). */
-void craft_glUniform1f(GLint location, GLfloat v0);
-#define glUniform1f craft_glUniform1f
-
 #ifdef __cplusplus
 }
 #endif

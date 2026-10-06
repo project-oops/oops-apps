@@ -20,6 +20,7 @@ OOPS_CURL_MK := 1
 ifndef OOPS_CURL_DIR
 OOPS_CURL_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 endif
+include $(OOPS_CURL_DIR)/../../../common/deps.mk
 include $(OOPS_CURL_DIR)/../../../common/dep-sys.mk
 OOPS_CURL_UPSTREAM ?= $(OOPS_CURL_DIR)/upstream
 OOPS_CURL_BUILD ?= $(OOPS_CURL_DIR)/build$(OOPS_DEP_BUILD_SUFFIX)
@@ -38,24 +39,20 @@ OOPS_CURL_CFLAGS = -target x86_64-unknown-freebsd -nostdlib -fPIC -O2 -w -std=gn
                    $(OOPS_CURL_INCLUDE) -I$(OOPS_CURL_UPSTREAM)/lib \
                    $(OOPS_MBEDTLS_INCLUDE) $(OOPS_ZLIB_INCLUDE) $(OOPS_CURL_SYS)
 
-# The objects are numbered by position and `ar` is handed the list (see `common/deps.mk`).
-$(OOPS_CURL_LIB): $(OOPS_CURL_SRCS) $(OOPS_CURL_DIR)/include/curl_config.h \
-                  $(OOPS_CURL_DIR)/oops-curl.mk
-	@mkdir -p $(OOPS_CURL_BUILD)
+# One rule per object (`common/deps.mk`), so `make -j` compiles them in parallel and a header
+# change rebuilds only its users; `ar` reads the list from a file, which a long list of
+# absolute paths needs on Windows.
+OOPS_CURL_OBJS := $(call oops_objs,$(OOPS_CURL_BUILD)/obj,$(OOPS_CURL_SRCS))
+$(call oops_ar_check,$(OOPS_CURL_OBJS))
+-include $(OOPS_CURL_OBJS:.o=.d)
+$(call oops_obj_rules,$(OOPS_CURL_BUILD)/obj,TARGET_CC,OOPS_CURL_CFLAGS,$(OOPS_CURL_SRCS))
+
+$(OOPS_CURL_LIB): $(OOPS_CURL_OBJS)
 	@rm -f $@
-	@# The source list is read from a file: expanded inline it passes Windows' command-line
-	@# limit and the shell gets a script cut off mid-`for` (`src/oops-deps/sdl2/oops-sdl.mk`
-	@# says more). CRs are stripped because `read` keeps them.
-	@:$(call oops_rsp,$(OOPS_CURL_BUILD)/sources.list,$(OOPS_CURL_SRCS))
-	@tr -d '\r' < $(OOPS_CURL_BUILD)/sources.list > $(OOPS_CURL_BUILD)/sources.txt; \
-	 : > $(OOPS_CURL_BUILD)/objects.list; \
-	 n=0; while IFS= read -r s; do [ -n "$$s" ] || continue; n=$$((n+1)); o=$(OOPS_CURL_BUILD)/cu$$n.o; \
-	   $(TARGET_CC) $(OOPS_CURL_CFLAGS) -c -o "$$o" "$$s" || exit 1; \
-	   echo "$$o" >> $(OOPS_CURL_BUILD)/objects.list; \
-	 done < $(OOPS_CURL_BUILD)/sources.txt; \
-	 echo "curl: compiled $$n sources"; \
-	 a=$$(command -v $(AR) 2>/dev/null || command -v ar); "$$a" rcs $@ @$(OOPS_CURL_BUILD)/objects.list
-	@echo "curl: $@"
+	@:$(call oops_rsp,$@.rsp,$(OOPS_CURL_OBJS))
+	@a=$$(command -v $(AR) 2>/dev/null || command -v llvm-ar 2>/dev/null || command -v ar); \
+	 "$$a" rcs $@ @$@.rsp
+	@echo "curl: $@ ($(words $(OOPS_CURL_OBJS)) objects)"
 
 .PHONY: curl-clean
 curl-clean:
