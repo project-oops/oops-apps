@@ -32,6 +32,35 @@ const char *glewGetErrorString(int error) {
     return "no error";
 }
 
+/* The first `glUniform1f` that lands on a program's `fog_distance` is logged with the
+ * value sent and the value `glGetUniformfv` reads back, as raw bits and in thousandths:
+ * the formatter has no `%f`. One line a run, then a single flag test a call. */
+#undef glUniform1f
+void craft_glUniform1f(GLint location, GLfloat v0) {
+    static int logged;
+    glUniform1f(location, v0);
+    if (logged) {
+        return;
+    }
+    GLint program = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &program);
+    if (program == 0 || location < 0 ||
+        location != glGetUniformLocation((GLuint)program, "fog_distance")) {
+        return;
+    }
+    GLfloat back = 0.0f;
+    glGetUniformfv((GLuint)program, location, &back);
+    unsigned int sent_bits, back_bits;
+    memcpy(&sent_bits, &v0, sizeof sent_bits);
+    memcpy(&back_bits, &back, sizeof back_bits);
+    oops_log_info("CRFT",
+                  "fog_distance: program %d location %d sent 0x%08x (%d/1000) read "
+                  "back 0x%08x (%d/1000)",
+                  (int)program, (int)location, sent_bits, (int)(v0 * 1000.0f),
+                  back_bits, (int)(back * 1000.0f));
+    logged = 1;
+}
+
 /* ---------------------------------------------------------------------------
  * The one window
  * ------------------------------------------------------------------------- */
